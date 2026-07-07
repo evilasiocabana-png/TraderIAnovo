@@ -27,6 +27,7 @@ MT5_DEMO_ROBOT_ONLINE_KEY = "mt5_demo_robot_online_enabled"
 MT5_DEMO_ROBOT_LAST_CYCLE_KEY = "mt5_demo_robot_last_cycle_at"
 MT5_FOREX_INITIAL_LOAD_ERROR_KEY = "mt5_forex_initial_load_error"
 MT5_FOREX_LAST_AUTO_LOAD_KEY = "mt5_forex_last_auto_load_at"
+MT5_FOREX_AUTO_CYCLE_UI_KEY = "mt5_forex_auto_cycle_enabled_ui"
 MT5_FOREX_MANUAL_DIAGNOSTIC_KEY = "mt5_forex_manual_diagnostic"
 MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY = "mt5_forex_manual_diagnostic_message"
 FOREX_SESSION_FILTER_UI_KEY = "forex_session_filter_enabled_ui"
@@ -229,7 +230,9 @@ def ensure_mt5_forex_initial_load(service: DashboardService) -> None:
 
 
 def _mt5_forex_auto_cycle_enabled() -> bool:
-    if os.getenv("TRADERIA_MT5_FOREX_AUTO_CYCLE_ENABLED", "0").strip() != "1":
+    env_enabled = os.getenv("TRADERIA_MT5_FOREX_AUTO_CYCLE_ENABLED", "0").strip() == "1"
+    ui_enabled = bool(st.session_state.get(MT5_FOREX_AUTO_CYCLE_UI_KEY, False))
+    if not (env_enabled or ui_enabled):
         return False
     return _mt5_forex_market_cycle_allowed_now()
 
@@ -859,6 +862,7 @@ def exibir_mt5_forex_dashboard(
     if forex is None:
         st.error("Contrato MT5 Forex indisponivel na fachada do dashboard.")
         return data
+    data, forex = _maybe_run_mt5_forex_auto_cycle(service, data, forex)
 
     st.subheader("MT5 Forex")
     st.warning(
@@ -1987,8 +1991,10 @@ def _exibir_mt5_manual_diagnostic_controls(
                     st.session_state[MT5_FOREX_MANUAL_DIAGNOSTIC_KEY] = diagnostic
                     _load_mt5_forex_signals_locked(service, timeframe=timeframe)
                     data = service.get_light_dashboard_view_model()
+                    st.session_state[MT5_FOREX_AUTO_CYCLE_UI_KEY] = True
+                    st.session_state[MT5_FOREX_LAST_AUTO_LOAD_KEY] = time.monotonic()
                 st.session_state[MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY] = (
-                    "Diagnostico MT5 atualizado."
+                    "Diagnostico MT5 atualizado. Ciclo automatico leve ligado."
                 )
             except Exception as exc:
                 st.session_state[MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY] = (
@@ -1998,6 +2004,10 @@ def _exibir_mt5_manual_diagnostic_controls(
         message = st.session_state.get(MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY)
         if message:
             colunas[1].caption(str(message))
+        if bool(st.session_state.get(MT5_FOREX_AUTO_CYCLE_UI_KEY, False)):
+            colunas[1].caption(
+                f"Ciclo automatico leve ativo a cada {MT5_FOREX_AUTO_REFRESH_SECONDS:.0f}s."
+            )
         diagnostic = st.session_state.get(MT5_FOREX_MANUAL_DIAGNOSTIC_KEY)
         if diagnostic is not None:
             _exibir_mt5_connection_diagnostic(diagnostic)
