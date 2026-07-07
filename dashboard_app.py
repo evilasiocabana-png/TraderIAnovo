@@ -3,14 +3,21 @@
 from dataclasses import replace
 from datetime import date, datetime
 import inspect
+import importlib
+import json
 import os
+from pathlib import Path
 import threading
 import time
 
 import streamlit as st
 
 from application.dashboard_service import DashboardService
-from application.dashboard_view_model import DASHBOARD_VIEW_MODEL_CONTRACT_VERSION
+from application.dashboard_view_model import (
+    DASHBOARD_VIEW_MODEL_CONTRACT_VERSION,
+    DashboardMT5ForexSignalRowViewModel,
+    DashboardMT5ForexSignalViewModel,
+)
 
 
 REPLAY_PENDING_ACTION_KEY = "replay_pending_action"
@@ -218,6 +225,224 @@ def ensure_mt5_forex_initial_load(service: DashboardService) -> None:
 
 def _mt5_forex_auto_cycle_enabled() -> bool:
     return os.getenv("TRADERIA_MT5_FOREX_AUTO_CYCLE_ENABLED", "0").strip() == "1"
+
+
+def _mt5_fast_snapshot_enabled() -> bool:
+    return os.getenv("TRADERIA_MT5_FAST_SNAPSHOT_ENABLED", "1").strip() == "1"
+
+
+def _apply_fast_mt5_snapshot_if_available(data: object) -> object:
+    """Preenche MT5 Forex com leitura direta rapida sem disparar pesquisa pesada."""
+    if not _mt5_fast_snapshot_enabled():
+        return data
+
+    current = getattr(data, "mt5_forex_signals", None)
+    if current is not None and getattr(current, "connection_status", "") == "ONLINE":
+        return data
+
+    snapshot = _build_fast_mt5_forex_snapshot()
+    if snapshot is None:
+        return data
+    try:
+        return replace(data, mt5_forex_signals=snapshot)
+    except TypeError:
+        return data
+
+
+def _build_fast_mt5_forex_snapshot() -> DashboardMT5ForexSignalViewModel | None:
+    file_snapshot = _build_fast_mt5_forex_snapshot_from_file()
+    if file_snapshot is not None:
+        return file_snapshot
+    if os.getenv("TRADERIA_MT5_FAST_DIRECT_ENABLED", "0").strip() != "1":
+        return None
+    try:
+        mt5 = importlib.import_module("MetaTrader5")
+    except Exception:
+        return None
+
+    try:
+        if not bool(mt5.initialize()):
+            return None
+    except Exception:
+        return None
+
+    account = _safe_mt5_asdict(getattr(mt5, "account_info", lambda: None)())
+    terminal = _safe_mt5_asdict(getattr(mt5, "terminal_info", lambda: None)())
+    positions = _fast_positions_by_symbol(mt5)
+    symbols = ("EURUSD", "GBPUSD", "USDCHF", "USDJPY", "AUDUSD", "NZDUSD", "USDCAD", "EURJPY")
+    rows: list[DashboardMT5ForexSignalRowViewModel] = []
+    now = datetime.utcnow().isoformat()
+
+    for symbol in symbols:
+        tick = _safe_mt5_asdict(getattr(mt5, "symbol_info_tick", lambda _s: None)(symbol))
+        position = positions.get(symbol)
+        bid = _safe_float(tick.get("bid"))
+        ask = _safe_float(tick.get("ask"))
+        price = _mid_price(bid, ask)
+        side = str(position.get("side", "WAIT")) if position else "WAIT"
+        rows.append(
+            DashboardMT5ForexSignalRowViewModel(
+                pair=symbol,
+                status="OK" if tick else "SEM_TICK",
+                last_price=price,
+                last_candle_time=now,
+                active_model="MT5_FAST_SNAPSHOT",
+                decision=side if side in {"BUY", "SELL"} else "WAIT",
+                confidence=1.0 if position else 0.0,
+                reason=(
+                    f"Posicao aberta no MT5: {side}"
+                    if position
+                    else "Leitura MT5 online; sem posicao aberta no par."
+                ),
+                timeframe="M1",
+                configured_candles=500,
+                requested_candles=500,
+                received_candles=1 if tick else 0,
+                last_update=now,
+                diagnostics_status="OK" if tick else "SEM_TICK",
+                research_plan_stop=position.get("stop") if position else None,
+                research_plan_target=position.get("target") if position else None,
+                research_plan_stop_management="MT5_POSITION" if position else "ATR_TRAILING_STOP",
+                research_plan_reason="Snapshot rapido para abertura do app GitHub.",
+            )
+        )
+
+    return DashboardMT5ForexSignalViewModel(
+        connection_status="ONLINE",
+        server=str(account.get("server") or terminal.get("name") or "N/D"),
+        account=str(account.get("login") or "N/D"),
+        account_type="DEMO" if int(account.get("trade_mode", 0) or 0) == 0 else "N/D",
+        timeframe="M1",
+        pairs=rows,
+        available_pairs=list(symbols),
+        unavailable_pairs=[row.pair for row in rows if row.status != "OK"],
+        message="MT5 online por snapshot rapido da copia GitHub.",
+        read_only_status="SOMENTE ANALISE DE MERCADO",
+        real_operation_authorized=False,
+        connection_health="ONLINE",
+        connection_health_icon="🟢",
+        last_update=now,
+        last_mt5_read=now,
+        last_candle_time=now,
+        refresh_id=1,
+        health_message="MT5 conectado em modo leitura.",
+        mt5_safe_mode=True,
+        safe_mode_status="ONLINE",
+        safe_mode_received_candles=sum(1 for row in rows if row.received_candles > 0),
+        safe_mode_last_price=next((row.last_price for row in rows if row.last_price), None),
+    )
+
+
+def _fast_positions_by_symbol(mt5: object) -> dict[str, dict[str, object]]:
+    positions_get = getattr(mt5, "positions_get", None)
+    if not callable(positions_get):
+        return {}
+    try:
+        raw_positions = positions_get() or []
+    except Exception:
+        return {}
+    positions: dict[str, dict[str, object]] = {}
+    for position in raw_positions:
+        data = _safe_mt5_asdict(position)
+        symbol = str(data.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        position_type = int(data.get("type", -1) or -1)
+        side = "BUY" if position_type == 0 else "SELL" if position_type == 1 else "WAIT"
+        positions[symbol] = {
+            "side": side,
+            "entry": _safe_float(data.get("price_open")),
+            "stop": _safe_float(data.get("sl")),
+            "target": _safe_float(data.get("tp")),
+            "profit": _safe_float(data.get("profit")) or 0.0,
+        }
+    return positions
+
+
+def _build_fast_mt5_forex_snapshot_from_file() -> DashboardMT5ForexSignalViewModel | None:
+    path = Path(os.getenv("TRADERIA_MT5_FAST_SNAPSHOT_PATH", ".traderia/fast_mt5_snapshot.json"))
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    rows = [
+        DashboardMT5ForexSignalRowViewModel(
+            pair=str(row.get("pair", "N/D")),
+            status=str(row.get("status", "N/D")),
+            last_price=_safe_float(row.get("last_price")),
+            last_candle_time=str(row.get("last_update", "N/D")),
+            active_model=str(row.get("active_model", "MT5_FAST_SNAPSHOT")),
+            decision=str(row.get("decision", "WAIT")),
+            confidence=float(row.get("confidence", 0.0) or 0.0),
+            reason=str(row.get("reason", "Snapshot MT5.")),
+            timeframe=str(row.get("timeframe", "M1")),
+            configured_candles=500,
+            requested_candles=500,
+            received_candles=int(row.get("received_candles", 0) or 0),
+            last_update=str(row.get("last_update", "N/D")),
+            diagnostics_status=str(row.get("diagnostics_status", "OK")),
+            research_plan_stop=_safe_float(row.get("stop")),
+            research_plan_target=_safe_float(row.get("target")),
+            research_plan_stop_management=str(row.get("stop_management", "ATR_TRAILING_STOP")),
+            research_plan_reason=str(row.get("reason", "Snapshot rapido MT5.")),
+        )
+        for row in list(payload.get("pairs", []) or [])
+        if isinstance(row, dict)
+    ]
+    if not rows:
+        return None
+    return DashboardMT5ForexSignalViewModel(
+        connection_status=str(payload.get("connection_status", "ONLINE")),
+        server=str(payload.get("server", "N/D")),
+        account=str(payload.get("account", "N/D")),
+        account_type=str(payload.get("account_type", "N/D")),
+        timeframe=str(payload.get("timeframe", "M1")),
+        pairs=rows,
+        available_pairs=[row.pair for row in rows],
+        unavailable_pairs=[row.pair for row in rows if row.status != "OK"],
+        message=str(payload.get("message", "MT5 online por snapshot rapido.")),
+        read_only_status="SOMENTE ANALISE DE MERCADO",
+        real_operation_authorized=False,
+        connection_health=str(payload.get("connection_status", "ONLINE")),
+        connection_health_icon="🟢" if payload.get("connection_status", "ONLINE") == "ONLINE" else "🔴",
+        last_update=str(payload.get("generated_at", "")),
+        last_mt5_read=str(payload.get("generated_at", "")),
+        last_candle_time=str(payload.get("generated_at", "")),
+        refresh_id=1,
+        health_message=str(payload.get("message", "MT5 conectado em modo leitura.")),
+        mt5_safe_mode=True,
+        safe_mode_status=str(payload.get("connection_status", "ONLINE")),
+        safe_mode_received_candles=sum(1 for row in rows if row.received_candles > 0),
+        safe_mode_last_price=next((row.last_price for row in rows if row.last_price), None),
+    )
+
+
+def _safe_mt5_asdict(value: object) -> dict[str, object]:
+    if value is None:
+        return {}
+    if hasattr(value, "_asdict"):
+        try:
+            return dict(value._asdict())
+        except Exception:
+            return {}
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
+
+
+def _safe_float(value: object) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _mid_price(bid: float | None, ask: float | None) -> float | None:
+    if bid is not None and ask is not None and ask > 0:
+        return (bid + ask) / 2.0
+    return bid or ask
 
 
 def _mt5_visual_signals_enabled() -> bool:
@@ -6825,10 +7050,14 @@ def main() -> None:
     app_title = os.getenv("TRADERIA_APP_TITLE", "TraderIA Local").strip()
     st.set_page_config(page_title=app_title or "TraderIA Local", layout="wide")
     _inject_dashboard_css()
+    if os.getenv("TRADERIA_FAST_BOOT_ENABLED", "1").strip() == "1":
+        _render_fast_boot_dashboard(app_title or "TraderIA Nuvem")
+        return
     service = get_dashboard_service()
     ensure_mt5_forex_initial_load(service)
     # Fallback completo preservado para auditoria: get_dashboard_view_model_or_stop(service)
     data = get_light_dashboard_view_model_or_stop(service)
+    data = _apply_fast_mt5_snapshot_if_available(data)
 
     st.title("TraderIA Research Workbench")
     initial_mt5_error = st.session_state.get(MT5_FOREX_INITIAL_LOAD_ERROR_KEY)
@@ -6836,6 +7065,115 @@ def main() -> None:
         st.caption(f"Erro MT5 na carga inicial: {initial_mt5_error}")
     render_contract_diagnostics(service)
     exibir_dashboard_layout(service, data)
+
+
+def _render_fast_boot_dashboard(app_title: str) -> None:
+    """Abre a copia GitHub rapido, com Forex/Lab/Relatorio operacionais."""
+    st.title(app_title)
+    st.caption(
+        "Modo rapido da copia GitHub. MT5 em leitura direta; Workbench completo "
+        "preservado no codigo e habilitavel com TRADERIA_FAST_BOOT_ENABLED=0."
+    )
+    snapshot = _build_fast_mt5_forex_snapshot()
+    if snapshot is None:
+        st.warning("MT5 nao conectado nesta leitura rapida.")
+        snapshot = DashboardMT5ForexSignalViewModel(
+            connection_status="OFFLINE",
+            message="MT5 nao conectado.",
+        )
+
+    forex_tab, lab_tab, report_tab = st.tabs(["Forex MT5", "Lab", "Relatorio"])
+    positioned_rows = [
+        row
+        for row in list(getattr(snapshot, "pairs", []) or [])
+        if getattr(row, "decision", "WAIT") in {"BUY", "SELL"}
+    ]
+
+    with forex_tab:
+        st.subheader("MT5 Forex")
+        cols = st.columns(5)
+        cols[0].metric("Status MT5", snapshot.connection_status)
+        cols[1].metric("Servidor", snapshot.server)
+        cols[2].metric("Conta", snapshot.account)
+        cols[3].metric("Pares", len(snapshot.pairs))
+        cols[4].metric("Posicoes", len(positioned_rows))
+        if snapshot.connection_status == "ONLINE":
+            st.success(snapshot.message)
+        else:
+            st.warning(snapshot.message)
+        st.dataframe(
+            [_fast_forex_display_row(row) for row in snapshot.pairs],
+            hide_index=True,
+            width="stretch",
+        )
+
+    with lab_tab:
+        st.subheader("Lab")
+        st.caption("Parametros operacionais usados pelo ciclo rapido.")
+        cols = st.columns(5)
+        cols[0].metric("Setup", "TREND_MOMENTUM")
+        cols[1].metric("Timeframe", snapshot.timeframe)
+        cols[2].metric("Entrada", "Zona + posicao")
+        cols[3].metric("Velas", "500")
+        cols[4].metric("Saida", "Lab/MT5")
+        st.dataframe(
+            [
+                {
+                    "Par": row.pair,
+                    "TF decisor": row.timeframe,
+                    "Setup": row.active_model,
+                    "Entrada": row.decision,
+                    "Saida": row.research_plan_stop_management,
+                    "Motivo": row.reason,
+                }
+                for row in snapshot.pairs
+            ],
+            hide_index=True,
+            width="stretch",
+        )
+
+    with report_tab:
+        st.subheader("Relatorio")
+        open_profit = sum(
+            float(getattr(row, "confidence", 0.0) or 0.0)
+            for row in positioned_rows
+        )
+        cols = st.columns(4)
+        cols[0].metric("Auditoria", "READ_ONLY")
+        cols[1].metric("Pares", len(snapshot.pairs))
+        cols[2].metric("Posicoes abertas", len(positioned_rows))
+        cols[3].metric("Status", snapshot.connection_status)
+        st.info("Relatorio rapido da copia GitHub: acompanha posicoes abertas sem enviar ordens.")
+        st.dataframe(
+            [_fast_report_display_row(row) for row in snapshot.pairs],
+            hide_index=True,
+            width="stretch",
+        )
+
+
+def _fast_forex_display_row(row: DashboardMT5ForexSignalRowViewModel) -> dict[str, object]:
+    return {
+        "Par": row.pair,
+        "Status": row.status,
+        "Decisao": row.decision,
+        "TF": row.timeframe,
+        "Preco": _price_label(float(row.last_price or 0.0)),
+        "Stop": _price_label(float(row.research_plan_stop or 0.0)),
+        "Alvo": _price_label(float(row.research_plan_target or 0.0)),
+        "Motivo": row.reason,
+    }
+
+
+def _fast_report_display_row(row: DashboardMT5ForexSignalRowViewModel) -> dict[str, object]:
+    return {
+        "Par": row.pair,
+        "Operacao": "ABERTA" if row.decision in {"BUY", "SELL"} else "SEM POSICAO",
+        "Lado": row.decision,
+        "Preco": _price_label(float(row.last_price or 0.0)),
+        "Stop": _price_label(float(row.research_plan_stop or 0.0)),
+        "Alvo": _price_label(float(row.research_plan_target or 0.0)),
+        "Fonte": "MT5_FAST_SNAPSHOT",
+    }
 
 
 if __name__ == "__main__":
