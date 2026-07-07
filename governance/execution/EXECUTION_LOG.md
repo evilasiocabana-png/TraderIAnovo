@@ -72,3 +72,10 @@
 - Resultado: `DynamicExitRecommendationEngine` implementado e coberto por testes.
 - Guardrail: `allowed_to_execute_demo=false`; nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
 - Commit: 9fb8106
+# 2026-07-07 - MISSION_TIA-009_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_DASHBOARD
+
+- Status: completed
+- Acao: exibidos campos de saida dinamica na tabela Forex MT5 e resumo por par.
+- Resultado: dashboard mostra politica Lab, estado, recomendacao, confianca, R, stop candidato e execucao permitida.
+- Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
+- Commit: PENDENTE

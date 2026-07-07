@@ -7,7 +7,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura.
 O ultimo inbox executado foi:
 
 ```text
-MISSION_TIA-008_IMPLEMENTAR_DYNAMIC_EXIT_RECOMMENDATION_ENGINE
+MISSION_TIA-009_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_DASHBOARD
 ```
 
 Status:
@@ -19,21 +19,17 @@ completed
 Commits:
 
 ```text
-9fb8106 Execute MISSION_TIA-008 dynamic exit recommendation engine
+PENDENTE
 ```
 
 ## O Que Foi Executado
 
-O Codex criou o motor read-only de recomendacao dinamica:
-
-```text
-DynamicExitRecommendationEngine
-```
+O Forex/Dashboard passou a exibir os campos read-only da saida dinamica.
 
 Nao executou ordem, nao moveu SL/TP e nao alterou provider demo operacional.
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-009_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_DASHBOARD
+MISSION_TIA-010_EXIBIR_SAIDA_DINAMICA_NO_MT5_VISUAL
 ```

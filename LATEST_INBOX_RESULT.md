@@ -5,10 +5,8 @@ Atualizado em: 2026-07-07
 IMPORTANTE: o ultimo inbox executado e:
 
 ```text
-MISSION_TIA-008_IMPLEMENTAR_DYNAMIC_EXIT_RECOMMENDATION_ENGINE
+MISSION_TIA-009_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_DASHBOARD
 ```
-
-## Resultado Atual
 
 Status:
 
@@ -19,46 +17,26 @@ completed
 Commits:
 
 ```text
-9fb8106 Execute MISSION_TIA-008 dynamic exit recommendation engine
+PENDENTE
 ```
 
-## Arquivos do Resultado
+## Resultado
 
-Relatorio de execucao:
-
-```text
-codex/completed/MISSION_TIA-008_IMPLEMENTAR_DYNAMIC_EXIT_RECOMMENDATION_ENGINE/EXECUTION_REPORT.md
-```
-
-Documento tecnico:
+O Codex exibiu no Forex/Dashboard os campos read-only da saida dinamica:
 
 ```text
-docs/DYNAMIC_EXIT_RECOMMENDATION_ENGINE.md
-```
-
-Rastreabilidade:
-
-```text
-governance/traceability/DYNAMIC_EXIT_RECOMMENDATION_TRACEABILITY.md
-```
-
-## Resumo Para Responder ao Usuario
-
-O Codex criou o motor read-only de recomendacao dinamica:
-
-```text
-DynamicExitRecommendationEngine
-```
-
-Ele transforma `DynamicExitMarketReading` em `DynamicExitRecommendation`,
-cobrindo todas as acoes previstas e mantendo:
-
-```text
-allowed_to_execute_demo = false
+Politica Saida Lab
+Estado Mercado Saida
+Recomendacao Saida
+Motivo Saida Dinamica
+Confianca Saida Dinamica
+R Atual Saida
+Stop Candidato
+Execucao Saida Permitida
 ```
 
 Proxima missao recomendada:
 
 ```text
-MISSION_TIA-009_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_DASHBOARD
+MISSION_TIA-010_EXIBIR_SAIDA_DINAMICA_NO_MT5_VISUAL
 ```

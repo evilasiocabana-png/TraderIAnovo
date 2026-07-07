@@ -4,18 +4,18 @@
   "branch": "main",
   "updated_at": "2026-07-07",
   "latest_inbox_mission": {
-    "id": "MISSION_TIA-008_IMPLEMENTAR_DYNAMIC_EXIT_RECOMMENDATION_ENGINE",
+    "id": "MISSION_TIA-009_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_DASHBOARD",
     "status": "completed",
     "commits": [
-      "9fb8106"
+      "PENDENTE"
     ],
-    "execution_report": "codex/completed/MISSION_TIA-008_IMPLEMENTAR_DYNAMIC_EXIT_RECOMMENDATION_ENGINE/EXECUTION_REPORT.md",
+    "execution_report": "codex/completed/MISSION_TIA-009_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_DASHBOARD/EXECUTION_REPORT.md",
     "primary_docs": [
-      "docs/DYNAMIC_EXIT_RECOMMENDATION_ENGINE.md",
-      "governance/traceability/DYNAMIC_EXIT_RECOMMENDATION_TRACEABILITY.md",
+      "docs/DYNAMIC_EXIT_FOREX_DASHBOARD_DISPLAY.md",
+      "governance/traceability/DYNAMIC_EXIT_DASHBOARD_DISPLAY_TRACEABILITY.md",
       "docs/GPT_SYNC_STATUS.md"
     ],
-    "summary": "A missao criou o motor read-only de recomendacao dinamica, sem alterar codigo operacional.",
-    "next_recommended_mission": "MISSION_TIA-009_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_DASHBOARD"
+    "summary": "A missao exibiu os campos read-only da saida dinamica no Forex/Dashboard.",
+    "next_recommended_mission": "MISSION_TIA-010_EXIBIR_SAIDA_DINAMICA_NO_MT5_VISUAL"
   }
 }

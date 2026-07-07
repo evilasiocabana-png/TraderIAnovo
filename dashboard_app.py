@@ -952,6 +952,9 @@ def exibir_mt5_forex_dashboard(
                         f"Stop: {row.get('Stop Research', 'N/D')}",
                         f"Alvo: {row.get('Alvo Research', 'N/D')}",
                         f"Motivo entrada: {row.get('Motivo Entrada', 'N/D')}",
+                        f"Saida dinamica: {row.get('Recomendacao Saida', 'N/D')}",
+                        f"Estado: {row.get('Estado Mercado Saida', 'N/D')}",
+                        f"Execucao: {row.get('Execucao Saida Permitida', 'NAO')}",
                     ]
                 )
             )
@@ -2104,6 +2107,13 @@ def _forex_main_table_columns() -> list[str]:
         "Preco Teorico",
         "Direcao Teorica",
         "Motivo Entrada",
+        "Politica Saida Lab",
+        "Estado Mercado Saida",
+        "Recomendacao Saida",
+        "Confianca Saida Dinamica",
+        "R Atual Saida",
+        "Stop Candidato",
+        "Execucao Saida Permitida",
         "Candles recebidos",
     ]
 
@@ -2856,6 +2866,22 @@ def _forex_signal_row(
         ),
         "Modelo Saida": getattr(row, "research_plan_exit_model", "NONE"),
         "Gestao Stop": getattr(row, "research_plan_stop_management", "FIXED_STOP"),
+        "Politica Saida Lab": getattr(row, "dynamic_exit_policy", "FIXED_STOP"),
+        "Estado Mercado Saida": getattr(row, "dynamic_exit_market_state", "NO_POSITION"),
+        "Recomendacao Saida": getattr(row, "dynamic_exit_action", "KEEP_ORIGINAL_PLAN"),
+        "Motivo Saida Dinamica": getattr(row, "dynamic_exit_reason", "N/D"),
+        "Confianca Saida Dinamica": _optional_percent(
+            getattr(row, "dynamic_exit_confidence", None)
+        ),
+        "R Atual Saida": _optional_number(
+            getattr(row, "dynamic_exit_r_multiple", None)
+        ),
+        "Stop Candidato": _optional_price(
+            getattr(row, "dynamic_exit_candidate_stop", None)
+        ),
+        "Execucao Saida Permitida": _yes_no(
+            getattr(row, "dynamic_exit_allowed_to_execute_demo", False)
+        ),
         "Parametros Gestao": " | ".join(
             f"{key}={value}"
             for key, value in (

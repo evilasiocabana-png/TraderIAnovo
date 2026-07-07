@@ -261,6 +261,14 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             research_plan_exit_score=88.0,
             research_plan_exit_candidates=4,
             research_plan_reason="Research Lab escolheu saida.",
+            dynamic_exit_policy="ATR_TRAILING_STOP",
+            dynamic_exit_action="TRAIL_BY_ATR",
+            dynamic_exit_reason="Read-only: tendencia favorece acompanhamento por ATR.",
+            dynamic_exit_confidence=0.65,
+            dynamic_exit_market_state="TREND_RUNNER",
+            dynamic_exit_r_multiple=1.25,
+            dynamic_exit_candidate_stop=1.12200,
+            dynamic_exit_allowed_to_execute_demo=False,
             research_plan_invalid_reason="",
             research_plan_invalid_fields=(),
             research_plan_next_retry="Plano pronto.",
@@ -294,6 +302,13 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(view_row["Ganho %"], "0.3560%")
         self.assertEqual(view_row["Modelo Saida"], "ATR_RR_RESEARCH_SELECTION")
         self.assertEqual(view_row["Gestao Stop"], "ATR_TRAILING_STOP")
+        self.assertEqual(view_row["Politica Saida Lab"], "ATR_TRAILING_STOP")
+        self.assertEqual(view_row["Estado Mercado Saida"], "TREND_RUNNER")
+        self.assertEqual(view_row["Recomendacao Saida"], "TRAIL_BY_ATR")
+        self.assertEqual(view_row["Confianca Saida Dinamica"], "65.00%")
+        self.assertEqual(view_row["R Atual Saida"], "1.25")
+        self.assertEqual(view_row["Stop Candidato"], "1.12200")
+        self.assertEqual(view_row["Execucao Saida Permitida"], "NAO")
         self.assertIn("atr_trailing_factor=2.0", view_row["Parametros Gestao"])
         self.assertEqual(view_row["Motivo Gestao"], "Gestao definida pelo Lab.")
         self.assertEqual(view_row["Motivo Stop"], "Stop por ATR.")
