@@ -71,4 +71,4 @@
 - Acao: criado motor read-only de recomendacao de saida dinamica.
 - Resultado: `DynamicExitRecommendationEngine` implementado e coberto por testes.
 - Guardrail: `allowed_to_execute_demo=false`; nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
-- Commit: PENDENTE
+- Commit: 9fb8106

@@ -13,7 +13,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-006 | Implementar contrato de saida dinamica read-only | completed | 2026-07-07 | 2026-07-07 | N/D | main | b0a9e8d | Codex |
 | PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION | Aceitar programa completo de saida dinamica e gerar TIA-007 | completed | 2026-07-07 | 2026-07-07 | N/D | main | 8f75a4a | Codex |
 | MISSION_TIA-007 | Implementar motor de leitura de mercado | completed | 2026-07-07 | 2026-07-07 | N/D | main | e24c9e2 | Codex |
-| MISSION_TIA-008 | Implementar Dynamic Exit Recommendation Engine | completed | 2026-07-07 | 2026-07-07 | N/D | main | PENDENTE | Codex |
+| MISSION_TIA-008 | Implementar Dynamic Exit Recommendation Engine | completed | 2026-07-07 | 2026-07-07 | N/D | main | 9fb8106 | Codex |
 
 ## Regras
 
