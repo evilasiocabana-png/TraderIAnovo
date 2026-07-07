@@ -6,7 +6,7 @@
   "current_mission": null,
   "last_completed_mission": "MISSION_TIA-017_AUTORIZAR_DONCHIAN_CHANNEL_STOP_DEMO",
   "last_failed_mission": null,
-  "last_commit": "PENDENTE",
+  "last_commit": "6905fd3",
   "last_branch": "main",
   "last_responsible": "Codex",
   "last_status": "completed",

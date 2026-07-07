@@ -15,7 +15,7 @@ completed
 Commits:
 
 ```text
-PENDENTE Execute MISSION_TIA-017 dynamic Donchian demo authorization
+6905fd3 Execute MISSION_TIA-017 dynamic Donchian demo authorization
 ```
 
 ## Resultado
