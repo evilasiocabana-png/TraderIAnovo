@@ -3864,8 +3864,24 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
     )
     colunas[0].caption(f"Banco local: {history_database_path}")
     if colunas[1].button(
+        "Trazer resultados do TraderIA",
+        key="research_import_traderia_results",
+    ):
+        sync_result = service.sync_mt5_research_results_from_traderia()
+        if bool(sync_result.get("ok")):
+            st.success(
+                "Resultados importados do TraderIA: "
+                f"{int(sync_result.get('rows', 0) or 0)} pares e "
+                f"{int(sync_result.get('scenarios', 0) or 0)} cenarios."
+            )
+            st.caption(f"Fonte TraderIA: {sync_result.get('source', 'N/D')}")
+            st.caption(f"Banco local: {sync_result.get('database', 'N/D')}")
+        else:
+            st.warning(str(sync_result.get("message", "Importacao nao realizada.")))
+    if False and colunas[1].button(
         "Atualizar cálculos",
         key="research_update_mt5_calculations",
+        disabled=True,
     ):
         _apply_forex_session_filter_preference(service, selected_session_filter)
         forex = service.get_mt5_forex_signals()

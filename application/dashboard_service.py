@@ -7,6 +7,7 @@ import json
 import math
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -1565,6 +1566,87 @@ class DashboardService:
 
     def _mt5_research_history_snapshot_path(self) -> Path:
         return Path(".traderia") / "mt5_research_history_snapshot.json"
+
+    def _canonical_traderia_runtime_dir(self) -> Path | None:
+        configured = os.getenv("TRADERIA_CANONICAL_RUNTIME_DIR", "").strip()
+        candidates = []
+        if configured:
+            candidates.append(Path(configured))
+        candidates.append(
+            Path("C:/Users/evcab/OneDrive/Documentos/TraderIA_WDO/.traderia")
+        )
+        current = Path(".traderia").resolve()
+        for candidate in candidates:
+            resolved = candidate.expanduser().resolve()
+            if resolved == current:
+                continue
+            if resolved.exists() and resolved.is_dir():
+                return resolved
+        return None
+
+    def get_canonical_traderia_runtime_path(self) -> str:
+        """Retorna a pasta runtime do TraderIA usada como fonte canonica."""
+        runtime_dir = self._canonical_traderia_runtime_dir()
+        return str(runtime_dir) if runtime_dir is not None else "N/D"
+
+    def sync_mt5_research_results_from_traderia(self) -> dict[str, object]:
+        """Importa resultados do Lab calculados no TraderIA canonico."""
+        source_dir = self._canonical_traderia_runtime_dir()
+        if source_dir is None:
+            return {
+                "ok": False,
+                "message": "Pasta runtime do TraderIA canonico nao encontrada.",
+                "source": "N/D",
+                "copied": [],
+            }
+
+        target_dir = Path(".traderia")
+        target_dir.mkdir(parents=True, exist_ok=True)
+        copied: list[str] = []
+        for filename in (
+            "mt5_research_snapshot.json",
+            "mt5_research_history_snapshot.json",
+            "traderia_mt5_history.sqlite",
+        ):
+            source = source_dir / filename
+            if not source.exists():
+                continue
+            destination = target_dir / filename
+            shutil.copy2(source, destination)
+            copied.append(filename)
+            if filename.endswith(".sqlite"):
+                for suffix in ("-wal", "-shm"):
+                    sidecar = source_dir / f"{filename}{suffix}"
+                    if sidecar.exists():
+                        shutil.copy2(sidecar, target_dir / sidecar.name)
+                        copied.append(sidecar.name)
+
+        object.__setattr__(self, "mt5_research_snapshot_cache", None)
+        history = self._load_mt5_research_history_snapshot()
+        if history is not None:
+            self._save_mt5_research_history_snapshot(history)
+
+        research = self._load_mt5_research_snapshot()
+        return {
+            "ok": bool(copied),
+            "message": (
+                "Resultados do TraderIA importados para o Lab."
+                if copied
+                else "Nenhum resultado de pesquisa encontrado no TraderIA canonico."
+            ),
+            "source": str(source_dir),
+            "copied": copied,
+            "rows": len(list(getattr(research, "rows", []) or []))
+            if research is not None
+            else 0,
+            "scenarios": len(list(getattr(research, "scenario_ranking", []) or []))
+            if research is not None
+            else 0,
+            "last_update": str(getattr(research, "last_update", "N/D"))
+            if research is not None
+            else "N/D",
+            "database": self.get_mt5_research_history_database_path(),
+        }
 
     def mt5_research_history_database_path(self) -> Path:
         """Banco local do historico MT5 usado pelo Lab."""
