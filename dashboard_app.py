@@ -1013,7 +1013,6 @@ def _mt5_history_row(row: object) -> dict[str, object]:
     }
 
 
-@st.fragment(run_every=MT5_FOREX_AUTO_REFRESH_SECONDS)
 def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None:
     """Exibe auditoria das negociacoes TraderIA x historico MT5."""
     forex = getattr(data, "mt5_forex_signals", None)
@@ -1028,8 +1027,13 @@ def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None
     st.subheader("Relatorios")
     report_cache_key = "mt5_trade_audit_report_cache"
     if st.button("Atualizar auditoria MT5", key="mt5_report_refresh_audit"):
-        st.session_state[report_cache_key] = service.get_mt5_trade_audit_report()
+        with st.spinner("Atualizando auditoria MT5..."):
+            st.session_state[report_cache_key] = service.get_mt5_trade_audit_report()
     cached_report = st.session_state.get(report_cache_key)
+    if cached_report is None:
+        with st.spinner("Carregando auditoria MT5 local..."):
+            cached_report = service.get_mt5_trade_audit_report()
+            st.session_state[report_cache_key] = cached_report
     if cached_report is not None:
         data = replace(
             service.get_light_dashboard_view_model(),
