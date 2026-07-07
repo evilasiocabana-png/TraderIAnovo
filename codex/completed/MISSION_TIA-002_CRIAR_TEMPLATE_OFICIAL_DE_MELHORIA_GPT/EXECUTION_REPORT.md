@@ -12,6 +12,10 @@
 
 Concluida.
 
+## Commit
+
+`33c5121`
+
 ## Arquivos criados
 
 - `codex/templates/GPT_IMPROVEMENT_MISSION_TEMPLATE.md`
