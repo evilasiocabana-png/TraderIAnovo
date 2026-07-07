@@ -57,4 +57,4 @@
 - Acao: programa completo de saida dinamica aceito na governanca.
 - Resultado: criada a missao executavel `MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO` em `codex/inbox/`.
 - Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
-- Commit: PENDENTE
+- Commit: 8f75a4a

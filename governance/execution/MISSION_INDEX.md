@@ -11,7 +11,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-004 | Analisar stops moveis | completed | 2026-07-07 | 2026-07-07 | N/D | main | 4fb57f3 | Codex |
 | MISSION_TIA-005 | Projetar saida dinamica baseada em leitura de mercado | completed | 2026-07-07 | 2026-07-07 | N/D | main | 5c572e6 | Codex |
 | MISSION_TIA-006 | Implementar contrato de saida dinamica read-only | completed | 2026-07-07 | 2026-07-07 | N/D | main | b0a9e8d | Codex |
-| PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION | Aceitar programa completo de saida dinamica e gerar TIA-007 | completed | 2026-07-07 | 2026-07-07 | N/D | main | PENDENTE | Codex |
+| PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION | Aceitar programa completo de saida dinamica e gerar TIA-007 | completed | 2026-07-07 | 2026-07-07 | N/D | main | 8f75a4a | Codex |
 
 ## Regras
 

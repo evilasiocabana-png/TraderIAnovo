@@ -108,7 +108,7 @@ A execucao tecnica da saida dinamica deve continuar pela TIA-007.
 
 ## Commit
 
-PENDENTE
+8f75a4a
 
 ## Branch
 
@@ -116,5 +116,4 @@ main
 
 ## Push
 
-PENDENTE
-
+origin/main
