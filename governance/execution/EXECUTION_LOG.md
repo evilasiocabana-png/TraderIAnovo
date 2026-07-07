@@ -107,3 +107,10 @@
 - Resultado: recomendacoes dinamicas sao registradas, normalizadas como nao executadas e comparadas com a politica original via backtest read-only.
 - Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
 - Commit: 619526c
+# 2026-07-07 - MISSION_TIA-014_AUTORIZAR_BREAK_EVEN_DINAMICO_DEMO
+
+- Status: completed
+- Acao: criada pre-autorizacao read-only para break-even dinamico demo.
+- Resultado: casos elegiveis sao marcados como `ELIGIBLE_READ_ONLY`, mas `allowed_to_execute_demo` permanece `false`.
+- Guardrail: Provider Demo nao foi alterado; nenhum SL/TP foi movido; nenhuma ordem foi enviada.
+- Commit: PENDENTE

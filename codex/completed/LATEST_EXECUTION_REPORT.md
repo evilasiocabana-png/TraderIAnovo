@@ -3,7 +3,7 @@
 ## Ultimo Inbox Executado
 
 ```text
-MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA
+MISSION_TIA-014_AUTORIZAR_BREAK_EVEN_DINAMICO_DEMO
 ```
 
 Status:
@@ -15,15 +15,15 @@ completed
 Commits:
 
 ```text
-619526c Execute MISSION_TIA-013 dynamic exit paper simulation
+PENDENTE Execute MISSION_TIA-014 dynamic break-even demo authorization
 ```
 
 ## Resultado
 
-Foi criada simulacao paper read-only da saida dinamica.
+Foi criada pre-autorizacao read-only para break-even dinamico demo.
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-014_AUTORIZAR_BREAK_EVEN_DINAMICO_DEMO
+MISSION_TIA-015_AUTORIZAR_ATR_TRAILING_DINAMICO_DEMO
 ```

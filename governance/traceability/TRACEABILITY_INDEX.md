@@ -34,6 +34,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
   original do Lab e saida dinamica recomendada.
 - `DYNAMIC_EXIT_PAPER_SIMULATION_TRACEABILITY.md`: simulacao paper read-only
   que registra recomendacoes dinamicas sem executar no Provider Demo.
+- `DYNAMIC_EXIT_BREAK_EVEN_DEMO_TRACEABILITY.md`: pre-autorizacao read-only de
+  break-even dinamico demo sem ligar execucao operacional.
 
 ## Regra de uso
 
