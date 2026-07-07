@@ -170,3 +170,10 @@
 - Resultado: uma entrada unica gera leitura, recomendacao e pre-autorizacao auditaveis.
 - Guardrail: Provider Demo nao foi alterado; nenhum SL/TP foi movido; nenhuma ordem foi enviada.
 - Commit: 383432d
+# 2026-07-07 - MISSION_TIA-023_OTIMIZAR_DYNAMIC_EXIT_RUNTIME
+
+- Status: completed
+- Acao: otimizado runtime do motor unificado com cache LRU pequeno e fallback seguro.
+- Resultado: leituras identicas podem reutilizar resultado sem recalculo; excecoes falham fechado.
+- Guardrail: Provider Demo nao foi alterado; nenhum SL/TP foi movido; nenhuma ordem foi enviada.
+- Commit: 6d4300b
