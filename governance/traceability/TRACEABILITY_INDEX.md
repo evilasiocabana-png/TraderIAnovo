@@ -38,6 +38,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
   break-even dinamico demo sem ligar execucao operacional.
 - `DYNAMIC_EXIT_ATR_TRAILING_DEMO_TRACEABILITY.md`: pre-autorizacao read-only
   de ATR trailing dinamico demo sem ligar execucao operacional.
+- `DYNAMIC_EXIT_CHANDELIER_DEMO_TRACEABILITY.md`: pre-autorizacao read-only de
+  Chandelier Exit demo sem ligar execucao operacional.
 
 ## Regra de uso
 

@@ -7,7 +7,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura.
 O ultimo inbox executado foi:
 
 ```text
-MISSION_TIA-015_AUTORIZAR_ATR_TRAILING_DINAMICO_DEMO
+MISSION_TIA-016_AUTORIZAR_CHANDELIER_EXIT_DEMO
 ```
 
 Status:
@@ -19,12 +19,12 @@ completed
 Commits:
 
 ```text
-1424885 Execute MISSION_TIA-015 dynamic ATR trailing demo authorization
+PENDENTE Execute MISSION_TIA-016 dynamic Chandelier demo authorization
 ```
 
 ## O Que Foi Executado
 
-Foi criada pre-autorizacao read-only para ATR trailing dinamico demo. Casos
+Foi criada pre-autorizacao read-only para Chandelier Exit demo. Casos
 seguros ficam elegiveis para autorizacao futura, mas a execucao demo permanece
 desligada.
 
@@ -34,5 +34,5 @@ Nao executou ordem, nao moveu SL/TP, nao ligou
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-016_AUTORIZAR_CHANDELIER_EXIT_DEMO
+MISSION_TIA-017_AUTORIZAR_DONCHIAN_CHANNEL_STOP_DEMO
 ```
