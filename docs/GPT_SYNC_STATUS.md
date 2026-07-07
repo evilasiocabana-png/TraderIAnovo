@@ -17,7 +17,7 @@ completed
 Commits:
 
 ```text
-PENDENTE Execute MISSION_TIA-015 dynamic ATR trailing demo authorization
+1424885 Execute MISSION_TIA-015 dynamic ATR trailing demo authorization
 ```
 
 ## Arquivos Que Confirmam a Execucao
