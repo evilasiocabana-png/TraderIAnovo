@@ -2,8 +2,9 @@
 
 Atualizado em: 2026-07-07
 
-IMPORTANTE: o ultimo inbox executado e a TIA-006. TIA-004 e TIA-005 foram
-concluidas antes, mas nao sao mais a ultima missao.
+IMPORTANTE: o ultimo inbox executado e
+`PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION`. Ele recebeu o programa
+completo de saida dinamica e gerou a proxima missao executavel TIA-007.
 
 Use este arquivo como primeira fonte quando o usuario pedir:
 
@@ -19,10 +20,10 @@ missao e executada. Missoes finalizadas ficam em `codex/completed/`.
 
 ## Resultado Atual
 
-Ultima missao executada:
+Ultimo inbox executado:
 
 ```text
-MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY
+PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION
 ```
 
 Status:
@@ -34,7 +35,7 @@ completed
 Commits:
 
 ```text
-b0a9e8d Execute MISSION_TIA-006 dynamic exit read-only contract
+PENDENTE
 ```
 
 ## Arquivos do Resultado
@@ -42,19 +43,19 @@ b0a9e8d Execute MISSION_TIA-006 dynamic exit read-only contract
 Relatorio de execucao:
 
 ```text
-codex/completed/MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY/EXECUTION_REPORT.md
+codex/completed/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION/EXECUTION_REPORT.md
 ```
 
-Desenho tecnico:
+Programa registrado:
 
 ```text
-docs/DYNAMIC_EXIT_READ_ONLY_CONTRACT.md
+governance/programs/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION.md
 ```
 
-Rastreabilidade:
+Proxima missao criada:
 
 ```text
-governance/traceability/DYNAMIC_EXIT_CONTRACT_TRACEABILITY.md
+codex/inbox/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/MISSION.md
 ```
 
 Status para GPT:
@@ -65,33 +66,35 @@ docs/GPT_SYNC_STATUS.md
 
 ## Resumo Para Responder ao Usuario
 
-A missao TIA-006 foi executada e concluida. Ela implementou o contrato
-`dynamic_exit_*` em modo read-only, sem alterar codigo operacional de ordem ou
-gestao real de SL/TP. O campo `dynamic_exit_allowed_to_execute_demo` permanece
-sempre `false` nesta fase.
+O programa de saida dinamica foi aceito na governanca e decomposto em execucao
+por camadas. O Codex nao executou TIA-007 a TIA-024 de uma vez; ele criou a
+proxima missao segura e executavel:
+
+```text
+MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO
+```
 
 Foram criados:
 
-- `docs/DYNAMIC_EXIT_READ_ONLY_CONTRACT.md`
-- `governance/traceability/DYNAMIC_EXIT_CONTRACT_TRACEABILITY.md`
-- `codex/completed/MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY/EXECUTION_REPORT.md`
+- `governance/programs/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION.md`
+- `codex/inbox/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/MISSION.md`
+- `codex/completed/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION/EXECUTION_REPORT.md`
 
 Foram atualizados registros de governanca, incluindo `MISSION_INDEX`,
-`EXECUTION_STATE`, `EXECUTION_LOG`, `PROJECT_STATUS`, `NEXT_MISSION` e
-`docs/GPT_SYNC_STATUS.md`.
+`EXECUTION_STATE`, `EXECUTION_LOG`, `PROGRAM_INDEX`, `PROGRAM_STATUS`,
+`NEXT_MISSION` e `docs/GPT_SYNC_STATUS.md`.
 
 Proxima missao recomendada:
 
 ```text
-MISSION_TIA-007_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_RELATORIO
+MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO
 ```
 
 ## Regra Para GPT
 
 Se o usuario pedir o resultado do ultimo inbox, responda com base neste arquivo
-e, se precisar de detalhes, leia os arquivos listados acima. Nao responda que a
-missao nao foi executada sem antes verificar este arquivo e
-`docs/GPT_SYNC_STATUS.md`.
+e, se precisar de detalhes, leia os arquivos listados acima. Nao confundir este
+programa com a execucao tecnica anterior da TIA-006.
 
 Tambem existe um ponteiro dentro de `codex/inbox/` para consultas que procuram a
 palavra inbox:

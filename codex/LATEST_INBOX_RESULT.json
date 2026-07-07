@@ -4,18 +4,18 @@
   "branch": "main",
   "updated_at": "2026-07-07",
   "latest_inbox_mission": {
-    "id": "MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY",
+    "id": "PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION",
     "status": "completed",
     "commits": [
-      "b0a9e8d"
+      "PENDENTE"
     ],
-    "execution_report": "codex/completed/MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY/EXECUTION_REPORT.md",
+    "execution_report": "codex/completed/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION/EXECUTION_REPORT.md",
     "primary_docs": [
-      "docs/DYNAMIC_EXIT_READ_ONLY_CONTRACT.md",
-      "governance/traceability/DYNAMIC_EXIT_CONTRACT_TRACEABILITY.md",
+      "governance/programs/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION.md",
+      "codex/inbox/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/MISSION.md",
       "docs/GPT_SYNC_STATUS.md"
     ],
-    "summary": "A missao implementou o contrato dynamic_exit_* em modo read-only, sem alterar codigo operacional de ordem ou gestao real de SL/TP.",
-    "next_recommended_mission": "MISSION_TIA-007_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_RELATORIO"
+    "summary": "O programa completo de saida dinamica foi aceito na governanca e decomposto na proxima missao executavel TIA-007, sem alterar codigo operacional.",
+    "next_recommended_mission": "MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO"
   }
 }

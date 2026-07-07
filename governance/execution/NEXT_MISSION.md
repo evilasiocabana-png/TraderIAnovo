@@ -1,20 +1,30 @@
 # Next Mission
 
-Proxima missao recomendada, ainda nao autorizada automaticamente:
+Proxima missao autorizada no inbox:
 
 ```text
-MISSION_TIA-007_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_RELATORIO
+MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO
 ```
 
-Objetivo sugerido: exibir melhor os campos `dynamic_exit_*` nas abas Forex e
-Relatorio, mantendo a saida dinamica apenas como leitura/auditoria. Esta missao
-nao deve executar gestao real de SL/TP.
+Objetivo: criar o motor read-only que classifica o estado atual do mercado e da
+posicao para alimentar a saida dinamica.
 
-Para executar, coloque um pacote em `codex/inbox/` e solicite:
+Esta missao nao deve:
+
+- executar ordem;
+- mover SL/TP;
+- recalcular Lab pesado no ciclo leve Forex;
+- alterar provider demo operacional;
+- forcar tudo para M1.
+
+Pacote autorizado:
+
+```text
+codex/inbox/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/MISSION.md
+```
+
+Para executar:
 
 ```text
 Inbox.
 ```
-
-O Codex deve executar apenas a primeira missao autorizada, respeitando a
-governanca deste diretorio.

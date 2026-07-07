@@ -51,3 +51,10 @@
 - Mantido `dynamic_exit_allowed_to_execute_demo=false`.
 - Nenhuma execucao real de SL/TP foi adicionada.
 - Testes focados passaram com 9 testes OK.
+# 2026-07-07 - PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION
+
+- Status: completed
+- Acao: programa completo de saida dinamica aceito na governanca.
+- Resultado: criada a missao executavel `MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO` em `codex/inbox/`.
+- Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
+- Commit: PENDENTE

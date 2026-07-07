@@ -2,10 +2,10 @@
 
 Este arquivo existe para evitar ambiguidade em buscas do GPT.
 
-## Ultima Missao Executada
+## Ultimo Inbox Executado
 
 ```text
-MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY
+PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION
 ```
 
 Status:
@@ -17,29 +17,36 @@ completed
 Commits:
 
 ```text
-b0a9e8d Execute MISSION_TIA-006 dynamic exit read-only contract
+PENDENTE
 ```
 
 ## Resultado
 
-A missao implementou o contrato `dynamic_exit_*` em modo read-only, sem alterar
-codigo operacional de ordem ou gestao real de SL/TP no MT5 demo.
+O programa completo de saida dinamica foi aceito na governanca e decomposto na
+proxima missao executavel:
+
+```text
+MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO
+```
+
+Nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem foi
+feita nesta execucao.
 
 ## Arquivos Criados
 
 ```text
-docs/DYNAMIC_EXIT_READ_ONLY_CONTRACT.md
-governance/traceability/DYNAMIC_EXIT_CONTRACT_TRACEABILITY.md
-codex/completed/MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY/EXECUTION_REPORT.md
+governance/programs/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION.md
+codex/inbox/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/MISSION.md
+codex/completed/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION/EXECUTION_REPORT.md
 ```
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-007_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_RELATORIO
+MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO
 ```
 
 ## Aviso
 
-`MISSION_TIA-004_ANALISAR_STOPS_MOVEIS` e `MISSION_TIA-005...` foram concluidas
-antes, mas nao sao mais a ultima missao executada.
+`MISSION_TIA-004`, `MISSION_TIA-005` e `MISSION_TIA-006` foram concluidas
+antes, mas nao sao mais o ultimo inbox executado.

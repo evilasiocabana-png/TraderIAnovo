@@ -6,3 +6,4 @@
 | A02 Forex MT5 | planned |
 | B01 Lab | planned |
 | C01 Reports | planned |
+| TIA Dynamic Exit Runtime Full Execution | accepted |

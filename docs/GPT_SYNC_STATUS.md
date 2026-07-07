@@ -34,12 +34,12 @@ Branch oficial:
 main
 ```
 
-## Ultima Missao Inbox Executada
+## Ultimo Inbox Executado
 
-Missao:
+Entrada:
 
 ```text
-MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY
+PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION
 ```
 
 Status:
@@ -51,27 +51,27 @@ completed
 Commits:
 
 ```text
-b0a9e8d Execute MISSION_TIA-006 dynamic exit read-only contract
+PENDENTE
 ```
 
 ## Arquivos Que Confirmam a Execucao
 
-Relatorio da missao:
+Relatorio:
 
 ```text
-codex/completed/MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY/EXECUTION_REPORT.md
+codex/completed/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION/EXECUTION_REPORT.md
 ```
 
-Auditoria principal:
+Programa registrado:
 
 ```text
-docs/DYNAMIC_EXIT_READ_ONLY_CONTRACT.md
+governance/programs/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION.md
 ```
 
-Rastreabilidade:
+Proxima missao criada:
 
 ```text
-governance/traceability/DYNAMIC_EXIT_CONTRACT_TRACEABILITY.md
+codex/inbox/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/MISSION.md
 ```
 
 Registro de governanca:
@@ -88,8 +88,8 @@ Se uma busca do GitHub disser que os arquivos nao existem, trate como indice
 desatualizado ou consulta no repositorio errado. A fonte de verdade e a branch
 `main` do repositorio `evilasiocabana-png/TraderIAnovo`.
 
-O `codex/inbox` fica vazio depois que a missao termina. Isso e esperado. Missoes
-concluidas devem ser procuradas em:
+O `codex/inbox` pode conter missoes pendentes. Resultado concluido deve ser
+procurado em:
 
 ```text
 codex/completed/
