@@ -1,7 +1,7 @@
 """Dashboard Streamlit do TraderIA_WDO."""
 
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import inspect
 import importlib
 import json
@@ -52,6 +52,8 @@ def _start_mt5_forex_background_cycle_once() -> None:
         return
     if os.getenv("TRADERIA_MT5_BACKGROUND_CYCLE_ENABLED", "0").strip() != "1":
         return
+    if not _mt5_forex_market_cycle_allowed_now():
+        return
     MT5_FOREX_BACKGROUND_THREAD_STARTED = True
     thread = threading.Thread(
         target=_mt5_forex_background_cycle,
@@ -64,10 +66,11 @@ def _start_mt5_forex_background_cycle_once() -> None:
 def _mt5_forex_background_cycle() -> None:
     service = DashboardService()
     while True:
-        try:
-            _load_mt5_forex_signals_locked(service, "H1")
-        except Exception:
-            pass
+        if _mt5_forex_market_cycle_allowed_now():
+            try:
+                _load_mt5_forex_signals_locked(service, "H1")
+            except Exception:
+                pass
         time.sleep(MT5_FOREX_AUTO_REFRESH_SECONDS)
 
 
@@ -224,7 +227,35 @@ def ensure_mt5_forex_initial_load(service: DashboardService) -> None:
 
 
 def _mt5_forex_auto_cycle_enabled() -> bool:
-    return os.getenv("TRADERIA_MT5_FOREX_AUTO_CYCLE_ENABLED", "0").strip() == "1"
+    if os.getenv("TRADERIA_MT5_FOREX_AUTO_CYCLE_ENABLED", "1").strip() != "1":
+        return False
+    return _mt5_forex_market_cycle_allowed_now()
+
+
+def _mt5_forex_market_cycle_allowed_now(moment: datetime | None = None) -> bool:
+    """Bloqueia ciclo automatico quando Forex esta fechado."""
+    now = moment or datetime.now(timezone.utc).replace(tzinfo=None)
+    if _is_mt5_forex_closed_holiday(now):
+        return False
+    weekday = now.weekday()
+    if weekday == 5:
+        return False
+    if weekday == 6 and now.hour < 21:
+        return False
+    if weekday == 4 and now.hour >= 22:
+        return False
+    return True
+
+
+def _is_mt5_forex_closed_holiday(moment: datetime) -> bool:
+    """Feriados globais em que o Forex costuma ficar fechado."""
+    fixed_closed_days = {(1, 1), (12, 25)}
+    if (moment.month, moment.day) in fixed_closed_days:
+        return True
+    full_closed_days = {
+        date(2026, 4, 3),  # Good Friday 2026
+    }
+    return moment.date() in full_closed_days
 
 
 def _mt5_fast_snapshot_enabled() -> bool:
