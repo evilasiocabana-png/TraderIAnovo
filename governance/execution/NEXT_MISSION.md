@@ -3,11 +3,11 @@
 Proxima missao recomendada, ainda nao autorizada automaticamente:
 
 ```text
-MISSION_TIA-017_AUTORIZAR_DONCHIAN_CHANNEL_STOP_DEMO
+MISSION_TIA-018_AUTORIZAR_VOLATILITY_STOP_DEMO
 ```
 
-Objetivo: preparar a autorizacao controlada de `DONCHIAN_CHANNEL_STOP` em modo
-demo, preservando a separacao entre recomendacao, elegibilidade e execucao.
+Objetivo: preparar a autorizacao controlada de `VOLATILITY_STOP` em modo demo,
+preservando a separacao entre recomendacao, elegibilidade e execucao.
 
 Esta missao nao deve:
 
@@ -16,9 +16,9 @@ Esta missao nao deve:
 - alterar provider demo operacional;
 - permitir `dynamic_exit_allowed_to_execute_demo=true`;
 - recalcular Lab pesado no ciclo leve Forex.
-- autorizar qualquer politica alem de `DONCHIAN_CHANNEL_STOP`.
+- autorizar qualquer politica alem de `VOLATILITY_STOP`.
 
-Para executar, coloque o pacote da TIA-017 em `codex/inbox/` e solicite:
+Para executar, coloque o pacote da TIA-018 em `codex/inbox/` e solicite:
 
 ```text
 Inbox.
