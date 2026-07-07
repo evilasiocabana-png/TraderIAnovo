@@ -90,4 +90,4 @@ main
 
 ## Push
 
-PENDENTE_RECORD
+origin/main confirmado apos push.
