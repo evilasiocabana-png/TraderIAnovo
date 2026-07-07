@@ -7051,7 +7051,9 @@ def main() -> None:
     app_title = os.getenv("TRADERIA_APP_TITLE", "TraderIA Local").strip()
     st.set_page_config(page_title=app_title or "TraderIA Local", layout="wide")
     _inject_dashboard_css()
-    if os.getenv("TRADERIA_FAST_BOOT_ENABLED", "0").strip() == "1":
+    fast_boot_enabled = os.getenv("TRADERIA_FAST_BOOT_ENABLED", "0").strip() == "1"
+    fast_boot_unlocked = os.getenv("TRADERIA_ALLOW_FAST_BOOT", "0").strip() == "1"
+    if fast_boot_enabled and fast_boot_unlocked:
         _render_fast_boot_dashboard(app_title or "TraderIA Nuvem")
         return
     service = get_dashboard_service()
