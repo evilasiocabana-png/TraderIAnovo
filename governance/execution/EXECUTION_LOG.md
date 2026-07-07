@@ -78,4 +78,4 @@
 - Acao: exibidos campos de saida dinamica na tabela Forex MT5 e resumo por par.
 - Resultado: dashboard mostra politica Lab, estado, recomendacao, confianca, R, stop candidato e execucao permitida.
 - Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
-- Commit: PENDENTE
+- Commit: 95e194c

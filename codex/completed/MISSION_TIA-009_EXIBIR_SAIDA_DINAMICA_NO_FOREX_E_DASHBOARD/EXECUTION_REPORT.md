@@ -81,7 +81,7 @@ navegacao/tabs do dashboard e metricas antigas, ja fora do escopo desta missao.
 
 ## Commit
 
-PENDENTE
+95e194c
 
 ## Branch
 
@@ -89,4 +89,4 @@ main
 
 ## Push
 
-PENDENTE
+origin/main
