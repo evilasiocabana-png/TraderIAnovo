@@ -1,1 +1,1 @@
-"""Pesquisa e Lab do traderiaianovo."""
+"""Camada de pesquisa quantitativa do TraderIA_WDO."""

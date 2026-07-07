@@ -1,10 +1,25 @@
 # ERROR_REPORT
 
-## Etapa
+## Data/Hora
+
+YYYY-MM-DD HH:MM TZ
+
+## Missao
+
+- ID:
+- Nome:
 
 ## Motivo
 
-## Arquivos
+Explique o motivo da falha ou bloqueio.
+
+## Etapa Onde Falhou
+
+- 
+
+## Arquivos Envolvidos
+
+- 
 
 ## Stack
 
@@ -12,7 +27,16 @@
 
 ```
 
+## Erro Tecnico
+
+```text
+
+```
+
 ## Recomendacao
+
+- 
 
 ## Blocker Criado
 
+- 

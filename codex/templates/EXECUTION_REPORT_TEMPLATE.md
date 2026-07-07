@@ -1,32 +1,61 @@
 # EXECUTION_REPORT
 
-## Data
+## Data/Hora
 
-## Missao
+YYYY-MM-DD HH:MM TZ
 
-## Duracao
+## Missao Executada
+
+- ID:
+- Nome:
+- Status:
+- Responsavel:
+- Branch:
+- Duracao:
 
 ## Arquivos Criados
 
+- 
+
 ## Arquivos Alterados
+
+- 
 
 ## Arquitetura Impactada
 
+-
+
 ## Dependencias
+
+-
 
 ## Testes Executados
 
+- 
+
 ## Resultado dos Testes
+
+- 
 
 ## Quality Gate
 
+-
+
 ## Criterios de Aceite
+
+- 
 
 ## Pendencias
 
+- 
+
 ## Rollback
 
+-
+
 ## Conclusao
+
+Resumo objetivo do que foi entregue.
 
 ## Git
 

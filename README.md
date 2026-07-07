@@ -1,65 +1,93 @@
-# traderiaianovo
+# TraderIA
 
-Projeto inicial limpo inspirado no TraderIA, preparado para GPT, governanca por
-Inbox e dashboard Streamlit com tres abas:
+TraderIA e um sistema local de pesquisa, leitura de mercado, dashboard Streamlit
+e integracao operacional com MetaTrader 5.
 
-- Forex MT5
-- Lab
-- Relatorio
-
-Esta base nao executa ordens reais. O MT5 e tratado como fronteira read-only.
-
-## Como rodar
-
-```powershell
-pip install -r requirements.txt
-python -m streamlit run dashboard_app.py --server.port 8530 --server.headless true
-```
-
-## Como testar
-
-```powershell
-python -m unittest discover -s tests -t .
-```
-
-## Fluxo Inbox
-
-Missoes entram em `codex/inbox/` e sao executadas pelo Codex seguindo a
-governanca em `governance/execution/`.
-
-Comando oficial:
+Este repositorio foi organizado para documentar e versionar o codigo sem mudar o
+local de trabalho atual:
 
 ```text
-Inbox.
+C:\Users\evcab\OneDrive\Documentos\TraderIA_WDO
 ```
 
-## Politica read-only
+## Documentos principais
 
-- Nao usar `order_send()`.
-- Nao criar broker operacional.
-- Nao conectar corretora em modo operacional.
-- UI consome apenas `application/DashboardService`.
-- Integracoes MT5 permanecem read-only.
+- [Mapa do Projeto](docs/PROJECT_MAP.md)
+- [Runtime e Artefatos Locais](docs/RUNTIME_AND_ARTIFACTS.md)
+- [Fluxo Lab, Forex e MT5](docs/LAB_FOREX_MT5_FLOW.md)
+- [Contrato Lab, Forex e MT5](docs/LAB_FOREX_MT5_CONTRACT.md)
+- [Runbook Operacional MT5 Research](docs/MT5_RESEARCH_OPERATION_RUNBOOK.md)
+- [Contrato do JSON Visual MT5](docs/MT5_VISUAL_SIGNAL_CONTRACT.md)
+- [Pipeline CI Critico](docs/CI_PIPELINE.md)
+- [TraderIA Nuvem no GitHub Codespaces](docs/CODESPACES_RUNBOOK.md)
+- [Checklist de Mudanca Segura](docs/GOVERNANCE_CHANGE_CHECKLIST.md)
+- [Plano de Migracao e Organizacao](docs/MIGRATION_PLAN.md)
+- [Catalogo de Datasets Historicos](docs/HISTORICAL_DATASET_CATALOG.md)
 
-## Complemento importado do TraderIA atual
+## Como rodar localmente
 
-Este repositorio tambem contem contratos e referencias do TraderIA atual
-relacionados as tres abas iniciais:
+O app principal continua sendo executado localmente:
 
-- Forex MT5: contrato Lab/Forex/MT5, runbook MT5 e indicador visual.
-- Lab: contratos de parametro, setup, timeframe decisor e stop management.
-- Relatorio: auditoria read-only consolidando Lab e Forex MT5.
+```powershell
+python -m streamlit run dashboard_app.py --server.port 8501 --server.headless true
+```
 
-Arquivos operacionais perigosos, runtime local, logs, snapshots, credenciais e
-provedores com envio de ordem nao foram importados.
+O ciclo leve Forex/MT5 fica em:
 
-## Nao versionar
+```powershell
+python scripts\mt5_forex_cycle_runner.py
+```
+
+Validacao critica local:
+
+```powershell
+python scripts\run_critical_ci.py
+```
+
+## Como trabalhar na nuvem
+
+Abra o repositorio no GitHub Codespaces:
+
+```text
+https://github.com/evilasiocabana-png/TraderIA
+```
+
+No Codespaces, rode:
+
+```bash
+streamlit run dashboard_app.py --server.port 8530 --server.headless true
+```
+
+Na nuvem o app aparece como `TraderIA Nuvem`. A integracao real com MT5 continua
+local, pois depende do MetaTrader 5 aberto nesta maquina.
+
+## Politica do repositorio
+
+O GitHub deve conter codigo, testes, documentacao e templates fonte.
+
+Nao devem entrar no Git:
 
 - `Python/`
 - `.traderia/`
-- `logs/`
-- relatorios gerados
-- `.env`
-- backups zipados
-- bancos locais
-- compilados MT5
+- logs e arquivos `.pid`
+- snapshots grandes
+- bancos locais `.db`
+- credenciais reais
+- backups `.zip`
+- compilados MT5 `.ex5`
+
+O baseline local e remoto foi marcado com a tag:
+
+```text
+baseline-20260706
+```
+
+## Restauracao
+
+Existem dois pontos de seguranca:
+
+1. Git tag `baseline-20260706`.
+2. Ponto de restauracao local em `.traderia/restore_points/20260706_github_migration_audit_baseline`.
+
+Nenhuma reorganizacao fisica de pastas deve ser feita sem uma etapa propria,
+validacao e commit separado.

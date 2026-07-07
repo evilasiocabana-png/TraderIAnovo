@@ -1,0 +1,96 @@
+{
+  "layers": [
+    "alpha",
+    "analytics",
+    "application",
+    "backtest",
+    "core",
+    "data",
+    "database",
+    "domain",
+    "market",
+    "market_data",
+    "paper",
+    "replay",
+    "research",
+    "risk",
+    "strategies",
+    "tests"
+  ],
+  "public_services": [
+    "Alpha001ResearchService",
+    "ConfigurationService",
+    "DashboardService",
+    "DemoExecutionService",
+    "LiveResearchService",
+    "MT5DemoRobotService",
+    "MT5MarketDataService",
+    "MarketService",
+    "PaperTradingService",
+    "RegimeService",
+    "ReplayService",
+    "ResearchLabService",
+    "ResearchService",
+    "SessionService",
+    "SystemService"
+  ],
+  "domain_contracts": [
+    "BacktestResult",
+    "DecisionContext",
+    "ExecutionOrder",
+    "ExecutionResult",
+    "MarketSnapshot",
+    "RiskDecision",
+    "StrategySignal"
+  ],
+  "providers": [
+    "DataProvider",
+    "HistoricalDataProvider",
+    "HistoricalDatasetCatalog",
+    "HistoricalDataSourceRegistry",
+    "MarketDataProvider"
+  ],
+  "adapters": [
+    "CsvHistoricalDataSource",
+    "DuckDBHistoricalDataAdapter",
+    "ParquetHistoricalDataAdapter"
+  ],
+  "events": [
+    "ALPHA001_SIGNAL_CREATED",
+    "ALPHA001_VALIDATION_COMPLETED",
+    "BACKTEST_FINISHED",
+    "DECISION_CREATED",
+    "FEATURE_SNAPSHOT_CREATED",
+    "MARKET_DNA_UPDATED",
+    "NEW_CANDLE",
+    "ORDER_CLOSED",
+    "ORDER_CREATED",
+    "REGIME_ANALYSIS_CREATED",
+    "RESEARCH_ANALYSIS_CREATED",
+    "STRATEGY_SIGNAL_CREATED",
+    "SYSTEM_STARTED"
+  ],
+  "architecture_rules": [
+    "adapters_own_physical_formats",
+    "application_api_freeze",
+    "dashboard_service_facade",
+    "dependency_rules",
+    "domain_purity",
+    "event_bus_official_events",
+    "replay_no_physical_data_access",
+    "research_no_physical_data_access"
+  ],
+  "architecture_rule_descriptions": {
+    "adapters_own_physical_formats": "Apenas adapters autorizados acessam CSV, Parquet, DuckDB, caminhos, arquivos ou bibliotecas fisicas de dados.",
+    "application_api_freeze": "Servicos publicos da camada application preservam compatibilidade de API e assinatura publica.",
+    "dashboard_service_facade": "Dashboard depende apenas de DashboardService como fachada de aplicacao.",
+    "dependency_rules": "Camadas respeitam Clean Architecture e nao importam dependencias proibidas.",
+    "domain_purity": "Domain nao depende de infraestrutura, dashboard, persistencia, providers, adapters ou bibliotecas fisicas.",
+    "event_bus_official_events": "Comunicacao entre modulos usa EventBus e eventos arquiteturais oficiais.",
+    "replay_no_physical_data_access": "Replay nao acessa formato fisico de dados e nao executa ordens reais.",
+    "research_no_physical_data_access": "Research Lab nao acessa formato fisico de dados e nao executa ordens reais.",
+    "strategies_return_strategy_signal": "Estrategias devem retornar contratos StrategySignal, sem executar ordens.",
+    "ai_never_executes_orders": "IA, quando existir, nao executa ordens nem contorna o pipeline autorizado.",
+    "real_operation_disabled": "Operacao real permanece desabilitada; o projeto fica restrito a pesquisa, replay, simulacao e paper trading visual."
+  }
+}

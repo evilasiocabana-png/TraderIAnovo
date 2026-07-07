@@ -1,0 +1,19 @@
+{
+  "name": "TraderIA Nuvem",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "forwardPorts": [8530],
+  "portsAttributes": {
+    "8530": {
+      "label": "TraderIA Nuvem",
+      "onAutoForward": "notify"
+    }
+  },
+  "containerEnv": {
+    "TRADERIA_APP_TITLE": "TraderIA Nuvem",
+    "TRADERIA_MT5_INPROCESS_ENABLED": "0",
+    "TRADERIA_MT5_FOREX_AUTO_CYCLE_ENABLED": "0",
+    "TRADERIA_MT5_VISUAL_SIGNALS_ENABLED": "0"
+  },
+  "postCreateCommand": "python -m pip install --upgrade pip && python -m pip install streamlit duckdb",
+  "postAttachCommand": "echo 'TraderIA Nuvem pronto. Rode: streamlit run dashboard_app.py --server.port 8530 --server.headless true'"
+}

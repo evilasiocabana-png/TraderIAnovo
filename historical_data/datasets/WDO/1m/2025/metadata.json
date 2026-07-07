@@ -1,0 +1,20 @@
+{
+  "dataset_id": "wdo_1m_2025",
+  "symbol": "WDO",
+  "timeframe": "1m",
+  "source": "tests\\fixtures\\historical_data\\wdo_1m_sample.csv",
+  "exchange": "B3",
+  "timezone": "America/Sao_Paulo",
+  "first_timestamp": "2025-01-01 09:00",
+  "last_timestamp": "2025-01-01 09:01",
+  "candle_count": 2,
+  "format": "csv",
+  "version": "1.0",
+  "file_path": "data.csv",
+  "description": "Dataset historico importado para formato interno.",
+  "tags": [
+    "historical_importer",
+    "period:2025",
+    "duplicates_removed:0"
+  ]
+}

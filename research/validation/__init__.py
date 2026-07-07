@@ -1,0 +1,1 @@
+"""Contratos de validacao quantitativa."""

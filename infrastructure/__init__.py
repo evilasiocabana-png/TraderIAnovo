@@ -1,1 +1,1 @@
-"""Adaptadores externos do traderiaianovo."""
+"""Adaptadores de infraestrutura do TraderIA."""

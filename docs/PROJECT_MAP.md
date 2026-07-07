@@ -1,52 +1,69 @@
-# Project Map
+# Mapa do Projeto TraderIA
 
-## Runtime
+Este documento mapeia o projeto sem exigir mudanca de local ou reorganizacao
+fisica imediata. A pasta local oficial continua sendo:
 
-- `dashboard_app.py`: Streamlit entrypoint with the tabs Forex MT5, Lab, and Relatório.
-- `application/dashboard_service.py`: single facade consumed by the dashboard.
-- `application/forex_mt5_service.py`: read-only Forex MT5 view model.
-- `application/lab_service.py`: theoretical Lab result view model.
-- `application/report_service.py`: consolidated report view model.
-- `application/mt5_visual_signal_exporter.py`: read-only JSON payload for the MT5 visual indicator.
-- `application/mt5_trade_audit_service.py`: read-only trade audit baseline for Relatório.
+```text
+C:\Users\evcab\OneDrive\Documentos\TraderIA_WDO
+```
 
-## Contracts
+## Entrada principal
 
-- `domain/contracts/market_candle.py`
-- `domain/contracts/forex_signal.py`
-- `domain/contracts/lab_result.py`
-- `domain/contracts/report_row.py`
-- `domain/contracts/mt5_status.py`
-- `domain/contracts/visual_signal.py`
-- `domain/contracts/trade_audit.py`
+| Caminho | Papel |
+|---|---|
+| `dashboard_app.py` | Aplicacao Streamlit principal. |
+| `app.py` | Entrada/apoio historico do projeto. |
+| `scripts/mt5_forex_cycle_runner.py` | Runner leve para ciclo Forex/MT5. |
+| `mt5/indicators/TraderIAVisualSignals.mq5` | Fonte do indicador visual do MT5. |
+| `mt5/templates/TraderIAVisualSignals.tpl` | Template MT5 associado ao indicador. |
 
-## Infrastructure
+## Camadas de codigo
 
-- `infrastructure/mt5/mt5_readonly_provider.py`: placeholder for MT5 read-only reads.
-- `infrastructure/mt5/mt5_connection_probe.py`: connection probe boundary.
-- `infrastructure/mt5/mt5_symbol_mapper.py`: symbol normalization boundary.
-- `infrastructure/mt5/mt5_visual_signal_path_resolver.py`: resolves the MT5 visual JSON path.
+| Pasta | Papel | Git |
+|---|---|---|
+| `application/` | Casos de uso, servicos de aplicacao e fachada do dashboard. | Sim |
+| `domain/` | Contratos e entidades de dominio. | Sim |
+| `core/` | Componentes centrais de motor, eventos, sessao e decisao. | Sim |
+| `research/` | Pesquisa, laboratorio, ranking, validacao e planos. | Sim |
+| `market/` | Leitura de mercado, contexto, estrutura, features e instrumentos. | Sim |
+| `market_data/` | Fontes, adapters e catalogos de dados historicos. | Sim |
+| `infrastructure/` | Integracoes externas, MT5 provider e resolucao de paths. | Sim |
+| `strategies/` | Estrategias certificadas/experimentais. | Sim |
+| `risk/` | Politicas e calculos de risco. | Sim |
+| `decision/` | Qualidade, score e relatorio de decisao. | Sim |
+| `replay/` | Replay de candles/datasets. | Sim |
+| `backtest/` | Backtests e metricas. | Sim |
+| `analytics/` | Leitura analitica e estatisticas. | Sim |
+| `database/` | Codigo de persistencia, nao banco local. | Sim |
+| `tests/` | Testes automatizados. | Sim |
+| `scripts/` | Ferramentas operacionais e de governanca. | Sim |
+| `docs/` | Documentacao viva. | Sim |
 
-## MT5 Visual Assets
+## Dados e artefatos
 
-- `mt5/indicators/TraderIAVisualSignals.mq5`: source indicator used as reference for visual signals.
-- `mt5/templates/TraderIAVisualSignals.tpl`: MT5 chart template reference.
+| Caminho | Papel | Git |
+|---|---|---|
+| `.traderia/` | Estado operacional, snapshots, logs, restore points. | Nao |
+| `Python/` | Runtime Python local. | Nao |
+| `logs/` | Logs operacionais. | Nao |
+| `reports/` | Saidas geradas. | Nao por padrao |
+| `resultados/` | Saidas geradas. | Nao por padrao |
+| `data/traderia.db` | Banco local. | Nao |
+| `data/market_dna/*.jsonl` | Diario operacional de mercado. | Nao |
+| `historical_data/` | Datasets pequenos e metadados historicos. | Sim, com revisao |
 
-## Imported TraderIA References
+## Arquivos de maior atencao
 
-- `TRADERIA_GPT_INSTRUCTIONS.md`
-- `TRADERIA_GPT_KNOWLEDGE_FILES.md`
-- `TRADERIA_ARCHITECTURE_BIBLE.md`
-- `ARCHITECTURE_RULES.md`
-- `docs/PROJECT_MAP_TRADERIA_ATUAL.md`
-- `docs/MT5_VISUAL_SIGNAL_CONTRACT.md`
-- `docs/MT5_RESEARCH_OPERATION_RUNBOOK.md`
+| Arquivo | Motivo |
+|---|---|
+| `application/dashboard_service.py` | Fachada muito grande; concentra responsabilidades. |
+| `dashboard_app.py` | UI Streamlit extensa; risco alto de regressao em mudancas visuais. |
+| `application/mt5_market_data_service.py` | Leitura MT5 e dados de mercado. |
+| `application/mt5_visual_signal_exporter.py` | Contrato JSON visual para MT5. |
+| `research/mt5_research_trade_plan.py` | Contrato de entrada, stop e alvo vindo do Lab. |
+| `mt5/indicators/TraderIAVisualSignals.mq5` | Desenho visual no MT5. |
 
-## Governance
+## Regra de organizacao
 
-- `codex/inbox/`: authorized missions waiting for execution.
-- `codex/processing/`: one mission in progress.
-- `codex/completed/`: completed missions and reports.
-- `codex/failed/`: failed missions and error reports.
-- `governance/execution/`: current state, blockers, logs, and next mission.
-- `governance/programs/`, `tracks/`, `missions/`, `adr/`, `reports/`: planning and audit records.
+Organizar primeiro por documentacao, branches e commits. Mudancas fisicas de
+pastas so devem acontecer depois de uma etapa especifica, pequena e validada.

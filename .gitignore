@@ -1,43 +1,59 @@
+# Runtime local
 Python/
 .venv/
 venv/
+
+# Python/test caches
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 
+# TraderIA runtime/artifacts
 .traderia/
+.traderia/restore_points/
+.traderia/audits/
+.traderia/mt5_research_snapshot.json
+.traderia/*.log
+.traderia/*.pid
+.traderia/*.jsonl
+
+# Local logs and process markers
 logs/
-reports/*
-!reports/.gitkeep
-governance/reports/audits/*
-!governance/reports/audits/.gitkeep
-governance/reports/gates/*
-!governance/reports/gates/.gitkeep
-governance/reports/batches/*
-!governance/reports/batches/.gitkeep
-governance/reports/completion/*
-!governance/reports/completion/.gitkeep
 *.log
 *.pid
+.streamlit_*.pid
+.streamlit_*.log
+streamlit_*.log
 
-.env
-.env.*
-!.env.example
-
+# Local backups/packages
 *.zip
 *.bak
 *.tmp
 *.old
+
+# Generated reports/results
+reports/
+resultados/
 *.db
 *.sqlite
 *.sqlite3
+data/market_dna/*.jsonl
 
-*.ex5
-*.ex4
+# Environments and secrets
+.env
+.env.*
+!.env.example
 
-.DS_Store
-Thumbs.db
+# IDE/OS
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
+
+# MT5 compiled/runtime artifacts
+*.ex5
+*.ex4

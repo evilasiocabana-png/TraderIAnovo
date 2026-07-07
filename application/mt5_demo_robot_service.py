@@ -1,0 +1,331 @@
+"""Servico temporal para robo MT5 Demo sem loop autonomo."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from application.demo_execution_service import DemoExecutionService
+from application.market_regime_pipeline import MarketRegimePipeline
+from domain.contracts.execution_order import ExecutionOrder
+from domain.contracts.execution_result import ExecutionResult
+from domain.contracts.market_snapshot import MarketSnapshot
+from domain.contracts.risk_decision import RiskDecision
+from domain.contracts.strategy_signal import StrategySignal
+
+
+DEFAULT_ALPHA_ID = "ALPHA007"
+DEFAULT_ALPHA_VERSION = "v1.6"
+SESSION_POLICY_VERSION = "v2.1"
+EXECUTION_PIPELINE_VERSION = "v3.4"
+LAB_CONFIGURATION_VERSION = "v8"
+TRADE_PLAN_VERSION = "TP v5"
+EXECUTION_ENGINE_VERSION = "ExecutionEngine v1"
+INDICATOR_BUNDLE_VERSION = "Indicators v9"
+MICROSTRUCTURE_VERSION = "Micro v2"
+VALIDATION_PIPELINE_VERSION = "VAL v4"
+STRATEGY_DEFINITION_VERSION = "STRAT v3"
+
+
+@dataclass(frozen=True)
+class MT5DemoRobotSignal:
+    """Sinal avaliado pelo robo temporal a partir do modelo ativo."""
+
+    symbol: str
+    timeframe: str
+    candle_time: str
+    decision: str
+    confidence: float
+    active_model: str
+    reason: str
+    alpha_id: str = DEFAULT_ALPHA_ID
+    alpha_version: str = DEFAULT_ALPHA_VERSION
+    lab_configuration_version: str = LAB_CONFIGURATION_VERSION
+    indicator_bundle_version: str = INDICATOR_BUNDLE_VERSION
+    microstructure_version: str = MICROSTRUCTURE_VERSION
+    validation_pipeline_version: str = VALIDATION_PIPELINE_VERSION
+    strategy_definition_version: str = STRATEGY_DEFINITION_VERSION
+    technical_score: float = 0.0
+    historical_confirmation: float = 0.0
+    temporal_blocked: bool = False
+    temporal_status: str = "N/D"
+    temporal_reason: str = ""
+    session_filter_enabled: bool = False
+    session_filter_result: str = "ALLOWED"
+    session_filter_reason: str = ""
+    forex_session: str = "N/D"
+    forex_session_open: bool = False
+    timestamp_utc: str = "N/D"
+    timestamp_brt: str = "N/D"
+    weekday: str = "N/D"
+    is_rollover: bool = False
+    is_london_ny_overlap: bool = False
+    is_sunday_open: bool = False
+    is_friday_late: bool = False
+    macro_event_blocked: bool = False
+    macro_event_reason: str = ""
+    last_price: float | None = None
+    trend: str = "INDEFINIDA"
+    momentum: float | None = None
+    volatility: float | None = None
+    rsi: float | None = None
+    short_average: float | None = None
+    long_average: float | None = None
+    mid_average: float | None = None
+    ema_fast: float | None = None
+    ema_mid: float | None = None
+    ema_slow: float | None = None
+    atr: float | None = None
+    support: float | None = None
+    resistance: float | None = None
+    swing_high: float | None = None
+    swing_low: float | None = None
+
+
+@dataclass(frozen=True)
+class MT5DemoTradePlan:
+    """Plano de trade ja produzido pela camada de pesquisa."""
+
+    symbol: str
+    timeframe: str
+    entry_price: float
+    stop: float
+    target: float
+    risk_reward: float
+    source: str = "RESEARCH_LAB"
+    status: str = "PLANO_VALIDO"
+    stop_reason: str = ""
+    target_reason: str = ""
+    exit_model: str = "NONE"
+    trade_plan_version: str = TRADE_PLAN_VERSION
+
+
+@dataclass(frozen=True)
+class MT5DemoRobotResult:
+    """Resultado de uma avaliacao temporal do robo MT5 Demo."""
+
+    status: str
+    message: str
+    symbol: str
+    timeframe: str
+    candle_time: str
+    decision: str
+    executed: bool = False
+    execution_result: ExecutionResult | None = None
+    trade_plan: MT5DemoTradePlan | None = None
+
+
+@dataclass
+class MT5DemoRobotService:
+    """Executa apenas entradas autorizadas pelo regime em conta MT5 Demo."""
+
+    execution_service: DemoExecutionService = field(default_factory=DemoExecutionService)
+    market_regime_pipeline: MarketRegimePipeline = field(
+        default_factory=MarketRegimePipeline
+    )
+    enabled: bool = False
+    volume: float = 0.1
+    last_candle_by_market: dict[tuple[str, str], str] = field(default_factory=dict)
+    last_decision_by_market: dict[tuple[str, str], str] = field(default_factory=dict)
+
+    def evaluate_once(
+        self,
+        signal: MT5DemoRobotSignal,
+        trade_plan: MT5DemoTradePlan,
+    ) -> MT5DemoRobotResult:
+        """Avalia um candle novo e executa somente regime autorizado."""
+        key = self._market_key(signal.symbol, signal.timeframe)
+        if not self.enabled:
+            return self._result(
+                "DISABLED",
+                "Kill switch demo ativo. Robo temporal nao executou.",
+                signal,
+                trade_plan,
+            )
+        if self.last_candle_by_market.get(key) == signal.candle_time:
+            return self._result(
+                "NO_NEW_CANDLE",
+                "Candle ja avaliado pelo robo temporal.",
+                signal,
+                trade_plan,
+            )
+
+        previous_decision = self.last_decision_by_market.get(key, "WAIT")
+        current_decision = str(signal.decision).upper()
+        self.last_candle_by_market[key] = signal.candle_time
+        self.last_decision_by_market[key] = current_decision
+
+        if current_decision not in {"BUY", "SELL"}:
+            return self._result(
+                "NO_SIGNAL",
+                "Modelo ativo nao gerou BUY/SELL no candle novo.",
+                signal,
+                trade_plan,
+            )
+        regime_result = self.market_regime_pipeline.evaluate(signal)
+        if not regime_result.authorized:
+            return self._result(
+                regime_result.block_reason or "REGIME_BLOCKED",
+                regime_result.message or "Regime de mercado nao autorizou entrada.",
+                signal,
+                trade_plan,
+            )
+        if regime_result.direction != current_decision:
+            return self._result(
+                "REGIME_DIRECTION_MISMATCH",
+                (
+                    "Regime autorizou "
+                    f"{regime_result.direction}, mas o sinal atual e {current_decision}."
+                ),
+                signal,
+                trade_plan,
+            )
+        if signal.temporal_blocked and signal.session_filter_enabled:
+            return self._result(
+                "TEMPORAL_BLOCKED",
+                signal.temporal_reason
+                or f"Bloqueio temporal do Research Lab: {signal.temporal_status}.",
+                signal,
+                trade_plan,
+            )
+        if signal.macro_event_blocked:
+            return self._result(
+                "MACRO_EVENT_BLOCKED",
+                signal.macro_event_reason
+                or "Bloqueio por evento macroeconomico ativo.",
+                signal,
+                trade_plan,
+            )
+        validation_message = self._trade_plan_validation(signal, trade_plan)
+        if validation_message:
+            return self._result(
+                "NO_TRADE_PLAN",
+                validation_message,
+                signal,
+                trade_plan,
+            )
+
+        context = self.execution_service.decision_pipeline.processar(
+            StrategySignal(
+                current_decision,
+                int(round(float(signal.confidence) * 100)),
+                float(signal.confidence),
+                [signal.reason],
+            ),
+            MarketSnapshot(
+                symbol=signal.symbol,
+                datetime=signal.candle_time,
+                regime=signal.active_model,
+                volatility=0.0,
+                liquidity=0.0,
+                trend_strength=0.0,
+                market_dna_score=float(signal.confidence) * 100.0,
+            ),
+            RiskDecision(
+                True,
+                "Risco aprovado pelo robo demo temporal.",
+                self.volume,
+                1.0,
+            ),
+        )
+        order = ExecutionOrder(
+            symbol=trade_plan.symbol,
+            side=current_decision,
+            quantity=self.volume,
+            entry_price=float(trade_plan.entry_price),
+            stop=float(trade_plan.stop),
+            target=float(trade_plan.target),
+        )
+        self.execution_service.pending_audit_metadata = {
+            "alpha_id": signal.alpha_id,
+            "alpha_version": signal.alpha_version,
+            "session_policy_version": SESSION_POLICY_VERSION,
+            "execution_pipeline_version": EXECUTION_PIPELINE_VERSION,
+            "lab_configuration_version": signal.lab_configuration_version,
+            "trade_plan_version": trade_plan.trade_plan_version,
+            "execution_engine_version": EXECUTION_ENGINE_VERSION,
+            "indicator_bundle_version": signal.indicator_bundle_version,
+            "microstructure_version": signal.microstructure_version,
+            "validation_pipeline_version": signal.validation_pipeline_version,
+            "strategy_definition_version": signal.strategy_definition_version,
+            "technical_score": signal.technical_score,
+            "historical_confirmation": signal.historical_confirmation,
+            "risk_reward": trade_plan.risk_reward,
+            "candle_time": signal.candle_time,
+            "mt5_position": "OPEN" if current_decision in {"BUY", "SELL"} else "N/D",
+            "forex_session": signal.forex_session,
+            "forex_session_open": signal.forex_session_open,
+            "session_filter_enabled": signal.session_filter_enabled,
+            "session_filter_result": signal.session_filter_result,
+            "session_reason": signal.session_filter_reason
+            or signal.temporal_reason
+            or signal.temporal_status,
+            "timestamp_utc": signal.timestamp_utc,
+            "timestamp_brt": signal.timestamp_brt,
+            "weekday": signal.weekday,
+            "is_rollover": signal.is_rollover,
+            "is_london_ny_overlap": signal.is_london_ny_overlap,
+            "is_sunday_open": signal.is_sunday_open,
+            "is_friday_late": signal.is_friday_late,
+        }
+        execution = self.execution_service.submit_demo_order(
+            context,
+            order,
+            paper_validated=True,
+        )
+        return MT5DemoRobotResult(
+            status="EXECUTED" if execution.accepted else "REJECTED",
+            message=execution.message,
+            symbol=signal.symbol,
+            timeframe=signal.timeframe,
+            candle_time=signal.candle_time,
+            decision=current_decision,
+            executed=execution.accepted,
+            execution_result=execution,
+            trade_plan=trade_plan,
+        )
+
+    def _trade_plan_validation(
+        self,
+        signal: MT5DemoRobotSignal,
+        trade_plan: MT5DemoTradePlan,
+    ) -> str:
+        if self._market_key(signal.symbol, signal.timeframe) != self._market_key(
+            trade_plan.symbol,
+            trade_plan.timeframe,
+        ):
+            return "Plano do Research Lab pertence a outro simbolo/timeframe."
+        if trade_plan.source != "RESEARCH_LAB":
+            return "Plano de trade nao veio do Research Lab."
+        if trade_plan.status != "PLANO_VALIDO":
+            return "Plano do Research Lab nao esta com status PLANO_VALIDO."
+        if trade_plan.risk_reward <= 0:
+            return "Plano do Research Lab sem RR valido."
+        if signal.decision == "BUY" and not (
+            trade_plan.stop < trade_plan.entry_price < trade_plan.target
+        ):
+            return "Plano BUY invalido: stop/entrada/alvo inconsistentes."
+        if signal.decision == "SELL" and not (
+            trade_plan.target < trade_plan.entry_price < trade_plan.stop
+        ):
+            return "Plano SELL invalido: alvo/entrada/stop inconsistentes."
+        return ""
+
+    def _result(
+        self,
+        status: str,
+        message: str,
+        signal: MT5DemoRobotSignal,
+        trade_plan: MT5DemoTradePlan | None,
+    ) -> MT5DemoRobotResult:
+        return MT5DemoRobotResult(
+            status=status,
+            message=message,
+            symbol=signal.symbol,
+            timeframe=signal.timeframe,
+            candle_time=signal.candle_time,
+            decision=signal.decision,
+            trade_plan=trade_plan,
+        )
+
+    def _market_key(self, symbol: str, timeframe: str) -> tuple[str, str]:
+        return (str(symbol).upper(), str(timeframe).upper())
