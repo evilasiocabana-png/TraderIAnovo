@@ -7,6 +7,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | INFRA_INBOX_001 | Implantar infraestrutura operacional de execucao | completed | 2026-07-06 | 2026-07-06 | N/D | main | 79946a8, 5501725 | Codex |
 | MISSION_TIA-001 | Mapear fluxo operacional TraderIA | completed | 2026-07-07 | 2026-07-07 | N/D | main | 85398d7 | Codex |
 | MISSION_TIA-002 | Criar template oficial de melhoria GPT | completed | 2026-07-07 | 2026-07-07 | N/D | main | 33c5121 | Codex |
+| MISSION_TIA-003 | Indexar Alfas, setups e contratos | completed | 2026-07-07 | 2026-07-07 | N/D | main | pendente | Codex |
 
 ## Regras
 

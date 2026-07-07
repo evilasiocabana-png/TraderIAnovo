@@ -37,6 +37,21 @@ Arquivos de referencia:
 Toda melhoria desenhada no GPT deve usar esse template para gerar pacote de
 missao completo em `codex/inbox`.
 
+## Camada 3 - Rastreabilidade Alpha/Setup/Contratos
+
+Arquivos de referencia:
+
+- `governance/traceability/TRACEABILITY_INDEX.md`
+- `governance/traceability/ALPHA_INDEX.md`
+- `governance/traceability/SETUP_INDEX.md`
+- `governance/traceability/LAB_TO_FOREX_CONTRACT.md`
+- `governance/traceability/FOREX_TO_MT5_CONTRACT.md`
+- `governance/traceability/REPORT_CONTRACT.md`
+- `governance/traceability/TRACEABILITY_MATRIX.md`
+
+Toda mudanca em Alpha, setup, entrada, saida, timeframe, visual MT5 ou relatorio
+deve atualizar a rastreabilidade correspondente.
+
 ## Observacao Operacional
 
 O app local pode acessar recursos locais e MT5 da maquina. O app em Codespaces

@@ -29,3 +29,7 @@
 - Criado guia `docs/GPT_MISSION_AUTHORING_GUIDE.md` para transformar ideias do
   GPT em pacotes seguros de `codex/inbox`.
 - Nenhum codigo operacional foi alterado.
+- Executada `MISSION_TIA-003_INDEXAR_ALFAS_SETUPS_E_CONTRATOS`.
+- Criada pasta `governance/traceability/` com indices de Alpha, setup, contratos
+  Lab -> Forex, Forex -> MT5, Relatorio e matriz ponta a ponta.
+- Nenhum codigo operacional foi alterado.

@@ -3,6 +3,13 @@
 Este documento mapeia entrada, saida, stop management e consumo operacional do
 setup calculado pelo Lab.
 
+Indices formais no GitHub:
+
+```text
+governance/traceability/SETUP_INDEX.md
+governance/traceability/TRACEABILITY_MATRIX.md
+```
+
 ## Conceito
 
 No TraderIA Novo, setup nao e apenas direcao BUY/SELL. Um setup operacional e a

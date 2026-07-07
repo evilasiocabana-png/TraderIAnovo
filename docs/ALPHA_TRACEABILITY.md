@@ -21,6 +21,12 @@ Trechos de referencia:
 - `_mt5_scenario_for_parameters()`
 - `_mt5_research_scenarios_for_row()`
 
+Indice formal no GitHub:
+
+```text
+governance/traceability/ALPHA_INDEX.md
+```
+
 ## Catalogo atual
 
 | Alpha | Modelo | Funcao candidata |

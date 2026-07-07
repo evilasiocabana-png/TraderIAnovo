@@ -98,3 +98,5 @@ mas nao snapshots pesados, logs, bancos locais, credenciais ou PID.
 - `docs/CHANGE_PROTOCOL.md`
 - `docs/LAB_FOREX_MT5_CONTRACT.md`
 - `docs/MT5_VISUAL_SIGNAL_CONTRACT.md`
+- `governance/traceability/TRACEABILITY_INDEX.md`
+- `governance/traceability/TRACEABILITY_MATRIX.md`
