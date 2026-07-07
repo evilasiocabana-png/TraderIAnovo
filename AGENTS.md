@@ -1,99 +1,301 @@
 # AGENTS.md
 
-## Projeto
+# TraderIA Novo — Guia Oficial para Agentes de Desenvolvimento
 
-TraderIA Novo e a copia operacional versionada no GitHub do sistema TraderIA.
-O repositorio contem codigo, testes, documentacao e governanca. O runtime real
-do MT5 e os resultados pesados do Lab ficam localmente em `.traderia/` e nao
-devem ser versionados.
+**Versão:** 1.0
 
-## Regra Principal Para Agentes
+**Status:** Ativo
 
-Antes de alterar codigo, leia:
+---
 
-1. `docs/PROJECT_CHARTER.md`
-2. `docs/ARCHITECTURE.md`
-3. `docs/MASTER_DEVELOPMENT_PLAN.md`
-4. `docs/ACCEPTANCE_CRITERIA.md`
-5. `docs/NEXT_MISSION.md`
+# Objetivo
 
-Depois execute a menor mudanca possivel, valide, registre em
-`docs/EXECUTION_LOG.md` quando a mudanca for relevante e faca commit/push.
+Este documento define como qualquer agente de IA deve trabalhar no projeto TraderIA Novo.
 
-## Limites Operacionais
+Seu propósito é garantir continuidade, rastreabilidade e consistência entre diferentes agentes (Codex, ChatGPT, Claude ou futuros agentes), independentemente do histórico da conversa.
 
-- Nao mover a pasta local do projeto.
-- Nao versionar `.traderia/`, `Python/`, logs, `.pid`, bancos locais,
-  snapshots grandes, credenciais ou compilados MT5.
-- Nao reativar ciclos automaticos bloqueantes no MT5 Forex.
-- Nao depender de `TraderIA_WDO` para o Lab da TraderIA Novo.
-- Nao enviar ordem real pelo indicador visual MT5.
-- Toda execucao MT5 deve respeitar modo demo/read-only salvo quando uma missao
-  explicita mudar esse contrato.
+Este documento é obrigatório.
 
-## Arquitetura De Trabalho
+Todo agente deve lê-lo antes de executar qualquer tarefa.
 
-- UI: `dashboard_app.py`
-- Fachada da aplicacao: `application/dashboard_service.py`
-- Contratos de tela: `application/dashboard_view_model.py`
-- Lab: `research/`, `application/research_lab_service.py` e estado local em
-  `.traderia/`
-- MT5: `application/mt5_market_data_service.py`, `infrastructure/mt5/` e
-  providers em `infrastructure/`
-- Execucao demo: `application/mt5_demo_robot_service.py` e
-  `infrastructure/execution/`
-- Governanca: `codex/`, `governance/`, `docs/`
+---
 
-## Como Rodar
+# Fonte da Verdade
 
-App local da TraderIA Novo:
-
-```powershell
-python -m streamlit run dashboard_app.py --server.port 8532 --server.headless true
-```
-
-Configuracao recomendada da sessao:
-
-```powershell
-$env:TRADERIA_APP_TITLE='TraderIA Novo'
-$env:TRADERIA_FAST_BOOT_ENABLED='0'
-$env:TRADERIA_MT5_FOREX_AUTO_CYCLE_ENABLED='0'
-$env:TRADERIA_MT5_INITIAL_LOAD_ENABLED='0'
-$env:TRADERIA_MT5_REPORT_FORCE_LOAD_ENABLED='0'
-$env:TRADERIA_MT5_LAB_ALLOW_LIVE_RECALC='0'
-```
-
-## Validacao Minima
-
-Antes de entregar mudanca de codigo:
-
-```powershell
-$env:PYTHONDONTWRITEBYTECODE='1'
-python -m py_compile dashboard_app.py application\dashboard_service.py
-```
-
-Quando aplicavel, execute testes focados em `tests/`.
-
-## Politica Do Lab
-
-O motor do Lab roda localmente na propria TraderIA Novo. Resultados ficam em:
+A fonte oficial do projeto é composta por:
 
 ```text
-.traderia/mt5_research_snapshot.json
-.traderia/mt5_research_history_snapshot.json
-.traderia/traderia_mt5_history.sqlite
+governance/PROJECT_STATE.md
+governance/NEXT_MISSION.md
+governance/PROGRAM_STATUS.md
+governance/ACCEPTANCE_CRITERIA.md
+docs/ARCHITECTURE.md
 ```
 
-O GitHub recebe o codigo que sabe ler/atualizar esses arquivos, nao os arquivos
-pesados em si.
+O contexto da conversa nunca substitui esses documentos.
 
-## Politica Do MT5 Forex
+---
 
-A aba MT5 Forex deve abrir rapida, usando o ultimo estado local/snapshot.
-Atualizacoes bloqueantes por ciclo nao devem ser reintroduzidas na tela.
+# Ordem Obrigatória de Leitura
 
-## Politica Da Aba Relatorios
+Antes de iniciar qualquer missão, leia exatamente nesta ordem:
 
-A aba Relatorios carrega auditoria local uma vez, guarda cache de sessao e
-atualiza somente pelo botao `Atualizar auditoria MT5`.
+1. PROJECT_STATE.md
+2. NEXT_MISSION.md
+3. PROGRAM_STATUS.md
+4. ACCEPTANCE_CRITERIA.md
+5. ARCHITECTURE.md
+6. EXECUTION_LOG.md
 
+Somente após essa leitura o desenvolvimento pode começar.
+
+---
+
+# Filosofia do Projeto
+
+O TraderIA Novo evolui por pequenas missões.
+
+Cada alteração deve ser:
+
+* pequena;
+* isolada;
+* testável;
+* reversível;
+* documentada;
+* rastreável.
+
+Não realizar grandes refatorações sem missão explícita.
+
+---
+
+# Fluxo Oficial
+
+```text
+PROJECT_STATE
+        ↓
+NEXT_MISSION
+        ↓
+Codex executa
+        ↓
+Validação
+        ↓
+EXECUTION_LOG
+        ↓
+PROGRAM_STATUS
+        ↓
+PROJECT_STATE
+        ↓
+Commit
+        ↓
+Push
+```
+
+---
+
+# Regras Gerais
+
+Sempre:
+
+* preservar funcionamento do projeto;
+* produzir alterações pequenas;
+* atualizar documentação quando necessário;
+* manter compatibilidade com a arquitetura existente;
+* registrar execução.
+
+Nunca:
+
+* alterar funcionalidades fora da missão;
+* criar arquitetura paralela;
+* remover funcionalidades existentes sem autorização;
+* modificar runtime local.
+
+---
+
+# Runtime Local
+
+O runtime local pertence ao usuário.
+
+Nunca deve ser versionado.
+
+Inclui:
+
+```text
+.traderia/
+```
+
+Contendo:
+
+* snapshots;
+* SQLite;
+* logs;
+* cache;
+* JSONL;
+* arquivos temporários.
+
+Esses arquivos permanecem fora do Git.
+
+---
+
+# GitHub
+
+GitHub armazena apenas:
+
+* código-fonte;
+* documentação;
+* governança;
+* testes;
+* contratos.
+
+Nunca armazenar artefatos locais pesados.
+
+---
+
+# Execução das Missões
+
+Cada missão deve seguir exatamente o seguinte fluxo:
+
+1. Ler a missão.
+2. Validar dependências.
+3. Executar somente o escopo definido.
+4. Rodar validações.
+5. Atualizar documentação.
+6. Registrar execução.
+7. Gerar commit.
+8. Fazer push.
+
+---
+
+# Critérios de Qualidade
+
+Toda alteração deve:
+
+* compilar;
+* preservar o funcionamento da aplicação;
+* não degradar desempenho;
+* não introduzir dependências desnecessárias;
+* manter compatibilidade com o estado atual do projeto.
+
+---
+
+# Critérios de Segurança
+
+É proibido:
+
+* executar operações reais de mercado;
+* enviar ordens financeiras;
+* modificar credenciais;
+* armazenar segredos no repositório;
+* alterar configurações locais do usuário sem autorização.
+
+---
+
+# Fluxo das Missões
+
+Cada missão percorre:
+
+```text
+codex/inbox
+        ↓
+codex/processing
+        ↓
+codex/completed
+```
+
+Se houver falha:
+
+```text
+codex/failed
+```
+
+Cada missão deve possuir:
+
+* identificador;
+* objetivo;
+* arquivos envolvidos;
+* critérios de aceite;
+* resultado esperado;
+* data;
+* executor.
+
+---
+
+# Atualizações Obrigatórias
+
+Ao concluir uma missão atualizar:
+
+* PROJECT_STATE.md
+* PROGRAM_STATUS.md
+* NEXT_MISSION.md
+* EXECUTION_LOG.md
+
+Quando aplicável:
+
+* ROADMAP.md
+* BACKLOG.md
+* CHANGELOG.md
+
+---
+
+# Commits
+
+Os commits devem ser:
+
+* pequenos;
+* descritivos;
+* relacionados a apenas uma missão.
+
+Exemplo:
+
+```text
+feat(governance): implement PROJECT_STATE
+
+fix(mt5): remove blocking refresh
+
+docs: update execution log
+```
+
+---
+
+# Pull Requests
+
+Quando utilizados, devem conter:
+
+* objetivo;
+* resumo das alterações;
+* arquivos modificados;
+* validações executadas;
+* riscos conhecidos.
+
+---
+
+# Critérios de Aceite
+
+Uma missão somente pode ser considerada concluída quando:
+
+* implementação finalizada;
+* validações executadas;
+* documentação atualizada;
+* estado do projeto atualizado;
+* commit realizado;
+* nenhum erro crítico restante.
+
+---
+
+# Princípios
+
+1. Preservar estabilidade.
+2. Evoluir incrementalmente.
+3. Documentar tudo.
+4. Automatizar sempre que possível.
+5. Nunca depender do contexto do chat.
+6. O repositório deve carregar seu próprio estado.
+7. Toda decisão relevante deve ser rastreável.
+8. O código deve permanecer legível.
+9. Mudanças devem ser reversíveis.
+10. Governança é parte do produto.
+
+---
+
+# Missão do Agente
+
+O objetivo de todo agente é manter o TraderIA Novo saudável, rastreável e evoluindo continuamente, garantindo que qualquer outro agente possa assumir o desenvolvimento apenas lendo a documentação do repositório.
