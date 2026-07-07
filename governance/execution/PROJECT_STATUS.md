@@ -64,6 +64,18 @@ mas a gestao demo MT5 aplica ajuste dinamico de SL/TP apenas para `BREAK_EVEN` e
 `ATR_TRAILING_STOP`. Qualquer ampliacao de saida dinamica deve ser feita por
 missao especifica e com testes do contrato Lab -> Forex -> MT5 -> Relatorio.
 
+## Camada 5 - Desenho de Saida Dinamica
+
+Arquivos de referencia:
+
+- `docs/DYNAMIC_EXIT_DESIGN.md`
+- `governance/traceability/DYNAMIC_EXIT_TRACEABILITY.md`
+
+O desenho define que a saida dinamica deve nascer como contrato read-only antes
+de qualquer acao real no MT5 demo. O Lab continua decidindo a politica base, o
+Forex transporta e observa contexto leve, o MT5 consome plano e o Relatorio
+audita. A proxima etapa segura e implementar apenas campos read-only.
+
 ## Observacao Operacional
 
 O app local pode acessar recursos locais e MT5 da maquina. O app em Codespaces

@@ -3,12 +3,12 @@
 Proxima missao recomendada, ainda nao autorizada automaticamente:
 
 ```text
-MISSION_TIA-005_PROJETAR_SAIDA_DINAMICA_BASEADA_EM_LEITURA_DE_MERCADO
+MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY
 ```
 
-Objetivo sugerido: projetar a saida dinamica por ativo, setup e timeframe,
-considerando leitura de mercado, posicao aberta, regime de volatilidade,
-tendencia/momentum e politica escolhida pelo Lab.
+Objetivo sugerido: implementar apenas campos e contratos read-only para a saida
+dinamica, com testes de preservacao Lab -> Forex -> MT5 -> Relatorio. Esta
+missao nao deve executar gestao real de SL/TP.
 
 Para executar, coloque um pacote em `codex/inbox/` e solicite:
 

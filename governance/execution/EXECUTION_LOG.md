@@ -39,3 +39,9 @@
 - Constatado que o Lab avalia 9 politicas de saida, enquanto a gestao demo MT5
   aplica SL/TP dinamico apenas para `BREAK_EVEN` e `ATR_TRAILING_STOP`.
 - Nenhum codigo operacional foi alterado.
+- Executada `MISSION_TIA-005_PROJETAR_SAIDA_DINAMICA_BASEADA_EM_LEITURA_DE_MERCADO`.
+- Criado desenho `docs/DYNAMIC_EXIT_DESIGN.md`.
+- Criada rastreabilidade `governance/traceability/DYNAMIC_EXIT_TRACEABILITY.md`.
+- Definida proxima etapa segura: contrato de saida dinamica read-only antes de
+  qualquer gestao real de SL/TP.
+- Nenhum codigo operacional foi alterado.

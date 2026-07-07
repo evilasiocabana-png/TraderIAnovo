@@ -19,7 +19,7 @@ main
 Missao:
 
 ```text
-MISSION_TIA-004_ANALISAR_STOPS_MOVEIS
+MISSION_TIA-005_PROJETAR_SAIDA_DINAMICA_BASEADA_EM_LEITURA_DE_MERCADO
 ```
 
 Status:
@@ -31,8 +31,7 @@ completed
 Commits:
 
 ```text
-4fb57f3 Document TraderIA stop management audit
-85ad65d Record TraderIA stop audit completion
+PENDENTE Execute MISSION_TIA-005 - dynamic exit design
 ```
 
 ## Arquivos Que Confirmam a Execucao
@@ -40,19 +39,19 @@ Commits:
 Relatorio da missao:
 
 ```text
-codex/completed/MISSION_TIA-004_ANALISAR_STOPS_MOVEIS/EXECUTION_REPORT.md
+codex/completed/MISSION_TIA-005_PROJETAR_SAIDA_DINAMICA_BASEADA_EM_LEITURA_DE_MERCADO/EXECUTION_REPORT.md
 ```
 
 Auditoria principal:
 
 ```text
-docs/MOBILE_STOPS_ANALYSIS.md
+docs/DYNAMIC_EXIT_DESIGN.md
 ```
 
 Rastreabilidade:
 
 ```text
-governance/traceability/STOP_LOGIC_TRACEABILITY.md
+governance/traceability/DYNAMIC_EXIT_TRACEABILITY.md
 ```
 
 Registro de governanca:
