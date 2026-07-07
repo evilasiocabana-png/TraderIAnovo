@@ -1026,11 +1026,16 @@ def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None
             )
         except Exception:
             pass
-    data = replace(
-        service.get_light_dashboard_view_model(),
-        mt5_trade_audit=service.get_mt5_trade_audit_report(),
-    )
     st.subheader("Relatorios")
+    report_cache_key = "mt5_trade_audit_report_cache"
+    if st.button("Atualizar auditoria MT5", key="mt5_report_refresh_audit"):
+        st.session_state[report_cache_key] = service.get_mt5_trade_audit_report()
+    cached_report = st.session_state.get(report_cache_key)
+    if cached_report is not None:
+        data = replace(
+            service.get_light_dashboard_view_model(),
+            mt5_trade_audit=cached_report,
+        )
     online_status = _demo_robot_online_status(data)
     status_columns = st.columns([0.12, 0.9, 1.8])
     with status_columns[0]:
@@ -1045,9 +1050,10 @@ def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None
                 _forex_session_filter_ui_value(),
             )
             _arm_all_demo_robot_from_reports(service, data)
+            st.session_state[report_cache_key] = service.get_mt5_trade_audit_report()
             data = replace(
                 service.get_light_dashboard_view_model(),
-                mt5_trade_audit=service.get_mt5_trade_audit_report(),
+                mt5_trade_audit=st.session_state[report_cache_key],
             )
     _render_forex_session_filter_checkbox(
         status_columns[2],
@@ -1057,7 +1063,10 @@ def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None
         "Historico das negociacoes originadas no TraderIA confrontado com o "
         "historico da plataforma MT5. Esta aba e somente leitura."
     )
-    st.caption("Atualizacao automatica a cada ciclo Forex/MT5 enquanto a aba esta aberta.")
+    st.caption(
+        "Auditoria MT5 sob demanda para manter o dashboard leve. Use "
+        "Atualizar auditoria MT5 quando quiser confrontar com o historico."
+    )
     report = getattr(data, "mt5_trade_audit", None)
     if report is None:
         st.info("Relatorio de negociacoes MT5 indisponivel no ViewModel.")
@@ -3792,11 +3801,21 @@ def exibir_research_lab(service: DashboardService) -> None:
     """Exibe o laboratorio quantitativo."""
     st.subheader("Research Lab")
     exibir_research_lab_actions(service)
-    data = replace(
-        service.get_dashboard_view_model(),
-        mt5_heuristic_research=service.get_mt5_research_report_snapshot(),
+    show_full_lab_audit = st.checkbox(
+        "Mostrar auditoria completa do Lab",
+        value=False,
+        key="research_show_full_lab_audit",
     )
-    exibir_research_lab_data(service, data)
+    research_snapshot = (
+        service.get_mt5_research_report_snapshot()
+        if show_full_lab_audit
+        else service.get_mt5_research_constants()
+    )
+    data = replace(
+        service.get_light_dashboard_view_model(),
+        mt5_heuristic_research=research_snapshot,
+    )
+    exibir_research_lab_data(service, data, include_full_audit=show_full_lab_audit)
 
 
 def exibir_research_lab_actions(service: DashboardService) -> None:
@@ -3866,11 +3885,22 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
     )
 
 
-def exibir_research_lab_data(service: DashboardService, data: object) -> None:
+def exibir_research_lab_data(
+    service: DashboardService,
+    data: object,
+    *,
+    include_full_audit: bool = False,
+) -> None:
     """Exibe os dados consolidados do Research Lab."""
     exibir_research_lab_layers(service)
     exibir_mt5_setup_suggestions(service)
-    exibir_mt5_alpha_research_report(service)
+    if include_full_audit:
+        exibir_mt5_alpha_research_report(service)
+    else:
+        st.caption(
+            "Auditoria completa do Lab ocultada para manter a tela leve. "
+            "Marque a opcao acima para carregar ranking detalhado e evidencias."
+        )
     exibir_mt5_heuristic_research_lab(data)
 
 
