@@ -17,7 +17,7 @@ completed
 Commits:
 
 ```text
-PENDENTE Execute MISSION_TIA-014 dynamic break-even demo authorization
+b21f240 Execute MISSION_TIA-014 dynamic break-even demo authorization
 ```
 
 ## Arquivos Que Confirmam a Execucao
