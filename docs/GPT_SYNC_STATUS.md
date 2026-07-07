@@ -17,7 +17,7 @@ completed
 Commits:
 
 ```text
-PENDENTE
+582bcb0
 ```
 
 ## Arquivos Que Confirmam a Execucao

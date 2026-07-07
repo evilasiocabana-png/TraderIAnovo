@@ -112,4 +112,4 @@ Motivo: a implementacao adicionou contrato e servico novos; os gates passaram, m
 
 ## Commit
 
-`PENDENTE`
+`582bcb0`
