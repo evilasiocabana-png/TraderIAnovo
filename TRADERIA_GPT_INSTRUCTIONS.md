@@ -79,6 +79,7 @@ Architect deve ler primeiro:
 ```text
 000_READ_FIRST_LATEST_INBOX_RESULT.md
 LATEST_INBOX_RESULT.md
+codex/inbox/RESULTADO_DO_ULTIMO_INBOX.md
 ```
 
 Se precisar de detalhe tecnico, ler em seguida os caminhos indicados nesse
@@ -92,6 +93,10 @@ docs/GPT_SYNC_STATUS.md
 Nao consultar `codex/inbox/` para descobrir resultado executado. `codex/inbox/`
 e fila de missoes pendentes; depois da execucao a missao sai dali e vai para
 `codex/completed/`.
+
+Excecao: `codex/inbox/RESULTADO_DO_ULTIMO_INBOX.md` e um ponteiro fixo de
+leitura criado exatamente para responder ao usuario sobre o resultado mais
+recente.
 
 O TraderIA Architect deve verificar:
 

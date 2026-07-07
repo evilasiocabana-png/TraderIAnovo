@@ -5,6 +5,17 @@ Este diretorio define o fluxo oficial de execucao por inbox do TraderIA.
 Objetivo: permitir que missoes tecnicas sejam colocadas em `codex/inbox/` e
 executadas pelo Codex com controle de estado, relatorio, testes, commit e push.
 
+## Resultado do Ultimo Inbox
+
+Para responder perguntas como "traga o ultimo resultado no inbox", leia:
+
+```text
+codex/inbox/RESULTADO_DO_ULTIMO_INBOX.md
+```
+
+Esse arquivo e apenas ponteiro de leitura e nao deve ser movido para
+`processing`.
+
 ## Fluxo Oficial
 
 ```text

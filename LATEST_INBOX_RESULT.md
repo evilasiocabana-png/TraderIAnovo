@@ -93,3 +93,10 @@ Se o usuario pedir o resultado do ultimo inbox, responda com base neste arquivo
 e, se precisar de detalhes, leia os arquivos listados acima. Nao responda que a
 missao nao foi executada sem antes verificar este arquivo e
 `docs/GPT_SYNC_STATUS.md`.
+
+Tambem existe um ponteiro dentro de `codex/inbox/` para consultas que procuram a
+palavra inbox:
+
+```text
+codex/inbox/RESULTADO_DO_ULTIMO_INBOX.md
+```
