@@ -22,6 +22,13 @@ class ReportService:
                 section="Lab",
                 status=lab.theoretical_entry,
                 detail=f"{lab.setup} / {lab.stop_management}",
+                dynamic_exit_policy=str(
+                    lab.parameters.get("dynamic_exit_policy", lab.stop_management)
+                ),
+                dynamic_exit_action=str(
+                    lab.parameters.get("dynamic_exit_action", "KEEP_ORIGINAL_PLAN")
+                ),
+                dynamic_exit_allowed_to_execute_demo=False,
             ),
         ]
 
@@ -38,6 +45,13 @@ class ReportService:
             "lab_timeframe": lab.timeframe,
             "lab_entry": lab.theoretical_entry,
             "lab_stop_management": lab.stop_management,
+            "dynamic_exit_policy": str(
+                lab.parameters.get("dynamic_exit_policy", lab.stop_management)
+            ),
+            "dynamic_exit_action": str(
+                lab.parameters.get("dynamic_exit_action", "KEEP_ORIGINAL_PLAN")
+            ),
+            "dynamic_exit_allowed_to_execute_demo": False,
             "audit_status": audit.status,
             "audit_rows": audit.total_rows,
         }

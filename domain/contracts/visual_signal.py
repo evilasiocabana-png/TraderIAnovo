@@ -14,5 +14,14 @@ class VisualSignal:
     setup: str
     reason: str
     stop_management: str
+    dynamic_exit_policy: str = "FIXED_STOP"
+    dynamic_exit_action: str = "KEEP_ORIGINAL_PLAN"
+    dynamic_exit_reason: str = "Saida dinamica read-only ainda sem ajuste operacional."
+    dynamic_exit_confidence: float = 0.0
+    dynamic_exit_market_state: str = "NO_POSITION"
+    dynamic_exit_r_multiple: float = 0.0
+    dynamic_exit_candidate_stop: float | None = None
+    dynamic_exit_allowed_to_execute_demo: bool = False
+    dynamic_exit_source: str = "DYNAMIC_EXIT_READ_ONLY"
     is_positioned: bool = False
     position_open_time: str | None = None

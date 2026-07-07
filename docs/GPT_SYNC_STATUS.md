@@ -39,7 +39,7 @@ main
 Missao:
 
 ```text
-MISSION_TIA-005_PROJETAR_SAIDA_DINAMICA_BASEADA_EM_LEITURA_DE_MERCADO
+MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY
 ```
 
 Status:
@@ -51,7 +51,7 @@ completed
 Commits:
 
 ```text
-5c572e6 Execute MISSION_TIA-005 dynamic exit design
+PENDENTE Execute MISSION_TIA-006 dynamic exit read-only contract
 ```
 
 ## Arquivos Que Confirmam a Execucao
@@ -59,19 +59,19 @@ Commits:
 Relatorio da missao:
 
 ```text
-codex/completed/MISSION_TIA-005_PROJETAR_SAIDA_DINAMICA_BASEADA_EM_LEITURA_DE_MERCADO/EXECUTION_REPORT.md
+codex/completed/MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY/EXECUTION_REPORT.md
 ```
 
 Auditoria principal:
 
 ```text
-docs/DYNAMIC_EXIT_DESIGN.md
+docs/DYNAMIC_EXIT_READ_ONLY_CONTRACT.md
 ```
 
 Rastreabilidade:
 
 ```text
-governance/traceability/DYNAMIC_EXIT_TRACEABILITY.md
+governance/traceability/DYNAMIC_EXIT_CONTRACT_TRACEABILITY.md
 ```
 
 Registro de governanca:

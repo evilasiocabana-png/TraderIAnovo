@@ -117,6 +117,7 @@ from application.system_service import SystemService, SystemStatus
 from core.mt5_process_probe import probe_mt5_initialize
 from core.operation_session import OperationSession
 from domain.contracts.decision_context import DecisionContext
+from domain.contracts.dynamic_exit import DynamicExitRecommendation
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
 from domain.contracts.market_snapshot import MarketSnapshot
@@ -3000,6 +3001,18 @@ class DashboardService:
                 operation_status="NAO_ENCONTRADA",
                 audit_status="NAO_ENCONTRADO_MT5",
                 audit_message="Ticket local aceito nao encontrado no historico MT5.",
+                dynamic_exit_policy=str(
+                    record.get("dynamic_exit_policy") or record.get("stop_management") or "N/D"
+                ),
+                dynamic_exit_action=str(
+                    record.get("dynamic_exit_action") or "N/D"
+                ),
+                dynamic_exit_reason=str(
+                    record.get("dynamic_exit_reason") or "N/D"
+                ),
+                dynamic_exit_allowed_to_execute_demo=bool(
+                    record.get("dynamic_exit_allowed_to_execute_demo") is True
+                ),
             )
         checks = self._mt5_trade_checks(record, mt5_record)
         status = "CONFERE" if all(checks.values()) else "DIVERGENTE"
@@ -3034,6 +3047,14 @@ class DashboardService:
             mt5_time=str(mt5_record.get("time") or "N/D"),
             audit_status=status,
             audit_message=message,
+            dynamic_exit_policy=str(
+                record.get("dynamic_exit_policy") or record.get("stop_management") or "N/D"
+            ),
+            dynamic_exit_action=str(record.get("dynamic_exit_action") or "N/D"),
+            dynamic_exit_reason=str(record.get("dynamic_exit_reason") or "N/D"),
+            dynamic_exit_allowed_to_execute_demo=bool(
+                record.get("dynamic_exit_allowed_to_execute_demo") is True
+            ),
         )
 
     def _mt5_operation_status(self, mt5_record: dict[str, Any]) -> str:
@@ -4240,6 +4261,10 @@ class DashboardService:
             certification_usage=lab_ict_usage,
             certification_rejection_reasons=lab_ict_rejection_reasons,
         )
+        dynamic_exit = self._mt5_dynamic_exit_recommendation(
+            analysis_row,
+            research_plan,
+        )
         return DashboardMT5ForexSignalRowViewModel(
             pair=row.pair,
             status=analysis_row.status,
@@ -4354,6 +4379,17 @@ class DashboardService:
                 research_plan.stop_management_parameters
             ),
             research_plan_stop_management_reason=research_plan.stop_management_reason,
+            dynamic_exit_policy=dynamic_exit.policy,
+            dynamic_exit_action=dynamic_exit.action,
+            dynamic_exit_reason=dynamic_exit.reason,
+            dynamic_exit_confidence=dynamic_exit.confidence,
+            dynamic_exit_market_state=dynamic_exit.market_state,
+            dynamic_exit_r_multiple=dynamic_exit.r_multiple,
+            dynamic_exit_candidate_stop=dynamic_exit.candidate_stop,
+            dynamic_exit_allowed_to_execute_demo=(
+                dynamic_exit.allowed_to_execute_demo
+            ),
+            dynamic_exit_source=dynamic_exit.source,
             research_plan_reason=research_plan.reason,
             research_plan_invalid_reason=research_plan.invalid_reason,
             research_plan_invalid_fields=research_plan.invalid_fields,
@@ -4362,6 +4398,61 @@ class DashboardService:
             research_plan_rr_current=research_plan.rr_current,
             research_plan_rr_minimum=research_plan.rr_minimum,
             research_plan_diagnostics=research_plan.diagnostics,
+        )
+
+    def _mt5_dynamic_exit_recommendation(
+        self,
+        row: object,
+        research_plan: object,
+    ) -> DynamicExitRecommendation:
+        """Cria recomendacao de saida dinamica sem autorizar execucao demo."""
+        policy = str(getattr(research_plan, "stop_management", "FIXED_STOP") or "FIXED_STOP")
+        status = str(getattr(research_plan, "status", "SEM_PLANO") or "SEM_PLANO")
+        if status != "PLANO_VALIDO":
+            return DynamicExitRecommendation(
+                policy=policy,
+                action="NO_ACTION_BAD_CONTEXT",
+                reason="Plano invalido ou ausente; saida dinamica mantida apenas em auditoria.",
+                confidence=0.0,
+                market_state="BAD_EXECUTION_CONTEXT",
+                allowed_to_execute_demo=False,
+            )
+        trend = str(getattr(row, "trend", "INDEFINIDA") or "INDEFINIDA").upper()
+        momentum = abs(float(getattr(row, "momentum", 0.0) or 0.0))
+        volatility = abs(float(getattr(row, "volatility", 0.0) or 0.0))
+        trending = trend in {"ALTA", "BAIXA"} and momentum > 0.0
+        if policy == "BREAK_EVEN" and trending and volatility >= 0.0003:
+            action = "KEEP_ORIGINAL_PLAN"
+            reason = (
+                "Read-only: BREAK_EVEN preservado como politica base, mas sem "
+                "execucao demo; tendencia/volatilidade pedem auditoria antes de proteger cedo."
+            )
+            market_state = "TREND_RUNNER"
+            confidence = 0.55
+        elif policy == "ATR_TRAILING_STOP" and trending:
+            action = "TRAIL_BY_ATR"
+            reason = "Read-only: tendencia favorece acompanhamento por ATR, sem alterar SL/TP."
+            market_state = "TREND_RUNNER"
+            confidence = 0.60
+        elif policy == "TIME_STOP":
+            action = "TIME_DECAY_EXIT_WATCH"
+            reason = "Read-only: saida temporal deve ser observada sem execucao automatica."
+            market_state = "TIME_DECAY"
+            confidence = 0.45
+        else:
+            action = "KEEP_ORIGINAL_PLAN"
+            reason = "Read-only: politica base do Lab preservada; execucao demo desabilitada."
+            market_state = "NEW_POSITION"
+            confidence = 0.40
+        return DynamicExitRecommendation(
+            policy=policy,
+            action=action,
+            reason=reason,
+            confidence=confidence,
+            market_state=market_state,
+            r_multiple=0.0,
+            candidate_stop=getattr(research_plan, "stop", None),
+            allowed_to_execute_demo=False,
         )
 
     def _latest_mt5_forex_row_for_timeframe(

@@ -45,3 +45,9 @@
 - Definida proxima etapa segura: contrato de saida dinamica read-only antes de
   qualquer gestao real de SL/TP.
 - Nenhum codigo operacional foi alterado.
+- Executada `MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY`.
+- Criado contrato `dynamic_exit_*` read-only em contratos, view model, JSON MT5
+  visual e auditoria.
+- Mantido `dynamic_exit_allowed_to_execute_demo=false`.
+- Nenhuma execucao real de SL/TP foi adicionada.
+- Testes focados passaram com 9 testes OK.

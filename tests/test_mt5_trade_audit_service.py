@@ -16,3 +16,10 @@ class MT5TradeAuditServiceTest(unittest.TestCase):
         self.assertEqual(report.total_rows, len(signals))
         self.assertEqual(report.total_open_positions, 0)
         self.assertTrue(all(row.lab_decision == lab.theoretical_entry for row in report.rows))
+        self.assertTrue(
+            all(row.dynamic_exit_policy == "ATR_TRAILING_STOP" for row in report.rows)
+        )
+        self.assertTrue(all(row.dynamic_exit_action for row in report.rows))
+        self.assertTrue(
+            all(row.dynamic_exit_allowed_to_execute_demo is False for row in report.rows)
+        )

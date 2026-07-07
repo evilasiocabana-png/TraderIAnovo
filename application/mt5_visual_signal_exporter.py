@@ -94,6 +94,7 @@ class MT5VisualSignalExporter:
             "source": "TraderIA",
             "mode": "VISUAL_ONLY",
             "read_only": True,
+            "execution_allowed": False,
             "order_execution": "NOT_ALLOWED_BY_INDICATOR",
             "timeframe": forex.timeframe,
             "signals": signals,
@@ -158,6 +159,17 @@ class MT5VisualSignalExporter:
             "stop_management": row.research_plan_stop_management,
             "stop_management_parameters": row.research_plan_stop_management_parameters,
             "stop_management_reason": row.research_plan_stop_management_reason,
+            "dynamic_exit_policy": row.dynamic_exit_policy,
+            "dynamic_exit_action": row.dynamic_exit_action,
+            "dynamic_exit_reason": row.dynamic_exit_reason,
+            "dynamic_exit_confidence": row.dynamic_exit_confidence,
+            "dynamic_exit_market_state": (
+                self._dynamic_exit_market_state(row, is_positioned=is_positioned)
+            ),
+            "dynamic_exit_r_multiple": row.dynamic_exit_r_multiple,
+            "dynamic_exit_candidate_stop": row.dynamic_exit_candidate_stop,
+            "dynamic_exit_allowed_to_execute_demo": False,
+            "dynamic_exit_source": row.dynamic_exit_source,
             "operational_plan_text": "",
             "model": row.active_model,
             "score": row.active_model_score,
@@ -409,6 +421,19 @@ class MT5VisualSignalExporter:
         if row.decision in {"BUY", "SELL"}:
             return "MONITORANDO_GATILHO"
         return "AGUARDANDO_GATILHO"
+
+    def _dynamic_exit_market_state(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        *,
+        is_positioned: bool,
+    ) -> str:
+        if not is_positioned:
+            return "NO_POSITION"
+        market_state = str(row.dynamic_exit_market_state or "").strip().upper()
+        if market_state and market_state != "NO_POSITION":
+            return market_state
+        return "NEW_POSITION"
 
     def _open_positions_by_symbol(self) -> dict[str, dict[str, Any]]:
         try:

@@ -76,6 +76,17 @@ de qualquer acao real no MT5 demo. O Lab continua decidindo a politica base, o
 Forex transporta e observa contexto leve, o MT5 consome plano e o Relatorio
 audita. A proxima etapa segura e implementar apenas campos read-only.
 
+## Camada 6 - Contrato Read-only de Saida Dinamica
+
+Arquivos de referencia:
+
+- `docs/DYNAMIC_EXIT_READ_ONLY_CONTRACT.md`
+- `governance/traceability/DYNAMIC_EXIT_CONTRACT_TRACEABILITY.md`
+
+O contrato `dynamic_exit_*` foi implementado como camada read-only em contratos,
+view models, JSON visual MT5 e auditoria. A execucao demo permanece
+desabilitada para estes campos com `dynamic_exit_allowed_to_execute_demo=false`.
+
 ## Observacao Operacional
 
 O app local pode acessar recursos locais e MT5 da maquina. O app em Codespaces

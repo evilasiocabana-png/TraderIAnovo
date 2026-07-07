@@ -307,6 +307,15 @@ class DashboardMT5ForexSignalRowViewModel:
         default_factory=dict
     )
     research_plan_stop_management_reason: str = "Gestao fixa por compatibilidade."
+    dynamic_exit_policy: str = "FIXED_STOP"
+    dynamic_exit_action: str = "KEEP_ORIGINAL_PLAN"
+    dynamic_exit_reason: str = "Saida dinamica read-only ainda sem ajuste operacional."
+    dynamic_exit_confidence: float = 0.0
+    dynamic_exit_market_state: str = "NO_POSITION"
+    dynamic_exit_r_multiple: float = 0.0
+    dynamic_exit_candidate_stop: float | None = None
+    dynamic_exit_allowed_to_execute_demo: bool = False
+    dynamic_exit_source: str = "DYNAMIC_EXIT_READ_ONLY"
     research_plan_reason: str = "Research Lab ainda nao produziu plano."
     research_plan_invalid_reason: str = ""
     research_plan_invalid_fields: tuple[str, ...] = ()
@@ -684,6 +693,10 @@ class DashboardMT5TradeAuditRowViewModel:
     session_is_london_ny_overlap: bool = False
     session_is_sunday_open: bool = False
     session_is_friday_late: bool = False
+    dynamic_exit_policy: str = "N/D"
+    dynamic_exit_action: str = "N/D"
+    dynamic_exit_reason: str = "N/D"
+    dynamic_exit_allowed_to_execute_demo: bool = False
 
 
 @dataclass(frozen=True)

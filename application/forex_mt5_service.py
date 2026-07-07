@@ -40,6 +40,8 @@ class ForexMT5Service:
                 spread = None
                 reason = "MT5 offline ou simbolo indisponivel; aguardando leitura."
                 last_update = "N/D"
+            is_positioned = position is not None
+            stop_management = "ATR_TRAILING_STOP"
             rows.append(
                 ForexSignal(
                     pair=symbol,
@@ -52,8 +54,22 @@ class ForexMT5Service:
                     reason=reason,
                     last_update=last_update,
                     lab_setup="TREND_MOMENTUM",
-                    stop_management="ATR_TRAILING_STOP",
-                    is_positioned=position is not None,
+                    stop_management=stop_management,
+                    dynamic_exit_policy=stop_management,
+                    dynamic_exit_action=(
+                        "KEEP_ORIGINAL_PLAN" if is_positioned else "NO_ACTION_BAD_CONTEXT"
+                    ),
+                    dynamic_exit_reason=(
+                        "Contrato read-only preserva politica base do Lab; execucao demo desabilitada."
+                        if is_positioned
+                        else "Sem posicao aberta; saida dinamica apenas auditavel."
+                    ),
+                    dynamic_exit_confidence=0.0,
+                    dynamic_exit_market_state=(
+                        "NEW_POSITION" if is_positioned else "NO_POSITION"
+                    ),
+                    dynamic_exit_allowed_to_execute_demo=False,
+                    is_positioned=is_positioned,
                     position_side=str(position.get("side", "N/D")) if position else "N/D",
                     position_volume=float(position.get("volume", 0.0) or 0.0) if position else 0.0,
                     position_price=self._to_float(position.get("price_open")) if position else None,

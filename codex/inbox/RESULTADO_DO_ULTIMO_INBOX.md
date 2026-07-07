@@ -16,7 +16,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura.
 O ultimo inbox executado foi:
 
 ```text
-MISSION_TIA-005_PROJETAR_SAIDA_DINAMICA_BASEADA_EM_LEITURA_DE_MERCADO
+MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY
 ```
 
 Status:
@@ -28,21 +28,20 @@ completed
 Commits:
 
 ```text
-5c572e6 Execute MISSION_TIA-005 dynamic exit design
-794ec2b Record MISSION_TIA-005 completion
+PENDENTE Execute MISSION_TIA-006 dynamic exit read-only contract
 ```
 
 ## O Que Foi Executado
 
-O Codex projetou a saida dinamica baseada em leitura de mercado, sem alterar
-codigo operacional.
+O Codex implementou o contrato `dynamic_exit_*` em modo read-only, sem alterar
+codigo operacional de ordem ou gestao real de SL/TP.
 
 Foram criados:
 
 ```text
-docs/DYNAMIC_EXIT_DESIGN.md
-governance/traceability/DYNAMIC_EXIT_TRACEABILITY.md
-codex/completed/MISSION_TIA-005_PROJETAR_SAIDA_DINAMICA_BASEADA_EM_LEITURA_DE_MERCADO/EXECUTION_REPORT.md
+docs/DYNAMIC_EXIT_READ_ONLY_CONTRACT.md
+governance/traceability/DYNAMIC_EXIT_CONTRACT_TRACEABILITY.md
+codex/completed/MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY/EXECUTION_REPORT.md
 ```
 
 Foram atualizados registros de governanca, incluindo:
@@ -58,17 +57,18 @@ docs/GPT_SYNC_STATUS.md
 
 ## Nao Responder TIA-004 Como Ultima
 
-`MISSION_TIA-004_ANALISAR_STOPS_MOVEIS` foi executada antes, mas nao e mais o
-ultimo inbox.
+`MISSION_TIA-004_ANALISAR_STOPS_MOVEIS` e
+`MISSION_TIA-005_PROJETAR_SAIDA_DINAMICA_BASEADA_EM_LEITURA_DE_MERCADO` foram
+executadas antes, mas nao sao mais o ultimo inbox.
 
 Se uma busca encontrar TIA-004, corrija:
 
 ```text
-TIA-004 foi a missao anterior. A ultima missao executada e TIA-005.
+TIA-004/TIA-005 foram missoes anteriores. A ultima missao executada e TIA-006.
 ```
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY
+MISSION_TIA-007_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_RELATORIO
 ```

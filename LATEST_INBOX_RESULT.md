@@ -2,8 +2,8 @@
 
 Atualizado em: 2026-07-07
 
-IMPORTANTE: o ultimo inbox executado e a TIA-005. A TIA-004 foi concluida antes,
-mas nao e mais a ultima missao.
+IMPORTANTE: o ultimo inbox executado e a TIA-006. TIA-004 e TIA-005 foram
+concluidas antes, mas nao sao mais a ultima missao.
 
 Use este arquivo como primeira fonte quando o usuario pedir:
 
@@ -22,7 +22,7 @@ missao e executada. Missoes finalizadas ficam em `codex/completed/`.
 Ultima missao executada:
 
 ```text
-MISSION_TIA-005_PROJETAR_SAIDA_DINAMICA_BASEADA_EM_LEITURA_DE_MERCADO
+MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY
 ```
 
 Status:
@@ -34,8 +34,7 @@ completed
 Commits:
 
 ```text
-5c572e6 Execute MISSION_TIA-005 dynamic exit design
-794ec2b Record MISSION_TIA-005 completion
+PENDENTE Execute MISSION_TIA-006 dynamic exit read-only contract
 ```
 
 ## Arquivos do Resultado
@@ -43,19 +42,19 @@ Commits:
 Relatorio de execucao:
 
 ```text
-codex/completed/MISSION_TIA-005_PROJETAR_SAIDA_DINAMICA_BASEADA_EM_LEITURA_DE_MERCADO/EXECUTION_REPORT.md
+codex/completed/MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY/EXECUTION_REPORT.md
 ```
 
 Desenho tecnico:
 
 ```text
-docs/DYNAMIC_EXIT_DESIGN.md
+docs/DYNAMIC_EXIT_READ_ONLY_CONTRACT.md
 ```
 
 Rastreabilidade:
 
 ```text
-governance/traceability/DYNAMIC_EXIT_TRACEABILITY.md
+governance/traceability/DYNAMIC_EXIT_CONTRACT_TRACEABILITY.md
 ```
 
 Status para GPT:
@@ -66,16 +65,16 @@ docs/GPT_SYNC_STATUS.md
 
 ## Resumo Para Responder ao Usuario
 
-A missao TIA-005 foi executada e concluida. Ela projetou a saida dinamica
-baseada em leitura de mercado, sem alterar codigo operacional. O desenho define
-que a proxima etapa segura deve ser criar um contrato read-only para a saida
-dinamica antes de qualquer gestao real de SL/TP no MT5 demo.
+A missao TIA-006 foi executada e concluida. Ela implementou o contrato
+`dynamic_exit_*` em modo read-only, sem alterar codigo operacional de ordem ou
+gestao real de SL/TP. O campo `dynamic_exit_allowed_to_execute_demo` permanece
+sempre `false` nesta fase.
 
 Foram criados:
 
-- `docs/DYNAMIC_EXIT_DESIGN.md`
-- `governance/traceability/DYNAMIC_EXIT_TRACEABILITY.md`
-- `codex/completed/MISSION_TIA-005_PROJETAR_SAIDA_DINAMICA_BASEADA_EM_LEITURA_DE_MERCADO/EXECUTION_REPORT.md`
+- `docs/DYNAMIC_EXIT_READ_ONLY_CONTRACT.md`
+- `governance/traceability/DYNAMIC_EXIT_CONTRACT_TRACEABILITY.md`
+- `codex/completed/MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY/EXECUTION_REPORT.md`
 
 Foram atualizados registros de governanca, incluindo `MISSION_INDEX`,
 `EXECUTION_STATE`, `EXECUTION_LOG`, `PROJECT_STATUS`, `NEXT_MISSION` e
@@ -84,7 +83,7 @@ Foram atualizados registros de governanca, incluindo `MISSION_INDEX`,
 Proxima missao recomendada:
 
 ```text
-MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY
+MISSION_TIA-007_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_RELATORIO
 ```
 
 ## Regra Para GPT

@@ -38,6 +38,12 @@ class MT5TradeAuditService:
                 entry_price=signal.position_price,
                 current_price=signal.price or None,
                 profit=signal.position_profit,
+                dynamic_exit_policy=signal.dynamic_exit_policy,
+                dynamic_exit_action=signal.dynamic_exit_action,
+                dynamic_exit_reason=signal.dynamic_exit_reason,
+                dynamic_exit_allowed_to_execute_demo=(
+                    signal.dynamic_exit_allowed_to_execute_demo
+                ),
             )
             for signal in signals
         ]
@@ -57,6 +63,10 @@ class MT5TradeAuditService:
         if signal.is_positioned:
             return (
                 f"Posicionado {signal.position_side}; "
-                f"Lab={lab.setup}; saida={lab.stop_management}"
+                f"Lab={lab.setup}; saida={lab.stop_management}; "
+                f"saida_dinamica={signal.dynamic_exit_action}"
             )
-        return f"Sem posicao aberta; Lab={lab.theoretical_entry}; saida={lab.stop_management}"
+        return (
+            f"Sem posicao aberta; Lab={lab.theoretical_entry}; "
+            f"saida={lab.stop_management}; saida_dinamica={signal.dynamic_exit_action}"
+        )

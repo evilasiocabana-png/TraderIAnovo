@@ -202,6 +202,10 @@ class LabForexMT5ContractTest(unittest.TestCase):
         self.assertEqual(signal["mt5_source_timeframe"], "H1")
         self.assertEqual(signal["decision"], "SELL")
         self.assertEqual(signal["stop_management"], "ATR_TRAILING_STOP")
+        self.assertEqual(signal["dynamic_exit_policy"], "ATR_TRAILING_STOP")
+        self.assertEqual(signal["dynamic_exit_action"], "TRAIL_BY_ATR")
+        self.assertEqual(signal["dynamic_exit_market_state"], "NO_POSITION")
+        self.assertIs(signal["dynamic_exit_allowed_to_execute_demo"], False)
 
     def test_indicador_mt5_so_desenha_grafico_com_posicao_aberta(self) -> None:
         indicator_source = Path("mt5/indicators/TraderIAVisualSignals.mq5").read_text(
@@ -263,6 +267,18 @@ class LabForexMT5ContractTest(unittest.TestCase):
             research_plan_stop_management=stop_management,
             research_plan_stop_management_parameters={},
             research_plan_stop_management_reason="Gestao definida pelo Lab.",
+            dynamic_exit_policy=stop_management,
+            dynamic_exit_action=(
+                "TRAIL_BY_ATR"
+                if stop_management == "ATR_TRAILING_STOP"
+                else "KEEP_ORIGINAL_PLAN"
+            ),
+            dynamic_exit_reason="Contrato read-only.",
+            dynamic_exit_confidence=0.60,
+            dynamic_exit_market_state="TREND_RUNNER",
+            dynamic_exit_candidate_stop=1.0980,
+            dynamic_exit_allowed_to_execute_demo=False,
+            dynamic_exit_source="DYNAMIC_EXIT_READ_ONLY",
             research_plan_reason="Contrato visual.",
         )
 

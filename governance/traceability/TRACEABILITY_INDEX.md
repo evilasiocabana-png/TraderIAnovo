@@ -18,6 +18,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
   do Lab ate MT5 e Relatorio.
 - `DYNAMIC_EXIT_TRACEABILITY.md`: desenho de rastreabilidade para futura saida
   dinamica read-only por leitura de mercado.
+- `DYNAMIC_EXIT_CONTRACT_TRACEABILITY.md`: contrato read-only implementado da
+  saida dinamica.
 
 ## Regra de uso
 
