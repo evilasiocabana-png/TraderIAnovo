@@ -92,4 +92,4 @@
 - Acao: registrados campos de saida dinamica na camada de relatorio/auditoria.
 - Resultado: Relatorio mostra politica Lab, recomendacao, motivo, confianca, estado, R, stop candidato, acao executada e resultado final observado.
 - Guardrail: Relatorio permanece read-only; nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
-- Commit: PENDENTE
+- Commit: 44cdbc6

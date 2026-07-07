@@ -97,7 +97,7 @@ Falhas observadas fora do escopo da TIA-011:
 
 ## Commit
 
-PENDENTE
+44cdbc6
 
 ## Branch
 
