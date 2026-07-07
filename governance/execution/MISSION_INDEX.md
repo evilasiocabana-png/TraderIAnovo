@@ -23,6 +23,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-015 | Autorizar ATR trailing dinamico demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | 1424885 | Codex |
 | MISSION_TIA-016 | Autorizar Chandelier Exit demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | 842c2ed | Codex |
 | MISSION_TIA-017 | Autorizar Donchian Channel Stop demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | 6905fd3 | Codex |
+| MISSION_TIA-018 | Autorizar Volatility Stop demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | PENDENTE | Codex |
 
 ## Regras
 

@@ -42,6 +42,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
   Chandelier Exit demo sem ligar execucao operacional.
 - `DYNAMIC_EXIT_DONCHIAN_DEMO_TRACEABILITY.md`: pre-autorizacao read-only de
   Donchian Channel Stop demo sem ligar execucao operacional.
+- `DYNAMIC_EXIT_VOLATILITY_DEMO_TRACEABILITY.md`: pre-autorizacao read-only de
+  Volatility Stop demo sem ligar execucao operacional.
 
 ## Regra de uso
 
