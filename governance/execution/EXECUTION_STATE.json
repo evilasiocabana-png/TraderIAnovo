@@ -6,7 +6,7 @@
   "current_mission": null,
   "last_completed_mission": "MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO",
   "last_failed_mission": null,
-  "last_commit": "PENDENTE",
+  "last_commit": "e24c9e2",
   "last_branch": "main",
   "last_responsible": "Codex",
   "last_status": "completed",

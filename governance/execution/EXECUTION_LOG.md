@@ -64,4 +64,4 @@
 - Acao: criado motor read-only de classificacao de estado de mercado para saida dinamica.
 - Resultado: `DynamicExitMarketReading` e `DynamicExitMarketStateClassifier` implementados e cobertos por testes.
 - Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
-- Commit: PENDENTE
+- Commit: e24c9e2

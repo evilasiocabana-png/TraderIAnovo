@@ -128,7 +128,7 @@ para a saida dinamica, sem execucao demo.
 
 ## Commit
 
-PENDENTE
+e24c9e2
 
 ## Branch
 
@@ -136,4 +136,4 @@ main
 
 ## Push
 
-PENDENTE
+origin/main
