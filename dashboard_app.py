@@ -7093,7 +7093,7 @@ def main() -> None:
     data = get_light_dashboard_view_model_or_stop(service)
     data = _apply_fast_mt5_snapshot_if_available(data)
 
-    st.title("TraderIA Research Workbench")
+    st.title("TraderIA Novo")
     initial_mt5_error = st.session_state.get(MT5_FOREX_INITIAL_LOAD_ERROR_KEY)
     if initial_mt5_error:
         st.caption(f"Erro MT5 na carga inicial: {initial_mt5_error}")
