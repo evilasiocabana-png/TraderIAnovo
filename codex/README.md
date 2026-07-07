@@ -33,6 +33,23 @@ CTO / GPT
 - `failed/`: missoes encerradas com erro ou bloqueio.
 - `templates/`: modelos oficiais para novas missoes e relatorios.
 
+## Template Oficial para GPT
+
+Quando uma melhoria for planejada no GPT, use:
+
+```text
+codex/templates/GPT_IMPROVEMENT_MISSION_TEMPLATE.md
+```
+
+Guia de uso:
+
+```text
+docs/GPT_MISSION_AUTHORING_GUIDE.md
+```
+
+Regra: o GPT deve entregar pacote de missao completo para `codex/inbox`, nao uma
+instrucao solta de implementacao.
+
 ## Formatos Aceitos
 
 Missao em pasta:

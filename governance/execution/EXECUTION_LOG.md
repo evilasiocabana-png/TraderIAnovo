@@ -24,3 +24,8 @@
   protocolo de mudanca GPT -> Codex Inbox.
 - Nenhum codigo operacional foi alterado.
 - Operacionalidade atual preservada como estado ideal documentado.
+- Executada `MISSION_TIA-002_CRIAR_TEMPLATE_OFICIAL_DE_MELHORIA_GPT`.
+- Criado template oficial `codex/templates/GPT_IMPROVEMENT_MISSION_TEMPLATE.md`.
+- Criado guia `docs/GPT_MISSION_AUTHORING_GUIDE.md` para transformar ideias do
+  GPT em pacotes seguros de `codex/inbox`.
+- Nenhum codigo operacional foi alterado.

@@ -26,6 +26,17 @@ Arquivos de referencia:
 Esses documentos devem ser usados pelo GPT/Codex antes de propor melhorias em
 Forex MT5, Lab, Relatorio, MT5 Visual, Alphas ou setups.
 
+## Camada 2 - Template GPT para Inbox
+
+Arquivos de referencia:
+
+- `codex/templates/GPT_IMPROVEMENT_MISSION_TEMPLATE.md`
+- `codex/templates/README_GPT_MISSIONS.md`
+- `docs/GPT_MISSION_AUTHORING_GUIDE.md`
+
+Toda melhoria desenhada no GPT deve usar esse template para gerar pacote de
+missao completo em `codex/inbox`.
+
 ## Observacao Operacional
 
 O app local pode acessar recursos locais e MT5 da maquina. O app em Codespaces

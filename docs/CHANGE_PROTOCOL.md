@@ -50,6 +50,18 @@ Toda missao deve informar:
 
 ## Modelo de prompt para o GPT gerar missao
 
+O template oficial fica em:
+
+```text
+codex/templates/GPT_IMPROVEMENT_MISSION_TEMPLATE.md
+```
+
+O guia de uso fica em:
+
+```text
+docs/GPT_MISSION_AUTHORING_GUIDE.md
+```
+
 ```text
 Crie uma missao Codex Inbox para TraderIA Novo.
 
@@ -78,6 +90,9 @@ Entregue:
 - CODEX.md
 - ACCEPTANCE.md
 ```
+
+Para melhorias de Alpha, setup, saida, stop management, MT5 Visual ou Relatorio,
+o GPT deve preencher a secao de rastreabilidade do template oficial.
 
 ## Checklist antes de executar
 
