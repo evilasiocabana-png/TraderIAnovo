@@ -812,6 +812,11 @@ def exibir_mt5_forex_dashboard(
         "Leitura pelo ultimo estado local do TraderIA."
     )
     configuration = data.configuration_data
+    st.info(
+        "Saida dinamica em SIMULACAO/PAPER. Nenhum SL/TP e modificado no MT5."
+        if bool(getattr(configuration, "dynamic_exit_simulation_enabled", False))
+        else "Saida dinamica simulada desligada. Recomendacoes seguem auditaveis e sem execucao."
+    )
     if bool(getattr(forex, "mt5_safe_mode", True)):
         st.info(
             getattr(
@@ -1354,6 +1359,16 @@ def _mt5_trade_audit_row(
         "Execucao saida permitida": "SIM"
         if bool(getattr(row, "dynamic_exit_allowed_to_execute_demo", False))
         else "NAO",
+        "Simulacao stop": "APROVADO"
+        if bool(getattr(row, "dynamic_exit_simulation_allowed", False))
+        else "REJEITADO",
+        "Stop aprovado simulado": _optional_price(
+            getattr(row, "dynamic_exit_simulation_approved_stop", None)
+        ),
+        "Motivo simulacao": " | ".join(
+            getattr(row, "dynamic_exit_simulation_rejection_reasons", ()) or ()
+        )
+        or "N/D",
         "Sessao Forex": getattr(row, "forex_session", "N/D"),
         "Filtro sessao": "LIGADO"
         if bool(getattr(row, "session_filter_enabled", True))
@@ -2843,6 +2858,27 @@ def _forex_signal_row(
         "Execucao Saida Permitida": _yes_no(
             getattr(row, "dynamic_exit_allowed_to_execute_demo", False)
         ),
+        "Simulacao Saida": _yes_no(
+            getattr(row, "dynamic_exit_simulation_enabled", False)
+        ),
+        "Gate Simulacao": (
+            "APROVADO"
+            if bool(getattr(row, "dynamic_exit_simulation_allowed", False))
+            else "REJEITADO"
+        ),
+        "Stop Atual Simulado": _optional_price(
+            getattr(row, "dynamic_exit_simulation_current_stop", None)
+        ),
+        "Stop Candidato Simulado": _optional_price(
+            getattr(row, "dynamic_exit_simulation_candidate_stop", None)
+        ),
+        "Stop Aprovado Simulado": _optional_price(
+            getattr(row, "dynamic_exit_simulation_approved_stop", None)
+        ),
+        "Motivos Gate Simulacao": " | ".join(
+            getattr(row, "dynamic_exit_simulation_rejection_reasons", ()) or ()
+        )
+        or "N/D",
         "Parametros Gestao": " | ".join(
             f"{key}={value}"
             for key, value in (

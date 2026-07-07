@@ -77,6 +77,7 @@ class ConfigurationData:
     mt5_safe_mode_volatility_low_threshold: float
     mt5_safe_mode_ma_flat_threshold: float
     forex_session_filter_enabled: bool
+    dynamic_exit_simulation_enabled: bool
 
 
 @dataclass(frozen=True)
@@ -245,4 +246,7 @@ class ConfigurationService:
                 configuration.mt5_safe_mode_ma_flat_threshold
             ),
             forex_session_filter_enabled=configuration.forex_session_filter_enabled,
+            dynamic_exit_simulation_enabled=(
+                configuration.dynamic_exit_simulation_enabled
+            ),
         )

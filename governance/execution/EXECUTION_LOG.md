@@ -198,3 +198,10 @@
 - Resultado: `run_critical_ci.py` ficou verde com 88 testes; `architecture_audit.py` OK; `architecture_health.py` BOM.
 - Guardrail: nenhuma ordem MT5 foi enviada; nenhum SL/TP foi movido; Provider Demo operacional nao foi alterado.
 - Commit: 4b1ed30
+# 2026-07-07 - MISSION_TIA-026_EXECUCAO_SIMULADA_SAIDA_DINAMICA_STOP_MANAGEMENT
+
+- Status: completed
+- Acao: implementada simulacao/paper de stop management para saida dinamica.
+- Resultado: contrato, servico, exibicao no Forex/Relatorio e testes adicionados; `run_critical_ci.py` ficou verde com 88 testes.
+- Guardrail: nenhuma ordem MT5 foi enviada; nenhum SL/TP foi movido; Provider Demo operacional nao foi alterado.
+- Commit: PENDENTE

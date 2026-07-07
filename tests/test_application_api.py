@@ -253,6 +253,14 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                       'submit_demo_order': "(self, decision_context: 'DecisionContext', order: "
                                                            "'ExecutionOrder | None', paper_validated: 'bool') -> "
                                                            "'ExecutionResult'"}},
+ 'DynamicExitSimulationService': {'module': 'application.dynamic_exit_simulation_service',
+                                  'methods': {'list_decisions': "(self) -> 'list[DynamicExitSimulationDecision]'",
+                                              'simulate': "(self, *, reading: 'DynamicExitMarketReading', "
+                                                          "recommendation: 'DynamicExitRecommendation', plan_status: "
+                                                          "'str' = 'PLANO_VALIDO', enabled: 'bool' = False, "
+                                                          "robot_armed: 'bool' = False, ticket: 'int | None' = None, "
+                                                          "candle_key: 'str' = 'N/D', atr_multiplier: 'float' = 1.0) "
+                                                          "-> 'DynamicExitSimulationDecision'"}},
  'ForexMT5Service': {'module': 'application.forex_mt5_service',
                      'methods': {'get_open_positions': "(self) -> 'list[dict[str, object]]'",
                                  'get_signals': "(self, timeframe: 'str' = 'M1') -> 'list[ForexSignal]'",

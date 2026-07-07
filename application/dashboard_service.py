@@ -80,6 +80,9 @@ from application.dynamic_exit_market_state_service import (
 from application.dynamic_exit_recommendation_service import (
     DynamicExitRecommendationEngine,
 )
+from application.dynamic_exit_simulation_service import (
+    DynamicExitSimulationService,
+)
 from application.forex_mt5_service import ForexMT5Service
 from application.mt5_visual_signal_exporter import (
     MT5VisualSignalExportResult,
@@ -129,6 +132,9 @@ from domain.contracts.decision_context import DecisionContext
 from domain.contracts.dynamic_exit import (
     DynamicExitMarketReading,
     DynamicExitRecommendation,
+)
+from domain.contracts.dynamic_exit_simulation import (
+    DynamicExitSimulationDecision,
 )
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
@@ -556,6 +562,9 @@ class DashboardService:
         default_factory=MT5MarketDataService
     )
     forex_mt5_service: ForexMT5Service = field(default_factory=ForexMT5Service)
+    dynamic_exit_simulation_service: DynamicExitSimulationService = field(
+        default_factory=DynamicExitSimulationService
+    )
     replay_service: ReplayService = field(default_factory=ReplayService)
     historical_dataset_catalog: HistoricalDatasetCatalog = field(
         default_factory=HistoricalDatasetCatalog
@@ -4447,6 +4456,7 @@ class DashboardService:
         analysis_row = self._latest_mt5_forex_row_for_timeframe(
             row,
             execution_timeframe,
+            allow_fetch_missing=active_research_row is not None,
         )
         candidate = self._active_model_candidate(
             analysis_row,
@@ -4460,6 +4470,7 @@ class DashboardService:
             analysis_row,
             active_model,
             lab_parameters,
+            candidate,
         )
         research_plan = self._mt5_research_trade_plan_for_data(
             symbol=str(getattr(row, "pair", "N/D")),
@@ -4478,9 +4489,19 @@ class DashboardService:
             certification_usage=lab_ict_usage,
             certification_rejection_reasons=lab_ict_rejection_reasons,
         )
-        dynamic_exit = self._mt5_dynamic_exit_recommendation(
+        dynamic_exit_reading = self._mt5_dynamic_exit_reading(
             analysis_row,
             research_plan,
+        )
+        dynamic_exit = self._mt5_dynamic_exit_recommendation(
+            dynamic_exit_reading,
+            research_plan,
+        )
+        dynamic_exit_simulation = self._mt5_dynamic_exit_simulation_decision(
+            dynamic_exit_reading,
+            dynamic_exit,
+            research_plan,
+            analysis_row,
         )
         return DashboardMT5ForexSignalRowViewModel(
             pair=row.pair,
@@ -4607,6 +4628,25 @@ class DashboardService:
                 dynamic_exit.allowed_to_execute_demo
             ),
             dynamic_exit_source=dynamic_exit.source,
+            dynamic_exit_simulation_enabled=self._dynamic_exit_simulation_enabled(),
+            dynamic_exit_simulation_allowed=(
+                dynamic_exit_simulation.allowed_to_simulate
+            ),
+            dynamic_exit_simulation_current_stop=(
+                dynamic_exit_simulation.current_stop
+            ),
+            dynamic_exit_simulation_candidate_stop=(
+                dynamic_exit_simulation.candidate_stop
+            ),
+            dynamic_exit_simulation_approved_stop=(
+                dynamic_exit_simulation.approved_stop
+            ),
+            dynamic_exit_simulation_rejection_reasons=(
+                dynamic_exit_simulation.rejection_reasons
+            ),
+            dynamic_exit_simulation_created_at=(
+                dynamic_exit_simulation.created_at
+            ),
             research_plan_reason=research_plan.reason,
             research_plan_invalid_reason=research_plan.invalid_reason,
             research_plan_invalid_fields=research_plan.invalid_fields,
@@ -4617,12 +4657,12 @@ class DashboardService:
             research_plan_diagnostics=research_plan.diagnostics,
         )
 
-    def _mt5_dynamic_exit_recommendation(
+    def _mt5_dynamic_exit_reading(
         self,
         row: object,
         research_plan: object,
-    ) -> DynamicExitRecommendation:
-        """Cria recomendacao de saida dinamica sem autorizar execucao demo."""
+    ) -> DynamicExitMarketReading:
+        """Cria leitura de saida dinamica sem autorizar execucao demo."""
         policy = str(getattr(research_plan, "stop_management", "FIXED_STOP") or "FIXED_STOP")
         status = str(getattr(research_plan, "status", "SEM_PLANO") or "SEM_PLANO")
         side = str(getattr(row, "decision", "WAIT") or "WAIT").upper()
@@ -4646,7 +4686,7 @@ class DashboardService:
             )
         )
         if status != "PLANO_VALIDO":
-            reading = DynamicExitMarketReading(
+            return DynamicExitMarketReading(
                 symbol=reading.symbol,
                 side=reading.side,
                 is_positioned=reading.is_positioned,
@@ -4664,20 +4704,63 @@ class DashboardService:
                 reason="Plano invalido ou ausente; saida dinamica mantida apenas em auditoria.",
                 candidate_stop=reading.candidate_stop,
             )
+        return reading
+
+    def _mt5_dynamic_exit_recommendation(
+        self,
+        reading: DynamicExitMarketReading,
+        research_plan: object,
+    ) -> DynamicExitRecommendation:
+        """Cria recomendacao de saida dinamica sem autorizar execucao demo."""
+        policy = str(getattr(research_plan, "stop_management", "FIXED_STOP") or "FIXED_STOP")
+        status = str(getattr(research_plan, "status", "SEM_PLANO") or "SEM_PLANO")
         return _DYNAMIC_EXIT_RECOMMENDATION_ENGINE.recommend(
             reading,
             policy=policy,
             plan_status=status,
         )
 
+    def _mt5_dynamic_exit_simulation_decision(
+        self,
+        reading: DynamicExitMarketReading,
+        recommendation: DynamicExitRecommendation,
+        research_plan: object,
+        row: object,
+    ) -> DynamicExitSimulationDecision:
+        """Calcula decisao paper de stop dinamico sem tocar no MT5."""
+        return self.dynamic_exit_simulation_service.simulate(
+            reading=reading,
+            recommendation=recommendation,
+            plan_status=str(getattr(research_plan, "status", "SEM_PLANO") or "SEM_PLANO"),
+            enabled=self._dynamic_exit_simulation_enabled(),
+            robot_armed=bool(self.mt5_demo_robot_service.enabled),
+            candle_key=str(getattr(row, "last_candle_time", "N/D") or "N/D"),
+            atr_multiplier=self._dynamic_exit_atr_multiplier(research_plan),
+        )
+
+    def _dynamic_exit_simulation_enabled(self) -> bool:
+        configuration = self.configuration_service.get_configuration_data()
+        return bool(getattr(configuration, "dynamic_exit_simulation_enabled", False))
+
+    def _dynamic_exit_atr_multiplier(self, research_plan: object) -> float:
+        parameters = getattr(research_plan, "stop_management_parameters", {}) or {}
+        for key in ("atr_multiplier", "multiplicador_atr", "stop_multiplier"):
+            if key in parameters:
+                return float(parameters[key] or 1.0)
+        return 1.0
+
     def _latest_mt5_forex_row_for_timeframe(
         self,
         row: object,
         timeframe: str,
+        *,
+        allow_fetch_missing: bool = False,
     ) -> object:
         """Recalcula a linha Forex no timeframe do Lab, buscando se o cache faltar."""
         symbol = str(getattr(row, "pair", ""))
         normalized_timeframe = str(timeframe or getattr(row, "timeframe", "M1"))
+        if not allow_fetch_missing:
+            return row
         candles = self._latest_mt5_forex_candles(symbol, normalized_timeframe)
         if not candles:
             candles = self._load_mt5_forex_candles_for_view_row(
@@ -4998,9 +5081,23 @@ class DashboardService:
         row: object,
         active_model: str,
         parameters: dict[str, str] | None = None,
+        candidate: dict[str, object] | None = None,
     ) -> dict[str, object]:
         pair = str(getattr(row, "pair", "") or "")
         timeframe = str(getattr(row, "timeframe", "") or "")
+        candidate = candidate or self._active_model_candidate(row, active_model, parameters)
+        decision = str(candidate.get("decision", "WAIT")).upper()
+        if decision not in {"BUY", "SELL"}:
+            return {
+                "status": "FORA_DA_ZONA_DE_INTERESSE",
+                "candle": "N/D",
+                "price": None,
+                "direction": "WAIT",
+                "reason": (
+                    "Modelo ativo sem entrada autorizada na zona de interesse. "
+                    f"Zona atual: {self._mt5_zone_context(row)}."
+                ),
+            }
         candles = self._latest_mt5_forex_candles(pair, timeframe)
         if not candles:
             return {
@@ -5015,6 +5112,7 @@ class DashboardService:
             candles,
             active_model,
             parameters,
+            candidate,
         )
         if trigger is None:
             return {
@@ -5035,14 +5133,18 @@ class DashboardService:
         candles: list[object],
         active_model: str,
         parameters: dict[str, str] | None = None,
+        candidate: dict[str, object] | None = None,
     ) -> dict[str, object] | None:
-        candidate = self._active_model_candidate(row, active_model, parameters)
+        candidate = candidate or self._active_model_candidate(row, active_model, parameters)
         decision = str(candidate.get("decision", "WAIT")).upper()
         if decision not in {"BUY", "SELL"}:
             return None
         zone_label = self._mt5_zone_label_for_direction(row, decision)
         if not self._mt5_zone_allows_direction(zone_label, decision):
-            return None
+            if self._mt5_regime_allows_continuation(row, active_model, decision):
+                zone_label = "REGIME AUTORIZADO"
+            else:
+                return None
         candle = candles[-1]
         price = self._optional_float(getattr(row, "last_price", None))
         if price is None or price <= 0:
@@ -5059,6 +5161,25 @@ class DashboardService:
                 f"{zone_label}. {candidate.get('reason', '')}"
             ),
         }
+
+    def _mt5_regime_allows_continuation(
+        self,
+        row: object,
+        active_model: str,
+        decision: str,
+    ) -> bool:
+        model = str(active_model or "").upper()
+        if model != "TREND_MOMENTUM":
+            return False
+        trend = str(getattr(row, "trend", "INDEFINIDA") or "INDEFINIDA").upper()
+        momentum = float(getattr(row, "momentum", 0.0) or 0.0)
+        rsi = float(getattr(row, "rsi", 50.0) or 50.0)
+        direction = str(decision or "").upper()
+        if direction == "BUY":
+            return trend == "ALTA" and momentum > 0 and rsi < 70.0
+        if direction == "SELL":
+            return trend == "BAIXA" and momentum < 0 and rsi > 30.0
+        return False
 
     def _mt5_zone_allows_direction(self, zone_label: str, decision: str) -> bool:
         zone = str(zone_label or "").upper()
@@ -6650,8 +6771,8 @@ class DashboardService:
         if long_average <= 0:
             return {"decision": "WAIT", "score": 0.0, "reason": "Medias indisponiveis."}
         ma_distance = abs((short_average - long_average) / long_average)
-        buy = short_average > long_average and rsi < rsi_overbought
-        sell = short_average < long_average and rsi > rsi_oversold
+        buy = short_average < long_average and rsi < rsi_overbought
+        sell = short_average > long_average and rsi > rsi_oversold
         decision = "BUY" if buy else "SELL" if sell else "WAIT"
         score = 0.0
         if decision != "WAIT":
@@ -7269,9 +7390,10 @@ class DashboardService:
         trend = str(getattr(row, "trend", "INDEFINIDA")).upper()
         momentum = float(getattr(row, "momentum", 0.0) or 0.0)
         volatility = abs(float(getattr(row, "volatility", 0.0) or 0.0))
+        rsi = float(getattr(row, "rsi", 50.0) or 50.0)
         confidence = float(getattr(row, "confidence", 0.0) or 0.0)
-        aligned_buy = trend == "ALTA" and momentum > 0
-        aligned_sell = trend == "BAIXA" and momentum < 0
+        aligned_buy = trend == "ALTA" and momentum > 0 and rsi < 70.0
+        aligned_sell = trend == "BAIXA" and momentum < 0 and rsi > 30.0
         aligned = aligned_buy or aligned_sell
         decision = "BUY" if aligned_buy else "SELL" if aligned_sell else "WAIT"
         score = confidence

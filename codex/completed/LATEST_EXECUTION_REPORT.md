@@ -3,13 +3,13 @@
 Ultima missao concluida:
 
 ```text
-MISSION_TIA-026_CORRIGIR_GATES_ESTRUTURAIS_API_DASHBOARD
+MISSION_TIA-026_EXECUCAO_SIMULADA_SAIDA_DINAMICA_STOP_MANAGEMENT
 ```
 
 Relatorio:
 
 ```text
-codex/completed/MISSION_TIA-026_CORRIGIR_GATES_ESTRUTURAIS_API_DASHBOARD/EXECUTION_REPORT.md
+codex/completed/MISSION_TIA-026_EXECUCAO_SIMULADA_SAIDA_DINAMICA_STOP_MANAGEMENT/EXECUTION_REPORT.md
 ```
 
 Status:
@@ -20,11 +20,12 @@ completed
 
 Resumo:
 
-- API freeze reconciliado;
-- manifest arquitetural atualizado;
-- dashboard voltou a depender apenas da fachada `DashboardService`;
-- `MA_RSI_FILTER` alinhado ao contrato esperado;
-- `run_critical_ci.py` ficou verde.
+- contrato `DynamicExitSimulationDecision` criado;
+- servico `DynamicExitSimulationService` criado;
+- simulacao/paper de stop management adicionada com flag desligada por padrao;
+- Forex e Relatorio passaram a exibir gate, stop atual, stop candidato, stop aprovado e rejeicoes;
+- nenhum SL/TP foi movido no MT5;
+- `run_critical_ci.py` ficou verde com 88 testes.
 
 Proxima missao recomendada:
 

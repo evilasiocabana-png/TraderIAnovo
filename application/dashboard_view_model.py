@@ -316,6 +316,13 @@ class DashboardMT5ForexSignalRowViewModel:
     dynamic_exit_candidate_stop: float | None = None
     dynamic_exit_allowed_to_execute_demo: bool = False
     dynamic_exit_source: str = "DYNAMIC_EXIT_READ_ONLY"
+    dynamic_exit_simulation_enabled: bool = False
+    dynamic_exit_simulation_allowed: bool = False
+    dynamic_exit_simulation_current_stop: float | None = None
+    dynamic_exit_simulation_candidate_stop: float | None = None
+    dynamic_exit_simulation_approved_stop: float | None = None
+    dynamic_exit_simulation_rejection_reasons: tuple[str, ...] = ()
+    dynamic_exit_simulation_created_at: str = "N/D"
     research_plan_reason: str = "Research Lab ainda nao produziu plano."
     research_plan_invalid_reason: str = ""
     research_plan_invalid_fields: tuple[str, ...] = ()
