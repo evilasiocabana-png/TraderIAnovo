@@ -30,6 +30,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
   no MT5 visual apenas quando ha posicao aberta.
 - `DYNAMIC_EXIT_REPORT_TRACEABILITY.md`: registro da saida dinamica na aba
   Relatorio como auditoria read-only.
+- `DYNAMIC_EXIT_BACKTEST_TRACEABILITY.md`: comparacao read-only entre saida
+  original do Lab e saida dinamica recomendada.
 
 ## Regra de uso
 

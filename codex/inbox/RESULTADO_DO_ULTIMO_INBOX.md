@@ -7,7 +7,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura.
 O ultimo inbox executado foi:
 
 ```text
-MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO
+MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
 ```
 
 Status:
@@ -19,19 +19,18 @@ completed
 Commits:
 
 ```text
-44cdbc6 Execute MISSION_TIA-011 dynamic exit report audit
+PENDENTE Execute MISSION_TIA-012 dynamic exit backtest readonly
 ```
 
 ## O Que Foi Executado
 
-O Relatorio passou a registrar a saida dinamica como auditoria read-only:
-politica Lab, recomendacao, motivo, confianca, estado, R, stop candidato, acao
-executada e resultado final observado.
+Foi criado backtest read-only da saida dinamica, comparando saida original do
+Lab contra recomendacao dinamica sem executar ordem nem mover SL/TP.
 
 Nao executou ordem, nao moveu SL/TP e nao alterou provider demo operacional.
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
+MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA
 ```

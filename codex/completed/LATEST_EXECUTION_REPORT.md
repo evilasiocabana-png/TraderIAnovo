@@ -3,7 +3,7 @@
 ## Ultimo Inbox Executado
 
 ```text
-MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO
+MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
 ```
 
 Status:
@@ -15,15 +15,16 @@ completed
 Commits:
 
 ```text
-44cdbc6 Execute MISSION_TIA-011 dynamic exit report audit
+PENDENTE Execute MISSION_TIA-012 dynamic exit backtest readonly
 ```
 
 ## Resultado
 
-O Relatorio passou a registrar a saida dinamica como auditoria read-only.
+Foi criado backtest read-only comparando saida original do Lab contra saida
+dinamica recomendada.
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
+MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA
 ```

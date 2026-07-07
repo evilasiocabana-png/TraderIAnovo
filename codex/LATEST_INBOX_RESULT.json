@@ -4,18 +4,18 @@
   "branch": "main",
   "updated_at": "2026-07-07",
   "latest_inbox_mission": {
-    "id": "MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO",
+    "id": "MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY",
     "status": "completed",
     "commits": [
-      "44cdbc6"
+      "PENDENTE"
     ],
-    "execution_report": "codex/completed/MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO/EXECUTION_REPORT.md",
+    "execution_report": "codex/completed/MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY/EXECUTION_REPORT.md",
     "primary_docs": [
-      "docs/DYNAMIC_EXIT_REPORT_AUDIT.md",
-      "governance/traceability/DYNAMIC_EXIT_REPORT_TRACEABILITY.md",
+      "docs/DYNAMIC_EXIT_BACKTEST_READ_ONLY.md",
+      "governance/traceability/DYNAMIC_EXIT_BACKTEST_TRACEABILITY.md",
       "docs/GPT_SYNC_STATUS.md"
     ],
-    "summary": "A missao registrou a saida dinamica no Relatorio como auditoria read-only.",
-    "next_recommended_mission": "MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY"
+    "summary": "A missao criou backtest read-only para comparar saida original do Lab contra saida dinamica recomendada.",
+    "next_recommended_mission": "MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA"
   }
 }

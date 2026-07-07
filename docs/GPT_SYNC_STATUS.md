@@ -5,7 +5,7 @@ Atualizado em: 2026-07-07
 ## Ultimo Inbox Executado
 
 ```text
-MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO
+MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
 ```
 
 Status:
@@ -17,19 +17,19 @@ completed
 Commits:
 
 ```text
-44cdbc6 Execute MISSION_TIA-011 dynamic exit report audit
+PENDENTE Execute MISSION_TIA-012 dynamic exit backtest readonly
 ```
 
 ## Arquivos Que Confirmam a Execucao
 
 ```text
-codex/completed/MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO/EXECUTION_REPORT.md
-docs/DYNAMIC_EXIT_REPORT_AUDIT.md
-governance/traceability/DYNAMIC_EXIT_REPORT_TRACEABILITY.md
+codex/completed/MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY/EXECUTION_REPORT.md
+docs/DYNAMIC_EXIT_BACKTEST_READ_ONLY.md
+governance/traceability/DYNAMIC_EXIT_BACKTEST_TRACEABILITY.md
 ```
 
 ## Proxima Missao
 
 ```text
-MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
+MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA
 ```

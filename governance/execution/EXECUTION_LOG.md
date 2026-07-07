@@ -93,3 +93,10 @@
 - Resultado: Relatorio mostra politica Lab, recomendacao, motivo, confianca, estado, R, stop candidato, acao executada e resultado final observado.
 - Guardrail: Relatorio permanece read-only; nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
 - Commit: 44cdbc6
+# 2026-07-07 - MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
+
+- Status: completed
+- Acao: criado motor de backtest read-only para comparar saida original do Lab contra saida dinamica recomendada.
+- Resultado: comparativo calcula lucro liquido, drawdown, win rate, profit factor, expectancy, duracao, RR, dominancia de break-even, ganho perdido e protecao contra perda.
+- Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
+- Commit: PENDENTE

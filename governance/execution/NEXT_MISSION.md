@@ -3,11 +3,11 @@
 Proxima missao recomendada, ainda nao autorizada automaticamente:
 
 ```text
-MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
+MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA
 ```
 
-Objetivo: comparar saida original do Lab versus saida dinamica recomendada em
-modo read-only, sem executar ordem e sem mover SL/TP.
+Objetivo: rodar a saida dinamica em modo simulado/paper, registrando cada
+recomendacao e comparando com o resultado real da politica original.
 
 Esta missao nao deve:
 
@@ -16,9 +16,9 @@ Esta missao nao deve:
 - alterar provider demo operacional;
 - permitir `dynamic_exit_allowed_to_execute_demo=true`;
 - recalcular Lab pesado no ciclo leve Forex.
-- substituir politica original do Lab.
+- executar recomendacao dinamica no Provider Demo.
 
-Para executar, coloque o pacote da TIA-012 em `codex/inbox/` e solicite:
+Para executar, coloque o pacote da TIA-013 em `codex/inbox/` e solicite:
 
 ```text
 Inbox.
