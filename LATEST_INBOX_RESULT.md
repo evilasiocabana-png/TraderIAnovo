@@ -2,6 +2,9 @@
 
 Atualizado em: 2026-07-07
 
+IMPORTANTE: o ultimo inbox executado e a TIA-005. A TIA-004 foi concluida antes,
+mas nao e mais a ultima missao.
+
 Use este arquivo como primeira fonte quando o usuario pedir:
 
 ```text

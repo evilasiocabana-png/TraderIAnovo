@@ -77,6 +77,7 @@ inbox", "o que foi executado pelo inbox" ou frase equivalente, o TraderIA
 Architect deve ler primeiro:
 
 ```text
+000_READ_FIRST_LATEST_INBOX_RESULT.md
 LATEST_INBOX_RESULT.md
 ```
 

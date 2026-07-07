@@ -1,5 +1,12 @@
 # Execution Report - MISSION_TIA-004_ANALISAR_STOPS_MOVEIS
 
+> Aviso: este relatorio nao e mais o ultimo inbox executado.
+> O ultimo inbox executado e
+> `MISSION_TIA-005_PROJETAR_SAIDA_DINAMICA_BASEADA_EM_LEITURA_DE_MERCADO`.
+> Para responder "traga o resultado do ultimo inbox", leia
+> `LATEST_INBOX_RESULT.md` ou
+> `codex/completed/LATEST_EXECUTION_REPORT.md`.
+
 Status: completed
 
 Data: 2026-07-07
