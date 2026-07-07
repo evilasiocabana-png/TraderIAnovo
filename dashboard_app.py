@@ -863,27 +863,9 @@ def exibir_mt5_forex_dashboard(
         "SOMENTE ANALISE DE MERCADO. NENHUMA ORDEM REAL SERA ENVIADA."
     )
     st.caption(
-        "Leitura rapida pelo ultimo estado local. Atualizacao MT5 completa "
-        "somente sob demanda para manter a aba responsiva."
+        "Leitura pelo ultimo estado local do TraderIA."
     )
     configuration = data.configuration_data
-    refresh_columns = st.columns([1, 3])
-    if refresh_columns[0].button("Atualizar MT5 agora", key="mt5_forex_manual_refresh"):
-        with st.spinner("Atualizando leitura MT5..."):
-            _load_mt5_forex_signals_locked(
-                service,
-                timeframe=str(getattr(forex, "timeframe", "M1") or "M1"),
-            )
-            st.session_state[MT5_FOREX_LAST_AUTO_LOAD_KEY] = time.monotonic()
-            data = service.get_light_dashboard_view_model()
-            forex = getattr(data, "mt5_forex_signals", forex)
-    refresh_columns[1].caption(
-        "O ciclo automatico bloqueante fica desligado por padrao. "
-        "Use o botao quando quiser forcar nova leitura do MT5."
-    )
-    data, forex = _maybe_run_mt5_forex_auto_cycle(service, data, forex)
-    configuration = data.configuration_data
-    _inject_mt5_forex_auto_refresh()
     if bool(getattr(forex, "mt5_safe_mode", True)):
         st.info(
             getattr(
@@ -905,13 +887,13 @@ def exibir_mt5_forex_dashboard(
         "Velas configuradas",
         int(configuration.mt5_safe_mode_candles_loaded),
     )
-    controles[1].metric("Velas lidas no ciclo", candles_per_pair)
+    controles[1].metric("Velas lidas", candles_per_pair)
     visual_enabled = _mt5_visual_signals_enabled()
     controles[2].metric("Visual MT5", "LIGADO" if visual_enabled else "DESLIGADO")
     controles[2].caption(
         "JSON visual desligado por variavel de ambiente."
         if not visual_enabled
-        else "JSON leve sincronizado a cada ciclo Forex."
+        else "JSON visual mantido pelo ultimo estado local."
     )
 
     colunas = st.columns(5)
