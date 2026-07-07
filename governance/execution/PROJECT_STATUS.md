@@ -9,7 +9,22 @@ Status: pronto para fluxo de inbox.
 - Templates de missao e relatorio criados.
 - Guardrails read-only documentados.
 - `MISSION_INDEX.md` controla historico resumido das missoes.
+- Camada 1 de governanca operacional criada em `docs/`.
 - Nenhuma funcionalidade de produto foi criada por esta infraestrutura.
+
+## Camada 1 - Mapa Operacional
+
+Arquivos de referencia:
+
+- `docs/SYSTEM_FLOW.md`
+- `docs/APP_TABS_FLOW.md`
+- `docs/ALPHA_TRACEABILITY.md`
+- `docs/SETUP_LOGIC_TRACEABILITY.md`
+- `docs/OPERATIONAL_GUARDRAILS.md`
+- `docs/CHANGE_PROTOCOL.md`
+
+Esses documentos devem ser usados pelo GPT/Codex antes de propor melhorias em
+Forex MT5, Lab, Relatorio, MT5 Visual, Alphas ou setups.
 
 ## Observacao Operacional
 

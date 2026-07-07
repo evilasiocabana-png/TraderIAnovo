@@ -15,3 +15,12 @@
 - Quality gates executados: `architecture_health.py` BOM, `architecture_audit.py`
   OK, `run_static_analysis.py` OK_WITH_WARNINGS por ausencia opcional de
   `pyflakes`, `run_critical_ci.py` aprovado com 87 testes.
+
+## 2026-07-07
+
+- Executada `MISSION_TIA-001_MAPEAR_FLUXO_OPERACIONAL_TRADERIA`.
+- Criada camada 1 de governanca operacional do TraderIA Novo.
+- Criados mapas de fluxo do sistema, abas, Alphas, setups, guardrails e
+  protocolo de mudanca GPT -> Codex Inbox.
+- Nenhum codigo operacional foi alterado.
+- Operacionalidade atual preservada como estado ideal documentado.

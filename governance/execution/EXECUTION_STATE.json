@@ -4,9 +4,9 @@
   "schema_version": "1.0",
   "status": "ready",
   "current_mission": null,
-  "last_completed_mission": null,
+  "last_completed_mission": "MISSION_TIA-001_MAPEAR_FLUXO_OPERACIONAL_TRADERIA",
   "last_failed_mission": null,
-  "last_commit": "5501725",
+  "last_commit": "b3f727b",
   "last_branch": "main",
   "last_responsible": "Codex",
   "last_status": "completed",
@@ -19,5 +19,5 @@
     "python scripts/run_static_analysis.py"
   ],
   "created_at": "2026-07-06T00:00:00-03:00",
-  "updated_at": "2026-07-06T00:00:00-03:00"
+  "updated_at": "2026-07-07T10:22:02-03:00"
 }
