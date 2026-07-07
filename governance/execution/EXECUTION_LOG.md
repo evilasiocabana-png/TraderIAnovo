@@ -155,4 +155,4 @@
 - Acao: criada pre-autorizacao read-only para Moving Average Exit demo.
 - Resultado: casos elegiveis sao marcados como `ELIGIBLE_READ_ONLY`, mas `allowed_to_execute_demo` permanece `false`.
 - Guardrail: Provider Demo nao foi alterado; nenhuma posicao foi fechada; nenhuma ordem foi enviada.
-- Commit: PENDENTE
+- Commit: b7b5516

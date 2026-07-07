@@ -15,7 +15,7 @@ completed
 Commits:
 
 ```text
-PENDENTE Execute MISSION_TIA-020 dynamic Moving Average demo authorization
+b7b5516 Execute MISSION_TIA-020 dynamic Moving Average demo authorization
 ```
 
 ## Resultado
