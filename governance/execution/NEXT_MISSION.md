@@ -3,22 +3,23 @@
 Proxima missao recomendada, ainda nao autorizada automaticamente:
 
 ```text
-MISSION_TIA-021_AUTORIZAR_PARABOLIC_SAR_DEMO
+MISSION_TIA-022_UNIFICAR_DYNAMIC_EXIT_ENGINE
 ```
 
-Objetivo: preparar a autorizacao controlada de `PARABOLIC_SAR` em modo demo,
-preservando a separacao entre recomendacao, elegibilidade e execucao.
+Objetivo: consolidar as leituras, recomendacoes e pre-autorizacoes de saida
+dinamica em um motor unico auditavel, preservando fallback seguro para a
+politica original do Lab.
 
 Esta missao nao deve:
 
-- executar ordem;
-- mover SL/TP;
-- alterar provider demo operacional;
-- permitir `dynamic_exit_allowed_to_execute_demo=true`;
-- recalcular Lab pesado no ciclo leve Forex.
-- autorizar qualquer politica alem de `PARABOLIC_SAR`.
+- executar ordem real;
+- mover SL/TP automaticamente;
+- alterar Provider Demo operacional sem novo guardrail explicito;
+- permitir `dynamic_exit_allowed_to_execute_demo=true` por padrao;
+- recalcular Lab pesado no ciclo leve Forex;
+- quebrar compatibilidade com snapshots antigos.
 
-Para executar, coloque o pacote da TIA-021 em `codex/inbox/` e solicite:
+Para executar, coloque o pacote da TIA-022 em `codex/inbox/` e solicite:
 
 ```text
 Inbox.

@@ -1,9 +1,15 @@
 # Latest Execution Report
 
-## Ultimo Inbox Executado
+Ultima missao concluida:
 
 ```text
-MISSION_TIA-020_AUTORIZAR_MOVING_AVERAGE_EXIT_DEMO
+MISSION_TIA-021_AUTORIZAR_PARABOLIC_SAR_DEMO
+```
+
+Relatorio:
+
+```text
+codex/completed/MISSION_TIA-021_AUTORIZAR_PARABOLIC_SAR_DEMO/EXECUTION_REPORT.md
 ```
 
 Status:
@@ -12,18 +18,15 @@ Status:
 completed
 ```
 
-Commits:
+Resumo:
+
+- pre-autorizacao read-only para Parabolic SAR demo criada;
+- casos de reversao rapida podem ficar elegiveis;
+- `allowed_to_execute_demo` permanece `false`;
+- Provider Demo, MT5 e SL/TP nao foram alterados.
+
+Proxima missao recomendada:
 
 ```text
-b7b5516 Execute MISSION_TIA-020 dynamic Moving Average demo authorization
-```
-
-## Resultado
-
-Foi criada pre-autorizacao read-only para Moving Average Exit demo.
-
-## Proxima Missao Recomendada
-
-```text
-MISSION_TIA-021_AUTORIZAR_PARABOLIC_SAR_DEMO
+MISSION_TIA-022_UNIFICAR_DYNAMIC_EXIT_ENGINE
 ```
