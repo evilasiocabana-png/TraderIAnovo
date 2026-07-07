@@ -1,0 +1,16 @@
+{
+  "project": "traderiaianovo",
+  "workflow": "codex-inbox",
+  "schema_version": "1.0",
+  "status": "ready",
+  "current_track": null,
+  "current_program": null,
+  "current_phase": null,
+  "current_mission": null,
+  "last_completed_mission": null,
+  "last_failed_mission": null,
+  "processing_must_be_empty": true,
+  "default_branch": "main",
+  "active_blockers": [],
+  "updated_at": "2026-07-07"
+}
