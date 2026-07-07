@@ -977,6 +977,9 @@ def exibir_mt5_history_comparison_dashboard(
             "Ultima atualizacao",
             _friendly_candle_time(getattr(research, "last_update", "N/D")),
         )
+        pesquisa[0].caption(
+            f"Banco local: {service.get_mt5_research_history_database_path()}"
+        )
         pesquisa[1].metric(
             "Candles historicos",
             int(getattr(research, "candles_loaded", 0) or 0),
@@ -3804,7 +3807,10 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
         "O refresh online nao executa pesquisa pesada."
     )
     colunas = st.columns(4)
-    colunas[0].metric("Candles por busca", "5000")
+    colunas[0].metric(
+        "Candles por busca",
+        service.get_mt5_research_history_candle_count(),
+    )
     colunas[1].metric("Cenarios por linha", MT5_ALPHA_LIBRARY_SEARCH_SPACE_SIZE)
     colunas[2].metric(
         "Alvo de confirmacao",
@@ -3814,6 +3820,7 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
 
     colunas = st.columns([1.15, 1.05, 1.6, 1.4])
     history_last_update = service.get_mt5_research_history_last_update()
+    history_database_path = service.get_mt5_research_history_database_path()
     selected_session_filter = _render_forex_session_filter_checkbox(
         colunas[2],
         key="research_forex_session_filter_enabled",
@@ -3837,6 +3844,7 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
         "Ultima atualizacao: "
         f"{_friendly_candle_time(history_last_update)}"
     )
+    colunas[0].caption(f"Banco local: {history_database_path}")
     if colunas[1].button(
         "Atualizar cálculos",
         key="research_update_mt5_calculations",

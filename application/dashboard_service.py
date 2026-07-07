@@ -7,6 +7,7 @@ import json
 import math
 import os
 from pathlib import Path
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -1546,6 +1547,11 @@ class DashboardService:
         configuration: ConfigurationData,
         selected_timeframe: str,
     ) -> tuple[str, ...]:
+        if (
+            os.getenv("TRADERIA_MT5_RESEARCH_HISTORY_ALL_TIMEFRAMES", "0").strip()
+            != "1"
+        ):
+            return (str(selected_timeframe or "M1"),)
         configured = tuple(
             str(item)
             for item in getattr(configuration, "timeframe_optimizer_timeframes", ())
@@ -1559,6 +1565,45 @@ class DashboardService:
 
     def _mt5_research_history_snapshot_path(self) -> Path:
         return Path(".traderia") / "mt5_research_history_snapshot.json"
+
+    def mt5_research_history_database_path(self) -> Path:
+        """Banco local do historico MT5 usado pelo Lab."""
+        return Path(".traderia") / "traderia_mt5_history.sqlite"
+
+    def get_mt5_research_history_database_path(self) -> str:
+        """Retorna o caminho absoluto do banco local do historico MT5."""
+        return str(self.mt5_research_history_database_path().resolve())
+
+    def get_mt5_research_history_candle_count(self) -> int:
+        """Retorna quantas velas o historico MT5 do Lab deve buscar."""
+        configuration = self.configuration_service.get_configuration_data()
+        return self._mt5_research_history_candle_count(configuration)
+
+    def _mt5_research_history_candle_count(
+        self,
+        configuration: ConfigurationData,
+    ) -> int:
+        try:
+            configured = int(
+                os.getenv(
+                    "TRADERIA_MT5_RESEARCH_HISTORY_CANDLES",
+                    "500",
+                )
+            )
+        except ValueError:
+            configured = 500
+        configured = max(1, configured)
+        return min(
+            configured,
+            int(
+                getattr(
+                    configuration,
+                    "quantitative_score_candles_loaded",
+                    500,
+                )
+                or 500
+            ),
+        )
 
     def get_mt5_research_history_last_update(self) -> str:
         """Retorna a data da ultima atualizacao do historico bruto MT5."""
@@ -1585,7 +1630,7 @@ class DashboardService:
         snapshots = [
             self.mt5_market_data_service.load_forex_research_snapshot(
                 timeframe=candidate_timeframe,
-                count=configuration.quantitative_score_candles_loaded,
+                count=self._mt5_research_history_candle_count(configuration),
             )
             for candidate_timeframe in self._mt5_research_timeframes(
                 configuration,
@@ -1685,6 +1730,20 @@ class DashboardService:
                 if str(getattr(snapshot, "safe_mode_error", "") or "")
             ),
         )
+        if int(getattr(history, "safe_mode_received_candles", 0) or 0) <= 0:
+            stored_history = self._load_mt5_research_history_snapshot()
+            if (
+                stored_history is not None
+                and int(getattr(stored_history, "safe_mode_received_candles", 0) or 0)
+                > 0
+            ):
+                return replace(
+                    stored_history,
+                    message=(
+                        "MT5 nao retornou candles nesta tentativa; ultimo "
+                        "historico valido foi preservado."
+                    ),
+                )
         self._save_mt5_research_history_snapshot(history)
         return history
 
@@ -1781,6 +1840,152 @@ class DashboardService:
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        self._save_mt5_research_history_database(payload)
+
+    def _save_mt5_research_history_database(self, payload: dict[str, Any]) -> None:
+        database_path = self.mt5_research_history_database_path()
+        database_path.parent.mkdir(parents=True, exist_ok=True)
+        updated_at = str(
+            payload.get("last_update") or datetime.now(timezone.utc).isoformat()
+        )
+        pairs = [
+            item
+            for item in payload.get("pairs", []) or []
+            if isinstance(item, dict)
+        ]
+        candles_by_market = payload.get("candles_by_market", {})
+        if not isinstance(candles_by_market, dict):
+            candles_by_market = {}
+
+        with sqlite3.connect(database_path) as connection:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS mt5_history_metadata (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS mt5_history_pairs (
+                    pair TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    decision TEXT NOT NULL,
+                    last_price REAL,
+                    received_candles INTEGER NOT NULL,
+                    last_candle_time TEXT,
+                    last_update TEXT,
+                    payload_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (pair, timeframe)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS mt5_history_candles (
+                    pair TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    candle_time TEXT NOT NULL,
+                    open REAL NOT NULL,
+                    high REAL NOT NULL,
+                    low REAL NOT NULL,
+                    close REAL NOT NULL,
+                    volume INTEGER NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (pair, timeframe, candle_time)
+                )
+                """
+            )
+            connection.execute("DELETE FROM mt5_history_metadata")
+            connection.execute("DELETE FROM mt5_history_pairs")
+            connection.execute("DELETE FROM mt5_history_candles")
+            metadata = {
+                "connection_status": payload.get("connection_status", "N/D"),
+                "server": payload.get("server", "N/D"),
+                "account": payload.get("account", "N/D"),
+                "timeframe": payload.get("timeframe", "N/D"),
+                "last_update": payload.get("last_update", "N/D"),
+                "snapshot_path": str(
+                    self._mt5_research_history_snapshot_path().resolve()
+                ),
+            }
+            for key, value in metadata.items():
+                connection.execute(
+                    """
+                    INSERT INTO mt5_history_metadata (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (key, str(value), updated_at),
+                )
+            for row in pairs:
+                pair = str(row.get("pair", "") or "").upper()
+                timeframe = str(row.get("timeframe", "") or "").upper()
+                if not pair or not timeframe:
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO mt5_history_pairs (
+                        pair, timeframe, status, decision, last_price,
+                        received_candles, last_candle_time, last_update,
+                        payload_json, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        pair,
+                        timeframe,
+                        str(row.get("status", "N/D")),
+                        str(row.get("decision", "WAIT")),
+                        self._optional_float(row.get("last_price")),
+                        int(row.get("received_candles", 0) or 0),
+                        str(row.get("last_candle_time", "") or ""),
+                        str(row.get("last_update", "") or ""),
+                        json.dumps(row, ensure_ascii=False),
+                        updated_at,
+                    ),
+                )
+            for key, candles in candles_by_market.items():
+                if (
+                    not isinstance(key, str)
+                    or "|" not in key
+                    or not isinstance(candles, list)
+                ):
+                    continue
+                pair, timeframe = [part.upper() for part in key.split("|", 1)]
+                for candle in candles:
+                    if not isinstance(candle, dict):
+                        continue
+                    candle_time = str(candle.get("data", "") or "")
+                    if not candle_time:
+                        continue
+                    connection.execute(
+                        """
+                        INSERT INTO mt5_history_candles (
+                            pair, timeframe, candle_time, open, high, low,
+                            close, volume, payload_json, updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            pair,
+                            timeframe,
+                            candle_time,
+                            float(candle.get("abertura", 0.0) or 0.0),
+                            float(candle.get("maxima", 0.0) or 0.0),
+                            float(candle.get("minima", 0.0) or 0.0),
+                            float(candle.get("fechamento", 0.0) or 0.0),
+                            int(candle.get("volume", 0) or 0),
+                            json.dumps(candle, ensure_ascii=False),
+                            updated_at,
+                        ),
+                    )
+            connection.commit()
 
     def _load_mt5_research_history_snapshot(
         self,
