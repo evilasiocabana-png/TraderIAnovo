@@ -14,6 +14,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
 - `FOREX_TO_MT5_CONTRACT.md`: como o Forex vira JSON/visual/execucao demo.
 - `REPORT_CONTRACT.md`: como o Relatorio audita sem virar fonte de decisao.
 - `TRACEABILITY_MATRIX.md`: matriz de ponta a ponta.
+- `STOP_LOGIC_TRACEABILITY.md`: trilha das politicas de saida/stop management
+  do Lab ate MT5 e Relatorio.
 
 ## Regra de uso
 

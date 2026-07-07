@@ -52,6 +52,18 @@ Arquivos de referencia:
 Toda mudanca em Alpha, setup, entrada, saida, timeframe, visual MT5 ou relatorio
 deve atualizar a rastreabilidade correspondente.
 
+## Camada 4 - Auditoria de Stops Moveis
+
+Arquivos de referencia:
+
+- `docs/MOBILE_STOPS_ANALYSIS.md`
+- `governance/traceability/STOP_LOGIC_TRACEABILITY.md`
+
+A auditoria confirma que o Lab avalia 9 politicas canonicas de stop management,
+mas a gestao demo MT5 aplica ajuste dinamico de SL/TP apenas para `BREAK_EVEN` e
+`ATR_TRAILING_STOP`. Qualquer ampliacao de saida dinamica deve ser feita por
+missao especifica e com testes do contrato Lab -> Forex -> MT5 -> Relatorio.
+
 ## Observacao Operacional
 
 O app local pode acessar recursos locais e MT5 da maquina. O app em Codespaces

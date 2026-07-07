@@ -33,3 +33,9 @@
 - Criada pasta `governance/traceability/` com indices de Alpha, setup, contratos
   Lab -> Forex, Forex -> MT5, Relatorio e matriz ponta a ponta.
 - Nenhum codigo operacional foi alterado.
+- Executada `MISSION_TIA-004_ANALISAR_STOPS_MOVEIS`.
+- Criada auditoria `docs/MOBILE_STOPS_ANALYSIS.md`.
+- Criada rastreabilidade `governance/traceability/STOP_LOGIC_TRACEABILITY.md`.
+- Constatado que o Lab avalia 9 politicas de saida, enquanto a gestao demo MT5
+  aplica SL/TP dinamico apenas para `BREAK_EVEN` e `ATR_TRAILING_STOP`.
+- Nenhum codigo operacional foi alterado.
