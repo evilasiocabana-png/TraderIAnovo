@@ -93,7 +93,7 @@ Falhas observadas fora do escopo da TIA-013:
 
 ## Commit
 
-PENDENTE
+619526c
 
 ## Branch
 

@@ -19,7 +19,7 @@ completed
 Commits:
 
 ```text
-PENDENTE Execute MISSION_TIA-013 dynamic exit paper simulation
+619526c Execute MISSION_TIA-013 dynamic exit paper simulation
 ```
 
 ## O Que Foi Executado

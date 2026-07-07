@@ -18,7 +18,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-010 | Exibir saida dinamica no MT5 visual | completed | 2026-07-07 | 2026-07-07 | N/D | main | 9a55639 | Codex |
 | MISSION_TIA-011 | Registrar saida dinamica no Relatorio | completed | 2026-07-07 | 2026-07-07 | N/D | main | 44cdbc6 | Codex |
 | MISSION_TIA-012 | Backtest saida dinamica read-only | completed | 2026-07-07 | 2026-07-07 | N/D | main | 9265f50 | Codex |
-| MISSION_TIA-013 | Paper simulation saida dinamica | completed | 2026-07-07 | 2026-07-07 | N/D | main | PENDENTE | Codex |
+| MISSION_TIA-013 | Paper simulation saida dinamica | completed | 2026-07-07 | 2026-07-07 | N/D | main | 619526c | Codex |
 
 ## Regras
 

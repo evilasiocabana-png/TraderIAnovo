@@ -106,4 +106,4 @@
 - Acao: criado motor de simulacao paper read-only da saida dinamica.
 - Resultado: recomendacoes dinamicas sao registradas, normalizadas como nao executadas e comparadas com a politica original via backtest read-only.
 - Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
-- Commit: PENDENTE
+- Commit: 619526c
