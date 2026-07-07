@@ -80,6 +80,7 @@ from application.dynamic_exit_market_state_service import (
 from application.dynamic_exit_recommendation_service import (
     DynamicExitRecommendationEngine,
 )
+from application.forex_mt5_service import ForexMT5Service
 from application.mt5_visual_signal_exporter import (
     MT5VisualSignalExportResult,
     MT5VisualSignalExporter,
@@ -554,6 +555,7 @@ class DashboardService:
     mt5_market_data_service: MT5MarketDataService = field(
         default_factory=MT5MarketDataService
     )
+    forex_mt5_service: ForexMT5Service = field(default_factory=ForexMT5Service)
     replay_service: ReplayService = field(default_factory=ReplayService)
     historical_dataset_catalog: HistoricalDatasetCatalog = field(
         default_factory=HistoricalDatasetCatalog
@@ -761,6 +763,155 @@ class DashboardService:
     def get_mt5_forex_signals(self) -> MT5ForexSignalDashboard:
         """Retorna o painel Forex MT5 pela fachada do dashboard."""
         return self.mt5_market_data_service.get_forex_signal_dashboard()
+
+    def get_fast_mt5_forex_snapshot(self) -> DashboardMT5ForexSignalViewModel | None:
+        """Monta snapshot Forex leve pela fachada read-only, sem operacao MT5."""
+        file_snapshot = self._get_fast_mt5_forex_snapshot_from_file()
+        if file_snapshot is not None:
+            return file_snapshot
+        status = self.forex_mt5_service.get_status()
+        if not bool(getattr(status, "connected", False)):
+            return None
+        signals = self.forex_mt5_service.get_signals(
+            timeframe=str(getattr(status, "timeframe", "M1") or "M1")
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        rows = [
+            DashboardMT5ForexSignalRowViewModel(
+                pair=signal.pair,
+                status="OK" if signal.price else "SEM_TICK",
+                last_price=signal.price if signal.price else None,
+                last_candle_time=signal.last_update or now,
+                active_model="MT5_FAST_SNAPSHOT",
+                decision=signal.decision,
+                confidence=1.0 if signal.is_positioned else 0.0,
+                reason=(
+                    f"Posicao aberta no MT5: {signal.position_side}"
+                    if signal.is_positioned
+                    else "Leitura MT5 online; sem posicao aberta no par."
+                ),
+                timeframe=signal.timeframe,
+                configured_candles=500,
+                requested_candles=500,
+                received_candles=1 if signal.price else 0,
+                last_update=signal.last_update or now,
+                diagnostics_status="OK" if signal.price else "SEM_TICK",
+                research_plan_stop=signal.dynamic_exit_candidate_stop,
+                research_plan_target=None,
+                research_plan_stop_management=signal.stop_management,
+                research_plan_reason="Snapshot rapido via fachada read-only.",
+                dynamic_exit_policy=signal.dynamic_exit_policy,
+                dynamic_exit_action=signal.dynamic_exit_action,
+                dynamic_exit_reason=signal.dynamic_exit_reason,
+                dynamic_exit_confidence=signal.dynamic_exit_confidence,
+                dynamic_exit_market_state=signal.dynamic_exit_market_state,
+                dynamic_exit_r_multiple=signal.dynamic_exit_r_multiple,
+                dynamic_exit_candidate_stop=signal.dynamic_exit_candidate_stop,
+                dynamic_exit_allowed_to_execute_demo=False,
+                dynamic_exit_source=signal.dynamic_exit_source,
+                mt5_position=signal.position_side if signal.is_positioned else "N/D",
+            )
+            for signal in signals
+        ]
+        return DashboardMT5ForexSignalViewModel(
+            connection_status=status.status,
+            server=status.server,
+            account=status.account,
+            account_type="N/D",
+            timeframe=status.timeframe,
+            pairs=rows,
+            available_pairs=[row.pair for row in rows],
+            unavailable_pairs=[row.pair for row in rows if row.status != "OK"],
+            message="MT5 online por snapshot rapido da fachada read-only.",
+            read_only_status="SOMENTE ANALISE DE MERCADO",
+            real_operation_authorized=False,
+            connection_health=status.status,
+            connection_health_icon="ONLINE",
+            last_update=now,
+            last_mt5_read=now,
+            last_candle_time=now,
+            refresh_id=1,
+            health_message=status.message,
+            mt5_safe_mode=True,
+            safe_mode_status=status.status,
+            safe_mode_received_candles=sum(
+                1 for row in rows if row.received_candles > 0
+            ),
+            safe_mode_last_price=next(
+                (row.last_price for row in rows if row.last_price),
+                None,
+            ),
+        )
+
+    def _get_fast_mt5_forex_snapshot_from_file(
+        self,
+    ) -> DashboardMT5ForexSignalViewModel | None:
+        path = Path(
+            os.getenv(
+                "TRADERIA_MT5_FAST_SNAPSHOT_PATH",
+                ".traderia/fast_mt5_snapshot.json",
+            )
+        )
+        if not path.exists():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        rows = [
+            DashboardMT5ForexSignalRowViewModel(
+                pair=str(row.get("pair", "N/D")),
+                status=str(row.get("status", "N/D")),
+                last_price=self._float_or_none(row.get("last_price")),
+                last_candle_time=str(row.get("last_update", "N/D")),
+                active_model=str(row.get("active_model", "MT5_FAST_SNAPSHOT")),
+                decision=str(row.get("decision", "WAIT")),
+                confidence=float(row.get("confidence", 0.0) or 0.0),
+                reason=str(row.get("reason", "Snapshot MT5.")),
+                timeframe=str(row.get("timeframe", "M1")),
+                configured_candles=500,
+                requested_candles=500,
+                received_candles=int(row.get("received_candles", 0) or 0),
+                last_update=str(row.get("last_update", "N/D")),
+                diagnostics_status=str(row.get("diagnostics_status", "OK")),
+                research_plan_stop=self._float_or_none(row.get("stop")),
+                research_plan_target=self._float_or_none(row.get("target")),
+                research_plan_stop_management=str(
+                    row.get("stop_management", "ATR_TRAILING_STOP")
+                ),
+                research_plan_reason=str(row.get("reason", "Snapshot rapido MT5.")),
+            )
+            for row in list(payload.get("pairs", []) or [])
+            if isinstance(row, dict)
+        ]
+        if not rows:
+            return None
+        connection_status = str(payload.get("connection_status", "ONLINE"))
+        generated_at = str(payload.get("generated_at", ""))
+        return DashboardMT5ForexSignalViewModel(
+            connection_status=connection_status,
+            server=str(payload.get("server", "N/D")),
+            account=str(payload.get("account", "N/D")),
+            account_type=str(payload.get("account_type", "N/D")),
+            timeframe=str(payload.get("timeframe", "M1")),
+            pairs=rows,
+            available_pairs=[row.pair for row in rows],
+            unavailable_pairs=[row.pair for row in rows if row.status != "OK"],
+            message=str(payload.get("message", "MT5 online por snapshot rapido.")),
+            read_only_status="SOMENTE ANALISE DE MERCADO",
+            real_operation_authorized=False,
+            connection_health=connection_status,
+            connection_health_icon="ONLINE" if connection_status == "ONLINE" else "OFFLINE",
+            last_update=generated_at,
+            last_mt5_read=generated_at,
+            last_candle_time=generated_at,
+            refresh_id=1,
+            health_message=str(payload.get("message", "MT5 conectado em modo leitura.")),
+            mt5_safe_mode=True,
+            safe_mode_status=connection_status,
+            safe_mode_received_candles=sum(1 for row in rows if row.received_candles > 0),
+            safe_mode_last_price=next((row.last_price for row in rows if row.last_price), None),
+        )
 
     def load_mt5_forex_signals(
         self,
@@ -7174,8 +7325,8 @@ class DashboardService:
                 "reason": "Medias indisponiveis.",
             }
         ma_distance = abs((short_average - long_average) / long_average)
-        buy = short_average > long_average and rsi < 70.0
-        sell = short_average < long_average and rsi > 30.0
+        buy = short_average < long_average and rsi < 70.0
+        sell = short_average > long_average and rsi > 30.0
         decision = "BUY" if buy else "SELL" if sell else "WAIT"
         score = confidence + min(ma_distance * 20.0, 0.20)
         if 35.0 <= rsi <= 65.0:
