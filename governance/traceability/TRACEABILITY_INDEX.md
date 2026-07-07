@@ -26,6 +26,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
   estado de mercado em recomendacao dinamica auditavel.
 - `DYNAMIC_EXIT_DASHBOARD_DISPLAY_TRACEABILITY.md`: exibicao da saida dinamica
   no Forex/Dashboard sem decisao operacional.
+- `DYNAMIC_EXIT_MT5_VISUAL_TRACEABILITY.md`: exibicao curta da saida dinamica
+  no MT5 visual apenas quando ha posicao aberta.
 
 ## Regra de uso
 

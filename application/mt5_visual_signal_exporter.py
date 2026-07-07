@@ -170,6 +170,10 @@ class MT5VisualSignalExporter:
             "dynamic_exit_candidate_stop": row.dynamic_exit_candidate_stop,
             "dynamic_exit_allowed_to_execute_demo": False,
             "dynamic_exit_source": row.dynamic_exit_source,
+            "dynamic_exit_visual_text": self._dynamic_exit_visual_text(
+                row,
+                is_positioned=is_positioned,
+            ),
             "operational_plan_text": "",
             "model": row.active_model,
             "score": row.active_model_score,
@@ -271,6 +275,33 @@ class MT5VisualSignalExporter:
             f"{self._text_or_na(key)}={self._text_or_na(value)}"
             for key, value in parameters.items()
         )
+
+    def _dynamic_exit_visual_text(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        *,
+        is_positioned: bool,
+    ) -> str:
+        if not is_positioned:
+            return ""
+
+        action = self._text_or_na(row.dynamic_exit_action)
+        market_state = self._dynamic_exit_market_state(row, is_positioned=True)
+        confidence = self._percent_text(row.dynamic_exit_confidence)
+        candidate_stop = self._text_or_na(row.dynamic_exit_candidate_stop)
+        reason = self._text_or_na(row.dynamic_exit_reason)
+
+        parts = [
+            f"Saida dinamica: {action}",
+            f"Estado: {market_state}",
+            f"Conf: {confidence}",
+        ]
+        if candidate_stop != "N/A":
+            parts.append(f"Stop cand: {candidate_stop}")
+        parts.append("Exec: NAO")
+        if reason != "N/A":
+            parts.append(f"Motivo: {reason}")
+        return " | ".join(parts)
 
     def _operational_timeframe(
         self,

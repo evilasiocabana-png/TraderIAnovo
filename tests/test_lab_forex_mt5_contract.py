@@ -175,6 +175,10 @@ class LabForexMT5ContractTest(unittest.TestCase):
         self.assertEqual(signal["stop"], 1.14067)
         self.assertEqual(signal["target"], 1.14524)
         self.assertEqual(signal["stop_management"], "BREAK_EVEN")
+        self.assertEqual(signal["dynamic_exit_market_state"], "TREND_RUNNER")
+        self.assertIs(signal["dynamic_exit_allowed_to_execute_demo"], False)
+        self.assertIn("Saida dinamica: KEEP_ORIGINAL_PLAN", signal["dynamic_exit_visual_text"])
+        self.assertIn("Exec: NAO", signal["dynamic_exit_visual_text"])
 
     def test_json_visual_identifica_ativo_sem_posicao_para_grafico_limpo(self) -> None:
         exporter = MT5VisualSignalExporter()
@@ -206,6 +210,7 @@ class LabForexMT5ContractTest(unittest.TestCase):
         self.assertEqual(signal["dynamic_exit_action"], "TRAIL_BY_ATR")
         self.assertEqual(signal["dynamic_exit_market_state"], "NO_POSITION")
         self.assertIs(signal["dynamic_exit_allowed_to_execute_demo"], False)
+        self.assertEqual(signal["dynamic_exit_visual_text"], "")
 
     def test_indicador_mt5_so_desenha_grafico_com_posicao_aberta(self) -> None:
         indicator_source = Path("mt5/indicators/TraderIAVisualSignals.mq5").read_text(
@@ -214,6 +219,14 @@ class LabForexMT5ContractTest(unittest.TestCase):
 
         self.assertIn(
             'ExtractJsonString(block, "robot_status") == "POSICAO_ABERTA_MT5"',
+            indicator_source,
+        )
+        self.assertIn(
+            'ExtractJsonString(block, "dynamic_exit_visual_text")',
+            indicator_source,
+        )
+        self.assertIn(
+            "dynamic_exit_visual_text = NormalizeOneLine(dynamic_exit_visual_text);",
             indicator_source,
         )
         self.assertIn(

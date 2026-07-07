@@ -79,3 +79,10 @@
 - Resultado: dashboard mostra politica Lab, estado, recomendacao, confianca, R, stop candidato e execucao permitida.
 - Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
 - Commit: 95e194c
+# 2026-07-07 - MISSION_TIA-010_EXIBIR_SAIDA_DINAMICA_NO_MT5_VISUAL
+
+- Status: completed
+- Acao: adicionada exibicao curta da saida dinamica no payload visual e no indicador MT5.
+- Resultado: `dynamic_exit_visual_text` aparece apenas para ativos com posicao aberta; ativos sem posicao continuam com grafico limpo.
+- Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
+- Commit: PENDENTE

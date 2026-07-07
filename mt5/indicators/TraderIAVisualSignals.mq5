@@ -514,6 +514,7 @@ void DrawStatusLabel(string block, int index)
    string operational_plan_text = DecodeJsonText(ExtractJsonString(block, "operational_plan_text"));
    string stop_management = ExtractJsonString(block, "stop_management");
    string signal_timeframe = ExtractJsonString(block, "timeframe");
+   string dynamic_exit_visual_text = DecodeJsonText(ExtractJsonString(block, "dynamic_exit_visual_text"));
 
    string text = CompactPlanText(
       model,
@@ -522,7 +523,8 @@ void DrawStatusLabel(string block, int index)
       stop_management,
       rr,
       signal_timeframe,
-      ChartTimeframeLabel()
+      ChartTimeframeLabel(),
+      dynamic_exit_visual_text
    );
 
    DrawOperationalPlanComment(text);
@@ -618,20 +620,27 @@ string CompactPlanText(
    string stop_management,
    double rr,
    string signal_timeframe,
-   string chart_timeframe
+   string chart_timeframe,
+   string dynamic_exit_visual_text
 )
 {
    string timeframe_text = ValueOrNA(signal_timeframe);
    if(chart_timeframe != "" && signal_timeframe != "" && chart_timeframe != signal_timeframe)
       timeframe_text = timeframe_text + " (grafico " + chart_timeframe + ")";
 
-   return(
+   string text = (
       "Setup: " + ValueOrNA(model) + "\n" +
       "Tempo: " + timeframe_text + "\n" +
       "Entrada: " + ValueOrNA(decision) + "\n" +
       "Motivo: " + CompactEntryReason(reason) + "\n" +
       "Saida: " + ExitSummary(stop_management, rr)
    );
+
+   dynamic_exit_visual_text = NormalizeOneLine(dynamic_exit_visual_text);
+   if(dynamic_exit_visual_text != "")
+      text = text + "\n" + LimitText(dynamic_exit_visual_text, 140);
+
+   return(text);
 }
 
 string CompactEntryReason(string reason)

@@ -5,7 +5,7 @@ Atualizado em: 2026-07-07
 IMPORTANTE: o ultimo inbox executado e:
 
 ```text
-MISSION_TIA-009_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_DASHBOARD
+MISSION_TIA-010_EXIBIR_SAIDA_DINAMICA_NO_MT5_VISUAL
 ```
 
 Status:
@@ -17,26 +17,17 @@ completed
 Commits:
 
 ```text
-95e194c Execute MISSION_TIA-009 dynamic exit dashboard display
+PENDENTE Execute MISSION_TIA-010 dynamic exit mt5 visual
 ```
 
 ## Resultado
 
-O Codex exibiu no Forex/Dashboard os campos read-only da saida dinamica:
-
-```text
-Politica Saida Lab
-Estado Mercado Saida
-Recomendacao Saida
-Motivo Saida Dinamica
-Confianca Saida Dinamica
-R Atual Saida
-Stop Candidato
-Execucao Saida Permitida
-```
+O Codex adicionou o campo `dynamic_exit_visual_text` ao JSON visual MT5 e
+ajustou o indicador `TraderIAVisualSignals.mq5` para mostrar a saida dinamica
+somente quando houver posicao aberta.
 
 Proxima missao recomendada:
 
 ```text
-MISSION_TIA-010_EXIBIR_SAIDA_DINAMICA_NO_MT5_VISUAL
+MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO
 ```

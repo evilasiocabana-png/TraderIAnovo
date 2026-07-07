@@ -4,18 +4,18 @@
   "branch": "main",
   "updated_at": "2026-07-07",
   "latest_inbox_mission": {
-    "id": "MISSION_TIA-009_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_DASHBOARD",
+    "id": "MISSION_TIA-010_EXIBIR_SAIDA_DINAMICA_NO_MT5_VISUAL",
     "status": "completed",
     "commits": [
-      "95e194c"
+      "PENDENTE"
     ],
-    "execution_report": "codex/completed/MISSION_TIA-009_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_DASHBOARD/EXECUTION_REPORT.md",
+    "execution_report": "codex/completed/MISSION_TIA-010_EXIBIR_SAIDA_DINAMICA_NO_MT5_VISUAL/EXECUTION_REPORT.md",
     "primary_docs": [
-      "docs/DYNAMIC_EXIT_FOREX_DASHBOARD_DISPLAY.md",
-      "governance/traceability/DYNAMIC_EXIT_DASHBOARD_DISPLAY_TRACEABILITY.md",
+      "docs/DYNAMIC_EXIT_MT5_VISUAL_DISPLAY.md",
+      "governance/traceability/DYNAMIC_EXIT_MT5_VISUAL_TRACEABILITY.md",
       "docs/GPT_SYNC_STATUS.md"
     ],
-    "summary": "A missao exibiu os campos read-only da saida dinamica no Forex/Dashboard.",
-    "next_recommended_mission": "MISSION_TIA-010_EXIBIR_SAIDA_DINAMICA_NO_MT5_VISUAL"
+    "summary": "A missao exibiu texto curto de saida dinamica no MT5 visual somente para ativos posicionados.",
+    "next_recommended_mission": "MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO"
   }
 }

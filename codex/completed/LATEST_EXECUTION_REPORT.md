@@ -3,7 +3,7 @@
 ## Ultimo Inbox Executado
 
 ```text
-MISSION_TIA-009_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_DASHBOARD
+MISSION_TIA-010_EXIBIR_SAIDA_DINAMICA_NO_MT5_VISUAL
 ```
 
 Status:
@@ -15,15 +15,16 @@ completed
 Commits:
 
 ```text
-95e194c Execute MISSION_TIA-009 dynamic exit dashboard display
+PENDENTE Execute MISSION_TIA-010 dynamic exit mt5 visual
 ```
 
 ## Resultado
 
-O Forex/Dashboard passou a exibir os campos read-only da saida dinamica.
+O MT5 visual passou a receber e exibir texto curto da saida dinamica somente
+para ativos com posicao aberta.
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-010_EXIBIR_SAIDA_DINAMICA_NO_MT5_VISUAL
+MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO
 ```
