@@ -984,13 +984,14 @@ def _mt5_history_row(row: object) -> dict[str, object]:
 def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None:
     """Exibe auditoria das negociacoes TraderIA x historico MT5."""
     forex = getattr(data, "mt5_forex_signals", None)
-    try:
-        _load_mt5_forex_signals_locked(
-            service,
-            timeframe=str(getattr(forex, "timeframe", "H1") or "H1"),
-        )
-    except Exception:
-        pass
+    if os.getenv("TRADERIA_MT5_REPORT_FORCE_LOAD_ENABLED", "0").strip() == "1":
+        try:
+            _load_mt5_forex_signals_locked(
+                service,
+                timeframe=str(getattr(forex, "timeframe", "H1") or "H1"),
+            )
+        except Exception:
+            pass
     data = replace(
         service.get_light_dashboard_view_model(),
         mt5_trade_audit=service.get_mt5_trade_audit_report(),
@@ -7050,7 +7051,7 @@ def main() -> None:
     app_title = os.getenv("TRADERIA_APP_TITLE", "TraderIA Local").strip()
     st.set_page_config(page_title=app_title or "TraderIA Local", layout="wide")
     _inject_dashboard_css()
-    if os.getenv("TRADERIA_FAST_BOOT_ENABLED", "1").strip() == "1":
+    if os.getenv("TRADERIA_FAST_BOOT_ENABLED", "0").strip() == "1":
         _render_fast_boot_dashboard(app_title or "TraderIA Nuvem")
         return
     service = get_dashboard_service()
