@@ -77,6 +77,9 @@ from application.mt5_market_data_service import (
 from application.dynamic_exit_market_state_service import (
     DynamicExitMarketStateClassifier,
 )
+from application.dynamic_exit_recommendation_service import (
+    DynamicExitRecommendationEngine,
+)
 from application.mt5_visual_signal_exporter import (
     MT5VisualSignalExportResult,
     MT5VisualSignalExporter,
@@ -94,6 +97,7 @@ from domain.candle import Candle
 
 MT5_LAB_TARGET_CONFIDENCE = 0.70
 _DYNAMIC_EXIT_MARKET_STATE_CLASSIFIER = DynamicExitMarketStateClassifier()
+_DYNAMIC_EXIT_RECOMMENDATION_ENGINE = DynamicExitRecommendationEngine()
 from application.replay_service import ReplayData, ReplayService
 from application.research_lab_service import (
     Alpha001DashboardResearchData,
@@ -4436,57 +4440,28 @@ class DashboardService:
             )
         )
         if status != "PLANO_VALIDO":
-            return DynamicExitRecommendation(
-                policy=policy,
-                action="NO_ACTION_BAD_CONTEXT",
-                reason="Plano invalido ou ausente; saida dinamica mantida apenas em auditoria.",
-                confidence=0.0,
-                market_state="BAD_EXECUTION_CONTEXT",
-                allowed_to_execute_demo=False,
-            )
-        if reading.state == "BAD_EXECUTION_CONTEXT":
-            return DynamicExitRecommendation(
-                policy=policy,
-                action="NO_ACTION_BAD_CONTEXT",
-                reason=reading.reason,
-                confidence=0.0,
-                market_state=reading.state,
+            reading = DynamicExitMarketReading(
+                symbol=reading.symbol,
+                side=reading.side,
+                is_positioned=reading.is_positioned,
+                current_price=reading.current_price,
+                entry_price=reading.entry_price,
+                stop_price=reading.stop_price,
+                target_price=reading.target_price,
+                atr=reading.atr,
+                volatility=reading.volatility,
+                momentum=reading.momentum,
+                spread=reading.spread,
+                time_in_position_minutes=reading.time_in_position_minutes,
+                state="BAD_EXECUTION_CONTEXT",
                 r_multiple=reading.r_multiple,
+                reason="Plano invalido ou ausente; saida dinamica mantida apenas em auditoria.",
                 candidate_stop=reading.candidate_stop,
-                allowed_to_execute_demo=False,
             )
-        if policy == "BREAK_EVEN" and reading.state == "TREND_RUNNER":
-            action = "KEEP_ORIGINAL_PLAN"
-            reason = (
-                "Read-only: BREAK_EVEN preservado como politica base, mas sem "
-                "execucao demo; tendencia/volatilidade pedem auditoria antes de proteger cedo."
-            )
-            confidence = 0.55
-        elif policy == "ATR_TRAILING_STOP" and reading.state == "TREND_RUNNER":
-            action = "TRAIL_BY_ATR"
-            reason = "Read-only: tendencia favorece acompanhamento por ATR, sem alterar SL/TP."
-            confidence = 0.60
-        elif policy == "TIME_STOP" or reading.state == "TIME_DECAY":
-            action = "TIME_DECAY_EXIT_WATCH"
-            reason = f"Read-only: {reading.reason}"
-            confidence = 0.45
-        elif reading.state == "REVERSAL_RISK":
-            action = "TIGHTEN_BY_MOMENTUM_LOSS"
-            reason = f"Read-only: {reading.reason}"
-            confidence = 0.50
-        else:
-            action = "KEEP_ORIGINAL_PLAN"
-            reason = f"Read-only: {reading.reason}"
-            confidence = 0.40
-        return DynamicExitRecommendation(
+        return _DYNAMIC_EXIT_RECOMMENDATION_ENGINE.recommend(
+            reading,
             policy=policy,
-            action=action,
-            reason=reason,
-            confidence=confidence,
-            market_state=reading.state,
-            r_multiple=reading.r_multiple,
-            candidate_stop=reading.candidate_stop,
-            allowed_to_execute_demo=False,
+            plan_status=status,
         )
 
     def _latest_mt5_forex_row_for_timeframe(

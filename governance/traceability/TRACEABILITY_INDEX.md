@@ -22,6 +22,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
   saida dinamica.
 - `DYNAMIC_EXIT_MARKET_STATE_TRACEABILITY.md`: leitura de estado de mercado
   implementada para a saida dinamica read-only.
+- `DYNAMIC_EXIT_RECOMMENDATION_TRACEABILITY.md`: motor read-only que transforma
+  estado de mercado em recomendacao dinamica auditavel.
 
 ## Regra de uso
 

@@ -65,3 +65,10 @@
 - Resultado: `DynamicExitMarketReading` e `DynamicExitMarketStateClassifier` implementados e cobertos por testes.
 - Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
 - Commit: e24c9e2
+# 2026-07-07 - MISSION_TIA-008_IMPLEMENTAR_DYNAMIC_EXIT_RECOMMENDATION_ENGINE
+
+- Status: completed
+- Acao: criado motor read-only de recomendacao de saida dinamica.
+- Resultado: `DynamicExitRecommendationEngine` implementado e coberto por testes.
+- Guardrail: `allowed_to_execute_demo=false`; nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
+- Commit: PENDENTE

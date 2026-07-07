@@ -5,27 +5,10 @@ Atualizado em: 2026-07-07
 IMPORTANTE: o ultimo inbox executado e:
 
 ```text
-MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO
+MISSION_TIA-008_IMPLEMENTAR_DYNAMIC_EXIT_RECOMMENDATION_ENGINE
 ```
-
-Use este arquivo como primeira fonte quando o usuario pedir:
-
-```text
-traga o resultado do ultimo inbox
-o que foi executado pelo inbox
-resultado do inbox
-resuma a ultima missao do Codex
-```
-
-Missoes finalizadas ficam em `codex/completed/`.
 
 ## Resultado Atual
-
-Ultimo inbox executado:
-
-```text
-MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO
-```
 
 Status:
 
@@ -36,7 +19,7 @@ completed
 Commits:
 
 ```text
-e24c9e2 Execute MISSION_TIA-007 market state engine
+PENDENTE
 ```
 
 ## Arquivos do Resultado
@@ -44,56 +27,38 @@ e24c9e2 Execute MISSION_TIA-007 market state engine
 Relatorio de execucao:
 
 ```text
-codex/completed/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/EXECUTION_REPORT.md
+codex/completed/MISSION_TIA-008_IMPLEMENTAR_DYNAMIC_EXIT_RECOMMENDATION_ENGINE/EXECUTION_REPORT.md
 ```
 
 Documento tecnico:
 
 ```text
-docs/DYNAMIC_EXIT_MARKET_STATE_ENGINE.md
+docs/DYNAMIC_EXIT_RECOMMENDATION_ENGINE.md
 ```
 
 Rastreabilidade:
 
 ```text
-governance/traceability/DYNAMIC_EXIT_MARKET_STATE_TRACEABILITY.md
-```
-
-Status para GPT:
-
-```text
-docs/GPT_SYNC_STATUS.md
+governance/traceability/DYNAMIC_EXIT_RECOMMENDATION_TRACEABILITY.md
 ```
 
 ## Resumo Para Responder ao Usuario
 
-O Codex criou o motor read-only de leitura de estado de mercado para saida
-dinamica:
+O Codex criou o motor read-only de recomendacao dinamica:
 
 ```text
-DynamicExitMarketReading
-DynamicExitMarketStateClassifier
+DynamicExitRecommendationEngine
 ```
 
-Foram criados:
+Ele transforma `DynamicExitMarketReading` em `DynamicExitRecommendation`,
+cobrindo todas as acoes previstas e mantendo:
 
-- `application/dynamic_exit_market_state_service.py`
-- `tests/test_dynamic_exit_market_state_service.py`
-- `docs/DYNAMIC_EXIT_MARKET_STATE_ENGINE.md`
-- `governance/traceability/DYNAMIC_EXIT_MARKET_STATE_TRACEABILITY.md`
-- `codex/completed/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/EXECUTION_REPORT.md`
-
-Foram atualizados registros de governanca, incluindo `MISSION_INDEX`,
-`EXECUTION_STATE`, `EXECUTION_LOG`, `NEXT_MISSION` e `docs/GPT_SYNC_STATUS.md`.
+```text
+allowed_to_execute_demo = false
+```
 
 Proxima missao recomendada:
 
 ```text
-MISSION_TIA-008_IMPLEMENTAR_DYNAMIC_EXIT_RECOMMENDATION_ENGINE
+MISSION_TIA-009_EXIBIR_SAIDA_DINAMICA_NO_FOREX_E_DASHBOARD
 ```
-
-## Regra Para GPT
-
-Se o usuario pedir o resultado do ultimo inbox, responda com base neste arquivo
-e, se precisar de detalhes, leia os arquivos listados acima. Nao confundir esta
-missao com execucoes anteriores.
