@@ -54,6 +54,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
   consolida leitura, recomendacao e pre-autorizacao sem executar.
 - `DYNAMIC_EXIT_RUNTIME_OPTIMIZATION_TRACEABILITY.md`: otimizacao de runtime
   com cache LRU pequeno e fallback seguro sem executar.
+- `DYNAMIC_EXIT_FINAL_VALIDATION_TRACEABILITY.md`: validacao final da cadeia
+  dynamic exit read-only, gates oficiais, pendencias e rollback.
 
 ## Regra de uso
 
