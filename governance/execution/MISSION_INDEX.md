@@ -9,7 +9,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-002 | Criar template oficial de melhoria GPT | completed | 2026-07-07 | 2026-07-07 | N/D | main | 33c5121 | Codex |
 | MISSION_TIA-003 | Indexar Alfas, setups e contratos | completed | 2026-07-07 | 2026-07-07 | N/D | main | 0c71c13 | Codex |
 | MISSION_TIA-004 | Analisar stops moveis | completed | 2026-07-07 | 2026-07-07 | N/D | main | 4fb57f3 | Codex |
-| MISSION_TIA-005 | Projetar saida dinamica baseada em leitura de mercado | completed | 2026-07-07 | 2026-07-07 | N/D | main | PENDENTE | Codex |
+| MISSION_TIA-005 | Projetar saida dinamica baseada em leitura de mercado | completed | 2026-07-07 | 2026-07-07 | N/D | main | 5c572e6 | Codex |
 
 ## Regras
 

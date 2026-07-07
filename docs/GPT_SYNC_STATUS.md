@@ -31,7 +31,7 @@ completed
 Commits:
 
 ```text
-PENDENTE Execute MISSION_TIA-005 - dynamic exit design
+5c572e6 Execute MISSION_TIA-005 dynamic exit design
 ```
 
 ## Arquivos Que Confirmam a Execucao
