@@ -99,4 +99,4 @@
 - Acao: criado motor de backtest read-only para comparar saida original do Lab contra saida dinamica recomendada.
 - Resultado: comparativo calcula lucro liquido, drawdown, win rate, profit factor, expectancy, duracao, RR, dominancia de break-even, ganho perdido e protecao contra perda.
 - Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
-- Commit: PENDENTE
+- Commit: 9265f50

@@ -6,7 +6,7 @@
   "current_mission": null,
   "last_completed_mission": "MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY",
   "last_failed_mission": null,
-  "last_commit": "PENDENTE",
+  "last_commit": "9265f50",
   "last_branch": "main",
   "last_responsible": "Codex",
   "last_status": "completed",

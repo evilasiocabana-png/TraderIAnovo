@@ -19,7 +19,7 @@ completed
 Commits:
 
 ```text
-PENDENTE Execute MISSION_TIA-012 dynamic exit backtest readonly
+9265f50 Execute MISSION_TIA-012 dynamic exit backtest readonly
 ```
 
 ## O Que Foi Executado

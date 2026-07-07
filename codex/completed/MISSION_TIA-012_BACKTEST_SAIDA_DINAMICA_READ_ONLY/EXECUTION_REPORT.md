@@ -99,7 +99,7 @@ Falhas observadas fora do escopo da TIA-012:
 
 ## Commit
 
-PENDENTE
+9265f50
 
 ## Branch
 
