@@ -3921,12 +3921,45 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
         key="research_update_mt5_history",
     ):
         _apply_forex_session_filter_preference(service, selected_session_filter)
+        progress = st.progress(0.0)
+        status_box = st.status(
+            "Preparando download multi-TF do histórico MT5...",
+            expanded=True,
+        )
+        status_box.write("Verificando comunicação MT5 e parâmetros do Lab.")
+        progress.progress(0.15)
+        status_box.write("Baixando candles dos timeframes configurados...")
+        progress.progress(0.45)
         history = service.update_mt5_research_history(timeframe="MULTI")
+        received_candles = int(getattr(history, "safe_mode_received_candles", 0) or 0)
+        rows_count = len(list(getattr(history, "pairs", []) or []))
+        communication_status = str(
+            getattr(history, "safe_mode_status", "")
+            or getattr(history, "connection_status", "N/D")
+        )
+        progress.progress(0.75)
+        status_box.write(f"Comunicação MT5: {communication_status}.")
+        status_box.write(
+            f"Base recebida: {received_candles} candles em {rows_count} linhas multi-TF."
+        )
+        status_box.write(f"Banco local: {history_database_path}")
+        progress.progress(1.0)
+        if received_candles > 0:
+            status_box.update(
+                label="Histórico MT5 baixado e salvo.",
+                state="complete",
+                expanded=False,
+            )
+        else:
+            status_box.update(
+                label="Download terminou sem candles novos.",
+                state="error",
+                expanded=True,
+            )
         history_last_update = getattr(history, "last_update", history_last_update)
         st.success(
             "Histórico MT5 atualizado: "
-            f"{int(getattr(history, 'safe_mode_received_candles', 0) or 0)} candles "
-            f"em {len(list(getattr(history, 'pairs', []) or []))} linhas multi-TF."
+            f"{received_candles} candles em {rows_count} linhas multi-TF."
         )
     colunas[0].caption(
         "Ultima atualizacao: "
@@ -3938,12 +3971,40 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
         key="research_update_mt5_calculations",
     ):
         _apply_forex_session_filter_preference(service, selected_session_filter)
+        progress = st.progress(0.0)
+        status_box = st.status(
+            "Preparando cálculo multi-TF do Lab...",
+            expanded=True,
+        )
+        status_box.write("Carregando base local salva do MT5.")
+        progress.progress(0.20)
+        status_box.write("Executando biblioteca de Alphas por par e timeframe.")
+        progress.progress(0.55)
         research = service.update_mt5_research_calculations(timeframe="MULTI")
+        candles_loaded = int(getattr(research, "candles_loaded", 0) or 0)
+        rows_count = len(list(getattr(research, "rows", []) or []))
+        scenarios_count = len(list(getattr(research, "scenario_ranking", []) or []))
+        progress.progress(0.85)
+        status_box.write(f"Candles processados: {candles_loaded}.")
+        status_box.write(f"Pares avaliados: {rows_count}.")
+        status_box.write(f"Cenários gerados: {scenarios_count}.")
+        progress.progress(1.0)
+        if scenarios_count > 0:
+            status_box.update(
+                label="Cálculos do Lab concluídos.",
+                state="complete",
+                expanded=False,
+            )
+        else:
+            status_box.update(
+                label="Cálculo terminou sem cenários novos.",
+                state="error",
+                expanded=True,
+            )
         st.success(
             "Cálculos atualizados: "
-            f"{int(getattr(research, 'candles_loaded', 0) or 0)} candles "
-            f"em {len(list(getattr(research, 'rows', []) or []))} pares e "
-            f"{len(list(getattr(research, 'scenario_ranking', []) or []))} cenarios multi-TF."
+            f"{candles_loaded} candles em {rows_count} pares e "
+            f"{scenarios_count} cenarios multi-TF."
         )
     colunas[3].caption(
         "Use o primeiro botão para baixar/salvar candles do MT5. Use o segundo "
