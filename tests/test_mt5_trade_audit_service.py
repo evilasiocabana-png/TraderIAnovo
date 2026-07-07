@@ -10,8 +10,9 @@ class MT5TradeAuditServiceTest(unittest.TestCase):
         signals = ForexMT5Service().get_signals()
         lab = LabService().get_latest_result()
 
-        report = MT5TradeAuditService().build_report(signals=signals, lab=lab)
+        report = MT5TradeAuditService().build_report(signals=signals, lab=lab, positions=[])
 
         self.assertEqual(report.status, "READ_ONLY")
         self.assertEqual(report.total_rows, len(signals))
+        self.assertEqual(report.total_open_positions, 0)
         self.assertTrue(all(row.lab_decision == lab.theoretical_entry for row in report.rows))

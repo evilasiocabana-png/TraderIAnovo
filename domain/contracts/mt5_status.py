@@ -11,3 +11,5 @@ class MT5Status:
     server: str
     account: str
     timeframe: str
+    connected: bool = False
+    message: str = "MT5 nao conectado."

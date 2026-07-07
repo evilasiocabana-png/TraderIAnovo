@@ -38,6 +38,8 @@ class DashboardService:
             "server": status.server,
             "account": status.account,
             "timeframe": status.timeframe,
+            "connected": status.connected,
+            "message": status.message,
             "signals": [asdict(signal) for signal in signals],
         }
 
@@ -48,7 +50,12 @@ class DashboardService:
         forex = self.forex_mt5_service.get_status()
         signals = self.forex_mt5_service.get_signals()
         lab = self.lab_service.get_latest_result()
-        audit = self.trade_audit_service.build_report(signals=signals, lab=lab)
+        positions = self.forex_mt5_service.get_open_positions()
+        audit = self.trade_audit_service.build_report(
+            signals=signals,
+            lab=lab,
+            positions=positions,
+        )
         rows = self.report_service.build_rows(forex=forex, lab=lab)
         return {
             "rows": [asdict(row) for row in rows],
@@ -56,6 +63,8 @@ class DashboardService:
                 "status": audit.status,
                 "source": audit.source,
                 "total_rows": audit.total_rows,
+                "total_open_positions": audit.total_open_positions,
+                "open_profit": audit.open_profit,
                 "message": audit.message,
                 "rows": [asdict(row) for row in audit.rows],
             },
@@ -75,6 +84,8 @@ class DashboardService:
                 setup=lab.setup,
                 reason=signal.reason,
                 stop_management=lab.stop_management,
+                is_positioned=signal.is_positioned,
+                position_open_time=signal.last_update if signal.is_positioned else None,
             )
             for signal in self.forex_mt5_service.get_signals()
         ]

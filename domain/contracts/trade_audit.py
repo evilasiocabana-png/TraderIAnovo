@@ -11,6 +11,11 @@ class TradeAuditRow:
     lab_decision: str
     mt5_position_status: str
     message: str
+    side: str = "N/D"
+    volume: float = 0.0
+    entry_price: float | None = None
+    current_price: float | None = None
+    profit: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -20,3 +25,5 @@ class TradeAuditReport:
     total_rows: int
     rows: list[TradeAuditRow]
     message: str
+    total_open_positions: int = 0
+    open_profit: float = 0.0
