@@ -103,4 +103,4 @@ Objetivo: validar o modo assistido com MT5 Demo aberto, flag ligada manualmente 
 
 ## Commit
 
-`PENDENTE`
+`4d0fa5e`

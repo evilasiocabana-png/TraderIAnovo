@@ -211,4 +211,4 @@
 - Acao: implementado modo assistido para mover somente SL dinamico em conta Demo.
 - Resultado: contrato, gate final, provider SLTP seguro, exibicao no Dashboard/Relatorio e testes adicionados; `run_critical_ci.py` ficou verde com 91 testes.
 - Guardrail: nenhuma ordem nova foi aberta; nenhuma posicao foi fechada; TP foi preservado; conta real permanece bloqueada.
-- Commit: PENDENTE
+- Commit: 4d0fa5e
