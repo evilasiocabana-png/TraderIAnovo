@@ -3921,14 +3921,12 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
         key="research_update_mt5_history",
     ):
         _apply_forex_session_filter_preference(service, selected_session_filter)
-        forex = service.get_mt5_forex_signals()
-        timeframe = str(getattr(forex, "timeframe", "M1") or "M1")
-        history = service.update_mt5_research_history(timeframe=timeframe)
+        history = service.update_mt5_research_history(timeframe="MULTI")
         history_last_update = getattr(history, "last_update", history_last_update)
         st.success(
             "Histórico MT5 atualizado: "
             f"{int(getattr(history, 'safe_mode_received_candles', 0) or 0)} candles "
-            f"em {len(list(getattr(history, 'pairs', []) or []))} linhas."
+            f"em {len(list(getattr(history, 'pairs', []) or []))} linhas multi-TF."
         )
     colunas[0].caption(
         "Ultima atualizacao: "
@@ -3940,12 +3938,12 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
         key="research_update_mt5_calculations",
     ):
         _apply_forex_session_filter_preference(service, selected_session_filter)
-        research = service.update_mt5_research_calculations(timeframe="M1")
+        research = service.update_mt5_research_calculations(timeframe="MULTI")
         st.success(
             "Cálculos atualizados: "
             f"{int(getattr(research, 'candles_loaded', 0) or 0)} candles "
             f"em {len(list(getattr(research, 'rows', []) or []))} pares e "
-            f"{len(list(getattr(research, 'scenario_ranking', []) or []))} cenarios."
+            f"{len(list(getattr(research, 'scenario_ranking', []) or []))} cenarios multi-TF."
         )
     colunas[3].caption(
         "Use o primeiro botão para baixar/salvar candles do MT5. Use o segundo "

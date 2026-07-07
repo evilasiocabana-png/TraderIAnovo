@@ -1666,6 +1666,19 @@ class DashboardViewModelContractTest(unittest.TestCase):
             [({"EURUSD": "M15", "USDJPY": "H1"}, "M1")],
         )
 
+    def test_lab_multi_timeframe_nao_forca_tudo_em_m1(self) -> None:
+        service = DashboardService()
+        configuration = service.configuration_service.get_configuration_data()
+
+        timeframes = service._mt5_research_timeframes(configuration, "MULTI")
+
+        self.assertIn("M1", timeframes)
+        self.assertIn("M5", timeframes)
+        self.assertIn("M15", timeframes)
+        self.assertIn("M30", timeframes)
+        self.assertIn("H1", timeframes)
+        self.assertGreater(len(set(timeframes)), 1)
+
     def test_mt5_forex_marca_entrada_teorica_somente_em_transicao(
         self,
     ) -> None:

@@ -1547,17 +1547,24 @@ class DashboardService:
         configuration: ConfigurationData,
         selected_timeframe: str,
     ) -> tuple[str, ...]:
+        if str(selected_timeframe or "").upper() == "MULTI":
+            configured_multi = tuple(
+                str(item).upper()
+                for item in getattr(configuration, "timeframe_optimizer_timeframes", ())
+                if str(item).strip()
+            )
+            return configured_multi or ("M1",)
         if (
             os.getenv("TRADERIA_MT5_RESEARCH_HISTORY_ALL_TIMEFRAMES", "0").strip()
             != "1"
         ):
-            return (str(selected_timeframe or "M1"),)
+            return (str(selected_timeframe or "M1").upper(),)
         configured = tuple(
-            str(item)
+            str(item).upper()
             for item in getattr(configuration, "timeframe_optimizer_timeframes", ())
             if str(item).strip()
         )
-        values = (str(selected_timeframe or "M1"), *configured)
+        values = (str(selected_timeframe or "M1").upper(), *configured)
         return tuple(dict.fromkeys(values))
 
     def _mt5_research_snapshot_path(self) -> Path:
