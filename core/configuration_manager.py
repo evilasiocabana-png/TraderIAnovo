@@ -83,6 +83,7 @@ class SystemConfiguration:
     mt5_safe_mode_ma_flat_threshold: float = 0.00005
     forex_session_filter_enabled: bool = False
     dynamic_exit_simulation_enabled: bool = False
+    dynamic_exit_demo_sl_assisted_execution_enabled: bool = False
 
 
 class ConfigurationManager:

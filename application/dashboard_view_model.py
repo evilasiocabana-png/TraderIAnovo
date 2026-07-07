@@ -323,6 +323,9 @@ class DashboardMT5ForexSignalRowViewModel:
     dynamic_exit_simulation_approved_stop: float | None = None
     dynamic_exit_simulation_rejection_reasons: tuple[str, ...] = ()
     dynamic_exit_simulation_created_at: str = "N/D"
+    dynamic_exit_demo_sl_assisted_enabled: bool = False
+    dynamic_exit_demo_sl_assisted_gate: str = "REJEITADO"
+    dynamic_exit_demo_sl_assisted_message: str = "Modo assistido desligado."
     research_plan_reason: str = "Research Lab ainda nao produziu plano."
     research_plan_invalid_reason: str = ""
     research_plan_invalid_fields: tuple[str, ...] = ()

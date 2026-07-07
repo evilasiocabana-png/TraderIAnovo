@@ -78,6 +78,7 @@ class ConfigurationData:
     mt5_safe_mode_ma_flat_threshold: float
     forex_session_filter_enabled: bool
     dynamic_exit_simulation_enabled: bool
+    dynamic_exit_demo_sl_assisted_execution_enabled: bool
 
 
 @dataclass(frozen=True)
@@ -248,5 +249,8 @@ class ConfigurationService:
             forex_session_filter_enabled=configuration.forex_session_filter_enabled,
             dynamic_exit_simulation_enabled=(
                 configuration.dynamic_exit_simulation_enabled
+            ),
+            dynamic_exit_demo_sl_assisted_execution_enabled=(
+                configuration.dynamic_exit_demo_sl_assisted_execution_enabled
             ),
         )

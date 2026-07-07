@@ -817,6 +817,19 @@ def exibir_mt5_forex_dashboard(
         if bool(getattr(configuration, "dynamic_exit_simulation_enabled", False))
         else "Saida dinamica simulada desligada. Recomendacoes seguem auditaveis e sem execucao."
     )
+    assisted_sl_enabled = bool(
+        getattr(configuration, "dynamic_exit_demo_sl_assisted_execution_enabled", False)
+    )
+    if assisted_sl_enabled:
+        st.warning(
+            "Modo DEMO ASSISTIDO habilitado: esta acao modifica SOMENTE o SL "
+            "de uma posicao existente em conta DEMO, mediante confirmacao manual. "
+            "Nao abre ordem, nao fecha posicao e nao altera TP."
+        )
+    else:
+        st.info(
+            "Modo DEMO ASSISTIDO de SL desligado. Nenhum stop e movido pelo dashboard."
+        )
     if bool(getattr(forex, "mt5_safe_mode", True)):
         st.info(
             getattr(
@@ -1369,6 +1382,16 @@ def _mt5_trade_audit_row(
             getattr(row, "dynamic_exit_simulation_rejection_reasons", ()) or ()
         )
         or "N/D",
+        "SL assistido demo": getattr(
+            row,
+            "dynamic_exit_demo_sl_assisted_gate",
+            "REJEITADO",
+        ),
+        "Mensagem SL assistido": getattr(
+            row,
+            "dynamic_exit_demo_sl_assisted_message",
+            "Modo assistido desligado.",
+        ),
         "Sessao Forex": getattr(row, "forex_session", "N/D"),
         "Filtro sessao": "LIGADO"
         if bool(getattr(row, "session_filter_enabled", True))
@@ -2879,6 +2902,19 @@ def _forex_signal_row(
             getattr(row, "dynamic_exit_simulation_rejection_reasons", ()) or ()
         )
         or "N/D",
+        "Modo SL Assistido": _yes_no(
+            getattr(row, "dynamic_exit_demo_sl_assisted_enabled", False)
+        ),
+        "Gate SL Assistido": getattr(
+            row,
+            "dynamic_exit_demo_sl_assisted_gate",
+            "REJEITADO",
+        ),
+        "Mensagem SL Assistido": getattr(
+            row,
+            "dynamic_exit_demo_sl_assisted_message",
+            "Modo assistido desligado.",
+        ),
         "Parametros Gestao": " | ".join(
             f"{key}={value}"
             for key, value in (

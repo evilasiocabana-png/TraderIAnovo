@@ -1,23 +1,23 @@
-{
-  "project": "TraderIA",
-  "workflow": "codex-inbox",
-  "schema_version": "1.0",
-  "status": "ready",
-  "current_mission": null,
-  "last_completed_mission": "MISSION_TIA-026_EXECUCAO_SIMULADA_SAIDA_DINAMICA_STOP_MANAGEMENT",
-  "last_failed_mission": null,
-  "last_commit": "582bcb0",
-  "last_branch": "main",
-  "last_responsible": "Codex",
-  "last_status": "completed",
-  "processing_must_be_empty": true,
-  "default_branch": "main",
-  "required_validation": [
-    "python scripts/run_critical_ci.py",
-    "python scripts/architecture_health.py",
-    "python scripts/architecture_audit.py",
-    "python scripts/run_static_analysis.py"
-  ],
-  "created_at": "2026-07-06T00:00:00-03:00",
-  "updated_at": "2026-07-07T19:20:54-03:00"
+﻿{
+    "project":  "TraderIA",
+    "workflow":  "codex-inbox",
+    "schema_version":  "1.0",
+    "status":  "ready",
+    "current_mission":  null,
+    "last_completed_mission":  "MISSION_TIA-027_EXECUCAO_ASSISTIDA_DEMO_MOVE_SL_SAIDA_DINAMICA",
+    "last_failed_mission":  null,
+    "last_commit":  "PENDENTE",
+    "last_branch":  "main",
+    "last_responsible":  "Codex",
+    "last_status":  "completed",
+    "processing_must_be_empty":  true,
+    "default_branch":  "main",
+    "required_validation":  [
+                                "python scripts/run_critical_ci.py",
+                                "python scripts/architecture_health.py",
+                                "python scripts/architecture_audit.py",
+                                "python scripts/run_static_analysis.py"
+                            ],
+    "created_at":  "2026-07-06T00:00:00-03:00",
+    "updated_at":  "2026-07-07T19:48:00-03:00"
 }

@@ -205,3 +205,10 @@
 - Resultado: contrato, servico, exibicao no Forex/Relatorio e testes adicionados; `run_critical_ci.py` ficou verde com 88 testes.
 - Guardrail: nenhuma ordem MT5 foi enviada; nenhum SL/TP foi movido; Provider Demo operacional nao foi alterado.
 - Commit: 582bcb0
+# 2026-07-07 - MISSION_TIA-027_EXECUCAO_ASSISTIDA_DEMO_MOVE_SL_SAIDA_DINAMICA
+
+- Status: completed
+- Acao: implementado modo assistido para mover somente SL dinamico em conta Demo.
+- Resultado: contrato, gate final, provider SLTP seguro, exibicao no Dashboard/Relatorio e testes adicionados; `run_critical_ci.py` ficou verde com 91 testes.
+- Guardrail: nenhuma ordem nova foi aberta; nenhuma posicao foi fechada; TP foi preservado; conta real permanece bloqueada.
+- Commit: PENDENTE

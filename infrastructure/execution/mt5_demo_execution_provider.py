@@ -11,6 +11,7 @@ from typing import Any
 
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
+from domain.contracts.dynamic_exit_demo_sl import DynamicExitDemoSLExecutionResult
 
 
 @dataclass
@@ -126,6 +127,186 @@ class MT5DemoExecutionProvider:
             self._write_management_log(payload)
             results.append(payload)
         return results
+
+    def modify_demo_position_stop_loss(
+        self,
+        *,
+        symbol: str,
+        ticket: int,
+        side: str,
+        requested_stop: float,
+        decision_key: str = "N/D",
+    ) -> DynamicExitDemoSLExecutionResult:
+        """Modifica somente SL de posicao existente em conta MT5 Demo."""
+        created_at = datetime.now().astimezone().isoformat()
+        normalized_symbol = str(symbol or "").upper()
+        normalized_side = str(side or "").upper()
+        initialize_check = self._initialize_check()
+        if initialize_check is not None:
+            return self._assisted_sl_result(
+                symbol=normalized_symbol,
+                ticket=ticket,
+                side=normalized_side,
+                requested_stop=requested_stop,
+                created_at=created_at,
+                message=initialize_check.message,
+                rejection_reasons=(initialize_check.message,),
+            )
+        demo_check = self._demo_account_check()
+        if demo_check is not None:
+            return self._assisted_sl_result(
+                symbol=normalized_symbol,
+                ticket=ticket,
+                side=normalized_side,
+                requested_stop=requested_stop,
+                created_at=created_at,
+                message=demo_check.message,
+                rejection_reasons=(demo_check.message,),
+            )
+        symbol_check = self._ensure_symbol(normalized_symbol)
+        if symbol_check is not None:
+            return self._assisted_sl_result(
+                symbol=normalized_symbol,
+                ticket=ticket,
+                side=normalized_side,
+                requested_stop=requested_stop,
+                created_at=created_at,
+                message=symbol_check.message,
+                rejection_reasons=(symbol_check.message,),
+            )
+        position = self._find_position(normalized_symbol, int(ticket or 0))
+        if position is None:
+            return self._assisted_sl_result(
+                symbol=normalized_symbol,
+                ticket=ticket,
+                side=normalized_side,
+                requested_stop=requested_stop,
+                created_at=created_at,
+                message="Posicao demo nao encontrada para ticket informado.",
+                rejection_reasons=("Posicao demo nao encontrada.",),
+            )
+        position_side = self._position_side(position, {"decision": normalized_side})
+        if normalized_side not in {"BUY", "SELL"} or position_side != normalized_side:
+            return self._assisted_sl_result(
+                symbol=normalized_symbol,
+                ticket=ticket,
+                side=normalized_side,
+                requested_stop=requested_stop,
+                created_at=created_at,
+                message="Lado informado nao confere com posicao MT5.",
+                rejection_reasons=("Lado da posicao nao confere.",),
+            )
+        current_stop = self._positive_float(getattr(position, "sl", None))
+        if current_stop is None:
+            return self._assisted_sl_result(
+                symbol=normalized_symbol,
+                ticket=ticket,
+                side=normalized_side,
+                requested_stop=requested_stop,
+                created_at=created_at,
+                message="Stop atual ausente na posicao MT5.",
+                rejection_reasons=("Stop atual ausente.",),
+            )
+        target = self._positive_float(getattr(position, "tp", None)) or 0.0
+        tick = self.mt5.symbol_info_tick(normalized_symbol)
+        if tick is None:
+            return self._assisted_sl_result(
+                symbol=normalized_symbol,
+                ticket=ticket,
+                side=normalized_side,
+                requested_stop=requested_stop,
+                previous_stop=current_stop,
+                created_at=created_at,
+                message="Tick indisponivel para revalidar SL assistido.",
+                rejection_reasons=("Tick indisponivel.",),
+            )
+        current_price = (
+            self._positive_float(getattr(tick, "bid", None))
+            if normalized_side == "BUY"
+            else self._positive_float(getattr(tick, "ask", None))
+        )
+        if current_price is None:
+            return self._assisted_sl_result(
+                symbol=normalized_symbol,
+                ticket=ticket,
+                side=normalized_side,
+                requested_stop=requested_stop,
+                previous_stop=current_stop,
+                created_at=created_at,
+                message="Preco atual indisponivel para revalidar SL assistido.",
+                rejection_reasons=("Preco atual ausente.",),
+            )
+        requested = self._positive_float(requested_stop)
+        if requested is None:
+            return self._assisted_sl_result(
+                symbol=normalized_symbol,
+                ticket=ticket,
+                side=normalized_side,
+                requested_stop=requested_stop,
+                previous_stop=current_stop,
+                created_at=created_at,
+                message="SL solicitado invalido.",
+                rejection_reasons=("SL solicitado invalido.",),
+            )
+        rejection_reasons = self._assisted_sl_rejections(
+            normalized_side,
+            requested,
+            current_stop,
+            current_price,
+        )
+        if rejection_reasons:
+            return self._assisted_sl_result(
+                symbol=normalized_symbol,
+                ticket=ticket,
+                side=normalized_side,
+                requested_stop=requested,
+                previous_stop=current_stop,
+                created_at=created_at,
+                message="Gate final MT5 rejeitou SL assistido.",
+                rejection_reasons=tuple(rejection_reasons),
+            )
+        request = {
+            "action": self.mt5.TRADE_ACTION_SLTP,
+            "position": int(ticket),
+            "symbol": normalized_symbol,
+            "sl": float(requested),
+            "tp": float(target),
+            "magic": self.magic,
+            "comment": "TraderIA DYNAMIC_EXIT_ASSISTED_SL",
+        }
+        response = self.mt5.order_send(request)
+        result = self._result_from_response(response)
+        payload = {
+            "timestamp": created_at,
+            "type": "ASSISTED_DYNAMIC_EXIT_SL",
+            "symbol": normalized_symbol,
+            "ticket": int(ticket),
+            "side": normalized_side,
+            "decision_key": decision_key,
+            "old_stop": current_stop,
+            "new_stop": requested,
+            "target_preserved": target,
+            "submitted": True,
+            "success": result.accepted,
+            "retcode": result.error_code,
+            "message": result.message,
+        }
+        self._write_management_log(payload)
+        return DynamicExitDemoSLExecutionResult(
+            symbol=normalized_symbol,
+            ticket=int(ticket),
+            side=normalized_side,
+            requested_stop=requested,
+            previous_stop=current_stop,
+            new_stop=requested if result.accepted else None,
+            allowed=True,
+            submitted=True,
+            success=result.accepted,
+            retcode=str(result.error_code or "DONE"),
+            message=result.message,
+            rejection_reasons=(),
+            created_at=created_at,
+        )
 
     def _managed_stop_update(
         self,
@@ -254,6 +435,73 @@ class MT5DemoExecutionProvider:
         if side == "BUY":
             return candidate < current_price
         return candidate > current_price
+
+    def _find_position(self, symbol: str, ticket: int) -> object | None:
+        if ticket <= 0:
+            return None
+        positions = self.mt5.positions_get(symbol=symbol) or []
+        for position in positions:
+            if int(getattr(position, "ticket", 0) or 0) == int(ticket):
+                return position
+        return None
+
+    def _assisted_sl_rejections(
+        self,
+        side: str,
+        requested_stop: float,
+        current_stop: float,
+        current_price: float,
+    ) -> list[str]:
+        reasons: list[str] = []
+        if not self._is_better_stop(side, requested_stop, current_stop):
+            reasons.append("SL solicitado nao melhora o risco.")
+        if not self._is_stop_before_market(side, requested_stop, current_price):
+            reasons.append("SL solicitado cruza ou encosta no preco atual.")
+        if abs(float(requested_stop) - float(current_stop)) < 0.00001:
+            reasons.append("Diferenca de SL irrelevante.")
+        return reasons
+
+    def _assisted_sl_result(
+        self,
+        *,
+        symbol: str,
+        ticket: int | None,
+        side: str,
+        requested_stop: float | None,
+        created_at: str,
+        message: str,
+        rejection_reasons: tuple[str, ...],
+        previous_stop: float | None = None,
+    ) -> DynamicExitDemoSLExecutionResult:
+        result = DynamicExitDemoSLExecutionResult(
+            symbol=symbol,
+            ticket=ticket,
+            side=side,
+            requested_stop=requested_stop,
+            previous_stop=previous_stop,
+            allowed=False,
+            submitted=False,
+            success=False,
+            retcode="REJECTED",
+            message=message,
+            rejection_reasons=rejection_reasons,
+            created_at=created_at,
+        )
+        self._write_management_log(
+            {
+                "timestamp": created_at,
+                "type": "ASSISTED_DYNAMIC_EXIT_SL",
+                "symbol": symbol,
+                "ticket": ticket,
+                "side": side,
+                "requested_stop": requested_stop,
+                "submitted": False,
+                "success": False,
+                "message": message,
+                "rejection_reasons": list(rejection_reasons),
+            }
+        )
+        return result
 
     def _positive_float(self, value: object) -> float | None:
         try:

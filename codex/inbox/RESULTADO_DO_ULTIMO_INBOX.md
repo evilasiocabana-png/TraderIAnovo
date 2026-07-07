@@ -7,7 +7,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura para GPT/Co
 O ultimo inbox executado foi:
 
 ```text
-MISSION_TIA-026_EXECUCAO_SIMULADA_SAIDA_DINAMICA_STOP_MANAGEMENT
+MISSION_TIA-027_EXECUCAO_ASSISTIDA_DEMO_MOVE_SL_SAIDA_DINAMICA
 ```
 
 Status:
@@ -19,28 +19,19 @@ completed
 Commits:
 
 ```text
-582bcb0
+PENDENTE
 ```
 
 ## O Que Foi Executado
 
-Foi implementada a camada de simulacao/paper da saida dinamica de stops.
+Foi implementado o modo assistido de SL dinamico em conta MT5 Demo.
 
-O sistema agora calcula uma decisao auditavel (`DynamicExitSimulationDecision`) para recomendar stop aprovado em modo simulado, respeitando gates de seguranca, sem enviar ordem real, sem fechar posicao e sem modificar SL/TP no MT5.
-
-Tambem foram adicionados campos de exibicao no Forex e no Relatorio para acompanhar:
-
-- simulacao ligada/desligada;
-- gate da simulacao;
-- stop atual;
-- stop candidato;
-- stop aprovado;
-- motivos de rejeicao.
+O sistema agora possui contrato, servico de gate final, metodo seguro no provider MT5 Demo e exibicao no Dashboard/Relatorio para permitir, somente com confirmacao manual e flags desligadas por padrao, mover apenas o SL de uma posicao Demo existente.
 
 ## Validacao
 
 ```text
-run_critical_ci.py: OK, 88 testes
+run_critical_ci.py: OK, 91 testes
 architecture_audit.py: OK
 architecture_health.py: BOM
 run_static_analysis.py: OK_WITH_WARNINGS
@@ -50,16 +41,16 @@ O unico warning e opcional: `pyflakes` nao esta instalado.
 
 ## Guardrail
 
-Nao executou ordem, nao fechou posicao, nao moveu SL/TP e nao alterou Provider Demo operacional.
+Nao abriu ordem nova, nao fechou posicao, nao alterou TP, nao operou conta real e nao executou automaticamente por ciclo.
 
 ## Relatorio Completo
 
 ```text
-codex/completed/MISSION_TIA-026_EXECUCAO_SIMULADA_SAIDA_DINAMICA_STOP_MANAGEMENT/EXECUTION_REPORT.md
+codex/completed/MISSION_TIA-027_EXECUCAO_ASSISTIDA_DEMO_MOVE_SL_SAIDA_DINAMICA/EXECUTION_REPORT.md
 ```
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-027_ATUALIZAR_BASELINE_ARQUITETURAL_INFORMATIVO
+MISSION_TIA-028_VALIDAR_SL_ASSISTIDO_DEMO_EM_AMBIENTE_CONTROLADO
 ```

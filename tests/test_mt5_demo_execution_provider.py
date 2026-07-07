@@ -171,6 +171,81 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertEqual(results, [])
         self.assertIsNone(mt5.last_request)
 
+    def test_assisted_sl_demo_preserva_tp_e_usa_sltp(self) -> None:
+        position = SimpleNamespace(
+            ticket=321,
+            symbol="EURUSD",
+            type=_FakeMT5.POSITION_TYPE_BUY,
+            price_open=1.1000,
+            sl=1.0980,
+            tp=1.1060,
+        )
+        mt5 = _FakeMT5(open_positions=[position])
+        mt5.tick = SimpleNamespace(ask=1.1042, bid=1.1040)
+        provider = self._provider(mt5)
+
+        result = provider.modify_demo_position_stop_loss(
+            symbol="EURUSD",
+            ticket=321,
+            side="BUY",
+            requested_stop=1.1010,
+            decision_key="candle-1",
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(mt5.last_request["action"], mt5.TRADE_ACTION_SLTP)
+        self.assertEqual(mt5.last_request["position"], 321)
+        self.assertAlmostEqual(mt5.last_request["sl"], 1.1010)
+        self.assertAlmostEqual(mt5.last_request["tp"], 1.1060)
+        self.assertNotIn("volume", mt5.last_request)
+
+    def test_assisted_sl_conta_nao_demo_rejeita_sem_order_send(self) -> None:
+        position = SimpleNamespace(
+            ticket=321,
+            symbol="EURUSD",
+            type=_FakeMT5.POSITION_TYPE_BUY,
+            price_open=1.1000,
+            sl=1.0980,
+            tp=1.1060,
+        )
+        mt5 = _FakeMT5(trade_mode=99, open_positions=[position])
+        provider = self._provider(mt5)
+
+        result = provider.modify_demo_position_stop_loss(
+            symbol="EURUSD",
+            ticket=321,
+            side="BUY",
+            requested_stop=1.1010,
+        )
+
+        self.assertFalse(result.success)
+        self.assertIn("nao e demo", result.message)
+        self.assertIsNone(mt5.last_request)
+
+    def test_assisted_sl_rejeita_stop_que_nao_melhora(self) -> None:
+        position = SimpleNamespace(
+            ticket=654,
+            symbol="USDCHF",
+            type=_FakeMT5.POSITION_TYPE_SELL,
+            price_open=0.8060,
+            sl=0.8070,
+            tp=0.8030,
+        )
+        mt5 = _FakeMT5(open_positions=[position])
+        mt5.tick = SimpleNamespace(ask=0.8050, bid=0.8048)
+        provider = self._provider(mt5)
+
+        result = provider.modify_demo_position_stop_loss(
+            symbol="USDCHF",
+            ticket=654,
+            side="SELL",
+            requested_stop=0.8080,
+        )
+
+        self.assertFalse(result.success)
+        self.assertIn("nao melhora", " ".join(result.rejection_reasons))
+        self.assertIsNone(mt5.last_request)
+
     def _provider(self, mt5: object) -> MT5DemoExecutionProvider:
         return MT5DemoExecutionProvider(mt5=mt5, log_path=Path(tempfile.gettempdir()) / "traderia-test-orders.jsonl")
 

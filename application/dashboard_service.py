@@ -83,6 +83,9 @@ from application.dynamic_exit_recommendation_service import (
 from application.dynamic_exit_simulation_service import (
     DynamicExitSimulationService,
 )
+from application.dynamic_exit_demo_sl_execution_service import (
+    DynamicExitDemoSLExecutionService,
+)
 from application.forex_mt5_service import ForexMT5Service
 from application.mt5_visual_signal_exporter import (
     MT5VisualSignalExportResult,
@@ -136,6 +139,7 @@ from domain.contracts.dynamic_exit import (
 from domain.contracts.dynamic_exit_simulation import (
     DynamicExitSimulationDecision,
 )
+from domain.contracts.dynamic_exit_demo_sl import DynamicExitDemoSLExecutionResult
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
 from domain.contracts.market_snapshot import MarketSnapshot
@@ -564,6 +568,9 @@ class DashboardService:
     forex_mt5_service: ForexMT5Service = field(default_factory=ForexMT5Service)
     dynamic_exit_simulation_service: DynamicExitSimulationService = field(
         default_factory=DynamicExitSimulationService
+    )
+    dynamic_exit_demo_sl_execution_service: DynamicExitDemoSLExecutionService = field(
+        default_factory=DynamicExitDemoSLExecutionService
     )
     replay_service: ReplayService = field(default_factory=ReplayService)
     historical_dataset_catalog: HistoricalDatasetCatalog = field(
@@ -2829,6 +2836,49 @@ class DashboardService:
         """Lista tentativas de execucao demo registradas pela fachada."""
         return self.demo_execution_service.list_audit_log()
 
+    def execute_dynamic_exit_demo_sl_assisted(
+        self,
+        *,
+        symbol: str,
+        ticket: int,
+        side: str,
+        current_stop: float,
+        approved_stop: float,
+        current_price: float,
+        candle_key: str = "N/D",
+        user_confirmed: bool = False,
+    ) -> DynamicExitDemoSLExecutionResult:
+        """Executa clique assistido para mover somente SL em conta demo."""
+        if self._mt5_demo_execution_enabled():
+            self._enable_mt5_demo_provider()
+        provider = getattr(self.demo_robot_execution_service, "provider", None)
+        if not hasattr(provider, "modify_demo_position_stop_loss"):
+            provider = None
+        decision = DynamicExitSimulationDecision(
+            symbol=symbol,
+            ticket=int(ticket),
+            side=side,
+            current_stop=float(current_stop),
+            approved_stop=float(approved_stop),
+            allowed_to_simulate=True,
+            candle_key=candle_key,
+        )
+        return self.dynamic_exit_demo_sl_execution_service.execute_assisted(
+            decision=decision,
+            executor=provider,
+            enabled=self._dynamic_exit_demo_sl_assisted_enabled(),
+            user_confirmed=user_confirmed,
+            robot_armed=bool(self.mt5_demo_robot_service.enabled),
+            demo_account_confirmed=self._mt5_demo_execution_enabled(),
+            current_price=float(current_price),
+        )
+
+    def list_dynamic_exit_demo_sl_audit_log(
+        self,
+    ) -> list[DynamicExitDemoSLExecutionResult]:
+        """Lista auditoria da execucao assistida de SL dinamico demo."""
+        return self.dynamic_exit_demo_sl_execution_service.list_audit_log()
+
     def get_mt5_trade_audit_report(self) -> DashboardMT5TradeAuditViewModel:
         """Confronta ordens originadas no TraderIA com historico read-only do MT5."""
         local_records = self._read_mt5_demo_execution_jsonl()
@@ -4647,6 +4697,29 @@ class DashboardService:
             dynamic_exit_simulation_created_at=(
                 dynamic_exit_simulation.created_at
             ),
+            dynamic_exit_demo_sl_assisted_enabled=(
+                self._dynamic_exit_demo_sl_assisted_enabled()
+            ),
+            dynamic_exit_demo_sl_assisted_gate=(
+                "APROVADO"
+                if (
+                    self._dynamic_exit_demo_sl_assisted_enabled()
+                    and dynamic_exit_simulation.allowed_to_simulate
+                    and bool(self.mt5_demo_robot_service.enabled)
+                    and dynamic_exit_simulation.ticket is not None
+                )
+                else "REJEITADO"
+            ),
+            dynamic_exit_demo_sl_assisted_message=(
+                "DEMO ASSISTIDO pronto para confirmacao manual."
+                if (
+                    self._dynamic_exit_demo_sl_assisted_enabled()
+                    and dynamic_exit_simulation.allowed_to_simulate
+                    and bool(self.mt5_demo_robot_service.enabled)
+                    and dynamic_exit_simulation.ticket is not None
+                )
+                else "Execucao assistida desligada ou sem gate/ticket aprovado."
+            ),
             research_plan_reason=research_plan.reason,
             research_plan_invalid_reason=research_plan.invalid_reason,
             research_plan_invalid_fields=research_plan.invalid_fields,
@@ -4741,6 +4814,16 @@ class DashboardService:
     def _dynamic_exit_simulation_enabled(self) -> bool:
         configuration = self.configuration_service.get_configuration_data()
         return bool(getattr(configuration, "dynamic_exit_simulation_enabled", False))
+
+    def _dynamic_exit_demo_sl_assisted_enabled(self) -> bool:
+        configuration = self.configuration_service.get_configuration_data()
+        return bool(
+            getattr(
+                configuration,
+                "dynamic_exit_demo_sl_assisted_execution_enabled",
+                False,
+            )
+        )
 
     def _dynamic_exit_atr_multiplier(self, research_plan: object) -> float:
         parameters = getattr(research_plan, "stop_management_parameters", {}) or {}
