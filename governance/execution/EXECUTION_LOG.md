@@ -85,4 +85,4 @@
 - Acao: adicionada exibicao curta da saida dinamica no payload visual e no indicador MT5.
 - Resultado: `dynamic_exit_visual_text` aparece apenas para ativos com posicao aberta; ativos sem posicao continuam com grafico limpo.
 - Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
-- Commit: PENDENTE
+- Commit: 9a55639

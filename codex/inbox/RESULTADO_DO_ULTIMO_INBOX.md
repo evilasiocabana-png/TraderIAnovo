@@ -1,6 +1,6 @@
 # Resultado do Ultimo Inbox
 
-Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura.
+Este arquivo NAO e uma missao 9a55639. Ele e um ponteiro de leitura.
 
 ## Resposta Correta
 
@@ -19,7 +19,7 @@ completed
 Commits:
 
 ```text
-PENDENTE Execute MISSION_TIA-010 dynamic exit mt5 visual
+9a55639 Execute MISSION_TIA-010 dynamic exit mt5 visual
 ```
 
 ## O Que Foi Executado

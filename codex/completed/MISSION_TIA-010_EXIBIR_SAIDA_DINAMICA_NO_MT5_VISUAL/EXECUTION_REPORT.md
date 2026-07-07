@@ -89,7 +89,7 @@ Falhas observadas fora do escopo da TIA-010:
 
 ## Commit
 
-PENDENTE
+9a55639
 
 ## Branch
 

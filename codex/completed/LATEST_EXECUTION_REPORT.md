@@ -15,7 +15,7 @@ completed
 Commits:
 
 ```text
-PENDENTE Execute MISSION_TIA-010 dynamic exit mt5 visual
+9a55639 Execute MISSION_TIA-010 dynamic exit mt5 visual
 ```
 
 ## Resultado
