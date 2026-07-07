@@ -227,7 +227,7 @@ def ensure_mt5_forex_initial_load(service: DashboardService) -> None:
 
 
 def _mt5_forex_auto_cycle_enabled() -> bool:
-    if os.getenv("TRADERIA_MT5_FOREX_AUTO_CYCLE_ENABLED", "1").strip() != "1":
+    if os.getenv("TRADERIA_MT5_FOREX_AUTO_CYCLE_ENABLED", "0").strip() != "1":
         return False
     return _mt5_forex_market_cycle_allowed_now()
 
@@ -862,8 +862,25 @@ def exibir_mt5_forex_dashboard(
     st.warning(
         "SOMENTE ANALISE DE MERCADO. NENHUMA ORDEM REAL SERA ENVIADA."
     )
-    st.caption("Leitura leve atualizada pelo ciclo automatico do MT5.")
+    st.caption(
+        "Leitura rapida pelo ultimo estado local. Atualizacao MT5 completa "
+        "somente sob demanda para manter a aba responsiva."
+    )
     configuration = data.configuration_data
+    refresh_columns = st.columns([1, 3])
+    if refresh_columns[0].button("Atualizar MT5 agora", key="mt5_forex_manual_refresh"):
+        with st.spinner("Atualizando leitura MT5..."):
+            _load_mt5_forex_signals_locked(
+                service,
+                timeframe=str(getattr(forex, "timeframe", "M1") or "M1"),
+            )
+            st.session_state[MT5_FOREX_LAST_AUTO_LOAD_KEY] = time.monotonic()
+            data = service.get_light_dashboard_view_model()
+            forex = getattr(data, "mt5_forex_signals", forex)
+    refresh_columns[1].caption(
+        "O ciclo automatico bloqueante fica desligado por padrao. "
+        "Use o botao quando quiser forcar nova leitura do MT5."
+    )
     data, forex = _maybe_run_mt5_forex_auto_cycle(service, data, forex)
     configuration = data.configuration_data
     _inject_mt5_forex_auto_refresh()
