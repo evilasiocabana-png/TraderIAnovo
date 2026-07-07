@@ -1,6 +1,6 @@
 # Resultado do Ultimo Inbox
 
-Este arquivo NAO e uma missao 9a55639. Ele e um ponteiro de leitura.
+Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura.
 
 ## Resposta Correta
 
