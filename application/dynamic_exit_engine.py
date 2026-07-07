@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import replace
 from typing import Protocol
 
@@ -68,15 +69,40 @@ class DynamicExitUnifiedEngine:
         classifier: DynamicExitMarketStateClassifier | None = None,
         recommender: DynamicExitRecommendationEngine | None = None,
         authorizers: dict[str, DynamicExitAuthorizer] | None = None,
+        max_cache_entries: int = 128,
     ) -> None:
         self._classifier = classifier or DynamicExitMarketStateClassifier()
         self._recommender = recommender or DynamicExitRecommendationEngine()
         self._authorizers = authorizers or self._default_authorizers()
+        self._max_cache_entries = max(0, int(max_cache_entries))
+        self._cache: OrderedDict[tuple[object, ...], DynamicExitEngineResult] = (
+            OrderedDict()
+        )
 
     def evaluate(self, payload: DynamicExitEngineInput) -> DynamicExitEngineResult:
         """Retorna a decisao dinamica unificada em modo read-only."""
 
         policy = str(payload.policy or "FIXED_STOP").upper()
+        cache_key = self._cache_key(payload, policy)
+        if cache_key is not None and cache_key in self._cache:
+            result = self._cache.pop(cache_key)
+            self._cache[cache_key] = result
+            return result
+
+        try:
+            result = self._evaluate_uncached(payload, policy)
+        except Exception as exc:  # noqa: BLE001 - runtime deve falhar fechado
+            result = self._safe_error_result(payload.reading, policy, exc)
+
+        if cache_key is not None:
+            self._store_cache(cache_key, result)
+        return result
+
+    def _evaluate_uncached(
+        self,
+        payload: DynamicExitEngineInput,
+        policy: str,
+    ) -> DynamicExitEngineResult:
         market_reading = self._classifier.classify(payload.reading)
         recommendation = payload.recommendation or self._recommender.recommend(
             market_reading,
@@ -85,10 +111,88 @@ class DynamicExitUnifiedEngine:
         )
         recommendation = self._normalize_recommendation(recommendation, market_reading)
         authorization = self._authorize(policy, market_reading, recommendation)
-
         return DynamicExitEngineResult(
             policy=policy,
             market_reading=market_reading,
+            recommendation=recommendation,
+            authorization=authorization,
+            allowed_to_execute_demo=False,
+        )
+
+    def _cache_key(
+        self,
+        payload: DynamicExitEngineInput,
+        policy: str,
+    ) -> tuple[object, ...] | None:
+        if self._max_cache_entries <= 0 or payload.recommendation is not None:
+            return None
+        reading = payload.reading
+        return (
+            policy,
+            str(payload.plan_status or "SEM_PLANO").upper(),
+            reading.symbol,
+            reading.side,
+            reading.is_positioned,
+            reading.current_price,
+            reading.entry_price,
+            reading.stop_price,
+            reading.target_price,
+            reading.atr,
+            reading.volatility,
+            reading.momentum,
+            reading.spread,
+            reading.time_in_position_minutes,
+            reading.state,
+            reading.r_multiple,
+            reading.candidate_stop,
+        )
+
+    def _store_cache(
+        self,
+        key: tuple[object, ...],
+        result: DynamicExitEngineResult,
+    ) -> None:
+        self._cache[key] = result
+        while len(self._cache) > self._max_cache_entries:
+            self._cache.popitem(last=False)
+
+    def _safe_error_result(
+        self,
+        reading: DynamicExitMarketReading,
+        policy: str,
+        exc: Exception,
+    ) -> DynamicExitEngineResult:
+        safe_reading = replace(
+            reading,
+            state="BAD_EXECUTION_CONTEXT",
+            reason=f"Erro seguro no motor unificado: {exc.__class__.__name__}.",
+            candidate_stop=reading.stop_price,
+        )
+        recommendation = DynamicExitRecommendation(
+            policy=policy,
+            action="NO_ACTION_BAD_CONTEXT",
+            reason="Read-only: erro inesperado; manter plano original em fallback seguro.",
+            confidence=0.0,
+            market_state=safe_reading.state,
+            r_multiple=safe_reading.r_multiple,
+            candidate_stop=safe_reading.candidate_stop,
+            allowed_to_execute_demo=False,
+            source="DYNAMIC_EXIT_UNIFIED_ENGINE_SAFE_ERROR",
+        )
+        authorization = DynamicExitDemoAuthorization(
+            policy=policy,
+            action=recommendation.action,
+            status="REJECTED",
+            reason="Erro inesperado no motor unificado; execucao bloqueada.",
+            eligible_to_authorize=False,
+            allowed_to_execute_demo=False,
+            candidate_stop=recommendation.candidate_stop,
+            market_state=safe_reading.state,
+            source="DYNAMIC_EXIT_UNIFIED_ENGINE_SAFE_ERROR",
+        )
+        return DynamicExitEngineResult(
+            policy=policy,
+            market_reading=safe_reading,
             recommendation=recommendation,
             authorization=authorization,
             allowed_to_execute_demo=False,

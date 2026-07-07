@@ -52,6 +52,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
   de Parabolic SAR demo sem ligar execucao operacional.
 - `DYNAMIC_EXIT_UNIFIED_ENGINE_TRACEABILITY.md`: motor unificado read-only que
   consolida leitura, recomendacao e pre-autorizacao sem executar.
+- `DYNAMIC_EXIT_RUNTIME_OPTIMIZATION_TRACEABILITY.md`: otimizacao de runtime
+  com cache LRU pequeno e fallback seguro sem executar.
 
 ## Regra de uso
 
