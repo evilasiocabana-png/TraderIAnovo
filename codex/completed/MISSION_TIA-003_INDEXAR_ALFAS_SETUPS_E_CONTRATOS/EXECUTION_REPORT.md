@@ -12,6 +12,10 @@
 
 Concluida.
 
+## Commit
+
+`0c71c13`
+
 ## Arquivos criados
 
 - `governance/traceability/TRACEABILITY_INDEX.md`
