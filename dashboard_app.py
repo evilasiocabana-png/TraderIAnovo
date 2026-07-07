@@ -27,6 +27,8 @@ MT5_DEMO_ROBOT_ONLINE_KEY = "mt5_demo_robot_online_enabled"
 MT5_DEMO_ROBOT_LAST_CYCLE_KEY = "mt5_demo_robot_last_cycle_at"
 MT5_FOREX_INITIAL_LOAD_ERROR_KEY = "mt5_forex_initial_load_error"
 MT5_FOREX_LAST_AUTO_LOAD_KEY = "mt5_forex_last_auto_load_at"
+MT5_FOREX_MANUAL_DIAGNOSTIC_KEY = "mt5_forex_manual_diagnostic"
+MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY = "mt5_forex_manual_diagnostic_message"
 FOREX_SESSION_FILTER_UI_KEY = "forex_session_filter_enabled_ui"
 MT5_DEMO_ROBOT_INTERVAL_SECONDS = 10.0
 MT5_FOREX_AUTO_REFRESH_SECONDS = 10.0
@@ -904,6 +906,10 @@ def exibir_mt5_forex_dashboard(
     colunas[4].metric("Modo", getattr(forex, "read_only_status", "READ ONLY"))
     _exibir_mt5_safe_mode_minimal_diagnostic(forex)
     _exibir_mt5_connection_health(forex)
+    # Atualizacao manual usa load_mt5_forex_signals no helper.
+    data = _exibir_mt5_manual_diagnostic_controls(service, data, forex)
+    forex = getattr(data, "mt5_forex_signals", forex)
+    pares = list(getattr(forex, "pairs", []) or [])
 
     if not pares:
         st.info(getattr(forex, "message", "Aguardando leitura MT5."))
@@ -1953,6 +1959,51 @@ def _exibir_mt5_connection_health(forex: object) -> None:
         st.caption(getattr(forex, "health_message", "N/D"))
 
 
+def _exibir_mt5_manual_diagnostic_controls(
+    service: DashboardService,
+    data: object,
+    forex: object,
+) -> object:
+    """Atualiza diagnostico MT5 somente quando solicitado."""
+    pairs = list(getattr(forex, "pairs", []) or [])
+    symbol = (
+        str(getattr(pairs[0], "pair", "") or "").upper()
+        if pairs
+        else "EURUSD"
+    )
+    timeframe = str(getattr(forex, "timeframe", "M1") or "M1").upper()
+    with st.container(border=True):
+        colunas = st.columns([1, 3])
+        if colunas[0].button(
+            "Atualizar diagnostico MT5",
+            key="mt5_forex_manual_diagnostic_refresh",
+        ):
+            try:
+                with st.spinner("Atualizando diagnostico MT5..."):
+                    diagnostic = service.test_mt5_connection(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                    )
+                    st.session_state[MT5_FOREX_MANUAL_DIAGNOSTIC_KEY] = diagnostic
+                    _load_mt5_forex_signals_locked(service, timeframe=timeframe)
+                    data = service.get_light_dashboard_view_model()
+                st.session_state[MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY] = (
+                    "Diagnostico MT5 atualizado."
+                )
+            except Exception as exc:
+                st.session_state[MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY] = (
+                    f"Falha ao atualizar diagnostico MT5: {exc}"
+                )
+
+        message = st.session_state.get(MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY)
+        if message:
+            colunas[1].caption(str(message))
+        diagnostic = st.session_state.get(MT5_FOREX_MANUAL_DIAGNOSTIC_KEY)
+        if diagnostic is not None:
+            _exibir_mt5_connection_diagnostic(diagnostic)
+    return data
+
+
 def _stable_metric_grid(items: list[tuple[str, object]]) -> None:
     columns = st.columns(4)
     for index, (label, value) in enumerate(items):
@@ -2219,6 +2270,8 @@ def _inject_dashboard_css() -> None:
 
 def _exibir_mt5_connection_diagnostic(forex: object) -> None:
     diagnostic = getattr(forex, "connection_diagnostic", None)
+    if diagnostic is None and hasattr(forex, "connection_status"):
+        diagnostic = forex
     if diagnostic is None:
         return
     with st.container(border=True):
