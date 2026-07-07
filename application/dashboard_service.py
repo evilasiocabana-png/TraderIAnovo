@@ -816,6 +816,8 @@ class DashboardService:
     ) -> list[DashboardMT5SetupSuggestionViewModel]:
         """Sugere setups a partir do snapshot persistido do Research Lab."""
         research = self._mt5_research_source_for_reports()
+        if list(getattr(research, "rows", []) or []):
+            return self._mt5_setup_suggestions_from_rows(research, target_confidence)
         scenarios = list(getattr(research, "scenario_ranking", []) or [])
         if not scenarios:
             return self._mt5_setup_suggestions_from_rows(research, target_confidence)
@@ -1814,7 +1816,10 @@ class DashboardService:
             return self._mt5_local_research_snapshot_or_empty(
                 "Historico local do Lab indisponivel; usando ultimo resultado local."
             )
-        if not self._mt5_research_history_has_candle_cache(history):
+        if (
+            not self._mt5_research_history_has_candle_cache(history)
+            and not self._mt5_research_history_has_usable_rows(history)
+        ):
             if os.getenv("TRADERIA_MT5_LAB_ALLOW_LIVE_RECALC", "0").strip() == "1":
                 return self.run_mt5_research_calibration(timeframe=timeframe)
             return self._mt5_local_research_snapshot_or_empty(
@@ -2214,6 +2219,17 @@ class DashboardService:
             for row in rows
             if str(getattr(row, "pair", "") or "")
             and str(getattr(row, "timeframe", "") or "")
+        )
+
+    def _mt5_research_history_has_usable_rows(
+        self,
+        history: MT5ForexSignalDashboard,
+    ) -> bool:
+        """Permite recalcular pelo resumo multi-TF salvo mesmo sem candles brutos."""
+        return any(
+            str(getattr(row, "status", "") or "").upper() == "OK"
+            and int(getattr(row, "received_candles", 0) or 0) > 0
+            for row in list(getattr(history, "pairs", []) or [])
         )
 
     def _should_preload_mt5_research_snapshot(self) -> bool:
