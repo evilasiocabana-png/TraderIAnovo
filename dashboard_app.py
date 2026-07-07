@@ -31,6 +31,8 @@ MT5_FOREX_AUTO_CYCLE_UI_KEY = "mt5_forex_auto_cycle_enabled_ui"
 MT5_FOREX_MANUAL_DIAGNOSTIC_KEY = "mt5_forex_manual_diagnostic"
 MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY = "mt5_forex_manual_diagnostic_message"
 FOREX_SESSION_FILTER_UI_KEY = "forex_session_filter_enabled_ui"
+RUNTIME_RENDER_DURATIONS_KEY = "runtime_render_durations_ms"
+RUNTIME_CLEANUP_MESSAGE_KEY = "runtime_cleanup_message"
 MT5_DEMO_ROBOT_INTERVAL_SECONDS = 10.0
 MT5_FOREX_AUTO_REFRESH_SECONDS = 10.0
 MT5_LAB_TARGET_CONFIDENCE = 0.70
@@ -211,6 +213,126 @@ def render_contract_diagnostics(service: DashboardService) -> None:
     with st.sidebar.expander("Diagnostico de contrato", expanded=False):
         for key, value in diagnostics.items():
             st.caption(f"{key}: {value}")
+
+
+def _session_state_size_hint() -> dict[str, object]:
+    """Resume estado de sessao sem serializar objetos pesados."""
+    keys = list(getattr(st.session_state, "keys", lambda: [])())
+    relevant_prefixes = (
+        "mt5_",
+        "replay_",
+        "runtime_",
+        "dashboard_",
+    )
+    relevant_keys = [
+        key for key in keys if str(key).startswith(relevant_prefixes)
+    ]
+    return {
+        "total_keys": len(keys),
+        "relevant_keys": len(relevant_keys),
+        "relevant_key_names": ", ".join(sorted(map(str, relevant_keys))[:12]),
+    }
+
+
+def _runtime_performance_snapshot(
+    service: DashboardService,
+    data: object,
+) -> dict[str, object]:
+    """Coleta diagnostico leve sem disparar leitura externa."""
+    del service
+    forex = getattr(data, "mt5_forex_signals", None)
+    robot = getattr(data, "demo_robot", None)
+    rows = list(getattr(forex, "pairs", []) or [])
+    last_load = float(st.session_state.get(MT5_FOREX_LAST_AUTO_LOAD_KEY, 0.0) or 0.0)
+    now = time.monotonic()
+    lock_busy = _mt5_forex_cycle_lock_busy()
+    state_hint = _session_state_size_hint()
+    report_cache_key = _mt5_trade_audit_report_cache_key(data)
+    return {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "refresh_id": int(getattr(forex, "refresh_id", 0) or 0),
+        "last_mt5_read": getattr(forex, "last_mt5_read", "N/D"),
+        "seconds_since_last_auto_load": round(now - last_load, 2) if last_load else "N/D",
+        "connection_status": getattr(forex, "connection_status", "N/D"),
+        "fast_refresh_duration_ms": round(
+            float(getattr(forex, "fast_refresh_duration_ms", 0.0) or 0.0),
+            2,
+        ),
+        "research_refresh_duration_ms": round(
+            float(getattr(forex, "research_refresh_duration_ms", 0.0) or 0.0),
+            2,
+        ),
+        "latency_breakdown": dict(getattr(forex, "latency_breakdown", {}) or {}),
+        "pairs_loaded": len(rows),
+        "received_candles_total": sum(
+            int(getattr(row, "received_candles", 0) or 0) for row in rows
+        ),
+        "auto_cycle_ui": bool(st.session_state.get(MT5_FOREX_AUTO_CYCLE_UI_KEY, False)),
+        "background_cycle_started": bool(MT5_FOREX_BACKGROUND_THREAD_STARTED),
+        "cycle_lock_busy": lock_busy,
+        "session_state_total_keys": state_hint["total_keys"],
+        "session_state_relevant_keys": state_hint["relevant_keys"],
+        "session_state_relevant_key_names": state_hint["relevant_key_names"],
+        "mt5_trade_audit_cached": report_cache_key in st.session_state,
+        "demo_robot_status": getattr(robot, "status", "N/D"),
+        "health_message": getattr(forex, "health_message", "N/D"),
+        "render_durations_ms": dict(
+            st.session_state.get(RUNTIME_RENDER_DURATIONS_KEY, {}) or {}
+        ),
+    }
+
+
+def _mt5_forex_cycle_lock_busy() -> bool:
+    acquired = MT5_FOREX_CYCLE_LOCK.acquire(blocking=False)
+    if acquired:
+        MT5_FOREX_CYCLE_LOCK.release()
+        return False
+    return True
+
+
+def _mt5_trade_audit_report_cache_key(data: object) -> str:
+    forex = getattr(data, "mt5_forex_signals", None)
+    return f"mt5_trade_audit_report_{int(getattr(forex, 'refresh_id', 0) or 0)}"
+
+
+def _clear_runtime_queues_and_temporary_caches() -> list[str]:
+    """Limpa somente estado temporario de UI/runtime."""
+    explicit_keys = (
+        MT5_FOREX_MANUAL_DIAGNOSTIC_KEY,
+        MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY,
+        MT5_FOREX_LAST_AUTO_LOAD_KEY,
+        MT5_FOREX_INITIAL_LOAD_ERROR_KEY,
+        REPLAY_PENDING_ACTION_KEY,
+        REPLAY_PENDING_DATASET_KEY,
+        REPLAY_PENDING_MESSAGE_KEY,
+        RUNTIME_CLEANUP_MESSAGE_KEY,
+    )
+    prefixes = (
+        "mt5_trade_audit_report_",
+        "runtime_temp_",
+    )
+    removed: list[str] = []
+    for key in explicit_keys:
+        if key in st.session_state:
+            st.session_state.pop(key, None)
+            removed.append(key)
+    for key in list(st.session_state.keys()):
+        if any(str(key).startswith(prefix) for prefix in prefixes):
+            st.session_state.pop(key, None)
+            removed.append(str(key))
+    for cache_name in ("cache_data", "cache_resource"):
+        cache = getattr(st, cache_name, None)
+        clear = getattr(cache, "clear", None)
+        if callable(clear):
+            clear()
+            removed.append(f"st.{cache_name}.clear")
+    return removed
+
+
+def _record_runtime_render_duration(tab_name: str, started_at: float) -> None:
+    durations = dict(st.session_state.get(RUNTIME_RENDER_DURATIONS_KEY, {}) or {})
+    durations[tab_name] = round((time.perf_counter() - started_at) * 1000.0, 2)
+    st.session_state[RUNTIME_RENDER_DURATIONS_KEY] = durations
 
 
 def ensure_mt5_forex_initial_load(service: DashboardService) -> None:
@@ -810,6 +932,7 @@ def exibir_dashboard_layout(service: DashboardService, data: object) -> None:
         )
     )
 
+    render_started_at = time.perf_counter()
     if selected_tab == "MT5 Forex":
         exibir_mt5_forex_dashboard(service, data)
     elif selected_tab == "Laboratorio de Pesquisa":
@@ -821,9 +944,10 @@ def exibir_dashboard_layout(service: DashboardService, data: object) -> None:
     elif selected_tab == "Relatorios":
         exibir_relatorios_dashboard(service, data)
     elif selected_tab == "Sistema Forex":
-        exibir_sistema_dashboard(data)
+        exibir_sistema_dashboard(data, service)
     else:
         st.error(f"Aba desconhecida: {selected_tab}")
+    _record_runtime_render_duration(str(selected_tab), render_started_at)
 
 
 def _dashboard_tab_selector(options: tuple[str, ...]) -> str:
@@ -3235,13 +3359,16 @@ def exibir_status_geral_dashboard(data: object) -> None:
         exibir_pesquisa_quantitativa(data)
 
 
-def exibir_sistema_dashboard(data: object) -> None:
+def exibir_sistema_dashboard(data: object, service: DashboardService | None = None) -> None:
     """Exibe paineis de sistema sem alterar comportamento."""
     with st.container(border=True):
-        exibir_sistema_forex(data)
+        exibir_sistema_forex(data, service)
 
 
-def exibir_sistema_forex(data: object) -> None:
+def exibir_sistema_forex(
+    data: object,
+    service: DashboardService | None = None,
+) -> None:
     """Exibe sistema simplificado para a experiencia Forex MT5."""
     status = data.system_status
     forex = getattr(data, "mt5_forex_signals", None)
@@ -3280,7 +3407,61 @@ def exibir_sistema_forex(data: object) -> None:
         "Sistema em modo Forex-only. Esta tela usa somente MT5 Forex, "
         "calibracao sob demanda e execucao demo controlada."
     )
+    if service is not None:
+        _render_runtime_performance_controls(service, data)
     exibir_configuracoes_forex_readonly(data)
+
+
+def _render_runtime_performance_controls(
+    service: DashboardService,
+    data: object,
+) -> None:
+    """Exibe diagnostico leve e reset seguro de runtime."""
+    with st.expander("Diagnostico de performance / lentidao", expanded=False):
+        snapshot = _runtime_performance_snapshot(service, data)
+        message = st.session_state.get(RUNTIME_CLEANUP_MESSAGE_KEY)
+        if message:
+            st.success(str(message))
+
+        controls = st.columns([1, 1, 2])
+        if controls[0].button(
+            "Limpar filas e caches temporarios do runtime",
+            key="runtime_clear_temporary_queues",
+        ):
+            removed = _clear_runtime_queues_and_temporary_caches()
+            st.session_state[RUNTIME_CLEANUP_MESSAGE_KEY] = (
+                "Filas e caches temporarios limpos. Reinicie o ciclo MT5 "
+                "manualmente se necessario."
+            )
+            st.caption(f"Itens temporarios limpos: {len(removed)}")
+
+        if bool(st.session_state.get(MT5_FOREX_AUTO_CYCLE_UI_KEY, False)):
+            if controls[1].button(
+                "Pausar ciclo automatico MT5 Forex",
+                key="runtime_pause_mt5_forex_auto_cycle",
+            ):
+                st.session_state[MT5_FOREX_AUTO_CYCLE_UI_KEY] = False
+                st.session_state[RUNTIME_CLEANUP_MESSAGE_KEY] = (
+                    "Ciclo automatico MT5 Forex pausado nesta sessao."
+                )
+        else:
+            controls[1].caption("Ciclo automatico MT5 Forex pausado.")
+
+        _render_runtime_performance_snapshot(snapshot)
+
+
+def _render_runtime_performance_snapshot(snapshot: dict[str, object]) -> None:
+    rows = [
+        {"Metrica": key, "Valor": _runtime_snapshot_value(value)}
+        for key, value in snapshot.items()
+    ]
+    _render_stable_readonly_table(rows)
+
+
+def _runtime_snapshot_value(value: object) -> str:
+    if isinstance(value, dict):
+        return ", ".join(f"{key}={val}" for key, val in value.items()) or "{}"
+    return str(value)
 
 
 def exibir_configuracoes_forex_readonly(data: object) -> None:

@@ -939,6 +939,60 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             else:
                 os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = previous
 
+    def test_runtime_cleanup_remove_apenas_estado_temporario(self) -> None:
+        class FakeSessionState(dict):
+            pass
+
+        class FakeCache:
+            def __init__(self) -> None:
+                self.cleared = False
+
+            def clear(self) -> None:
+                self.cleared = True
+
+        previous_session_state = dashboard_app.st.session_state
+        previous_cache_data = dashboard_app.st.cache_data
+        previous_cache_resource = dashboard_app.st.cache_resource
+        cache_data = FakeCache()
+        cache_resource = FakeCache()
+        try:
+            dashboard_app.st.session_state = FakeSessionState(
+                {
+                    dashboard_app.MT5_FOREX_MANUAL_DIAGNOSTIC_KEY: object(),
+                    dashboard_app.MT5_FOREX_LAST_AUTO_LOAD_KEY: 123.0,
+                    dashboard_app.REPLAY_PENDING_ACTION_KEY: "load",
+                    "mt5_trade_audit_report_10": object(),
+                    "runtime_temp_grid": object(),
+                    "dashboard_selected_tab": "Sistema Forex",
+                    "lab_parameter_profile": "PERSISTE",
+                    "configuration_data": object(),
+                }
+            )
+            dashboard_app.st.cache_data = cache_data
+            dashboard_app.st.cache_resource = cache_resource
+
+            removed = dashboard_app._clear_runtime_queues_and_temporary_caches()
+
+            self.assertIn(dashboard_app.MT5_FOREX_MANUAL_DIAGNOSTIC_KEY, removed)
+            self.assertIn("mt5_trade_audit_report_10", removed)
+            self.assertIn("runtime_temp_grid", removed)
+            self.assertNotIn(
+                dashboard_app.MT5_FOREX_MANUAL_DIAGNOSTIC_KEY,
+                dashboard_app.st.session_state,
+            )
+            self.assertNotIn("mt5_trade_audit_report_10", dashboard_app.st.session_state)
+            self.assertEqual(
+                dashboard_app.st.session_state["lab_parameter_profile"],
+                "PERSISTE",
+            )
+            self.assertIn("configuration_data", dashboard_app.st.session_state)
+            self.assertTrue(cache_data.cleared)
+            self.assertTrue(cache_resource.cleared)
+        finally:
+            dashboard_app.st.session_state = previous_session_state
+            dashboard_app.st.cache_data = previous_cache_data
+            dashboard_app.st.cache_resource = previous_cache_resource
+
     def test_robo_demo_nao_exibe_entrada_parcial_sem_plano_executavel(self) -> None:
         """Card do robo nao pode mostrar preco se stop/alvo ainda sao invalidos."""
         robot = SimpleNamespace(
