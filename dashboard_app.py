@@ -43,7 +43,7 @@ def _start_mt5_forex_background_cycle_once() -> None:
     global MT5_FOREX_BACKGROUND_THREAD_STARTED
     if MT5_FOREX_BACKGROUND_THREAD_STARTED:
         return
-    if os.getenv("TRADERIA_MT5_BACKGROUND_CYCLE_ENABLED", "1").strip() != "1":
+    if os.getenv("TRADERIA_MT5_BACKGROUND_CYCLE_ENABLED", "0").strip() != "1":
         return
     MT5_FOREX_BACKGROUND_THREAD_STARTED = True
     thread = threading.Thread(
@@ -200,6 +200,8 @@ def render_contract_diagnostics(service: DashboardService) -> None:
 
 def ensure_mt5_forex_initial_load(service: DashboardService) -> None:
     """Carrega MT5 uma vez antes do dashboard leve renderizar estado vazio."""
+    if os.getenv("TRADERIA_MT5_INITIAL_LOAD_ENABLED", "0").strip() != "1":
+        return
     forex = service.get_mt5_forex_signals()
     if int(getattr(forex, "refresh_id", 0) or 0) > 0:
         return
@@ -215,7 +217,7 @@ def ensure_mt5_forex_initial_load(service: DashboardService) -> None:
 
 
 def _mt5_forex_auto_cycle_enabled() -> bool:
-    return os.getenv("TRADERIA_MT5_FOREX_AUTO_CYCLE_ENABLED", "1").strip() == "1"
+    return os.getenv("TRADERIA_MT5_FOREX_AUTO_CYCLE_ENABLED", "0").strip() == "1"
 
 
 def _mt5_visual_signals_enabled() -> bool:
