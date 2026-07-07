@@ -41,6 +41,18 @@ Inbox.
 - UI consome apenas `application/DashboardService`.
 - Integracoes MT5 permanecem read-only.
 
+## Complemento importado do TraderIA atual
+
+Este repositorio tambem contem contratos e referencias do TraderIA atual
+relacionados as tres abas iniciais:
+
+- Forex MT5: contrato Lab/Forex/MT5, runbook MT5 e indicador visual.
+- Lab: contratos de parametro, setup, timeframe decisor e stop management.
+- Relatorio: auditoria read-only consolidando Lab e Forex MT5.
+
+Arquivos operacionais perigosos, runtime local, logs, snapshots, credenciais e
+provedores com envio de ordem nao foram importados.
+
 ## Nao versionar
 
 - `Python/`

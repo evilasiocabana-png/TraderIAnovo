@@ -5,6 +5,7 @@ from __future__ import annotations
 from domain.contracts.lab_result import LabResult
 from domain.contracts.mt5_status import MT5Status
 from domain.contracts.report_row import ReportRow
+from domain.contracts.trade_audit import TradeAuditReport
 
 
 class ReportService:
@@ -23,3 +24,20 @@ class ReportService:
                 detail=f"{lab.setup} / {lab.stop_management}",
             ),
         ]
+
+    def build_summary(
+        self,
+        forex: MT5Status,
+        lab: LabResult,
+        audit: TradeAuditReport,
+    ) -> dict[str, object]:
+        return {
+            "forex_status": forex.status,
+            "forex_timeframe": forex.timeframe,
+            "lab_setup": lab.setup,
+            "lab_timeframe": lab.timeframe,
+            "lab_entry": lab.theoretical_entry,
+            "lab_stop_management": lab.stop_management,
+            "audit_status": audit.status,
+            "audit_rows": audit.total_rows,
+        }
