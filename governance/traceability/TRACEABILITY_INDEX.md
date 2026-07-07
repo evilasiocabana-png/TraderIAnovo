@@ -50,6 +50,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
   de Moving Average Exit demo sem ligar execucao operacional.
 - `DYNAMIC_EXIT_PARABOLIC_SAR_DEMO_TRACEABILITY.md`: pre-autorizacao read-only
   de Parabolic SAR demo sem ligar execucao operacional.
+- `DYNAMIC_EXIT_UNIFIED_ENGINE_TRACEABILITY.md`: motor unificado read-only que
+  consolida leitura, recomendacao e pre-autorizacao sem executar.
 
 ## Regra de uso
 
