@@ -1,4 +1,4 @@
-"""Dashboard Streamlit do TraderIA_WDO."""
+"""Dashboard Streamlit do TraderIA Novo."""
 
 from dataclasses import replace
 from datetime import date, datetime, timezone
@@ -776,7 +776,7 @@ def exibir_home(data: object) -> None:
     """Exibe a aba inicial do sistema."""
     status = data.system_status
     st.subheader("HOME")
-    st.subheader("TraderIA_WDO")
+    st.subheader("TraderIA Novo")
     exibir_dataset_ativo(data)
     exibir_perfil_dataset(data)
     colunas = st.columns(3)
@@ -3864,29 +3864,11 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
     )
     colunas[0].caption(f"Banco local: {history_database_path}")
     if colunas[1].button(
-        "Trazer resultados do TraderIA",
-        key="research_import_traderia_results",
-    ):
-        sync_result = service.sync_mt5_research_results_from_traderia()
-        if bool(sync_result.get("ok")):
-            st.success(
-                "Resultados importados do TraderIA: "
-                f"{int(sync_result.get('rows', 0) or 0)} pares e "
-                f"{int(sync_result.get('scenarios', 0) or 0)} cenarios."
-            )
-            st.caption(f"Fonte TraderIA: {sync_result.get('source', 'N/D')}")
-            st.caption(f"Banco local: {sync_result.get('database', 'N/D')}")
-        else:
-            st.warning(str(sync_result.get("message", "Importacao nao realizada.")))
-    if False and colunas[1].button(
         "Atualizar cálculos",
         key="research_update_mt5_calculations",
-        disabled=True,
     ):
         _apply_forex_session_filter_preference(service, selected_session_filter)
-        forex = service.get_mt5_forex_signals()
-        timeframe = str(getattr(forex, "timeframe", "M1") or "M1")
-        research = service.update_mt5_research_calculations(timeframe=timeframe)
+        research = service.update_mt5_research_calculations(timeframe="M1")
         st.success(
             "Cálculos atualizados: "
             f"{int(getattr(research, 'candles_loaded', 0) or 0)} candles "
