@@ -80,7 +80,7 @@ afetar provider, MT5 ou Dashboard.
 
 ## Commit
 
-PENDENTE
+842c2ed
 
 ## Branch
 
@@ -88,4 +88,4 @@ main
 
 ## Push
 
-PENDENTE
+origin/main confirmado apos push.

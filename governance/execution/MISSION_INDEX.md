@@ -21,7 +21,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-013 | Paper simulation saida dinamica | completed | 2026-07-07 | 2026-07-07 | N/D | main | 619526c | Codex |
 | MISSION_TIA-014 | Autorizar break-even dinamico demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | b21f240 | Codex |
 | MISSION_TIA-015 | Autorizar ATR trailing dinamico demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | 1424885 | Codex |
-| MISSION_TIA-016 | Autorizar Chandelier Exit demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | PENDENTE | Codex |
+| MISSION_TIA-016 | Autorizar Chandelier Exit demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | 842c2ed | Codex |
 
 ## Regras
 
