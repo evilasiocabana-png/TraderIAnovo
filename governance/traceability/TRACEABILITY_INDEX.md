@@ -46,6 +46,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
   Volatility Stop demo sem ligar execucao operacional.
 - `DYNAMIC_EXIT_TIME_STOP_DEMO_TRACEABILITY.md`: pre-autorizacao read-only de
   Time Stop demo sem ligar execucao operacional.
+- `DYNAMIC_EXIT_MOVING_AVERAGE_DEMO_TRACEABILITY.md`: pre-autorizacao read-only
+  de Moving Average Exit demo sem ligar execucao operacional.
 
 ## Regra de uso
 

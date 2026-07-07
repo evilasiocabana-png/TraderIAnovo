@@ -149,3 +149,10 @@
 - Resultado: casos elegiveis sao marcados como `ELIGIBLE_READ_ONLY`, mas `allowed_to_execute_demo` permanece `false`.
 - Guardrail: Provider Demo nao foi alterado; nenhuma posicao foi fechada; nenhuma ordem foi enviada.
 - Commit: 3e17d47
+# 2026-07-07 - MISSION_TIA-020_AUTORIZAR_MOVING_AVERAGE_EXIT_DEMO
+
+- Status: completed
+- Acao: criada pre-autorizacao read-only para Moving Average Exit demo.
+- Resultado: casos elegiveis sao marcados como `ELIGIBLE_READ_ONLY`, mas `allowed_to_execute_demo` permanece `false`.
+- Guardrail: Provider Demo nao foi alterado; nenhuma posicao foi fechada; nenhuma ordem foi enviada.
+- Commit: PENDENTE

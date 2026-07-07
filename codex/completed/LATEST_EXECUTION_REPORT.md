@@ -3,7 +3,7 @@
 ## Ultimo Inbox Executado
 
 ```text
-MISSION_TIA-019_AUTORIZAR_TIME_STOP_DEMO
+MISSION_TIA-020_AUTORIZAR_MOVING_AVERAGE_EXIT_DEMO
 ```
 
 Status:
@@ -15,15 +15,15 @@ completed
 Commits:
 
 ```text
-3e17d47 Execute MISSION_TIA-019 dynamic Time Stop demo authorization
+PENDENTE Execute MISSION_TIA-020 dynamic Moving Average demo authorization
 ```
 
 ## Resultado
 
-Foi criada pre-autorizacao read-only para Time Stop demo.
+Foi criada pre-autorizacao read-only para Moving Average Exit demo.
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-020_AUTORIZAR_MOVING_AVERAGE_EXIT_DEMO
+MISSION_TIA-021_AUTORIZAR_PARABOLIC_SAR_DEMO
 ```

@@ -7,7 +7,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura.
 O ultimo inbox executado foi:
 
 ```text
-MISSION_TIA-019_AUTORIZAR_TIME_STOP_DEMO
+MISSION_TIA-020_AUTORIZAR_MOVING_AVERAGE_EXIT_DEMO
 ```
 
 Status:
@@ -19,12 +19,12 @@ completed
 Commits:
 
 ```text
-3e17d47 Execute MISSION_TIA-019 dynamic Time Stop demo authorization
+PENDENTE Execute MISSION_TIA-020 dynamic Moving Average demo authorization
 ```
 
 ## O Que Foi Executado
 
-Foi criada pre-autorizacao read-only para Time Stop demo. Casos
+Foi criada pre-autorizacao read-only para Moving Average Exit demo. Casos
 seguros ficam elegiveis para autorizacao futura, mas a execucao demo permanece
 desligada.
 
@@ -34,5 +34,5 @@ Nao executou ordem, nao fechou posicao, nao ligou
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-020_AUTORIZAR_MOVING_AVERAGE_EXIT_DEMO
+MISSION_TIA-021_AUTORIZAR_PARABOLIC_SAR_DEMO
 ```

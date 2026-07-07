@@ -25,6 +25,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-017 | Autorizar Donchian Channel Stop demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | 6905fd3 | Codex |
 | MISSION_TIA-018 | Autorizar Volatility Stop demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | 63a51b0 | Codex |
 | MISSION_TIA-019 | Autorizar Time Stop demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | 3e17d47 | Codex |
+| MISSION_TIA-020 | Autorizar Moving Average Exit demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | PENDENTE | Codex |
 
 ## Regras
 
