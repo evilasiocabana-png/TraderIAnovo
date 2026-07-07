@@ -2,6 +2,26 @@
 
 Atualizado em: 2026-07-07
 
+## Leitura Obrigatoria Para Resultado do Inbox
+
+Quando o usuario pedir:
+
+```text
+traga o resultado do ultimo inbox
+o que foi executado pelo inbox
+resultado do inbox
+```
+
+leia primeiro:
+
+```text
+LATEST_INBOX_RESULT.md
+```
+
+Depois, se precisar de detalhes, leia os arquivos listados naquele documento.
+Nao use `codex/inbox/` para resumir resultado, porque `codex/inbox/` contem
+apenas missoes pendentes.
+
 Repositorio oficial:
 
 ```text

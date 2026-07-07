@@ -51,6 +51,28 @@ Somente após essa leitura o desenvolvimento pode começar.
 
 ---
 
+# Resultado do Ultimo Inbox
+
+Quando o pedido for apenas para relatar o que o inbox executou, o agente deve
+ler primeiro:
+
+```text
+LATEST_INBOX_RESULT.md
+```
+
+Esse arquivo e o ponteiro oficial do resultado mais recente. Nao usar
+`codex/inbox/` para resumir resultado executado, porque `codex/inbox/` contem
+apenas missoes pendentes. Missoes concluidas ficam em:
+
+```text
+codex/completed/
+```
+
+Se houver conflito entre uma busca, a memoria da conversa e
+`LATEST_INBOX_RESULT.md`, prevalece `LATEST_INBOX_RESULT.md`.
+
+---
+
 # Filosofia do Projeto
 
 O TraderIA Novo evolui por pequenas missões.

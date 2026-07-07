@@ -12,6 +12,7 @@ C:\Users\evcab\OneDrive\Documentos\TraderIA_WDO
 
 ## Documentos principais
 
+- [Ultimo Resultado do Inbox](LATEST_INBOX_RESULT.md)
 - [Status para GPT](docs/GPT_SYNC_STATUS.md)
 - [Mapa do Projeto](docs/PROJECT_MAP.md)
 - [Runtime e Artefatos Locais](docs/RUNTIME_AND_ARTIFACTS.md)

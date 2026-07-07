@@ -70,6 +70,28 @@ Fluxo padrao:
 3. GPT aprova ou pede correcao.
 4. GPT libera uma unica proxima missao.
 
+## 6.0 Resultado do ultimo inbox
+
+Quando o usuario pedir "traga o resultado do ultimo inbox", "resultado do
+inbox", "o que foi executado pelo inbox" ou frase equivalente, o TraderIA
+Architect deve ler primeiro:
+
+```text
+LATEST_INBOX_RESULT.md
+```
+
+Se precisar de detalhe tecnico, ler em seguida os caminhos indicados nesse
+arquivo, especialmente:
+
+```text
+codex/completed/.../EXECUTION_REPORT.md
+docs/GPT_SYNC_STATUS.md
+```
+
+Nao consultar `codex/inbox/` para descobrir resultado executado. `codex/inbox/`
+e fila de missoes pendentes; depois da execucao a missao sai dali e vai para
+`codex/completed/`.
+
 O TraderIA Architect deve verificar:
 
 - se a missao cumpriu o objetivo;
