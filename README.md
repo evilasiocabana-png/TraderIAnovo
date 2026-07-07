@@ -12,6 +12,7 @@ C:\Users\evcab\OneDrive\Documentos\TraderIA_WDO
 
 ## Documentos principais
 
+- [Status para GPT](docs/GPT_SYNC_STATUS.md)
 - [Mapa do Projeto](docs/PROJECT_MAP.md)
 - [Runtime e Artefatos Locais](docs/RUNTIME_AND_ARTIFACTS.md)
 - [Fluxo Lab, Forex e MT5](docs/LAB_FOREX_MT5_FLOW.md)
@@ -23,6 +24,8 @@ C:\Users\evcab\OneDrive\Documentos\TraderIA_WDO
 - [Checklist de Mudanca Segura](docs/GOVERNANCE_CHANGE_CHECKLIST.md)
 - [Plano de Migracao e Organizacao](docs/MIGRATION_PLAN.md)
 - [Catalogo de Datasets Historicos](docs/HISTORICAL_DATASET_CATALOG.md)
+- [Auditoria de Stops Moveis](docs/MOBILE_STOPS_ANALYSIS.md)
+- [Rastreabilidade de Stops](governance/traceability/STOP_LOGIC_TRACEABILITY.md)
 
 ## Como rodar localmente
 
