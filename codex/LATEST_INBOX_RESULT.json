@@ -4,18 +4,18 @@
   "branch": "main",
   "updated_at": "2026-07-07",
   "latest_inbox_mission": {
-    "id": "PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION",
+    "id": "MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO",
     "status": "completed",
     "commits": [
-      "8f75a4a"
+      "PENDENTE"
     ],
-    "execution_report": "codex/completed/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION/EXECUTION_REPORT.md",
+    "execution_report": "codex/completed/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/EXECUTION_REPORT.md",
     "primary_docs": [
-      "governance/programs/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION.md",
-      "codex/inbox/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/MISSION.md",
+      "docs/DYNAMIC_EXIT_MARKET_STATE_ENGINE.md",
+      "governance/traceability/DYNAMIC_EXIT_MARKET_STATE_TRACEABILITY.md",
       "docs/GPT_SYNC_STATUS.md"
     ],
-    "summary": "O programa completo de saida dinamica foi aceito na governanca e decomposto na proxima missao executavel TIA-007, sem alterar codigo operacional.",
-    "next_recommended_mission": "MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO"
+    "summary": "A missao criou o motor read-only de leitura de estado de mercado para saida dinamica, sem alterar codigo operacional.",
+    "next_recommended_mission": "MISSION_TIA-008_IMPLEMENTAR_DYNAMIC_EXIT_RECOMMENDATION_ENGINE"
   }
 }

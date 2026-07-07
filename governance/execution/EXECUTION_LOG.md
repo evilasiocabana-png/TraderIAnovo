@@ -58,3 +58,10 @@
 - Resultado: criada a missao executavel `MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO` em `codex/inbox/`.
 - Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
 - Commit: 8f75a4a
+# 2026-07-07 - MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO
+
+- Status: completed
+- Acao: criado motor read-only de classificacao de estado de mercado para saida dinamica.
+- Resultado: `DynamicExitMarketReading` e `DynamicExitMarketStateClassifier` implementados e cobertos por testes.
+- Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
+- Commit: PENDENTE

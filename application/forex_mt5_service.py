@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from application.dynamic_exit_market_state_service import (
+    DynamicExitMarketStateClassifier,
+)
+from domain.contracts.dynamic_exit import DynamicExitMarketReading
 from domain.contracts.forex_signal import ForexSignal
 from domain.contracts.mt5_status import MT5Status
 from infrastructure.mt5.mt5_readonly_provider import MT5ReadonlyProvider
@@ -14,6 +18,7 @@ class ForexMT5Service:
 
     def __init__(self, provider: MT5ReadonlyProvider | None = None) -> None:
         self.provider = provider or MT5ReadonlyProvider()
+        self.dynamic_exit_market_state = DynamicExitMarketStateClassifier()
 
     def get_status(self) -> MT5Status:
         return self.provider.get_status()
@@ -42,6 +47,12 @@ class ForexMT5Service:
                 last_update = "N/D"
             is_positioned = position is not None
             stop_management = "ATR_TRAILING_STOP"
+            dynamic_exit = self._dynamic_exit_reading(
+                symbol=symbol,
+                position=position,
+                current_price=float(price or 0.0) if price is not None else None,
+                spread=spread,
+            )
             rows.append(
                 ForexSignal(
                     pair=symbol,
@@ -57,17 +68,15 @@ class ForexMT5Service:
                     stop_management=stop_management,
                     dynamic_exit_policy=stop_management,
                     dynamic_exit_action=(
-                        "KEEP_ORIGINAL_PLAN" if is_positioned else "NO_ACTION_BAD_CONTEXT"
+                        "KEEP_ORIGINAL_PLAN"
+                        if dynamic_exit.state not in {"NO_POSITION", "BAD_EXECUTION_CONTEXT"}
+                        else "NO_ACTION_BAD_CONTEXT"
                     ),
-                    dynamic_exit_reason=(
-                        "Contrato read-only preserva politica base do Lab; execucao demo desabilitada."
-                        if is_positioned
-                        else "Sem posicao aberta; saida dinamica apenas auditavel."
-                    ),
+                    dynamic_exit_reason=dynamic_exit.reason,
                     dynamic_exit_confidence=0.0,
-                    dynamic_exit_market_state=(
-                        "NEW_POSITION" if is_positioned else "NO_POSITION"
-                    ),
+                    dynamic_exit_market_state=dynamic_exit.state,
+                    dynamic_exit_r_multiple=dynamic_exit.r_multiple,
+                    dynamic_exit_candidate_stop=dynamic_exit.candidate_stop,
                     dynamic_exit_allowed_to_execute_demo=False,
                     is_positioned=is_positioned,
                     position_side=str(position.get("side", "N/D")) if position else "N/D",
@@ -77,6 +86,27 @@ class ForexMT5Service:
                 )
             )
         return rows
+
+    def _dynamic_exit_reading(
+        self,
+        *,
+        symbol: str,
+        position: dict[str, object] | None,
+        current_price: float | None,
+        spread: float | None,
+    ) -> DynamicExitMarketReading:
+        side = str(position.get("side", "N/D")) if position else "N/D"
+        reading = DynamicExitMarketReading(
+            symbol=symbol,
+            side=side,
+            is_positioned=position is not None,
+            current_price=current_price,
+            entry_price=self._to_float(position.get("price_open")) if position else None,
+            stop_price=self._to_float(position.get("sl")) if position else None,
+            target_price=self._to_float(position.get("tp")) if position else None,
+            spread=spread,
+        )
+        return self.dynamic_exit_market_state.classify(reading)
 
     def get_open_positions(self) -> list[dict[str, object]]:
         return self.provider.get_open_positions()

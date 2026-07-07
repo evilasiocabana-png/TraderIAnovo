@@ -1,29 +1,23 @@
 # Next Mission
 
-Proxima missao autorizada no inbox:
+Proxima missao recomendada, ainda nao autorizada automaticamente:
 
 ```text
-MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO
+MISSION_TIA-008_IMPLEMENTAR_DYNAMIC_EXIT_RECOMMENDATION_ENGINE
 ```
 
-Objetivo: criar o motor read-only que classifica o estado atual do mercado e da
-posicao para alimentar a saida dinamica.
+Objetivo: criar o motor que transforma `DynamicExitMarketReading`/estado de
+mercado em recomendacao dinamica read-only.
 
 Esta missao nao deve:
 
 - executar ordem;
 - mover SL/TP;
-- recalcular Lab pesado no ciclo leve Forex;
 - alterar provider demo operacional;
-- forcar tudo para M1.
+- permitir `dynamic_exit_allowed_to_execute_demo=true`;
+- recalcular Lab pesado no ciclo leve Forex.
 
-Pacote autorizado:
-
-```text
-codex/inbox/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/MISSION.md
-```
-
-Para executar:
+Para executar, coloque o pacote da TIA-008 em `codex/inbox/` e solicite:
 
 ```text
 Inbox.

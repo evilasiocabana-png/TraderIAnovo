@@ -74,6 +74,9 @@ from application.mt5_market_data_service import (
     MT5ForexSignalRow,
     MT5MarketDataService,
 )
+from application.dynamic_exit_market_state_service import (
+    DynamicExitMarketStateClassifier,
+)
 from application.mt5_visual_signal_exporter import (
     MT5VisualSignalExportResult,
     MT5VisualSignalExporter,
@@ -90,6 +93,7 @@ from domain.candle import Candle
 
 
 MT5_LAB_TARGET_CONFIDENCE = 0.70
+_DYNAMIC_EXIT_MARKET_STATE_CLASSIFIER = DynamicExitMarketStateClassifier()
 from application.replay_service import ReplayData, ReplayService
 from application.research_lab_service import (
     Alpha001DashboardResearchData,
@@ -117,7 +121,10 @@ from application.system_service import SystemService, SystemStatus
 from core.mt5_process_probe import probe_mt5_initialize
 from core.operation_session import OperationSession
 from domain.contracts.decision_context import DecisionContext
-from domain.contracts.dynamic_exit import DynamicExitRecommendation
+from domain.contracts.dynamic_exit import (
+    DynamicExitMarketReading,
+    DynamicExitRecommendation,
+)
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
 from domain.contracts.market_snapshot import MarketSnapshot
@@ -4408,6 +4415,26 @@ class DashboardService:
         """Cria recomendacao de saida dinamica sem autorizar execucao demo."""
         policy = str(getattr(research_plan, "stop_management", "FIXED_STOP") or "FIXED_STOP")
         status = str(getattr(research_plan, "status", "SEM_PLANO") or "SEM_PLANO")
+        side = str(getattr(row, "decision", "WAIT") or "WAIT").upper()
+        reading = _DYNAMIC_EXIT_MARKET_STATE_CLASSIFIER.classify(
+            DynamicExitMarketReading(
+                symbol=str(getattr(row, "pair", "N/D") or "N/D"),
+                side=side,
+                is_positioned=status == "PLANO_VALIDO" and side in {"BUY", "SELL"},
+                current_price=self._optional_float(getattr(row, "last_price", None)),
+                entry_price=self._optional_float(
+                    getattr(research_plan, "entry_price", None)
+                ),
+                stop_price=self._optional_float(getattr(research_plan, "stop", None)),
+                target_price=self._optional_float(
+                    getattr(research_plan, "target", None)
+                ),
+                atr=self._optional_float(getattr(row, "atr", None)),
+                volatility=self._optional_float(getattr(row, "volatility", None)),
+                momentum=self._optional_float(getattr(row, "momentum", None)),
+                spread=self._optional_float(getattr(row, "spread", None)),
+            )
+        )
         if status != "PLANO_VALIDO":
             return DynamicExitRecommendation(
                 policy=policy,
@@ -4417,41 +4444,48 @@ class DashboardService:
                 market_state="BAD_EXECUTION_CONTEXT",
                 allowed_to_execute_demo=False,
             )
-        trend = str(getattr(row, "trend", "INDEFINIDA") or "INDEFINIDA").upper()
-        momentum = abs(float(getattr(row, "momentum", 0.0) or 0.0))
-        volatility = abs(float(getattr(row, "volatility", 0.0) or 0.0))
-        trending = trend in {"ALTA", "BAIXA"} and momentum > 0.0
-        if policy == "BREAK_EVEN" and trending and volatility >= 0.0003:
+        if reading.state == "BAD_EXECUTION_CONTEXT":
+            return DynamicExitRecommendation(
+                policy=policy,
+                action="NO_ACTION_BAD_CONTEXT",
+                reason=reading.reason,
+                confidence=0.0,
+                market_state=reading.state,
+                r_multiple=reading.r_multiple,
+                candidate_stop=reading.candidate_stop,
+                allowed_to_execute_demo=False,
+            )
+        if policy == "BREAK_EVEN" and reading.state == "TREND_RUNNER":
             action = "KEEP_ORIGINAL_PLAN"
             reason = (
                 "Read-only: BREAK_EVEN preservado como politica base, mas sem "
                 "execucao demo; tendencia/volatilidade pedem auditoria antes de proteger cedo."
             )
-            market_state = "TREND_RUNNER"
             confidence = 0.55
-        elif policy == "ATR_TRAILING_STOP" and trending:
+        elif policy == "ATR_TRAILING_STOP" and reading.state == "TREND_RUNNER":
             action = "TRAIL_BY_ATR"
             reason = "Read-only: tendencia favorece acompanhamento por ATR, sem alterar SL/TP."
-            market_state = "TREND_RUNNER"
             confidence = 0.60
-        elif policy == "TIME_STOP":
+        elif policy == "TIME_STOP" or reading.state == "TIME_DECAY":
             action = "TIME_DECAY_EXIT_WATCH"
-            reason = "Read-only: saida temporal deve ser observada sem execucao automatica."
-            market_state = "TIME_DECAY"
+            reason = f"Read-only: {reading.reason}"
             confidence = 0.45
+        elif reading.state == "REVERSAL_RISK":
+            action = "TIGHTEN_BY_MOMENTUM_LOSS"
+            reason = f"Read-only: {reading.reason}"
+            confidence = 0.50
         else:
             action = "KEEP_ORIGINAL_PLAN"
-            reason = "Read-only: politica base do Lab preservada; execucao demo desabilitada."
-            market_state = "NEW_POSITION"
+            reason = f"Read-only: {reading.reason}"
             confidence = 0.40
         return DynamicExitRecommendation(
             policy=policy,
             action=action,
             reason=reason,
             confidence=confidence,
-            market_state=market_state,
-            r_multiple=0.0,
-            candidate_stop=getattr(research_plan, "stop", None),
+            market_state=reading.state,
+            r_multiple=reading.r_multiple,
+            candidate_stop=reading.candidate_stop,
             allowed_to_execute_demo=False,
         )
 

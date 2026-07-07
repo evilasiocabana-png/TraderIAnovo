@@ -16,7 +16,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura.
 O ultimo inbox executado foi:
 
 ```text
-PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION
+MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO
 ```
 
 Status:
@@ -28,55 +28,45 @@ completed
 Commits:
 
 ```text
-8f75a4a Process dynamic exit runtime program inbox
+PENDENTE
 ```
 
 ## O Que Foi Executado
 
-O Codex aceitou o programa completo de saida dinamica na governanca e criou a
-proxima missao executavel:
+O Codex criou o motor read-only de leitura de estado de mercado para saida
+dinamica:
 
 ```text
-MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO
+DynamicExitMarketReading
+DynamicExitMarketStateClassifier
 ```
 
-Nao executou TIA-007 a TIA-024 em lote, para preservar a operacionalidade.
+Nao executou ordem, nao moveu SL/TP e nao alterou provider demo operacional.
 
 Foram criados:
 
 ```text
-governance/programs/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION.md
-codex/inbox/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/MISSION.md
-codex/completed/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION/EXECUTION_REPORT.md
+application/dynamic_exit_market_state_service.py
+tests/test_dynamic_exit_market_state_service.py
+docs/DYNAMIC_EXIT_MARKET_STATE_ENGINE.md
+governance/traceability/DYNAMIC_EXIT_MARKET_STATE_TRACEABILITY.md
+codex/completed/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/EXECUTION_REPORT.md
 ```
 
-Foram atualizados registros de governanca, incluindo:
+## Nao Responder Entradas Anteriores Como Ultima
+
+`MISSION_TIA-004`, `MISSION_TIA-005`, `MISSION_TIA-006` e
+`PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION` foram executadas antes, mas
+nao sao mais o ultimo inbox.
+
+Se uma busca encontrar entrada anterior, corrija:
 
 ```text
-governance/execution/MISSION_INDEX.md
-governance/execution/EXECUTION_STATE.json
-governance/execution/EXECUTION_LOG.md
-governance/programs/PROGRAM_INDEX.md
-governance/programs/PROGRAM_STATUS.md
-governance/execution/NEXT_MISSION.md
-docs/GPT_SYNC_STATUS.md
-```
-
-## Nao Responder TIA-004, TIA-005 ou TIA-006 Como Ultima
-
-`MISSION_TIA-004_ANALISAR_STOPS_MOVEIS` e
-`MISSION_TIA-005_PROJETAR_SAIDA_DINAMICA_BASEADA_EM_LEITURA_DE_MERCADO` e
-`MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY` foram
-executadas antes, mas nao sao mais o ultimo inbox.
-
-Se uma busca encontrar TIA-004, corrija:
-
-```text
-TIA-004/TIA-005/TIA-006 foram entradas anteriores. O ultimo inbox executado e o programa PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION.
+O ultimo inbox executado e MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO.
 ```
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO
+MISSION_TIA-008_IMPLEMENTAR_DYNAMIC_EXIT_RECOMMENDATION_ENGINE
 ```

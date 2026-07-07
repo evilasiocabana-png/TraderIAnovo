@@ -20,6 +20,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
   dinamica read-only por leitura de mercado.
 - `DYNAMIC_EXIT_CONTRACT_TRACEABILITY.md`: contrato read-only implementado da
   saida dinamica.
+- `DYNAMIC_EXIT_MARKET_STATE_TRACEABILITY.md`: leitura de estado de mercado
+  implementada para a saida dinamica read-only.
 
 ## Regra de uso
 

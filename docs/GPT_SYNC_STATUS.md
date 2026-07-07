@@ -19,8 +19,6 @@ LATEST_INBOX_RESULT.md
 ```
 
 Depois, se precisar de detalhes, leia os arquivos listados naquele documento.
-Nao use `codex/inbox/` para resumir resultado, porque `codex/inbox/` contem
-apenas missoes pendentes.
 
 Repositorio oficial:
 
@@ -39,7 +37,7 @@ main
 Entrada:
 
 ```text
-PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION
+MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO
 ```
 
 Status:
@@ -51,7 +49,7 @@ completed
 Commits:
 
 ```text
-8f75a4a Process dynamic exit runtime program inbox
+PENDENTE
 ```
 
 ## Arquivos Que Confirmam a Execucao
@@ -59,19 +57,19 @@ Commits:
 Relatorio:
 
 ```text
-codex/completed/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION/EXECUTION_REPORT.md
+codex/completed/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/EXECUTION_REPORT.md
 ```
 
-Programa registrado:
+Documento tecnico:
 
 ```text
-governance/programs/PROGRAM_TIA_DYNAMIC_EXIT_RUNTIME_FULL_EXECUTION.md
+docs/DYNAMIC_EXIT_MARKET_STATE_ENGINE.md
 ```
 
-Proxima missao criada:
+Rastreabilidade:
 
 ```text
-codex/inbox/MISSION_TIA-007_IMPLEMENTAR_MOTOR_DE_LEITURA_DE_MERCADO/MISSION.md
+governance/traceability/DYNAMIC_EXIT_MARKET_STATE_TRACEABILITY.md
 ```
 
 Registro de governanca:
