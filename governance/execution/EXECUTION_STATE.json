@@ -6,7 +6,7 @@
   "current_mission": null,
   "last_completed_mission": "MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY",
   "last_failed_mission": null,
-  "last_commit": "PENDENTE",
+  "last_commit": "b0a9e8d",
   "last_branch": "main",
   "last_responsible": "Codex",
   "last_status": "completed",

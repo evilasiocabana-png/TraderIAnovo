@@ -28,7 +28,7 @@ completed
 Commits:
 
 ```text
-PENDENTE Execute MISSION_TIA-006 dynamic exit read-only contract
+b0a9e8d Execute MISSION_TIA-006 dynamic exit read-only contract
 ```
 
 ## O Que Foi Executado

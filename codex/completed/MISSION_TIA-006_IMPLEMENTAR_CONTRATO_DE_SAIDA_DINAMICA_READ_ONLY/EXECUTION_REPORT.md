@@ -119,6 +119,6 @@ SL/TP foi adicionada.
 Missao concluida. O TraderIA Novo agora transporta recomendacao de saida
 dinamica em modo read-only e auditavel.
 
-Commit: `PENDENTE`
+Commit: `b0a9e8d`
 
-Push: `PENDENTE`
+Push: `origin/main`

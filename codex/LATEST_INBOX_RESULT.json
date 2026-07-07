@@ -7,7 +7,7 @@
     "id": "MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY",
     "status": "completed",
     "commits": [
-      "PENDENTE"
+      "b0a9e8d"
     ],
     "execution_report": "codex/completed/MISSION_TIA-006_IMPLEMENTAR_CONTRATO_DE_SAIDA_DINAMICA_READ_ONLY/EXECUTION_REPORT.md",
     "primary_docs": [
