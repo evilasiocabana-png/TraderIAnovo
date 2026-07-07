@@ -114,3 +114,10 @@
 - Resultado: casos elegiveis sao marcados como `ELIGIBLE_READ_ONLY`, mas `allowed_to_execute_demo` permanece `false`.
 - Guardrail: Provider Demo nao foi alterado; nenhum SL/TP foi movido; nenhuma ordem foi enviada.
 - Commit: b21f240
+# 2026-07-07 - MISSION_TIA-015_AUTORIZAR_ATR_TRAILING_DINAMICO_DEMO
+
+- Status: completed
+- Acao: criada pre-autorizacao read-only para ATR trailing dinamico demo.
+- Resultado: casos elegiveis sao marcados como `ELIGIBLE_READ_ONLY`, mas `allowed_to_execute_demo` permanece `false`.
+- Guardrail: Provider Demo nao foi alterado; nenhum SL/TP foi movido; nenhuma ordem foi enviada.
+- Commit: PENDENTE

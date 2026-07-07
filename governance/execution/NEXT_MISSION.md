@@ -3,11 +3,11 @@
 Proxima missao recomendada, ainda nao autorizada automaticamente:
 
 ```text
-MISSION_TIA-015_AUTORIZAR_ATR_TRAILING_DINAMICO_DEMO
+MISSION_TIA-016_AUTORIZAR_CHANDELIER_EXIT_DEMO
 ```
 
-Objetivo: preparar a autorizacao controlada do ATR trailing dinamico em modo
-demo, preservando a separacao entre recomendacao, elegibilidade e execucao.
+Objetivo: preparar a autorizacao controlada de `CHANDELIER_EXIT` em modo demo,
+preservando a separacao entre recomendacao, elegibilidade e execucao.
 
 Esta missao nao deve:
 
@@ -16,9 +16,9 @@ Esta missao nao deve:
 - alterar provider demo operacional;
 - permitir `dynamic_exit_allowed_to_execute_demo=true`;
 - recalcular Lab pesado no ciclo leve Forex.
-- autorizar qualquer politica alem de ATR trailing dinamico.
+- autorizar qualquer politica alem de `CHANDELIER_EXIT`.
 
-Para executar, coloque o pacote da TIA-015 em `codex/inbox/` e solicite:
+Para executar, coloque o pacote da TIA-016 em `codex/inbox/` e solicite:
 
 ```text
 Inbox.
