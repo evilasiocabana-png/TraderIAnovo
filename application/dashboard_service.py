@@ -11,6 +11,7 @@ from application.mt5_trade_audit_service import MT5TradeAuditService
 from application.mt5_visual_signal_exporter import MT5VisualSignalExporter
 from application.report_service import ReportService
 from domain.contracts.visual_signal import VisualSignal
+from infrastructure.mt5.mt5_visual_signal_path_resolver import MT5VisualSignalPathResolver
 
 
 class DashboardService:
@@ -23,12 +24,16 @@ class DashboardService:
         report_service: ReportService | None = None,
         trade_audit_service: MT5TradeAuditService | None = None,
         visual_signal_exporter: MT5VisualSignalExporter | None = None,
+        visual_signal_path_resolver: MT5VisualSignalPathResolver | None = None,
     ) -> None:
         self.forex_mt5_service = forex_mt5_service or ForexMT5Service()
         self.lab_service = lab_service or LabService()
         self.report_service = report_service or ReportService()
         self.trade_audit_service = trade_audit_service or MT5TradeAuditService()
         self.visual_signal_exporter = visual_signal_exporter or MT5VisualSignalExporter()
+        self.visual_signal_path_resolver = (
+            visual_signal_path_resolver or MT5VisualSignalPathResolver()
+        )
 
     def get_forex_mt5_view(self) -> dict[str, Any]:
         status = self.forex_mt5_service.get_status()
@@ -73,7 +78,35 @@ class DashboardService:
 
     def get_mt5_visual_signal_payload(self) -> dict[str, object]:
         lab = self.lab_service.get_latest_result()
-        signals = [
+        signals = self._build_visual_signals(lab=lab)
+        return self.visual_signal_exporter.build_payload(signals=signals, lab=lab)
+
+    def export_mt5_visual_signals(self) -> dict[str, object]:
+        lab = self.lab_service.get_latest_result()
+        signals = self._build_visual_signals(lab=lab)
+        output_path = self.visual_signal_path_resolver.detect()
+        if output_path is None:
+            return {
+                "status": "SKIPPED",
+                "message": "Caminho MQL5/Files nao localizado.",
+                "output_path": "N/D",
+                "total_signals": len(signals),
+            }
+
+        written_path = self.visual_signal_exporter.export(
+            output_path=output_path,
+            signals=signals,
+            lab=lab,
+        )
+        return {
+            "status": "OK",
+            "message": "JSON visual MT5 exportado.",
+            "output_path": str(written_path),
+            "total_signals": len(signals),
+        }
+
+    def _build_visual_signals(self, lab: object) -> list[VisualSignal]:
+        return [
             VisualSignal(
                 symbol=signal.pair,
                 timeframe=signal.timeframe,
@@ -89,11 +122,11 @@ class DashboardService:
             )
             for signal in self.forex_mt5_service.get_signals()
         ]
-        return self.visual_signal_exporter.build_payload(signals=signals, lab=lab)
 
     def get_dashboard_view_model(self) -> dict[str, Any]:
         return {
             "forex_mt5": self.get_forex_mt5_view(),
             "lab": self.get_lab_view(),
             "report": self.get_report_view(),
+            "visual_export": self.export_mt5_visual_signals(),
         }

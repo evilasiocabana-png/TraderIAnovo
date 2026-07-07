@@ -18,10 +18,21 @@ class MT5VisualSignalPathResolver:
         if not terminal_root.exists():
             return None
 
-        for terminal_dir in sorted(terminal_root.iterdir()):
+        terminal_dirs = sorted(
+            [path for path in terminal_root.iterdir() if path.is_dir()],
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+
+        for terminal_dir in terminal_dirs:
             candidate = terminal_dir / "MQL5" / "Files" / self.FILE_NAME
             if candidate.exists():
                 return candidate
+
+        for terminal_dir in terminal_dirs:
+            files_dir = terminal_dir / "MQL5" / "Files"
+            if files_dir.exists():
+                return files_dir / self.FILE_NAME
 
         return None
 
