@@ -3926,11 +3926,37 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
             "Preparando download multi-TF do histórico MT5...",
             expanded=True,
         )
+        progress_floor = 0.12
+        progress_span = 0.68
+
+        def on_history_progress(event: dict[str, object]) -> None:
+            phase = str(event.get("phase", ""))
+            index = int(event.get("index", 0) or 0)
+            total = max(1, int(event.get("total", 1) or 1))
+            event_timeframe = str(event.get("timeframe", "N/D") or "N/D")
+            ratio = min(1.0, max(0.0, index / total))
+            if phase == "history_timeframe_started":
+                progress.progress(progress_floor + progress_span * (index - 1) / total)
+                status_box.write(
+                    f"Baixando {event_timeframe} ({index}/{total})..."
+                )
+            elif phase == "history_timeframe_finished":
+                received = int(event.get("received_candles", 0) or 0)
+                event_status = str(event.get("status", "N/D") or "N/D")
+                progress.progress(progress_floor + progress_span * ratio)
+                status_box.write(
+                    f"{event_timeframe} concluído: {received} candles | MT5 {event_status}."
+                )
+            elif phase == "history_snapshot_saving":
+                progress.progress(0.86)
+                status_box.write("Salvando histórico no banco local do Lab...")
+
         status_box.write("Verificando comunicação MT5 e parâmetros do Lab.")
-        progress.progress(0.15)
-        status_box.write("Baixando candles dos timeframes configurados...")
-        progress.progress(0.45)
-        history = service.update_mt5_research_history(timeframe="MULTI")
+        progress.progress(progress_floor)
+        history = service._update_mt5_research_history(
+            timeframe="MULTI",
+            progress_callback=on_history_progress,
+        )
         received_candles = int(getattr(history, "safe_mode_received_candles", 0) or 0)
         rows_count = len(list(getattr(history, "pairs", []) or []))
         communication_status = str(
@@ -3976,11 +4002,29 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
             "Preparando cálculo multi-TF do Lab...",
             expanded=True,
         )
+        progress_floor = 0.20
+        progress_span = 0.60
+
+        def on_calculation_progress(event: dict[str, object]) -> None:
+            phase = str(event.get("phase", ""))
+            index = int(event.get("index", 0) or 0)
+            total = max(1, int(event.get("total", 1) or 1))
+            pair = str(event.get("pair", "N/D") or "N/D")
+            ratio = min(1.0, max(0.0, index / total))
+            if phase == "calculation_pair_started":
+                progress.progress(progress_floor + progress_span * (index - 1) / total)
+                status_box.write(f"Calculando {pair} ({index}/{total})...")
+            elif phase == "calculation_pair_finished":
+                progress.progress(progress_floor + progress_span * ratio)
+                status_box.write(f"{pair} calculado.")
+
         status_box.write("Carregando base local salva do MT5.")
         progress.progress(0.20)
         status_box.write("Executando biblioteca de Alphas por par e timeframe.")
-        progress.progress(0.55)
-        research = service.update_mt5_research_calculations(timeframe="MULTI")
+        research = service._update_mt5_research_calculations(
+            timeframe="MULTI",
+            progress_callback=on_calculation_progress,
+        )
         candles_loaded = int(getattr(research, "candles_loaded", 0) or 0)
         rows_count = len(list(getattr(research, "rows", []) or []))
         scenarios_count = len(list(getattr(research, "scenario_ranking", []) or []))

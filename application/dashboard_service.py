@@ -1633,17 +1633,59 @@ class DashboardService:
         timeframe: str = "M1",
     ) -> MT5ForexSignalDashboard:
         """Atualiza somente o historico bruto MT5 usado pelo Research Lab."""
+        return self._update_mt5_research_history(timeframe=timeframe)
+
+    def _update_mt5_research_history(
+        self,
+        timeframe: str = "M1",
+        progress_callback: object | None = None,
+    ) -> MT5ForexSignalDashboard:
+        """Atualiza o historico MT5 com notificacao opcional de progresso."""
         configuration = self.configuration_service.get_configuration_data()
-        snapshots = [
-            self.mt5_market_data_service.load_forex_research_snapshot(
+        timeframes = self._mt5_research_timeframes(configuration, timeframe)
+        snapshots = []
+        total_timeframes = len(timeframes)
+        for index, candidate_timeframe in enumerate(timeframes, start=1):
+            if callable(progress_callback):
+                progress_callback(
+                    {
+                        "phase": "history_timeframe_started",
+                        "index": index,
+                        "total": total_timeframes,
+                        "timeframe": candidate_timeframe,
+                    }
+                )
+            snapshot = self.mt5_market_data_service.load_forex_research_snapshot(
                 timeframe=candidate_timeframe,
                 count=self._mt5_research_history_candle_count(configuration),
             )
-            for candidate_timeframe in self._mt5_research_timeframes(
-                configuration,
-                timeframe,
+            snapshots.append(snapshot)
+            if callable(progress_callback):
+                progress_callback(
+                    {
+                        "phase": "history_timeframe_finished",
+                        "index": index,
+                        "total": total_timeframes,
+                        "timeframe": candidate_timeframe,
+                        "received_candles": sum(
+                            int(getattr(row, "received_candles", 0) or 0)
+                            for row in list(getattr(snapshot, "pairs", []) or [])
+                        ),
+                        "status": str(
+                            getattr(snapshot, "safe_mode_status", "")
+                            or getattr(snapshot, "connection_status", "N/D")
+                        ),
+                    }
+                )
+        if callable(progress_callback):
+            progress_callback(
+                {
+                    "phase": "history_snapshot_saving",
+                    "index": total_timeframes,
+                    "total": total_timeframes,
+                    "timeframe": "MULTI",
+                }
             )
-        ]
         all_pairs = [
             row
             for snapshot in snapshots
@@ -1759,6 +1801,14 @@ class DashboardService:
         timeframe: str = "M1",
     ) -> DashboardMT5HeuristicResearchViewModel:
         """Recalcula o Lab usando o historico bruto salvo quando disponivel."""
+        return self._update_mt5_research_calculations(timeframe=timeframe)
+
+    def _update_mt5_research_calculations(
+        self,
+        timeframe: str = "M1",
+        progress_callback: object | None = None,
+    ) -> DashboardMT5HeuristicResearchViewModel:
+        """Recalcula o Lab com notificacao opcional de progresso."""
         history = self._load_mt5_research_history_snapshot()
         if history is None or not list(getattr(history, "pairs", []) or []):
             return self._mt5_local_research_snapshot_or_empty(
@@ -1774,6 +1824,7 @@ class DashboardService:
             history,
             timeframe=timeframe,
             source="MT5_RESEARCH_CALCULATED_FROM_HISTORY_SNAPSHOT",
+            progress_callback=progress_callback,
         )
 
     def _mt5_local_research_snapshot_or_empty(
@@ -1801,6 +1852,7 @@ class DashboardService:
         history: MT5ForexSignalDashboard,
         timeframe: str = "M1",
         source: str = "MT5_RESEARCH_CALCULATED_FROM_HISTORY_SNAPSHOT",
+        progress_callback: object | None = None,
     ) -> DashboardMT5HeuristicResearchViewModel:
         configuration = self.configuration_service.get_configuration_data()
         all_pairs = list(getattr(history, "pairs", []) or [])
@@ -1826,15 +1878,36 @@ class DashboardService:
             for row_timeframe, rows in rows_by_timeframe.items()
         ]
         base_data = self.get_dashboard_data()
-        pair_calibrations = [
-            self._run_mt5_research_for_pair(
+        ordered_pairs = self._ordered_mt5_research_pairs(all_pairs)
+        pair_calibrations = []
+        total_pairs = len(ordered_pairs)
+        for index, pair in enumerate(ordered_pairs, start=1):
+            if callable(progress_callback):
+                progress_callback(
+                    {
+                        "phase": "calculation_pair_started",
+                        "index": index,
+                        "total": total_pairs,
+                        "pair": pair,
+                    }
+                )
+            pair_calibrations.append(
+                self._run_mt5_research_for_pair(
                 pair,
                 snapshots,
                 base_data,
                 configuration,
             )
-            for pair in self._ordered_mt5_research_pairs(all_pairs)
-        ]
+            )
+            if callable(progress_callback):
+                progress_callback(
+                    {
+                        "phase": "calculation_pair_finished",
+                        "index": index,
+                        "total": total_pairs,
+                        "pair": pair,
+                    }
+                )
         calibration = self._combine_mt5_pair_research_calibrations(
             pair_calibrations,
             history,
