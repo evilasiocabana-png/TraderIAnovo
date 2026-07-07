@@ -191,3 +191,10 @@
 - Resultado: Sistema Forex agora expoe metricas leves, limpeza idempotente e pausa de auto-cycle UI.
 - Guardrail: nenhum dado persistente foi apagado; nenhuma ordem MT5 foi enviada.
 - Commit: 7478a2c
+# 2026-07-07 - MISSION_TIA-026_CORRIGIR_GATES_ESTRUTURAIS_API_DASHBOARD
+
+- Status: completed
+- Acao: reconciliados API freeze, manifest arquitetural e dependencia do dashboard.
+- Resultado: `run_critical_ci.py` ficou verde com 88 testes; `architecture_audit.py` OK; `architecture_health.py` BOM.
+- Guardrail: nenhuma ordem MT5 foi enviada; nenhum SL/TP foi movido; Provider Demo operacional nao foi alterado.
+- Commit: 4b1ed30

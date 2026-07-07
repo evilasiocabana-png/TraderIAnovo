@@ -3,11 +3,11 @@
 Proxima missao recomendada, ainda nao autorizada automaticamente:
 
 ```text
-MISSION_TIA-026_CORRIGIR_GATES_ESTRUTURAIS_API_DASHBOARD
+MISSION_TIA-027_ATUALIZAR_BASELINE_ARQUITETURAL_INFORMATIVO
 ```
 
-Objetivo: corrigir as pendencias estruturais que impedem o gate critico de
-ficar verde apos a entrega read-only da saida dinamica.
+Objetivo: atualizar ou revisar o baseline arquitetural informativo apos o
+manifest e os contratos terem sido reconciliados.
 
 Esta missao nao deve:
 
@@ -15,18 +15,17 @@ Esta missao nao deve:
 - mover SL/TP automaticamente;
 - alterar Provider Demo operacional;
 - apagar `.traderia`;
-- mascarar falhas de arquitetura sem reconciliar contratos;
+- mascarar falhas de arquitetura;
 - quebrar compatibilidade com snapshots antigos.
 
 Escopo sugerido:
 
-- reconciliar manifest/API freeze de servicos publicos;
-- reconciliar contrato congelado de `DashboardService`;
-- remover acesso direto `positions_get` do dashboard;
-- revisar expectativa antiga `MA_RSI_FILTER` SELL versus resultado BUY;
-- manter Dynamic Exit read-only.
+- revisar `architecture_baseline.json`;
+- confirmar que o drift e apenas informativo;
+- atualizar baseline somente se os arquivos adicionados forem intencionais;
+- manter `architecture_audit.py` OK e `run_critical_ci.py` verde.
 
-Para executar, coloque o pacote da TIA-026 em `codex/inbox/` e solicite:
+Para executar, coloque o pacote da TIA-027 em `codex/inbox/` e solicite:
 
 ```text
 Inbox.

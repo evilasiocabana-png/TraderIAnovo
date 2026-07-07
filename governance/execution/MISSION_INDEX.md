@@ -31,6 +31,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-023 | Otimizar Dynamic Exit Runtime | completed | 2026-07-07 | 2026-07-07 | N/D | main | 6d4300b | Codex |
 | MISSION_TIA-024 | Validacao final Dynamic Exit | completed | 2026-07-07 | 2026-07-07 | N/D | main | 40037b8 | Codex |
 | MISSION_TIA-025 | Diagnostico lentidao e reset filas runtime | completed | 2026-07-07 | 2026-07-07 | N/D | main | 7478a2c | Codex |
+| MISSION_TIA-026 | Corrigir gates estruturais API Dashboard | completed | 2026-07-07 | 2026-07-07 | N/D | main | 4b1ed30 | Codex |
 
 ## Regras
 
