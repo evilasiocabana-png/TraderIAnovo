@@ -163,3 +163,10 @@
 - Resultado: casos elegiveis sao marcados como `ELIGIBLE_READ_ONLY`, mas `allowed_to_execute_demo` permanece `false`.
 - Guardrail: Provider Demo nao foi alterado; nenhum SL/TP foi movido; nenhuma ordem foi enviada.
 - Commit: 441e442
+# 2026-07-07 - MISSION_TIA-022_UNIFICAR_DYNAMIC_EXIT_ENGINE
+
+- Status: completed
+- Acao: criado motor unificado read-only para saida dinamica.
+- Resultado: uma entrada unica gera leitura, recomendacao e pre-autorizacao auditaveis.
+- Guardrail: Provider Demo nao foi alterado; nenhum SL/TP foi movido; nenhuma ordem foi enviada.
+- Commit: 383432d

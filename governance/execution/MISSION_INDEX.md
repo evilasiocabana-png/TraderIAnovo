@@ -27,6 +27,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-019 | Autorizar Time Stop demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | 3e17d47 | Codex |
 | MISSION_TIA-020 | Autorizar Moving Average Exit demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | b7b5516 | Codex |
 | MISSION_TIA-021 | Autorizar Parabolic SAR demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | 441e442 | Codex |
+| MISSION_TIA-022 | Unificar Dynamic Exit Engine | completed | 2026-07-07 | 2026-07-07 | N/D | main | 383432d | Codex |
 
 ## Regras
 
