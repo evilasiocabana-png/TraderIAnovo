@@ -7,7 +7,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura.
 O ultimo inbox executado foi:
 
 ```text
-MISSION_TIA-024_VALIDACAO_FINAL_DYNAMIC_EXIT
+MISSION_TIA-025_DIAGNOSTICO_LENTIDAO_E_RESET_FILAS_RUNTIME
 ```
 
 Status:
@@ -19,14 +19,13 @@ completed
 Commits:
 
 ```text
-40037b8 Execute MISSION_TIA-024 final dynamic exit validation
+7478a2c Execute MISSION_TIA-025 runtime performance diagnostics
 ```
 
 ## O Que Foi Executado
 
-Foi executada a validacao final da cadeia Dynamic Exit read-only. A validacao
-focada passou, mas os gates oficiais ainda registram pendencias estruturais de
-API/Dashboard fora do escopo da saida dinamica.
+Foi criado diagnostico de performance/lentidao no Sistema Forex, botao seguro
+para limpar filas/caches temporarios e acao para pausar auto-cycle UI.
 
 Nao executou ordem, nao fechou posicao, nao ligou
 `dynamic_exit_allowed_to_execute_demo` e nao alterou provider demo operacional.
@@ -34,5 +33,5 @@ Nao executou ordem, nao fechou posicao, nao ligou
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-025_CORRIGIR_GATES_ESTRUTURAIS_API_DASHBOARD
+MISSION_TIA-026_CORRIGIR_GATES_ESTRUTURAIS_API_DASHBOARD
 ```

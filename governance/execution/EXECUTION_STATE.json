@@ -6,7 +6,7 @@
   "current_mission": null,
   "last_completed_mission": "MISSION_TIA-025_DIAGNOSTICO_LENTIDAO_E_RESET_FILAS_RUNTIME",
   "last_failed_mission": null,
-  "last_commit": "PENDENTE",
+  "last_commit": "7478a2c",
   "last_branch": "main",
   "last_responsible": "Codex",
   "last_status": "completed",

@@ -5,7 +5,7 @@ Atualizado em: 2026-07-07
 ## Ultimo Inbox Executado
 
 ```text
-MISSION_TIA-024_VALIDACAO_FINAL_DYNAMIC_EXIT
+MISSION_TIA-025_DIAGNOSTICO_LENTIDAO_E_RESET_FILAS_RUNTIME
 ```
 
 Status:
@@ -17,19 +17,19 @@ completed
 Commits:
 
 ```text
-40037b8 Execute MISSION_TIA-024 final dynamic exit validation
+7478a2c Execute MISSION_TIA-025 runtime performance diagnostics
 ```
 
 ## Arquivos Que Confirmam a Execucao
 
 ```text
-codex/completed/MISSION_TIA-024_VALIDACAO_FINAL_DYNAMIC_EXIT/EXECUTION_REPORT.md
-docs/DYNAMIC_EXIT_FINAL_VALIDATION.md
-governance/traceability/DYNAMIC_EXIT_FINAL_VALIDATION_TRACEABILITY.md
+codex/completed/MISSION_TIA-025_DIAGNOSTICO_LENTIDAO_E_RESET_FILAS_RUNTIME/EXECUTION_REPORT.md
+dashboard_app.py
+tests/test_dashboard_app_runtime.py
 ```
 
 ## Proxima Missao
 
 ```text
-MISSION_TIA-025_CORRIGIR_GATES_ESTRUTURAIS_API_DASHBOARD
+MISSION_TIA-026_CORRIGIR_GATES_ESTRUTURAIS_API_DASHBOARD
 ```

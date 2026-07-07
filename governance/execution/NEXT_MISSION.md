@@ -3,7 +3,7 @@
 Proxima missao recomendada, ainda nao autorizada automaticamente:
 
 ```text
-MISSION_TIA-025_CORRIGIR_GATES_ESTRUTURAIS_API_DASHBOARD
+MISSION_TIA-026_CORRIGIR_GATES_ESTRUTURAIS_API_DASHBOARD
 ```
 
 Objetivo: corrigir as pendencias estruturais que impedem o gate critico de
@@ -26,7 +26,7 @@ Escopo sugerido:
 - revisar expectativa antiga `MA_RSI_FILTER` SELL versus resultado BUY;
 - manter Dynamic Exit read-only.
 
-Para executar, coloque o pacote da TIA-025 em `codex/inbox/` e solicite:
+Para executar, coloque o pacote da TIA-026 em `codex/inbox/` e solicite:
 
 ```text
 Inbox.

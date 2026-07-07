@@ -184,3 +184,10 @@
 - Resultado: validacao focada passou; gates oficiais ainda indicam pendencias estruturais fora do escopo.
 - Guardrail: Provider Demo nao foi alterado; nenhum SL/TP foi movido; nenhuma ordem foi enviada.
 - Commit: 40037b8
+# 2026-07-07 - MISSION_TIA-025_DIAGNOSTICO_LENTIDAO_E_RESET_FILAS_RUNTIME
+
+- Status: completed
+- Acao: criado diagnostico de performance e reset seguro de filas/caches temporarios.
+- Resultado: Sistema Forex agora expoe metricas leves, limpeza idempotente e pausa de auto-cycle UI.
+- Guardrail: nenhum dado persistente foi apagado; nenhuma ordem MT5 foi enviada.
+- Commit: 7478a2c
