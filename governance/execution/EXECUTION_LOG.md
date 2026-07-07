@@ -141,4 +141,4 @@
 - Acao: criada pre-autorizacao read-only para Volatility Stop demo.
 - Resultado: casos elegiveis sao marcados como `ELIGIBLE_READ_ONLY`, mas `allowed_to_execute_demo` permanece `false`.
 - Guardrail: Provider Demo nao foi alterado; nenhum SL/TP foi movido; nenhuma ordem foi enviada.
-- Commit: PENDENTE
+- Commit: 63a51b0

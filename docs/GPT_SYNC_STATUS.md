@@ -17,7 +17,7 @@ completed
 Commits:
 
 ```text
-PENDENTE Execute MISSION_TIA-018 dynamic Volatility demo authorization
+63a51b0 Execute MISSION_TIA-018 dynamic Volatility demo authorization
 ```
 
 ## Arquivos Que Confirmam a Execucao

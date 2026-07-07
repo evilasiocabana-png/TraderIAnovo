@@ -84,7 +84,7 @@ afetar provider, MT5 ou Dashboard.
 
 ## Commit
 
-PENDENTE
+63a51b0
 
 ## Branch
 
@@ -92,4 +92,4 @@ main
 
 ## Push
 
-PENDENTE
+origin/main confirmado apos push.
