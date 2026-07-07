@@ -49,11 +49,13 @@ def get_dashboard_service() -> DashboardService:
     return st.session_state["dashboard_service"]
 
 
-def _start_mt5_forex_background_cycle_once() -> None:
+def _start_mt5_forex_background_cycle_once(force: bool = False) -> None:
     global MT5_FOREX_BACKGROUND_THREAD_STARTED
     if MT5_FOREX_BACKGROUND_THREAD_STARTED:
         return
-    if os.getenv("TRADERIA_MT5_BACKGROUND_CYCLE_ENABLED", "0").strip() != "1":
+    env_enabled = os.getenv("TRADERIA_MT5_BACKGROUND_CYCLE_ENABLED", "0").strip() == "1"
+    ui_enabled = bool(st.session_state.get(MT5_FOREX_AUTO_CYCLE_UI_KEY, False))
+    if not (force or env_enabled or ui_enabled):
         return
     if not _mt5_forex_market_cycle_allowed_now():
         return
@@ -852,7 +854,6 @@ def _dashboard_tab_selector(options: tuple[str, ...]) -> str:
     return str(selected_tab)
 
 
-@st.fragment(run_every=MT5_FOREX_AUTO_REFRESH_SECONDS)
 def exibir_mt5_forex_dashboard(
     service: DashboardService,
     data: object,
@@ -1487,16 +1488,19 @@ def _exibir_robo_demo_mt5(
             armed_robot
         )
         data = service.get_dashboard_view_model()
+        st.rerun()
     if controls[3].button("Avaliar gatilho agora", key="mt5_demo_robot_evaluate"):
         service.evaluate_armed_demo_robot_once(
             pair=selected_pair,
             timeframe=timeframe,
         )
         data = service.get_dashboard_view_model()
+        st.rerun()
     if controls[4].button("Desarmar robo", key="mt5_demo_robot_disarm"):
         service.disarm_demo_robot(pair=selected_pair, timeframe=timeframe)
         st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
         data = service.get_dashboard_view_model()
+        st.rerun()
     controls[5].caption(
         "Para operar em demo: conta MT5 DEMO, env habilitado, plano Research "
         "valido e sem posicao aberta no simbolo."
@@ -1993,6 +1997,7 @@ def _exibir_mt5_manual_diagnostic_controls(
                     data = service.get_light_dashboard_view_model()
                     st.session_state[MT5_FOREX_AUTO_CYCLE_UI_KEY] = True
                     st.session_state[MT5_FOREX_LAST_AUTO_LOAD_KEY] = time.monotonic()
+                    _start_mt5_forex_background_cycle_once(force=True)
                 st.session_state[MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY] = (
                     "Diagnostico MT5 atualizado. Ciclo automatico leve ligado."
                 )
