@@ -7,7 +7,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura.
 O ultimo inbox executado foi:
 
 ```text
-MISSION_TIA-010_EXIBIR_SAIDA_DINAMICA_NO_MT5_VISUAL
+MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO
 ```
 
 Status:
@@ -19,18 +19,19 @@ completed
 Commits:
 
 ```text
-9a55639 Execute MISSION_TIA-010 dynamic exit mt5 visual
+PENDENTE Execute MISSION_TIA-011 dynamic exit report audit
 ```
 
 ## O Que Foi Executado
 
-O JSON visual MT5 passou a exportar `dynamic_exit_visual_text` e o indicador
-MT5 passou a exibir esse texto curto somente para ativos posicionados.
+O Relatorio passou a registrar a saida dinamica como auditoria read-only:
+politica Lab, recomendacao, motivo, confianca, estado, R, stop candidato, acao
+executada e resultado final observado.
 
 Nao executou ordem, nao moveu SL/TP e nao alterou provider demo operacional.
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO
+MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
 ```

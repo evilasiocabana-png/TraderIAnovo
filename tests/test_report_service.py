@@ -19,6 +19,9 @@ class ReportServiceTest(unittest.TestCase):
         lab_row = next(row for row in rows if row.section == "Lab")
         self.assertEqual(lab_row.dynamic_exit_policy, lab.stop_management)
         self.assertEqual(lab_row.dynamic_exit_action, "KEEP_ORIGINAL_PLAN")
+        self.assertEqual(lab_row.dynamic_exit_market_state, "NO_POSITION")
+        self.assertEqual(lab_row.dynamic_exit_executed_action, "NONE")
+        self.assertEqual(lab_row.dynamic_exit_final_result, "OBSERVADO_READ_ONLY")
         self.assertIs(lab_row.dynamic_exit_allowed_to_execute_demo, False)
 
     def test_summary_exposes_dynamic_exit_readonly_contract(self) -> None:
@@ -38,4 +41,7 @@ class ReportServiceTest(unittest.TestCase):
 
         self.assertEqual(summary["dynamic_exit_policy"], lab.stop_management)
         self.assertEqual(summary["dynamic_exit_action"], "KEEP_ORIGINAL_PLAN")
+        self.assertEqual(summary["dynamic_exit_market_state"], "NO_POSITION")
+        self.assertEqual(summary["dynamic_exit_executed_action"], "NONE")
+        self.assertEqual(summary["dynamic_exit_final_result"], "OBSERVADO_READ_ONLY")
         self.assertIs(summary["dynamic_exit_allowed_to_execute_demo"], False)

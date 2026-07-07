@@ -983,6 +983,14 @@ class DashboardViewModelContractTest(unittest.TestCase):
                         "status": "ACCEPTED",
                         "message": "Request executed",
                         "ticket": 123,
+                        "dynamic_exit_policy": "ATR_TRAILING_STOP",
+                        "dynamic_exit_action": "TRAIL_BY_ATR",
+                        "dynamic_exit_reason": "Tendencia forte permite trailing por ATR.",
+                        "dynamic_exit_confidence": 0.65,
+                        "dynamic_exit_market_state": "TREND_RUNNER",
+                        "dynamic_exit_r_multiple": 1.25,
+                        "dynamic_exit_candidate_stop": 1.122,
+                        "dynamic_exit_allowed_to_execute_demo": False,
                     }
                 )
                 + "\n",
@@ -1026,6 +1034,15 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertAlmostEqual(report.rows[0].projected_profit, 1000.0)
         self.assertAlmostEqual(report.rows[0].projected_loss, -1000.0)
         self.assertAlmostEqual(report.rows[0].mt5_realized_profit, 12.34)
+        self.assertEqual(report.rows[0].dynamic_exit_policy, "ATR_TRAILING_STOP")
+        self.assertEqual(report.rows[0].dynamic_exit_action, "TRAIL_BY_ATR")
+        self.assertEqual(report.rows[0].dynamic_exit_market_state, "TREND_RUNNER")
+        self.assertAlmostEqual(report.rows[0].dynamic_exit_confidence, 0.65)
+        self.assertAlmostEqual(report.rows[0].dynamic_exit_r_multiple, 1.25)
+        self.assertAlmostEqual(report.rows[0].dynamic_exit_candidate_stop or 0.0, 1.122)
+        self.assertEqual(report.rows[0].dynamic_exit_executed_action, "NONE")
+        self.assertEqual(report.rows[0].dynamic_exit_final_result, "POSICAO_ABERTA")
+        self.assertIs(report.rows[0].dynamic_exit_allowed_to_execute_demo, False)
 
     def test_relatorio_mt5_sinaliza_operacao_fechada_ou_historica(self) -> None:
         class HistoricalAuditDashboardService(DashboardService):

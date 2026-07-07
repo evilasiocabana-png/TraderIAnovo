@@ -86,3 +86,10 @@
 - Resultado: `dynamic_exit_visual_text` aparece apenas para ativos com posicao aberta; ativos sem posicao continuam com grafico limpo.
 - Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
 - Commit: 9a55639
+# 2026-07-07 - MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO
+
+- Status: completed
+- Acao: registrados campos de saida dinamica na camada de relatorio/auditoria.
+- Resultado: Relatorio mostra politica Lab, recomendacao, motivo, confianca, estado, R, stop candidato, acao executada e resultado final observado.
+- Guardrail: Relatorio permanece read-only; nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
+- Commit: PENDENTE

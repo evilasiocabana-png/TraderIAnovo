@@ -1393,6 +1393,28 @@ def _mt5_trade_audit_row(
         "Volume TraderIA": float(getattr(row, "quantity", 0.0) or 0.0),
         "Pontuacao Lab": metrics["score"],
         "Confianca Lab": metrics["lab_confidence"],
+        "Politica Saida Lab": str(getattr(row, "dynamic_exit_policy", "N/D")),
+        "Recomendacao Saida": str(getattr(row, "dynamic_exit_action", "N/D")),
+        "Motivo Saida Dinamica": str(getattr(row, "dynamic_exit_reason", "N/D")),
+        "Confianca Saida Dinamica": _optional_percent(
+            getattr(row, "dynamic_exit_confidence", 0.0)
+        ),
+        "Estado Mercado Saida": str(
+            getattr(row, "dynamic_exit_market_state", "NO_POSITION")
+        ),
+        "R Atual Saida": _optional_number(
+            getattr(row, "dynamic_exit_r_multiple", 0.0)
+        ),
+        "Stop Candidato": _optional_price(
+            getattr(row, "dynamic_exit_candidate_stop", None)
+        ),
+        "Acao saida executada": str(
+            getattr(row, "dynamic_exit_executed_action", "NONE")
+        ),
+        "Resultado saida": str(getattr(row, "dynamic_exit_final_result", "N/D")),
+        "Execucao saida permitida": "SIM"
+        if bool(getattr(row, "dynamic_exit_allowed_to_execute_demo", False))
+        else "NAO",
         "Sessao Forex": getattr(row, "forex_session", "N/D"),
         "Filtro sessao": "LIGADO"
         if bool(getattr(row, "session_filter_enabled", True))

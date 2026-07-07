@@ -5,7 +5,7 @@ Atualizado em: 2026-07-07
 IMPORTANTE: o ultimo inbox executado e:
 
 ```text
-MISSION_TIA-010_EXIBIR_SAIDA_DINAMICA_NO_MT5_VISUAL
+MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO
 ```
 
 Status:
@@ -17,17 +17,17 @@ completed
 Commits:
 
 ```text
-9a55639 Execute MISSION_TIA-010 dynamic exit mt5 visual
+PENDENTE Execute MISSION_TIA-011 dynamic exit report audit
 ```
 
 ## Resultado
 
-O Codex adicionou o campo `dynamic_exit_visual_text` ao JSON visual MT5 e
-ajustou o indicador `TraderIAVisualSignals.mq5` para mostrar a saida dinamica
-somente quando houver posicao aberta.
+O Codex registrou a saida dinamica na camada de Relatorio/auditoria, incluindo
+politica Lab, recomendacao, motivo, confianca, estado, R, stop candidato, acao
+executada e resultado final observado.
 
 Proxima missao recomendada:
 
 ```text
-MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO
+MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
 ```

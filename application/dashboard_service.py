@@ -3021,9 +3021,27 @@ class DashboardService:
                 dynamic_exit_reason=str(
                     record.get("dynamic_exit_reason") or "N/D"
                 ),
+                dynamic_exit_confidence=self._float_or_none(
+                    record.get("dynamic_exit_confidence")
+                )
+                or 0.0,
+                dynamic_exit_market_state=str(
+                    record.get("dynamic_exit_market_state") or "NO_POSITION"
+                ),
+                dynamic_exit_r_multiple=self._float_or_none(
+                    record.get("dynamic_exit_r_multiple")
+                )
+                or 0.0,
+                dynamic_exit_candidate_stop=self._float_or_none(
+                    record.get("dynamic_exit_candidate_stop")
+                ),
                 dynamic_exit_allowed_to_execute_demo=bool(
                     record.get("dynamic_exit_allowed_to_execute_demo") is True
                 ),
+                dynamic_exit_executed_action=str(
+                    record.get("dynamic_exit_executed_action") or "NONE"
+                ),
+                dynamic_exit_final_result="NAO_ENCONTRADO_MT5",
             )
         checks = self._mt5_trade_checks(record, mt5_record)
         status = "CONFERE" if all(checks.values()) else "DIVERGENTE"
@@ -3063,10 +3081,47 @@ class DashboardService:
             ),
             dynamic_exit_action=str(record.get("dynamic_exit_action") or "N/D"),
             dynamic_exit_reason=str(record.get("dynamic_exit_reason") or "N/D"),
+            dynamic_exit_confidence=self._float_or_none(
+                record.get("dynamic_exit_confidence")
+            )
+            or 0.0,
+            dynamic_exit_market_state=str(
+                record.get("dynamic_exit_market_state") or "NO_POSITION"
+            ),
+            dynamic_exit_r_multiple=self._float_or_none(
+                record.get("dynamic_exit_r_multiple")
+            )
+            or 0.0,
+            dynamic_exit_candidate_stop=self._float_or_none(
+                record.get("dynamic_exit_candidate_stop")
+            ),
             dynamic_exit_allowed_to_execute_demo=bool(
                 record.get("dynamic_exit_allowed_to_execute_demo") is True
             ),
+            dynamic_exit_executed_action=str(
+                record.get("dynamic_exit_executed_action") or "NONE"
+            ),
+            dynamic_exit_final_result=self._dynamic_exit_final_result(status, mt5_record),
         )
+
+    def _dynamic_exit_final_result(
+        self,
+        audit_status: str,
+        mt5_record: dict[str, Any],
+    ) -> str:
+        operation_status = self._mt5_operation_status(mt5_record)
+        if operation_status == "ABERTA":
+            return "POSICAO_ABERTA"
+        if operation_status == "ORDEM_ABERTA":
+            return "ORDEM_ABERTA"
+        if operation_status == "FECHADA/HISTORICO":
+            profit = float(mt5_record.get("profit") or 0.0)
+            if profit > 0:
+                return "FECHADA_LUCRO"
+            if profit < 0:
+                return "FECHADA_PREJUIZO"
+            return "FECHADA_ZERO"
+        return audit_status
 
     def _mt5_operation_status(self, mt5_record: dict[str, Any]) -> str:
         source = str(mt5_record.get("source") or "").upper()

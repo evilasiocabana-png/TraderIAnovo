@@ -363,6 +363,16 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             microstructure_version="Micro v2",
             validation_pipeline_version="VAL v4",
             strategy_definition_version="STRAT v3",
+            dynamic_exit_policy="ATR_TRAILING_STOP",
+            dynamic_exit_action="TRAIL_BY_ATR",
+            dynamic_exit_reason="Tendencia forte permite trailing por ATR.",
+            dynamic_exit_confidence=0.65,
+            dynamic_exit_market_state="TREND_RUNNER",
+            dynamic_exit_r_multiple=1.25,
+            dynamic_exit_candidate_stop=1.122,
+            dynamic_exit_allowed_to_execute_demo=False,
+            dynamic_exit_executed_action="NONE",
+            dynamic_exit_final_result="POSICAO_ABERTA",
         )
 
         view_row = dashboard_app._mt5_trade_audit_row(row)
@@ -390,6 +400,19 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(view_row["Prejuizo projetado app"], "-5.00")
         self.assertEqual(view_row["Pontuacao Lab"], "N/D")
         self.assertEqual(view_row["Confianca Lab"], "N/D")
+        self.assertEqual(view_row["Politica Saida Lab"], "ATR_TRAILING_STOP")
+        self.assertEqual(view_row["Recomendacao Saida"], "TRAIL_BY_ATR")
+        self.assertEqual(
+            view_row["Motivo Saida Dinamica"],
+            "Tendencia forte permite trailing por ATR.",
+        )
+        self.assertEqual(view_row["Confianca Saida Dinamica"], "65.00%")
+        self.assertEqual(view_row["Estado Mercado Saida"], "TREND_RUNNER")
+        self.assertEqual(view_row["R Atual Saida"], "1.25")
+        self.assertEqual(view_row["Stop Candidato"], "1.12200")
+        self.assertEqual(view_row["Acao saida executada"], "NONE")
+        self.assertEqual(view_row["Resultado saida"], "POSICAO_ABERTA")
+        self.assertEqual(view_row["Execucao saida permitida"], "NAO")
         self.assertEqual(view_row["Versao politica sessao"], "v2.1")
         self.assertEqual(view_row["Versao pipeline execucao"], "v3.4")
         self.assertEqual(view_row["Versao config Lab"], "v8")

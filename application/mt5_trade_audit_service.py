@@ -41,9 +41,15 @@ class MT5TradeAuditService:
                 dynamic_exit_policy=signal.dynamic_exit_policy,
                 dynamic_exit_action=signal.dynamic_exit_action,
                 dynamic_exit_reason=signal.dynamic_exit_reason,
+                dynamic_exit_confidence=signal.dynamic_exit_confidence,
+                dynamic_exit_market_state=signal.dynamic_exit_market_state,
+                dynamic_exit_r_multiple=signal.dynamic_exit_r_multiple,
+                dynamic_exit_candidate_stop=signal.dynamic_exit_candidate_stop,
                 dynamic_exit_allowed_to_execute_demo=(
                     signal.dynamic_exit_allowed_to_execute_demo
                 ),
+                dynamic_exit_executed_action="NONE",
+                dynamic_exit_final_result=self._final_result(signal),
             )
             for signal in signals
         ]
@@ -70,3 +76,8 @@ class MT5TradeAuditService:
             f"Sem posicao aberta; Lab={lab.theoretical_entry}; "
             f"saida={lab.stop_management}; saida_dinamica={signal.dynamic_exit_action}"
         )
+
+    def _final_result(self, signal: ForexSignal) -> str:
+        if signal.is_positioned:
+            return "POSICAO_ABERTA"
+        return "SEM_POSICAO"

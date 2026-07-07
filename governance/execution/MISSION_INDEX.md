@@ -16,6 +16,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-008 | Implementar Dynamic Exit Recommendation Engine | completed | 2026-07-07 | 2026-07-07 | N/D | main | 9fb8106 | Codex |
 | MISSION_TIA-009 | Exibir saida dinamica no Forex e Dashboard | completed | 2026-07-07 | 2026-07-07 | N/D | main | 95e194c | Codex |
 | MISSION_TIA-010 | Exibir saida dinamica no MT5 visual | completed | 2026-07-07 | 2026-07-07 | N/D | main | 9a55639 | Codex |
+| MISSION_TIA-011 | Registrar saida dinamica no Relatorio | completed | 2026-07-07 | 2026-07-07 | N/D | main | PENDENTE | Codex |
 
 ## Regras
 

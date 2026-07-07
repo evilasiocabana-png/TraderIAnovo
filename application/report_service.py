@@ -28,7 +28,24 @@ class ReportService:
                 dynamic_exit_action=str(
                     lab.parameters.get("dynamic_exit_action", "KEEP_ORIGINAL_PLAN")
                 ),
+                dynamic_exit_reason=str(
+                    lab.parameters.get("dynamic_exit_reason", "N/D")
+                ),
+                dynamic_exit_confidence=self._float_or_zero(
+                    lab.parameters.get("dynamic_exit_confidence")
+                ),
+                dynamic_exit_market_state=str(
+                    lab.parameters.get("dynamic_exit_market_state", "NO_POSITION")
+                ),
+                dynamic_exit_r_multiple=self._float_or_zero(
+                    lab.parameters.get("dynamic_exit_r_multiple")
+                ),
+                dynamic_exit_candidate_stop=self._float_or_none(
+                    lab.parameters.get("dynamic_exit_candidate_stop")
+                ),
                 dynamic_exit_allowed_to_execute_demo=False,
+                dynamic_exit_executed_action="NONE",
+                dynamic_exit_final_result="OBSERVADO_READ_ONLY",
             ),
         ]
 
@@ -51,7 +68,34 @@ class ReportService:
             "dynamic_exit_action": str(
                 lab.parameters.get("dynamic_exit_action", "KEEP_ORIGINAL_PLAN")
             ),
+            "dynamic_exit_reason": str(
+                lab.parameters.get("dynamic_exit_reason", "N/D")
+            ),
+            "dynamic_exit_confidence": self._float_or_zero(
+                lab.parameters.get("dynamic_exit_confidence")
+            ),
+            "dynamic_exit_market_state": str(
+                lab.parameters.get("dynamic_exit_market_state", "NO_POSITION")
+            ),
+            "dynamic_exit_r_multiple": self._float_or_zero(
+                lab.parameters.get("dynamic_exit_r_multiple")
+            ),
+            "dynamic_exit_candidate_stop": self._float_or_none(
+                lab.parameters.get("dynamic_exit_candidate_stop")
+            ),
             "dynamic_exit_allowed_to_execute_demo": False,
+            "dynamic_exit_executed_action": "NONE",
+            "dynamic_exit_final_result": "OBSERVADO_READ_ONLY",
             "audit_status": audit.status,
             "audit_rows": audit.total_rows,
         }
+
+    def _float_or_none(self, value: object) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _float_or_zero(self, value: object) -> float:
+        parsed = self._float_or_none(value)
+        return 0.0 if parsed is None else parsed

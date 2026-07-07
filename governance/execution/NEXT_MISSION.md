@@ -3,11 +3,11 @@
 Proxima missao recomendada, ainda nao autorizada automaticamente:
 
 ```text
-MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO
+MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
 ```
 
-Objetivo: registrar no Relatorio a politica original, recomendacao dinamica,
-motivo, confianca, estado de mercado, acao executada e resultado final.
+Objetivo: comparar saida original do Lab versus saida dinamica recomendada em
+modo read-only, sem executar ordem e sem mover SL/TP.
 
 Esta missao nao deve:
 
@@ -16,9 +16,9 @@ Esta missao nao deve:
 - alterar provider demo operacional;
 - permitir `dynamic_exit_allowed_to_execute_demo=true`;
 - recalcular Lab pesado no ciclo leve Forex.
-- fazer o Relatorio decidir saida.
+- substituir politica original do Lab.
 
-Para executar, coloque o pacote da TIA-011 em `codex/inbox/` e solicite:
+Para executar, coloque o pacote da TIA-012 em `codex/inbox/` e solicite:
 
 ```text
 Inbox.

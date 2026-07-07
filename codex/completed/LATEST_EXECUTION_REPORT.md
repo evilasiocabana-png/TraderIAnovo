@@ -3,7 +3,7 @@
 ## Ultimo Inbox Executado
 
 ```text
-MISSION_TIA-010_EXIBIR_SAIDA_DINAMICA_NO_MT5_VISUAL
+MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO
 ```
 
 Status:
@@ -15,16 +15,15 @@ completed
 Commits:
 
 ```text
-9a55639 Execute MISSION_TIA-010 dynamic exit mt5 visual
+PENDENTE Execute MISSION_TIA-011 dynamic exit report audit
 ```
 
 ## Resultado
 
-O MT5 visual passou a receber e exibir texto curto da saida dinamica somente
-para ativos com posicao aberta.
+O Relatorio passou a registrar a saida dinamica como auditoria read-only.
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-011_REGISTRAR_SAIDA_DINAMICA_NO_RELATORIO
+MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
 ```

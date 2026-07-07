@@ -23,3 +23,11 @@ class MT5TradeAuditServiceTest(unittest.TestCase):
         self.assertTrue(
             all(row.dynamic_exit_allowed_to_execute_demo is False for row in report.rows)
         )
+        self.assertTrue(all(row.dynamic_exit_market_state for row in report.rows))
+        self.assertTrue(all(row.dynamic_exit_executed_action == "NONE" for row in report.rows))
+        self.assertTrue(
+            all(
+                row.dynamic_exit_final_result in {"SEM_POSICAO", "POSICAO_ABERTA"}
+                for row in report.rows
+            )
+        )
