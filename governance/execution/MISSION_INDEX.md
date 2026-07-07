@@ -29,6 +29,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-021 | Autorizar Parabolic SAR demo | completed | 2026-07-07 | 2026-07-07 | N/D | main | 441e442 | Codex |
 | MISSION_TIA-022 | Unificar Dynamic Exit Engine | completed | 2026-07-07 | 2026-07-07 | N/D | main | 383432d | Codex |
 | MISSION_TIA-023 | Otimizar Dynamic Exit Runtime | completed | 2026-07-07 | 2026-07-07 | N/D | main | 6d4300b | Codex |
+| MISSION_TIA-024 | Validacao final Dynamic Exit | completed | 2026-07-07 | 2026-07-07 | N/D | main | 40037b8 | Codex |
 
 ## Regras
 

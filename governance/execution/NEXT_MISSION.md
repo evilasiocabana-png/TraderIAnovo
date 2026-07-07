@@ -3,25 +3,30 @@
 Proxima missao recomendada, ainda nao autorizada automaticamente:
 
 ```text
-MISSION_TIA-024_VALIDACAO_FINAL_DYNAMIC_EXIT
+MISSION_TIA-025_CORRIGIR_GATES_ESTRUTURAIS_API_DASHBOARD
 ```
 
-Objetivo: fazer a auditoria final da saida dinamica, validando contratos,
-testes, MT5 visual, Provider Demo, Relatorios, rollback e ausencia de
-regressoes operacionais.
+Objetivo: corrigir as pendencias estruturais que impedem o gate critico de
+ficar verde apos a entrega read-only da saida dinamica.
 
 Esta missao nao deve:
 
 - executar ordem real;
 - mover SL/TP automaticamente;
-- executar ordem real;
-- mover SL/TP automaticamente;
 - alterar Provider Demo operacional;
-- permitir `dynamic_exit_allowed_to_execute_demo=true` sem autorizacao formal;
 - apagar `.traderia`;
+- mascarar falhas de arquitetura sem reconciliar contratos;
 - quebrar compatibilidade com snapshots antigos.
 
-Para executar, coloque o pacote da TIA-024 em `codex/inbox/` e solicite:
+Escopo sugerido:
+
+- reconciliar manifest/API freeze de servicos publicos;
+- reconciliar contrato congelado de `DashboardService`;
+- remover acesso direto `positions_get` do dashboard;
+- revisar expectativa antiga `MA_RSI_FILTER` SELL versus resultado BUY;
+- manter Dynamic Exit read-only.
+
+Para executar, coloque o pacote da TIA-025 em `codex/inbox/` e solicite:
 
 ```text
 Inbox.

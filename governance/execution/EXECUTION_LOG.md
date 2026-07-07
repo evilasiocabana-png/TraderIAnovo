@@ -177,3 +177,10 @@
 - Resultado: leituras identicas podem reutilizar resultado sem recalculo; excecoes falham fechado.
 - Guardrail: Provider Demo nao foi alterado; nenhum SL/TP foi movido; nenhuma ordem foi enviada.
 - Commit: 6d4300b
+# 2026-07-07 - MISSION_TIA-024_VALIDACAO_FINAL_DYNAMIC_EXIT
+
+- Status: completed
+- Acao: executada validacao final da cadeia Dynamic Exit read-only.
+- Resultado: validacao focada passou; gates oficiais ainda indicam pendencias estruturais fora do escopo.
+- Guardrail: Provider Demo nao foi alterado; nenhum SL/TP foi movido; nenhuma ordem foi enviada.
+- Commit: 40037b8
