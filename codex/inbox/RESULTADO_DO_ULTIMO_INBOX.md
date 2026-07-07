@@ -7,7 +7,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura.
 O ultimo inbox executado foi:
 
 ```text
-MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
+MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA
 ```
 
 Status:
@@ -19,18 +19,19 @@ completed
 Commits:
 
 ```text
-9265f50 Execute MISSION_TIA-012 dynamic exit backtest readonly
+PENDENTE Execute MISSION_TIA-013 dynamic exit paper simulation
 ```
 
 ## O Que Foi Executado
 
-Foi criado backtest read-only da saida dinamica, comparando saida original do
-Lab contra recomendacao dinamica sem executar ordem nem mover SL/TP.
+Foi criada simulacao paper read-only da saida dinamica, registrando cada
+recomendacao e comparando com a politica original sem executar ordem nem mover
+SL/TP.
 
 Nao executou ordem, nao moveu SL/TP e nao alterou provider demo operacional.
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA
+MISSION_TIA-014_AUTORIZAR_BREAK_EVEN_DINAMICO_DEMO
 ```

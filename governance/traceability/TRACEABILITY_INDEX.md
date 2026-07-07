@@ -32,6 +32,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
   Relatorio como auditoria read-only.
 - `DYNAMIC_EXIT_BACKTEST_TRACEABILITY.md`: comparacao read-only entre saida
   original do Lab e saida dinamica recomendada.
+- `DYNAMIC_EXIT_PAPER_SIMULATION_TRACEABILITY.md`: simulacao paper read-only
+  que registra recomendacoes dinamicas sem executar no Provider Demo.
 
 ## Regra de uso
 

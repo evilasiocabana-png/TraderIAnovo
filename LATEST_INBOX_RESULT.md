@@ -5,7 +5,7 @@ Atualizado em: 2026-07-07
 IMPORTANTE: o ultimo inbox executado e:
 
 ```text
-MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
+MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA
 ```
 
 Status:
@@ -17,18 +17,17 @@ completed
 Commits:
 
 ```text
-9265f50 Execute MISSION_TIA-012 dynamic exit backtest readonly
+PENDENTE Execute MISSION_TIA-013 dynamic exit paper simulation
 ```
 
 ## Resultado
 
-O Codex criou um motor de backtest read-only para comparar a saida original do
-Lab contra a saida dinamica recomendada, com metricas de lucro, drawdown, win
-rate, profit factor, expectancy, duracao, RR, break-even, ganho perdido e
-protecao contra perda.
+O Codex criou um motor de simulacao paper read-only para registrar cada
+recomendacao dinamica, normalizar como nao executada e comparar com a politica
+original via backtest read-only.
 
 Proxima missao recomendada:
 
 ```text
-MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA
+MISSION_TIA-014_AUTORIZAR_BREAK_EVEN_DINAMICO_DEMO
 ```

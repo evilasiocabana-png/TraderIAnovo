@@ -100,3 +100,10 @@
 - Resultado: comparativo calcula lucro liquido, drawdown, win rate, profit factor, expectancy, duracao, RR, dominancia de break-even, ganho perdido e protecao contra perda.
 - Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
 - Commit: 9265f50
+# 2026-07-07 - MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA
+
+- Status: completed
+- Acao: criado motor de simulacao paper read-only da saida dinamica.
+- Resultado: recomendacoes dinamicas sao registradas, normalizadas como nao executadas e comparadas com a politica original via backtest read-only.
+- Guardrail: nenhuma alteracao operacional em MT5, provider demo, SL/TP ou envio de ordem.
+- Commit: PENDENTE

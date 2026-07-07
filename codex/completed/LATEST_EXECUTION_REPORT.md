@@ -3,7 +3,7 @@
 ## Ultimo Inbox Executado
 
 ```text
-MISSION_TIA-012_BACKTEST_SAIDA_DINAMICA_READ_ONLY
+MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA
 ```
 
 Status:
@@ -15,16 +15,15 @@ completed
 Commits:
 
 ```text
-9265f50 Execute MISSION_TIA-012 dynamic exit backtest readonly
+PENDENTE Execute MISSION_TIA-013 dynamic exit paper simulation
 ```
 
 ## Resultado
 
-Foi criado backtest read-only comparando saida original do Lab contra saida
-dinamica recomendada.
+Foi criada simulacao paper read-only da saida dinamica.
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA
+MISSION_TIA-014_AUTORIZAR_BREAK_EVEN_DINAMICO_DEMO
 ```
