@@ -34,6 +34,7 @@ MT5_REPORT_LAST_AUTO_LOAD_KEY = "mt5_report_last_auto_load_at"
 MT5_REPORT_AUDIT_CACHE_KEY = "mt5_trade_audit_report_cache"
 MT5_FOREX_MANUAL_DIAGNOSTIC_KEY = "mt5_forex_manual_diagnostic"
 MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY = "mt5_forex_manual_diagnostic_message"
+MT5_FOREX_LAST_VALID_SNAPSHOT_KEY = "mt5_forex_last_valid_snapshot"
 FOREX_SESSION_FILTER_UI_KEY = "forex_session_filter_enabled_ui"
 RUNTIME_RENDER_DURATIONS_KEY = "runtime_render_durations_ms"
 RUNTIME_CLEANUP_MESSAGE_KEY = "runtime_cleanup_message"
@@ -516,6 +517,28 @@ def _preserve_mt5_forex_snapshot_if_empty(
         return replace(refreshed_data, mt5_forex_signals=previous_forex)
     except TypeError:
         return previous_data
+
+
+def _remember_valid_mt5_forex_snapshot(forex: object) -> object:
+    if _forex_pairs_count(forex) > 0:
+        st.session_state[MT5_FOREX_LAST_VALID_SNAPSHOT_KEY] = forex
+    return forex
+
+
+def _stable_mt5_forex_snapshot(forex: object) -> object:
+    if _forex_pairs_count(forex) > 0:
+        return _remember_valid_mt5_forex_snapshot(forex)
+    previous = st.session_state.get(MT5_FOREX_LAST_VALID_SNAPSHOT_KEY)
+    if previous is not None and _forex_pairs_count(previous) > 0:
+        return previous
+    return forex
+
+
+def _replace_mt5_forex_snapshot(data: object, forex: object) -> object:
+    try:
+        return replace(data, mt5_forex_signals=forex)
+    except TypeError:
+        return data
 
 
 def _mt5_visual_signals_enabled() -> bool:
@@ -1001,6 +1024,8 @@ def exibir_mt5_forex_dashboard(
                 "Research Quantitativo temporariamente desativado.",
             )
         )
+    forex = _stable_mt5_forex_snapshot(forex)
+    data = _replace_mt5_forex_snapshot(data, forex)
     pares = list(getattr(forex, "pairs", []) or [])
     received_by_pair = [
         int(getattr(row, "received_candles", 0) or 0)
@@ -1033,10 +1058,15 @@ def exibir_mt5_forex_dashboard(
     # Atualizacao manual usa load_mt5_forex_signals no helper.
     data = _exibir_mt5_manual_diagnostic_controls(service, data, forex)
     forex = getattr(data, "mt5_forex_signals", forex)
+    forex = _stable_mt5_forex_snapshot(forex)
+    data = _replace_mt5_forex_snapshot(data, forex)
     pares = list(getattr(forex, "pairs", []) or [])
 
     if not pares:
-        st.info(getattr(forex, "message", "Aguardando leitura MT5."))
+        st.info(
+            "Aguardando primeira leitura MT5 valida. "
+            "Quando existir um snapshot valido, esta area permanecera visivel."
+        )
         return data
 
     st.caption(getattr(forex, "message", "N/D"))

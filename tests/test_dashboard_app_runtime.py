@@ -963,6 +963,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                     dashboard_app.REPLAY_PENDING_ACTION_KEY: "load",
                     "mt5_trade_audit_report_10": object(),
                     "runtime_temp_grid": object(),
+                    dashboard_app.MT5_FOREX_LAST_VALID_SNAPSHOT_KEY: object(),
                     "dashboard_selected_tab": "Sistema Forex",
                     "lab_parameter_profile": "PERSISTE",
                     "configuration_data": object(),
@@ -981,6 +982,10 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 dashboard_app.st.session_state,
             )
             self.assertNotIn("mt5_trade_audit_report_10", dashboard_app.st.session_state)
+            self.assertIn(
+                dashboard_app.MT5_FOREX_LAST_VALID_SNAPSHOT_KEY,
+                dashboard_app.st.session_state,
+            )
             self.assertEqual(
                 dashboard_app.st.session_state["lab_parameter_profile"],
                 "PERSISTE",
@@ -1354,6 +1359,31 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             dashboard_app._forex_pairs_count(result.mt5_forex_signals),
             1,
         )
+
+    def test_snapshot_forex_estavel_usa_ultimo_valido_quando_leitura_vem_vazia(self) -> None:
+        class FakeSessionState(dict):
+            pass
+
+        previous_session_state = dashboard_app.st.session_state
+        valid = SimpleNamespace(
+            pairs=[SimpleNamespace(pair="EURUSD")],
+            connection_status="ONLINE",
+        )
+        empty = SimpleNamespace(
+            pairs=[],
+            connection_status="OFFLINE",
+        )
+        try:
+            dashboard_app.st.session_state = FakeSessionState()
+
+            first = dashboard_app._stable_mt5_forex_snapshot(valid)
+            second = dashboard_app._stable_mt5_forex_snapshot(empty)
+
+            self.assertIs(first, valid)
+            self.assertIs(second, valid)
+            self.assertEqual(dashboard_app._forex_pairs_count(second), 1)
+        finally:
+            dashboard_app.st.session_state = previous_session_state
 
     def test_auto_refresh_total_exige_flag_explicita(self) -> None:
         original_st = dashboard_app.st
