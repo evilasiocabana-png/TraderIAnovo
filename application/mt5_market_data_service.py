@@ -718,7 +718,7 @@ class MT5MarketDataService:
         batch_reader = getattr(self.provider, "get_forex_batch", None)
         if (
             callable(batch_reader)
-            and os.getenv("TRADERIA_MT5_BATCH_ENABLED", "0").strip() == "1"
+            and os.getenv("TRADERIA_MT5_BATCH_ENABLED", "1").strip() == "1"
         ):
             try:
                 batch_market_data = batch_reader(

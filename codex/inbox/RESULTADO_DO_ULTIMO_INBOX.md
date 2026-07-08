@@ -7,7 +7,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura para GPT/Co
 O ultimo inbox executado foi:
 
 ```text
-MISSION_TIA-027_EXECUCAO_ASSISTIDA_DEMO_MOVE_SL_SAIDA_DINAMICA
+MISSION_TIA-028_REPARAR_CICLO_ROBO_DEMO_E_DIAGNOSTICO_MT5
 ```
 
 Status:
@@ -19,38 +19,36 @@ completed
 Commits:
 
 ```text
-4d0fa5e
+a36d3b3
 ```
 
 ## O Que Foi Executado
 
-Foi implementado o modo assistido de SL dinamico em conta MT5 Demo.
+Foi reparado o acoplamento entre diagnostico MT5, ciclo Forex, Relatorio e robo demo.
 
-O sistema agora possui contrato, servico de gate final, metodo seguro no provider MT5 Demo e exibicao no Dashboard/Relatorio para permitir, somente com confirmacao manual e flags desligadas por padrao, mover apenas o SL de uma posicao Demo existente.
+O diagnostico MT5 agora nao inicia ciclo operacional, o Forex e o Relatorio atualizam em ciclo leve, o robo demo possui monitoramento online independente e limitado por intervalo, e chamadas MT5 repetidas foram reduzidas com batch/deduplicacao.
 
 ## Validacao
 
 ```text
 run_critical_ci.py: OK, 91 testes
-architecture_audit.py: OK
-architecture_health.py: BOM
-run_static_analysis.py: OK_WITH_WARNINGS
+testes focados de diagnostico/robo/runtime: OK
 ```
 
-O unico warning e opcional: `pyflakes` nao esta instalado.
+O primeiro run do critical CI falhou porque o lock foi criado em `application/`; a correcao moveu o lock para `core/` e o critical CI passou.
 
 ## Guardrail
 
-Nao abriu ordem nova, nao fechou posicao, nao alterou TP, nao operou conta real e nao executou automaticamente por ciclo.
+Nao alterou entrada, saida, stop movel, break-even, trailing stop, Lab pesado, envio de ordem real, protecao de conta demo/real ou Position Manager.
 
 ## Relatorio Completo
 
 ```text
-codex/completed/MISSION_TIA-027_EXECUCAO_ASSISTIDA_DEMO_MOVE_SL_SAIDA_DINAMICA/EXECUTION_REPORT.md
+codex/completed/MISSION_TIA-028_REPARAR_CICLO_ROBO_DEMO_E_DIAGNOSTICO_MT5/EXECUTION_REPORT.md
 ```
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-028_VALIDAR_SL_ASSISTIDO_DEMO_EM_AMBIENTE_CONTROLADO
+MISSION_TIA-029_A_DEFINIR
 ```

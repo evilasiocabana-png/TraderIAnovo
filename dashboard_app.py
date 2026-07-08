@@ -8,6 +8,7 @@ import threading
 import time
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from application.dashboard_service import DashboardService
 from application.dashboard_view_model import (
@@ -15,6 +16,7 @@ from application.dashboard_view_model import (
     DashboardMT5ForexSignalRowViewModel,
     DashboardMT5ForexSignalViewModel,
 )
+from core.runtime_lock_service import RuntimeLockService
 
 
 REPLAY_PENDING_ACTION_KEY = "replay_pending_action"
@@ -22,20 +24,26 @@ REPLAY_PENDING_DATASET_KEY = "replay_pending_dataset_id"
 REPLAY_PENDING_MESSAGE_KEY = "replay_pending_message"
 MT5_DEMO_ROBOT_ONLINE_KEY = "mt5_demo_robot_online_enabled"
 MT5_DEMO_ROBOT_LAST_CYCLE_KEY = "mt5_demo_robot_last_cycle_at"
+MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY = "mt5_demo_robot_last_cycle_monotonic"
+MT5_DEMO_ROBOT_MESSAGE_KEY = "mt5_demo_robot_runtime_message"
 MT5_FOREX_INITIAL_LOAD_ERROR_KEY = "mt5_forex_initial_load_error"
 MT5_FOREX_LAST_AUTO_LOAD_KEY = "mt5_forex_last_auto_load_at"
 MT5_FOREX_AUTO_CYCLE_UI_KEY = "mt5_forex_auto_cycle_enabled_ui"
+MT5_REPORT_LAST_AUTO_LOAD_KEY = "mt5_report_last_auto_load_at"
+MT5_REPORT_AUDIT_CACHE_KEY = "mt5_trade_audit_report_cache"
 MT5_FOREX_MANUAL_DIAGNOSTIC_KEY = "mt5_forex_manual_diagnostic"
 MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY = "mt5_forex_manual_diagnostic_message"
 FOREX_SESSION_FILTER_UI_KEY = "forex_session_filter_enabled_ui"
 RUNTIME_RENDER_DURATIONS_KEY = "runtime_render_durations_ms"
 RUNTIME_CLEANUP_MESSAGE_KEY = "runtime_cleanup_message"
+RUNTIME_EVENT_LOG_KEY = "runtime_event_log"
 MT5_DEMO_ROBOT_INTERVAL_SECONDS = 10.0
 MT5_FOREX_AUTO_REFRESH_SECONDS = 10.0
 MT5_LAB_TARGET_CONFIDENCE = 0.70
 MT5_ALPHA_LIBRARY_SEARCH_SPACE_SIZE = 839
 MT5_FOREX_CYCLE_LOCK = threading.Lock()
 MT5_FOREX_BACKGROUND_THREAD_STARTED = False
+MT5_RUNTIME_LOCK = RuntimeLockService()
 
 
 def get_dashboard_service() -> DashboardService:
@@ -52,9 +60,8 @@ def _start_mt5_forex_background_cycle_once(force: bool = False) -> None:
     global MT5_FOREX_BACKGROUND_THREAD_STARTED
     if MT5_FOREX_BACKGROUND_THREAD_STARTED:
         return
-    env_enabled = os.getenv("TRADERIA_MT5_BACKGROUND_CYCLE_ENABLED", "0").strip() == "1"
-    ui_enabled = bool(st.session_state.get(MT5_FOREX_AUTO_CYCLE_UI_KEY, False))
-    if not (force or env_enabled or ui_enabled):
+    env_enabled = _mt5_forex_background_cycle_env_enabled()
+    if not (force or env_enabled):
         return
     if not _mt5_forex_market_cycle_allowed_now():
         return
@@ -76,6 +83,13 @@ def _mt5_forex_background_cycle() -> None:
             except Exception:
                 pass
         time.sleep(MT5_FOREX_AUTO_REFRESH_SECONDS)
+
+
+def _mt5_forex_background_cycle_env_enabled() -> bool:
+    return (
+        os.getenv("TRADERIA_BACKGROUND_CYCLE_ENABLED", "0").strip() == "1"
+        or os.getenv("TRADERIA_MT5_BACKGROUND_CYCLE_ENABLED", "0").strip() == "1"
+    )
 
 
 def _forex_session_filter_ui_value() -> bool:
@@ -106,7 +120,24 @@ def _load_mt5_forex_signals_locked(
     timeframe: str,
 ) -> object:
     with MT5_FOREX_CYCLE_LOCK:
+        runtime_lock = MT5_RUNTIME_LOCK.acquire_active()
+        if not runtime_lock.acquired:
+            return service.get_light_dashboard_view_model()
         return service.load_mt5_forex_signals(timeframe=timeframe)
+
+
+def _load_mt5_trade_audit_report_locked(service: DashboardService) -> object | None:
+    with MT5_FOREX_CYCLE_LOCK:
+        runtime_lock = MT5_RUNTIME_LOCK.acquire_active()
+        if not runtime_lock.acquired:
+            return None
+        return service.get_mt5_trade_audit_report()
+
+
+def _record_runtime_event(event: str) -> None:
+    events = list(st.session_state.get(RUNTIME_EVENT_LOG_KEY, []) or [])
+    events.append(f"{datetime.now().isoformat(timespec='seconds')} {event}")
+    st.session_state[RUNTIME_EVENT_LOG_KEY] = events[-50:]
 
 
 def _dashboard_service_valido(service: object) -> bool:
@@ -298,11 +329,15 @@ def _clear_runtime_queues_and_temporary_caches() -> list[str]:
         MT5_FOREX_MANUAL_DIAGNOSTIC_KEY,
         MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY,
         MT5_FOREX_LAST_AUTO_LOAD_KEY,
+        MT5_REPORT_LAST_AUTO_LOAD_KEY,
+        MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY,
+        MT5_DEMO_ROBOT_MESSAGE_KEY,
         MT5_FOREX_INITIAL_LOAD_ERROR_KEY,
         REPLAY_PENDING_ACTION_KEY,
         REPLAY_PENDING_DATASET_KEY,
         REPLAY_PENDING_MESSAGE_KEY,
         RUNTIME_CLEANUP_MESSAGE_KEY,
+        RUNTIME_EVENT_LOG_KEY,
     )
     prefixes = (
         "mt5_trade_audit_report_",
@@ -351,9 +386,15 @@ def ensure_mt5_forex_initial_load(service: DashboardService) -> None:
 
 
 def _mt5_forex_auto_cycle_enabled() -> bool:
-    env_enabled = os.getenv("TRADERIA_MT5_FOREX_AUTO_CYCLE_ENABLED", "0").strip() == "1"
+    env_enabled = os.getenv("TRADERIA_MT5_FOREX_AUTO_CYCLE_ENABLED", "1").strip() == "1"
     ui_enabled = bool(st.session_state.get(MT5_FOREX_AUTO_CYCLE_UI_KEY, False))
     if not (env_enabled or ui_enabled):
+        return False
+    return _mt5_forex_market_cycle_allowed_now()
+
+
+def _mt5_report_auto_refresh_enabled() -> bool:
+    if os.getenv("TRADERIA_MT5_REPORT_AUTO_REFRESH_ENABLED", "1").strip() != "1":
         return False
     return _mt5_forex_market_cycle_allowed_now()
 
@@ -425,7 +466,18 @@ def _mt5_visual_signals_enabled() -> bool:
 
 
 def _inject_mt5_forex_auto_refresh() -> None:
-    return
+    if not (_mt5_forex_auto_cycle_enabled() or _mt5_report_auto_refresh_enabled()):
+        return
+    interval_ms = int(MT5_FOREX_AUTO_REFRESH_SECONDS * 1000)
+    components.html(
+        (
+            "<script>"
+            f"setTimeout(function() {{ window.parent.location.reload(); }}, {interval_ms});"
+            "</script>"
+        ),
+        height=0,
+        width=0,
+    )
 
 
 def _maybe_run_mt5_forex_auto_cycle(
@@ -445,6 +497,27 @@ def _maybe_run_mt5_forex_auto_cycle(
     st.session_state[MT5_FOREX_LAST_AUTO_LOAD_KEY] = time.monotonic()
     refreshed_data = service.get_light_dashboard_view_model()
     return refreshed_data, getattr(refreshed_data, "mt5_forex_signals", forex)
+
+
+def _maybe_refresh_mt5_trade_audit_report(
+    service: DashboardService,
+    cached_report: object | None,
+    *,
+    force: bool = False,
+) -> object | None:
+    if not force and cached_report is not None:
+        if not _mt5_report_auto_refresh_enabled():
+            return cached_report
+        last_load = float(st.session_state.get(MT5_REPORT_LAST_AUTO_LOAD_KEY, 0.0) or 0.0)
+        if time.monotonic() - last_load < MT5_FOREX_AUTO_REFRESH_SECONDS:
+            return cached_report
+    with st.spinner("Atualizando auditoria MT5..."):
+        report = _load_mt5_trade_audit_report_locked(service)
+    if report is None:
+        return cached_report
+    st.session_state[MT5_REPORT_AUDIT_CACHE_KEY] = report
+    st.session_state[MT5_REPORT_LAST_AUTO_LOAD_KEY] = time.monotonic()
+    return report
 
 
 def get_dashboard_view_model_or_stop(service: DashboardService) -> object:
@@ -803,6 +876,7 @@ def exibir_mt5_forex_dashboard(
         st.error("Contrato MT5 Forex indisponivel na fachada do dashboard.")
         return data
     data, forex = _maybe_run_mt5_forex_auto_cycle(service, data, forex)
+    _inject_mt5_forex_auto_refresh()
 
     st.subheader("MT5 Forex")
     st.warning(
@@ -996,20 +1070,22 @@ def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None
         except Exception:
             pass
     st.subheader("Relatorios")
-    report_cache_key = "mt5_trade_audit_report_cache"
     if st.button("Atualizar auditoria MT5", key="mt5_report_refresh_audit"):
-        with st.spinner("Atualizando auditoria MT5..."):
-            st.session_state[report_cache_key] = service.get_mt5_trade_audit_report()
-    cached_report = st.session_state.get(report_cache_key)
-    if cached_report is None:
-        with st.spinner("Carregando auditoria MT5 local..."):
-            cached_report = service.get_mt5_trade_audit_report()
-            st.session_state[report_cache_key] = cached_report
+        st.session_state[MT5_REPORT_AUDIT_CACHE_KEY] = _maybe_refresh_mt5_trade_audit_report(
+            service,
+            st.session_state.get(MT5_REPORT_AUDIT_CACHE_KEY),
+            force=True,
+        )
+    cached_report = _maybe_refresh_mt5_trade_audit_report(
+        service,
+        st.session_state.get(MT5_REPORT_AUDIT_CACHE_KEY),
+    )
     if cached_report is not None:
         data = replace(
             service.get_light_dashboard_view_model(),
             mt5_trade_audit=cached_report,
         )
+    _inject_mt5_forex_auto_refresh()
     online_status = _demo_robot_online_status(data)
     status_columns = st.columns([0.12, 0.9, 1.8])
     with status_columns[0]:
@@ -1024,10 +1100,16 @@ def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None
                 _forex_session_filter_ui_value(),
             )
             _arm_all_demo_robot_from_reports(service, data)
-            st.session_state[report_cache_key] = service.get_mt5_trade_audit_report()
+            st.session_state[MT5_REPORT_AUDIT_CACHE_KEY] = (
+                _maybe_refresh_mt5_trade_audit_report(
+                    service,
+                    st.session_state.get(MT5_REPORT_AUDIT_CACHE_KEY),
+                    force=True,
+                )
+            )
             data = replace(
                 service.get_light_dashboard_view_model(),
-                mt5_trade_audit=st.session_state[report_cache_key],
+                mt5_trade_audit=st.session_state[MT5_REPORT_AUDIT_CACHE_KEY],
             )
     _render_forex_session_filter_checkbox(
         status_columns[2],
@@ -1038,8 +1120,8 @@ def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None
         "historico da plataforma MT5. Esta aba e somente leitura."
     )
     st.caption(
-        "Auditoria MT5 sob demanda para manter o dashboard leve. Use "
-        "Atualizar auditoria MT5 quando quiser confrontar com o historico."
+        "Auditoria MT5 atualiza em ciclo leve, sem recalcular Lab pesado e "
+        "sem criar thread de fundo."
     )
     report = getattr(data, "mt5_trade_audit", None)
     if report is None:
@@ -1483,12 +1565,24 @@ def _exibir_robo_demo_mt5(
         key="mt5_demo_robot_forex_session_filter_enabled",
     )
     if controls[1].button("Armar robo demo", key="mt5_demo_robot_arm"):
+        _record_runtime_event("DEMO_ROBOT_ARM_REQUESTED")
         _apply_forex_session_filter_preference(service, selected_session_filter)
         _enable_mt5_demo_execution_for_session()
         armed_robot = service.arm_demo_robot(pair=selected_pair, timeframe=timeframe)
-        st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = _demo_robot_online_allowed(
-            armed_robot
-        )
+        online_allowed = _demo_robot_online_allowed(armed_robot)
+        st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = online_allowed
+        st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = 0.0
+        if online_allowed:
+            _record_runtime_event("DEMO_ROBOT_ARMED_ONLINE")
+            st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY] = (
+                "Robo demo armado e monitoramento online ligado."
+            )
+        else:
+            _record_runtime_event("DEMO_ROBOT_ARM_BLOCKED")
+            st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY] = (
+                "Robo demo bloqueado pelo backend: "
+                f"{getattr(armed_robot, 'message', 'motivo indisponivel')}"
+            )
         data = service.get_dashboard_view_model()
         st.rerun()
     if controls[3].button("Avaliar gatilho agora", key="mt5_demo_robot_evaluate"):
@@ -1501,6 +1595,7 @@ def _exibir_robo_demo_mt5(
     if controls[4].button("Desarmar robo", key="mt5_demo_robot_disarm"):
         service.disarm_demo_robot(pair=selected_pair, timeframe=timeframe)
         st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
+        st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = 0.0
         data = service.get_dashboard_view_model()
         st.rerun()
     controls[5].caption(
@@ -1508,23 +1603,16 @@ def _exibir_robo_demo_mt5(
         "valido e sem posicao aberta no simbolo."
     )
     online_enabled = bool(st.session_state.get(MT5_DEMO_ROBOT_ONLINE_KEY, False))
+    runtime_message = st.session_state.get(MT5_DEMO_ROBOT_MESSAGE_KEY)
+    if runtime_message:
+        st.caption(str(runtime_message))
     if online_enabled:
-        current_robot_status = getattr(
-            service.get_demo_robot_status(),
-            "status",
-            "DISARMED",
-        )
-        if current_robot_status in {"DISARMED", "READY", "NOT_ARMED"}:
-            service.arm_demo_robot(pair=selected_pair, timeframe=timeframe)
-        cycle_robot = service.run_online_demo_robot_cycle(
-            pair=selected_pair,
+        data, online_enabled = _run_demo_robot_online_cycle_if_due(
+            service,
+            data,
+            selected_pair=selected_pair,
             timeframe=timeframe,
         )
-        if not _demo_robot_online_allowed(cycle_robot):
-            st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
-            online_enabled = False
-        st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_KEY] = time.strftime("%H:%M:%S")
-        data = service.get_dashboard_view_model()
         if online_enabled:
             st.success(
                 "Monitoramento online ATIVO: o robo atualiza MT5 e entra "
@@ -1685,16 +1773,64 @@ def _arm_all_demo_robot_from_reports(service: DashboardService, data: object) ->
     _enable_mt5_demo_execution_for_session()
     forex = getattr(data, "mt5_forex_signals", None)
     timeframe = getattr(forex, "timeframe", "M1")
+    _record_runtime_event("DEMO_ROBOT_ARM_REQUESTED")
     armed_robot = service.arm_demo_robot(pair="TODOS", timeframe=timeframe)
     st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = _demo_robot_online_allowed(
         armed_robot
     )
+    st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = 0.0
+    if st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY]:
+        _record_runtime_event("DEMO_ROBOT_ARMED_ONLINE")
+    else:
+        _record_runtime_event("DEMO_ROBOT_ARM_BLOCKED")
     return armed_robot
+
+
+def _run_demo_robot_online_cycle_if_due(
+    service: DashboardService,
+    data: object,
+    *,
+    selected_pair: str,
+    timeframe: str,
+) -> tuple[object, bool]:
+    now = time.monotonic()
+    last_cycle = float(
+        st.session_state.get(MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY, 0.0) or 0.0
+    )
+    if now - last_cycle < MT5_DEMO_ROBOT_INTERVAL_SECONDS:
+        _record_runtime_event("DEMO_ROBOT_ONLINE_CYCLE_SKIPPED_INTERVAL")
+        return data, True
+
+    current_robot = service.get_demo_robot_status()
+    if not _demo_robot_online_allowed(current_robot):
+        st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
+        st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY] = (
+            "Monitoramento online desligado: backend nao confirma robo armado."
+        )
+        return service.get_dashboard_view_model(), False
+
+    _record_runtime_event("DEMO_ROBOT_ONLINE_CYCLE_STARTED")
+    st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = now
+    cycle_robot = service.run_online_demo_robot_cycle(
+        pair=selected_pair,
+        timeframe=timeframe,
+    )
+    st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_KEY] = time.strftime("%H:%M:%S")
+    _record_runtime_event("DEMO_ROBOT_ONLINE_CYCLE_COMPLETED")
+    if not _demo_robot_online_allowed(cycle_robot):
+        st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
+        st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY] = (
+            "Monitoramento online bloqueado pelo backend: "
+            f"{getattr(cycle_robot, 'message', 'motivo indisponivel')}"
+        )
+        return service.get_dashboard_view_model(), False
+    return service.get_dashboard_view_model(), True
 
 
 def _demo_robot_online_allowed(robot: object) -> bool:
     """Confirma se o backend aceitou manter o robo demo em monitoramento online."""
     status = str(getattr(robot, "status", "") or "").upper()
+    result_status = str(getattr(robot, "result_status", "") or "").upper()
     provider = str(getattr(robot, "provider", "") or "").upper()
     mt5_send_enabled = bool(
         getattr(robot, "mt5_" + "order" + "_send_enabled", False)
@@ -1703,7 +1839,17 @@ def _demo_robot_online_allowed(robot: object) -> bool:
         return False
     if provider == "MT5_DEMO_DISABLED":
         return False
-    return mt5_send_enabled
+    armed_statuses = {
+        "ARMED",
+        "READY",
+        "ARMED_WAITING",
+        "AGUARDANDO_PLANO",
+        "NO_SIGNAL",
+        "SEM_GATILHO_VALIDO",
+    }
+    return mt5_send_enabled and (
+        status in armed_statuses or result_status in armed_statuses
+    )
 
 
 def _demo_robot_trade_prices(
@@ -1995,13 +2141,11 @@ def _exibir_mt5_manual_diagnostic_controls(
                         timeframe=timeframe,
                     )
                     st.session_state[MT5_FOREX_MANUAL_DIAGNOSTIC_KEY] = diagnostic
-                    _load_mt5_forex_signals_locked(service, timeframe=timeframe)
                     data = service.get_light_dashboard_view_model()
-                    st.session_state[MT5_FOREX_AUTO_CYCLE_UI_KEY] = True
-                    st.session_state[MT5_FOREX_LAST_AUTO_LOAD_KEY] = time.monotonic()
-                    _start_mt5_forex_background_cycle_once(force=True)
+                    _record_runtime_event("MT5_DIAGNOSTIC_ONLY_COMPLETED")
+                    _record_runtime_event("MT5_DIAGNOSTIC_DID_NOT_START_CYCLE")
                 st.session_state[MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY] = (
-                    "Diagnostico MT5 atualizado. Ciclo automatico leve ligado."
+                    "Diagnostico MT5 atualizado. Nenhum ciclo automatico foi iniciado."
                 )
             except Exception as exc:
                 st.session_state[MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY] = (

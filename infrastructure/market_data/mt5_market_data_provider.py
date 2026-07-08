@@ -6,6 +6,7 @@ import os
 import json
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -33,6 +34,9 @@ class MT5MarketDataProvider:
     account_type: str = "N/D"
     server_name: str = "N/D"
     symbols: list[str] = field(default_factory=list)
+    external_call_cache: dict[str, tuple[float, dict[str, Any]]] = field(
+        default_factory=dict
+    )
 
     def connect(self) -> bool:
         """Inicializa o MT5 e autentica usando configuracao externa."""
@@ -384,6 +388,11 @@ class MT5MarketDataProvider:
 
     def _external_mt5_call(self, action: str, **kwargs: Any) -> dict[str, Any]:
         request = {"action": action, **kwargs}
+        cache_key = self._external_call_cache_key(request)
+        if cache_key:
+            cached = self.external_call_cache.get(cache_key)
+            if cached and time.monotonic() - cached[0] <= self._external_cache_ttl():
+                return dict(cached[1])
         code = r'''
 import json
 import sys
@@ -532,9 +541,28 @@ finally:
                 "message": (completed.stderr or "Processo MT5 sem resposta.").strip(),
             }
         try:
-            return json.loads(output[-1])
+            payload = json.loads(output[-1])
         except json.JSONDecodeError:
-            return {"ok": False, "message": output[-1]}
+            payload = {"ok": False, "message": output[-1]}
+        if cache_key:
+            self.external_call_cache[cache_key] = (time.monotonic(), dict(payload))
+        return payload
+
+    def _external_call_cache_key(self, request: dict[str, Any]) -> str:
+        if request.get("action") not in {
+            "get_candles",
+            "microstructure",
+            "forex_batch",
+            "symbol_exists",
+        }:
+            return ""
+        try:
+            return json.dumps(request, sort_keys=True, default=str)
+        except TypeError:
+            return ""
+
+    def _external_cache_ttl(self) -> float:
+        return float(os.getenv("TRADERIA_MT5_REQUEST_QUEUE_TTL_SECONDS", "2.0"))
 
     def _credential(self, name: str, explicit_value: str | int | None) -> str | None:
         if explicit_value not in (None, ""):

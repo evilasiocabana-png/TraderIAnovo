@@ -1214,10 +1214,164 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             )
         )
 
+    def test_diagnostico_mt5_nao_liga_ciclo_automatico(self) -> None:
+        original_st = dashboard_app.st
+        original_render_diagnostic = dashboard_app._exibir_mt5_connection_diagnostic
+        fake_st = self._fake_streamlit(button_clicked=True)
+        service = SimpleNamespace(
+            test_mt5_connection=lambda symbol, timeframe: SimpleNamespace(
+                connection_status="ONLINE",
+                steps=[],
+            ),
+            get_light_dashboard_view_model=lambda: SimpleNamespace(
+                mt5_forex_signals=SimpleNamespace()
+            ),
+        )
+        forex = SimpleNamespace(
+            pairs=[SimpleNamespace(pair="EURUSD")],
+            timeframe="M1",
+        )
+        dashboard_app.st = fake_st
+        dashboard_app._exibir_mt5_connection_diagnostic = lambda diagnostic: None
+        try:
+            dashboard_app._exibir_mt5_manual_diagnostic_controls(
+                service,
+                SimpleNamespace(mt5_forex_signals=forex),
+                forex,
+            )
+        finally:
+            dashboard_app.st = original_st
+            dashboard_app._exibir_mt5_connection_diagnostic = original_render_diagnostic
+
+        self.assertNotIn(
+            dashboard_app.MT5_FOREX_AUTO_CYCLE_UI_KEY,
+            fake_st.session_state,
+        )
+        self.assertIn(
+            "Nenhum ciclo automatico foi iniciado",
+            fake_st.session_state[
+                dashboard_app.MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY
+            ],
+        )
+
+    def test_robo_demo_online_executa_no_maximo_um_ciclo_por_intervalo(self) -> None:
+        class FakeSessionState(dict):
+            pass
+
+        class FakeService:
+            def __init__(self) -> None:
+                self.cycles = 0
+
+            def get_demo_robot_status(self):
+                return SimpleNamespace(
+                    status="ARMED",
+                    result_status="ARMED_WAITING",
+                    provider="MT5_DEMO",
+                    mt5_order_send_enabled=True,
+                )
+
+            def run_online_demo_robot_cycle(self, pair: str, timeframe: str):
+                self.cycles += 1
+                return self.get_demo_robot_status()
+
+            def get_dashboard_view_model(self):
+                return SimpleNamespace(demo_robot=self.get_demo_robot_status())
+
+        previous_session_state = dashboard_app.st.session_state
+        try:
+            dashboard_app.st.session_state = FakeSessionState(
+                {dashboard_app.MT5_DEMO_ROBOT_ONLINE_KEY: True}
+            )
+            service = FakeService()
+
+            first_data, first_online = dashboard_app._run_demo_robot_online_cycle_if_due(
+                service,
+                SimpleNamespace(),
+                selected_pair="TODOS",
+                timeframe="M1",
+            )
+            second_data, second_online = dashboard_app._run_demo_robot_online_cycle_if_due(
+                service,
+                first_data,
+                selected_pair="TODOS",
+                timeframe="M1",
+            )
+
+            self.assertTrue(first_online)
+            self.assertTrue(second_online)
+            self.assertIs(second_data, first_data)
+            self.assertEqual(service.cycles, 1)
+        finally:
+            dashboard_app.st.session_state = previous_session_state
+
+    def test_relatorio_mt5_auto_refresh_e_leve_por_intervalo(self) -> None:
+        original_st = dashboard_app.st
+        original_loader = dashboard_app._load_mt5_trade_audit_report_locked
+        original_enabled = dashboard_app._mt5_report_auto_refresh_enabled
+        fake_st = self._fake_streamlit(button_clicked=False)
+        calls = []
+
+        def fake_loader(service):
+            calls.append(service)
+            return SimpleNamespace(total_audited=len(calls))
+
+        dashboard_app.st = fake_st
+        dashboard_app._load_mt5_trade_audit_report_locked = fake_loader
+        dashboard_app._mt5_report_auto_refresh_enabled = lambda: True
+        try:
+            first = dashboard_app._maybe_refresh_mt5_trade_audit_report(
+                SimpleNamespace(),
+                None,
+            )
+            second = dashboard_app._maybe_refresh_mt5_trade_audit_report(
+                SimpleNamespace(),
+                first,
+            )
+        finally:
+            dashboard_app.st = original_st
+            dashboard_app._load_mt5_trade_audit_report_locked = original_loader
+            dashboard_app._mt5_report_auto_refresh_enabled = original_enabled
+
+        self.assertIs(first, second)
+        self.assertEqual(len(calls), 1)
+
     def _run_app(self) -> AppTest:
         app = AppTest.from_file("dashboard_app.py")
         app.run(timeout=30)
         return app
+
+    def _fake_streamlit(self, *, button_clicked: bool):
+        class FakeContext:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def button(self, *args, **kwargs):
+                return button_clicked
+
+            def caption(self, *args, **kwargs):
+                return None
+
+            def metric(self, *args, **kwargs):
+                return None
+
+        class FakeStreamlit:
+            def __init__(self):
+                self.session_state = {}
+
+            def container(self, *args, **kwargs):
+                return FakeContext()
+
+            def columns(self, spec):
+                size = spec if isinstance(spec, int) else len(spec)
+                return [FakeContext() for _ in range(size)]
+
+            def spinner(self, *args, **kwargs):
+                return FakeContext()
+
+        return FakeStreamlit()
 
     def _button(self, app: AppTest, label: str):
         for button in app.button:

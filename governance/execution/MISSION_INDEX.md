@@ -34,6 +34,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-026 | Corrigir gates estruturais API Dashboard | completed | 2026-07-07 | 2026-07-07 | N/D | main | 4b1ed30 | Codex |
 | MISSION_TIA-026_EXECUCAO_SIMULADA_SAIDA_DINAMICA_STOP_MANAGEMENT | Execucao simulada saida dinamica stop management | completed | 2026-07-07 | 2026-07-07 | N/D | main | 582bcb0 | Codex |
 | MISSION_TIA-027_EXECUCAO_ASSISTIDA_DEMO_MOVE_SL_SAIDA_DINAMICA | Execucao assistida demo move SL saida dinamica | completed | 2026-07-07 | 2026-07-07 | N/D | main | 4d0fa5e | Codex |
+| MISSION_TIA-028_REPARAR_CICLO_ROBO_DEMO_E_DIAGNOSTICO_MT5 | Reparar ciclo robo demo e diagnostico MT5 | completed | 2026-07-07 | 2026-07-07 | N/D | main | a36d3b3 | Codex |
 
 ## Regras
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from core.event_bus import EventBus
 from core.events import NEW_CANDLE
@@ -152,6 +153,30 @@ class MT5MarketDataProviderTest(unittest.TestCase):
         self.assertEqual(candles[0].abertura, 5700.0)
         self.assertEqual(candles[0].volume, 1200)
         self.assertEqual(published, candles)
+
+    def test_get_candles_externo_deduplica_requisicao_identica(self) -> None:
+        provider = MT5MarketDataProvider(mt5_module=None)
+        completed = SimpleNamespace(
+            stdout=(
+                '{"ok": true, "rates": ['
+                '{"time": 1719792000, "open": 1.1, "high": 1.2, '
+                '"low": 1.0, "close": 1.15, "tick_volume": 10, "real_volume": 0}'
+                ']}'
+            ),
+            stderr="",
+        )
+
+        with patch(
+            "infrastructure.market_data.mt5_market_data_provider.subprocess.run",
+            return_value=completed,
+        ) as run:
+            first = provider.get_candles("EURUSD", 1, 1)
+            second = provider.get_candles("EURUSD", 1, 1)
+
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(len(first), 1)
+        self.assertEqual(len(second), 1)
+        self.assertEqual(first[0].fechamento, second[0].fechamento)
 
     def test_get_symbol_microstructure_importa_spread_read_only(self) -> None:
         fake_mt5 = FakeMT5()

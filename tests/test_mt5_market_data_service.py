@@ -140,6 +140,42 @@ class ForexProvider:
         }
 
 
+class BatchForexProvider(ForexProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.batch_requests: list[tuple[dict[str, str], int]] = []
+
+    def get_forex_batch(
+        self,
+        symbols_timeframes: dict[str, str],
+        count: int,
+    ) -> dict[str, dict[str, object]]:
+        self.batch_requests.append((dict(symbols_timeframes), count))
+        return {
+            symbol: {
+                "exists": True,
+                "selected": True,
+                "candles": self._batch_candles(symbol, count),
+                "microstructure": self.get_symbol_microstructure(symbol),
+            }
+            for symbol, timeframe in symbols_timeframes.items()
+        }
+
+    def _batch_candles(self, symbol: str, count: int) -> list[Candle]:
+        base = 1.0 + (len(symbol) * 0.01)
+        return [
+            Candle(
+                data=f"2026-06-29T{index % 24:02d}:00:00+00:00",
+                abertura=base + (index * 0.0001),
+                maxima=base + (index * 0.0001) + 0.0004,
+                minima=base + (index * 0.0001) - 0.0004,
+                fechamento=base + (index * 0.0001),
+                volume=1000 + index,
+            )
+            for index in range(count)
+        ]
+
+
 class DynamicForexProvider(ForexProvider):
     def __init__(self) -> None:
         super().__init__()
@@ -561,6 +597,23 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         self.assertTrue(ok_rows)
         self.assertTrue(provider.requests)
         self.assertTrue(all(request[2] == 1000 for request in provider.requests))
+
+    def test_forex_timeframes_usa_batch_por_padrao(self) -> None:
+        provider = BatchForexProvider()
+        service = MT5MarketDataService(provider=provider, event_bus=EventBus())
+
+        data = service.load_forex_signal_dashboard_for_timeframes(
+            {"EURUSD": "M1", "GBPUSD": "H1"},
+            fallback_timeframe="M1",
+        )
+
+        self.assertEqual(data.connection_status, "CONNECTED")
+        self.assertEqual(len(provider.batch_requests), 1)
+        self.assertEqual(provider.requests, [])
+        requested_symbols, requested_count = provider.batch_requests[0]
+        self.assertEqual(requested_count, 1000)
+        self.assertIn("EURUSD", requested_symbols)
+        self.assertIn("USDCAD", requested_symbols)
 
     def test_refresh_id_incrementa_em_safe_mode(self) -> None:
         provider = ForexProvider()
