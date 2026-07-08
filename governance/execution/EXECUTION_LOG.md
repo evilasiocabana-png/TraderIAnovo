@@ -264,4 +264,4 @@
 - Resultado: `core/runtime_guard/` e `application/runtime_guard_service.py` implementados; dashboard passou a consumir a fachada para protecoes leves.
 - Guardrail: nenhuma decisao operacional alterada; nenhuma ordem aberta; nenhum SL/TP movido; Lab pesado nao foi colocado em ciclo automatico.
 - Validacao: `tests.test_runtime_guard_service` OK com 14 testes; `run_critical_ci.py` OK com 91 testes; `architecture_audit.py` OK; `architecture_health.py` BOM.
-- Commit: pending
+- Commit: a8dc0ec

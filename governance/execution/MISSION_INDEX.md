@@ -41,7 +41,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-032_IMPLEMENTAR_POSITION_MANAGER_STOP_MOVEL_REAL | Implementar Position Manager stop movel real | completed | 2026-07-08 | 2026-07-08 | N/D | main | 1ccc1a2 | Codex |
 | MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER | Dynamic Exit automatic policies via Position Manager | completed | 2026-07-08 | 2026-07-08 | N/D | main | dc8d752 | Codex |
 | MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA | Validar Position Manager em conta demo controlada | completed | 2026-07-08 | 2026-07-08 | N/D | main | 77a3f77 | Codex |
-| MISSION_TIA-034_RUNTIME_GUARD_INFRASTRUCTURE_EXTRACTION | Runtime Guard infrastructure extraction | completed | 2026-07-08 | 2026-07-08 | N/D | main | pending | Codex |
+| MISSION_TIA-034_RUNTIME_GUARD_INFRASTRUCTURE_EXTRACTION | Runtime Guard infrastructure extraction | completed | 2026-07-08 | 2026-07-08 | N/D | main | a8dc0ec | Codex |
 
 ## Regras
 

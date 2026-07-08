@@ -6,7 +6,7 @@
   "current_mission": null,
   "last_completed_mission": "MISSION_TIA-034_RUNTIME_GUARD_INFRASTRUCTURE_EXTRACTION",
   "last_failed_mission": null,
-  "last_commit": "pending",
+  "last_commit": "a8dc0ec",
   "last_branch": "main",
   "last_responsible": "Codex",
   "last_status": "completed",

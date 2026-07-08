@@ -16,6 +16,12 @@ Status:
 completed
 ```
 
+Commits:
+
+```text
+a8dc0ec
+```
+
 ## O Que Foi Executado
 
 Foi implementada a primeira camada real de infraestrutura do Runtime Guard.

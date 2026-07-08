@@ -6,7 +6,9 @@
   "latest_inbox_mission": {
     "id": "MISSION_TIA-034_RUNTIME_GUARD_INFRASTRUCTURE_EXTRACTION",
     "status": "completed",
-    "commits": [],
+    "commits": [
+      "a8dc0ec"
+    ],
     "execution_report": "codex/completed/MISSION_TIA-034_RUNTIME_GUARD_INFRASTRUCTURE_EXTRACTION/EXECUTION_REPORT.md",
     "primary_docs": [
       "docs/architecture/RUNTIME_GUARD_IMPLEMENTATION.md",
