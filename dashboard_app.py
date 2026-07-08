@@ -1277,6 +1277,7 @@ def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None
     )
 
     rows = list(getattr(report, "rows", []) or [])
+    st.info(_mt5_position_manager_status_message(rows))
     if not rows:
         st.info("Nenhuma negociacao aceita pelo TraderIA foi encontrada para auditar.")
         return
@@ -1334,6 +1335,33 @@ def _is_mt5_open_operation(row: object) -> bool:
         "ABERTA",
         "ORDEM_ABERTA",
     }
+
+
+def _mt5_position_manager_status_message(rows: list[object]) -> str:
+    """Resume o estado do Position Manager sem acionar leitura pesada."""
+    open_rows = [row for row in rows if _is_mt5_open_operation(row)]
+    if not open_rows:
+        return (
+            "Position Manager: sem posicao aberta para acompanhar | "
+            "Saida atual: N/D"
+        )
+
+    active_rows = [
+        row
+        for row in open_rows
+        if str(getattr(row, "dynamic_exit_policy", "N/D") or "N/D").upper()
+        not in {"N/D", "NONE", ""}
+    ]
+    selected = active_rows[0] if active_rows else open_rows[0]
+    policy = str(getattr(selected, "dynamic_exit_policy", "N/D") or "N/D")
+    action = str(getattr(selected, "dynamic_exit_action", "N/D") or "N/D")
+    mode = _mt5_trade_audit_stop_mode_label(selected)
+    candidate = _optional_price(getattr(selected, "dynamic_exit_candidate_stop", None))
+    return (
+        "Position Manager: ATIVO monitorando "
+        f"{len(open_rows)} posicao(oes) | Modo: {mode} | "
+        f"Saida atual: {policy} / {action} | Stop candidato: {candidate}"
+    )
 
 
 def _mt5_open_profit_summary(rows: list[object]) -> dict[str, str]:
@@ -1583,25 +1611,14 @@ def _mt5_trade_audit_row(
         "Execucao saida permitida": "SIM"
         if bool(getattr(row, "dynamic_exit_allowed_to_execute_demo", False))
         else "NAO",
-        "Simulacao stop": "APROVADO"
-        if bool(getattr(row, "dynamic_exit_simulation_allowed", False))
-        else "REJEITADO",
-        "Stop aprovado simulado": _optional_price(
-            getattr(row, "dynamic_exit_simulation_approved_stop", None)
-        ),
-        "Motivo simulacao": " | ".join(
-            getattr(row, "dynamic_exit_simulation_rejection_reasons", ()) or ()
-        )
-        or "N/D",
-        "SL assistido demo": getattr(
-            row,
-            "dynamic_exit_demo_sl_assisted_gate",
-            "REJEITADO",
-        ),
-        "Mensagem SL assistido": getattr(
-            row,
-            "dynamic_exit_demo_sl_assisted_message",
-            "Modo assistido desligado.",
+        "Motor stop ativo": _mt5_trade_audit_stop_engine_label(row),
+        "Modo gestao stop": _mt5_trade_audit_stop_mode_label(row),
+        "Stop movel monitorado": "SIM"
+        if _mt5_trade_audit_has_active_position(row)
+        else "NAO",
+        "Mensagem gestao stop": _mt5_trade_audit_stop_message(row),
+        "Stop candidato ativo": _optional_price(
+            getattr(row, "dynamic_exit_candidate_stop", None)
         ),
         "Sessao Forex": getattr(row, "forex_session", "N/D"),
         "Filtro sessao": "LIGADO"
@@ -1639,6 +1656,50 @@ def _mt5_trade_audit_row(
         "Versao estrategia": getattr(row, "strategy_definition_version", "N/D"),
         "Mensagem": str(getattr(row, "audit_message", "N/D")),
     }
+
+
+def _mt5_trade_audit_has_active_position(row: object) -> bool:
+    """Indica se a linha representa uma posicao aberta acompanhavel."""
+    final_result = str(getattr(row, "dynamic_exit_final_result", "") or "").upper()
+    operation_status = str(getattr(row, "operation_status", "") or "").upper()
+    mt5_found = bool(getattr(row, "mt5_found", False))
+    return (
+        final_result == "POSICAO_ABERTA"
+        or operation_status in {"ABERTA", "OPEN", "POSICAO_ABERTA"}
+        or (mt5_found and str(getattr(row, "mt5_ticket", "") or ""))
+    )
+
+
+def _mt5_trade_audit_stop_engine_label(row: object) -> str:
+    """Mostra somente o motor vigente de gestao de stop."""
+    if not _mt5_trade_audit_has_active_position(row):
+        return "INATIVO"
+    policy = str(getattr(row, "dynamic_exit_policy", "") or "").upper()
+    if policy and policy not in {"N/D", "NONE", "FIXED_STOP"}:
+        return "POSITION_MANAGER"
+    return "STOP_INICIAL"
+
+
+def _mt5_trade_audit_stop_mode_label(row: object) -> str:
+    """Resume o modo operacional sem expor fluxos legados desativados."""
+    if not _mt5_trade_audit_has_active_position(row):
+        return "SEM_POSICAO"
+    if bool(getattr(row, "dynamic_exit_allowed_to_execute_demo", False)):
+        return "DEMO_AUTORIZADO"
+    if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
+        return "READ_ONLY_CANDIDATO"
+    return "READ_ONLY"
+
+
+def _mt5_trade_audit_stop_message(row: object) -> str:
+    """Mensagem curta e fiel ao estado ativo do Position Manager."""
+    if not _mt5_trade_audit_has_active_position(row):
+        return "Sem posicao aberta para acompanhar."
+    if bool(getattr(row, "dynamic_exit_allowed_to_execute_demo", False)):
+        return "Position Manager pode mover somente SL mais protetivo em Demo."
+    if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
+        return "Stop candidato calculado; execucao demo nao autorizada neste registro."
+    return "Position Manager acompanha sem alterar SL neste registro."
 
 
 def _mt5_signal_metrics_for_row(

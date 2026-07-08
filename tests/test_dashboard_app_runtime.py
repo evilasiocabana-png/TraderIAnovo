@@ -413,10 +413,55 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(view_row["Acao saida executada"], "NONE")
         self.assertEqual(view_row["Resultado saida"], "POSICAO_ABERTA")
         self.assertEqual(view_row["Execucao saida permitida"], "NAO")
+        self.assertEqual(view_row["Motor stop ativo"], "POSITION_MANAGER")
+        self.assertEqual(view_row["Modo gestao stop"], "READ_ONLY_CANDIDATO")
+        self.assertEqual(view_row["Stop movel monitorado"], "SIM")
+        self.assertEqual(
+            view_row["Mensagem gestao stop"],
+            "Stop candidato calculado; execucao demo nao autorizada neste registro.",
+        )
+        self.assertEqual(view_row["Stop candidato ativo"], "1.12200")
+        self.assertNotIn("Simulacao stop", view_row)
+        self.assertNotIn("Stop aprovado simulado", view_row)
+        self.assertNotIn("Motivo simulacao", view_row)
+        self.assertNotIn("SL assistido demo", view_row)
+        self.assertNotIn("Mensagem SL assistido", view_row)
         self.assertEqual(view_row["Versao politica sessao"], "v2.1")
         self.assertEqual(view_row["Versao pipeline execucao"], "v3.4")
         self.assertEqual(view_row["Versao config Lab"], "v8")
         self.assertEqual(view_row["Versao Trade Plan"], "TP v5")
+
+    def test_relatorio_resume_position_manager_abaixo_do_historico_mt5(self) -> None:
+        rows = [
+            SimpleNamespace(
+                operation_status="ABERTA",
+                dynamic_exit_policy="ATR_TRAILING_STOP",
+                dynamic_exit_action="TRAIL_BY_ATR",
+                dynamic_exit_candidate_stop=1.122,
+                dynamic_exit_allowed_to_execute_demo=False,
+                dynamic_exit_final_result="POSICAO_ABERTA",
+            )
+        ]
+
+        message = dashboard_app._mt5_position_manager_status_message(rows)
+
+        self.assertEqual(
+            message,
+            (
+                "Position Manager: ATIVO monitorando 1 posicao(oes) | "
+                "Modo: READ_ONLY_CANDIDATO | "
+                "Saida atual: ATR_TRAILING_STOP / TRAIL_BY_ATR | "
+                "Stop candidato: 1.12200"
+            ),
+        )
+
+    def test_relatorio_position_manager_informa_sem_posicao(self) -> None:
+        message = dashboard_app._mt5_position_manager_status_message([])
+
+        self.assertEqual(
+            message,
+            "Position Manager: sem posicao aberta para acompanhar | Saida atual: N/D",
+        )
 
     def test_auditoria_mt5_exibe_pontuacao_e_confianca_lab_por_par(self) -> None:
         row = SimpleNamespace(
