@@ -26,6 +26,7 @@ MT5_DEMO_ROBOT_ONLINE_KEY = "mt5_demo_robot_online_enabled"
 MT5_DEMO_ROBOT_LAST_CYCLE_KEY = "mt5_demo_robot_last_cycle_at"
 MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY = "mt5_demo_robot_last_cycle_monotonic"
 MT5_DEMO_ROBOT_MESSAGE_KEY = "mt5_demo_robot_runtime_message"
+MT5_DEMO_ROBOT_LAST_VISIBLE_SNAPSHOT_KEY = "mt5_demo_robot_last_visible_snapshot"
 UI_LAST_CRITICAL_INTERACTION_KEY = "ui_last_critical_interaction_at"
 MT5_FOREX_INITIAL_LOAD_ERROR_KEY = "mt5_forex_initial_load_error"
 MT5_FOREX_LAST_AUTO_LOAD_KEY = "mt5_forex_last_auto_load_at"
@@ -1725,6 +1726,7 @@ def _exibir_robo_demo_mt5(
         service.disarm_demo_robot(pair=selected_pair, timeframe=timeframe)
         st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
         st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = 0.0
+        st.session_state.pop(MT5_DEMO_ROBOT_LAST_VISIBLE_SNAPSHOT_KEY, None)
         data = service.get_dashboard_view_model()
     controls[5].caption(
         "Para operar em demo: conta MT5 DEMO, env habilitado, plano Research "
@@ -1757,6 +1759,7 @@ def _exibir_robo_demo_mt5(
     if robot is None:
         st.info("Robo demo indisponivel no contrato do dashboard.")
         return data
+    robot = _stable_demo_robot_snapshot(robot)
     robot_status = getattr(robot, "status", "DISARMED")
     robot_message = getattr(robot, "message", "Robo demo desarmado.")
     robot_result_status = getattr(robot, "result_status", "DISARMED")
@@ -1887,14 +1890,43 @@ def _demo_robot_status_dot_html(online_enabled: bool) -> str:
     )
 
 
+def _demo_robot_has_visible_plan(robot: object) -> bool:
+    if robot is None:
+        return False
+    selected_pair = str(getattr(robot, "selected_pair", "") or "").upper()
+    status = str(getattr(robot, "status", "") or "").upper()
+    result_status = str(getattr(robot, "result_status", "") or "").upper()
+    display_entry, display_stop, display_target = _demo_robot_trade_prices(robot)
+    has_pair = selected_pair not in {"", "N/D", "NONE"}
+    has_prices = all(value is not None for value in (display_entry, display_stop, display_target))
+    visible_statuses = {
+        "ACCEPTED",
+        "EXECUTED",
+        "REJECTED",
+        "PLANO_VALIDO",
+        "AGUARDANDO_PLANO",
+        "ARMED_WAITING",
+        "SEM_GATILHO_VALIDO",
+        "NO_SIGNAL",
+    }
+    return (has_pair and has_prices) or status in visible_statuses or result_status in visible_statuses
+
+
+def _stable_demo_robot_snapshot(robot: object) -> object:
+    if _demo_robot_has_visible_plan(robot):
+        st.session_state[MT5_DEMO_ROBOT_LAST_VISIBLE_SNAPSHOT_KEY] = robot
+        return robot
+    previous = st.session_state.get(MT5_DEMO_ROBOT_LAST_VISIBLE_SNAPSHOT_KEY)
+    if previous is not None and _demo_robot_has_visible_plan(previous):
+        return previous
+    return robot
+
+
 def _demo_robot_online_status(data: object) -> bool:
-    """Evita ponto verde stale quando o backend nao confirma robo armado."""
+    """Mantem estado visual estavel; somente acoes explicitas limpam o online."""
     session_online = bool(st.session_state.get(MT5_DEMO_ROBOT_ONLINE_KEY, False))
     backend_online = _demo_robot_online_allowed(getattr(data, "demo_robot", None))
-    online = session_online and backend_online
-    if session_online and not backend_online:
-        st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
-    return online
+    return session_online or backend_online
 
 
 def _arm_all_demo_robot_from_reports(service: DashboardService, data: object) -> object:
@@ -1931,11 +1963,11 @@ def _run_demo_robot_online_cycle_if_due(
 
     current_robot = service.get_demo_robot_status()
     if not _demo_robot_online_allowed(current_robot):
-        st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
         st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY] = (
-            "Monitoramento online desligado: backend nao confirma robo armado."
+            "Monitoramento online aguardando confirmacao do backend; "
+            "ultimo estado valido mantido na tela."
         )
-        return service.get_dashboard_view_model(), False
+        return data, True
 
     _record_runtime_event("DEMO_ROBOT_ONLINE_CYCLE_STARTED")
     st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = now
@@ -1946,12 +1978,19 @@ def _run_demo_robot_online_cycle_if_due(
     st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_KEY] = time.strftime("%H:%M:%S")
     _record_runtime_event("DEMO_ROBOT_ONLINE_CYCLE_COMPLETED")
     if not _demo_robot_online_allowed(cycle_robot):
-        st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
         st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY] = (
-            "Monitoramento online bloqueado pelo backend: "
+            "Monitoramento online aguardando proximo ciclo: "
             f"{getattr(cycle_robot, 'message', 'motivo indisponivel')}"
         )
-        return service.get_dashboard_view_model(), False
+        refreshed_data = service.get_dashboard_view_model()
+        refreshed_robot = _stable_demo_robot_snapshot(
+            getattr(refreshed_data, "demo_robot", cycle_robot)
+        )
+        try:
+            refreshed_data = replace(refreshed_data, demo_robot=refreshed_robot)
+        except TypeError:
+            pass
+        return refreshed_data, True
     return service.get_dashboard_view_model(), True
 
 

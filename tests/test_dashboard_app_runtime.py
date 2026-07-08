@@ -862,7 +862,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertIn("#DC2626", offline_dot)
         self.assertIn("Robo demo desligado", offline_dot)
 
-    def test_relatorios_apaga_ponto_verde_stale_quando_backend_desarma(self) -> None:
+    def test_robo_demo_nao_apaga_online_por_leitura_backend_transitoria(self) -> None:
         class FakeSessionState(dict):
             pass
 
@@ -879,12 +879,44 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 )
             )
 
-            self.assertFalse(dashboard_app._demo_robot_online_status(data))
-            self.assertFalse(
+            self.assertTrue(dashboard_app._demo_robot_online_status(data))
+            self.assertTrue(
                 dashboard_app.st.session_state[
                     dashboard_app.MT5_DEMO_ROBOT_ONLINE_KEY
                 ]
             )
+        finally:
+            dashboard_app.st.session_state = previous_session_state
+
+    def test_robo_demo_snapshot_estavel_usa_ultimo_plano_visivel(self) -> None:
+        class FakeSessionState(dict):
+            pass
+
+        previous_session_state = dashboard_app.st.session_state
+        valid = SimpleNamespace(
+            status="EXECUTED",
+            result_status="ACCEPTED",
+            selected_pair="USDCAD",
+            entry_price=1.42076,
+            stop=1.41934,
+            target=1.42360,
+        )
+        empty = SimpleNamespace(
+            status="DISARMED",
+            result_status="DISARMED",
+            selected_pair="N/D",
+            entry_price=None,
+            stop=None,
+            target=None,
+        )
+        try:
+            dashboard_app.st.session_state = FakeSessionState()
+
+            first = dashboard_app._stable_demo_robot_snapshot(valid)
+            second = dashboard_app._stable_demo_robot_snapshot(empty)
+
+            self.assertIs(first, valid)
+            self.assertIs(second, valid)
         finally:
             dashboard_app.st.session_state = previous_session_state
 
