@@ -2495,19 +2495,18 @@ def _render_stable_readonly_table(
     model_column: str = "Modelo",
     decision_column: str = "Decisao",
     highlight_active_indicators: bool = False,
+    empty_columns: list[str] | None = None,
+    empty_message: str = "Nenhum registro disponivel.",
 ) -> None:
     """Renderiza tabela HTML estavel para regioes com auto-refresh."""
-    if not rows:
-        st.info("Nenhum registro disponivel.")
-        return
-
-    columns = list(rows[0].keys())
+    columns = list(rows[0].keys()) if rows else list(empty_columns or ["Status"])
     header = "".join(
         f"<th>{_html_escape(column)}</th>"
         for column in columns
     )
     body = []
-    for row in rows:
+    display_rows = rows or [{columns[0]: empty_message}]
+    for row in display_rows:
         decision = _normalize_forex_decision(
             row.get(decision_column, row.get("Decisao", row.get("Direcao", "WAIT")))
         )
@@ -4596,10 +4595,6 @@ def exibir_mt5_setup_suggestions(service: DashboardService) -> None:
         "sugestao encontrada por par, sem autorizar operacao real."
     )
     if not suggestions:
-        st.info(
-            "Nenhuma sugestao disponivel. Execute Pesquisa para carregar "
-            "o snapshot historico antes de escolher setup."
-        )
         suggestions = []
         summary = {
             "total": 0,
@@ -4618,20 +4613,12 @@ def exibir_mt5_setup_suggestions(service: DashboardService) -> None:
         ]
     )
 
-    if suggestions and summary["approved"] == 0:
-        st.warning(
-            "O snapshot atual ainda nao tem setup com 70% de Confirmacao Historica. "
-            "A tabela mostra os mais proximos; rode Executar Pesquisa para "
-            "recalcular com a biblioteca de Alphas atual."
-        )
-    elif suggestions:
-        st.success(
-            "Existe setup que atingiu o alvo de 70% de Confirmacao Historica."
-        )
-
+    st.caption(_mt5_setup_suggestions_status_message(suggestions, summary))
     st.markdown("#### Setups sugeridos")
     _render_stable_readonly_table(
-        [_mt5_setup_suggestion_compact_row(item) for item in suggestions]
+        [_mt5_setup_suggestion_compact_row(item) for item in suggestions],
+        empty_columns=list(_mt5_setup_suggestion_empty_row().keys()),
+        empty_message="Nenhuma sugestao carregada.",
     )
 
     if st.checkbox(
@@ -4640,7 +4627,9 @@ def exibir_mt5_setup_suggestions(service: DashboardService) -> None:
         key="mt5_lab_show_full_setup_details",
     ):
         _render_stable_readonly_table(
-            [_mt5_setup_suggestion_row(item) for item in suggestions]
+            [_mt5_setup_suggestion_row(item) for item in suggestions],
+            empty_columns=list(_mt5_setup_suggestion_detail_empty_row().keys()),
+            empty_message="Nenhum detalhe carregado.",
         )
 
 
@@ -4671,6 +4660,35 @@ def _mt5_setup_suggestions_summary(
         ),
         "best_confidence": float(getattr(best, "lab_confidence", 0.0) or 0.0),
         "best_pair": getattr(best, "pair", "N/D"),
+    }
+
+
+def _mt5_setup_suggestions_status_message(
+    suggestions: list[object],
+    summary: dict[str, object],
+) -> str:
+    if not suggestions:
+        return (
+            "Status Lab: aguardando snapshot de sugestoes. Execute Pesquisa para "
+            "carregar o historico antes de escolher setup."
+        )
+    approved = int(summary.get("approved", 0) or 0)
+    if approved > 0:
+        return "Status Lab: sugestoes ativas carregadas pelo snapshot do Research Lab."
+    return "Status Lab: sugestoes carregadas, ainda sem confirmacao historica de 70%."
+
+
+def _mt5_setup_suggestion_empty_row() -> dict[str, object]:
+    return {
+        "Alpha": "N/D",
+        "Par": "N/D",
+        "TF": "N/D",
+        "Direcao": "WAIT",
+        "Setup": "N/D",
+        "Resumo parametros": "N/D",
+        "Encaixe Tecnico": "N/D",
+        "Confirmacao Historica": "N/D",
+        "Status": "AGUARDANDO_SNAPSHOT",
     }
 
 
@@ -4715,6 +4733,23 @@ def _setup_status_label(status: object) -> str:
     if normalized == "MAIS_PROXIMO_DE_70":
         return "MAIS_PROXIMO"
     return normalized
+
+
+def _mt5_setup_suggestion_detail_empty_row() -> dict[str, object]:
+    return {
+        "Alpha": "N/D",
+        "Par": "N/D",
+        "Timeframe": "N/D",
+        "Setup sugerido": "N/D",
+        "Direcao": "WAIT",
+        "Parametros": "N/D",
+        "Encaixe Tecnico": "N/D",
+        "Confirmacao Historica": "N/D",
+        "Alvo de confirmacao": _optional_percent(MT5_LAB_TARGET_CONFIDENCE),
+        "Status": "AGUARDANDO_SNAPSHOT",
+        "Fonte": "N/D",
+        "Motivo": "N/D",
+    }
 
 
 def _mt5_setup_suggestion_row(suggestion: object) -> dict[str, object]:

@@ -463,6 +463,33 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "Position Manager: sem posicao aberta para acompanhar | Saida atual: N/D",
         )
 
+    def test_sugestoes_lab_vazio_mantem_status_estavel(self) -> None:
+        message = dashboard_app._mt5_setup_suggestions_status_message(
+            [],
+            {
+                "total": 0,
+                "approved": 0,
+                "best_confidence": 0.0,
+                "best_pair": "N/D",
+            },
+        )
+
+        self.assertIn("Status Lab: aguardando snapshot", message)
+        self.assertEqual(
+            list(dashboard_app._mt5_setup_suggestion_empty_row()),
+            [
+                "Alpha",
+                "Par",
+                "TF",
+                "Direcao",
+                "Setup",
+                "Resumo parametros",
+                "Encaixe Tecnico",
+                "Confirmacao Historica",
+                "Status",
+            ],
+        )
+
     def test_auditoria_mt5_exibe_pontuacao_e_confianca_lab_por_par(self) -> None:
         row = SimpleNamespace(
             audit_status="CONFERE",
