@@ -1218,14 +1218,13 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         original_st = dashboard_app.st
         original_render_diagnostic = dashboard_app._exibir_mt5_connection_diagnostic
         fake_st = self._fake_streamlit(button_clicked=True)
+        light_view_calls = []
         service = SimpleNamespace(
             test_mt5_connection=lambda symbol, timeframe: SimpleNamespace(
                 connection_status="ONLINE",
                 steps=[],
             ),
-            get_light_dashboard_view_model=lambda: SimpleNamespace(
-                mt5_forex_signals=SimpleNamespace()
-            ),
+            get_light_dashboard_view_model=lambda: light_view_calls.append(True),
         )
         forex = SimpleNamespace(
             pairs=[SimpleNamespace(pair="EURUSD")],
@@ -1247,6 +1246,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             dashboard_app.MT5_FOREX_AUTO_CYCLE_UI_KEY,
             fake_st.session_state,
         )
+        self.assertEqual(light_view_calls, [])
         self.assertIn(
             "Nenhum ciclo automatico foi iniciado",
             fake_st.session_state[

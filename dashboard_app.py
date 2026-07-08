@@ -2206,7 +2206,6 @@ def _exibir_mt5_manual_diagnostic_controls(
                         timeframe=timeframe,
                     )
                     st.session_state[MT5_FOREX_MANUAL_DIAGNOSTIC_KEY] = diagnostic
-                    data = service.get_light_dashboard_view_model()
                     _record_runtime_event("MT5_DIAGNOSTIC_ONLY_COMPLETED")
                     _record_runtime_event("MT5_DIAGNOSTIC_DID_NOT_START_CYCLE")
                 st.session_state[MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY] = (
