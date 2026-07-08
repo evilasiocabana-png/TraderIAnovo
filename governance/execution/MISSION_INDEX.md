@@ -38,7 +38,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-029_FIX_UX_REFRESH_ESTAVEL_MT5_SEM_RELOAD_TOTAL | Corrigir UX refresh MT5 sem reload total | completed | 2026-07-07 | 2026-07-07 | N/D | main | 7840656 | Codex |
 | MISSION_TIA-030_RUNTIME_GUARD_EVOLUTION_REPORT | Runtime Guard evolution report | completed | 2026-07-07 | 2026-07-07 | N/D | main | 474d6e4 | Codex |
 | MISSION_TIA-031_AUDIT_SAFE_MODE_E_STOP_MOVEL | Auditar Safe Mode MT5 e stop movel | completed | 2026-07-07 | 2026-07-07 | N/D | main | db9c348 | Codex |
-| MISSION_TIA-032_IMPLEMENTAR_POSITION_MANAGER_STOP_MOVEL_REAL | Implementar Position Manager stop movel real | completed | 2026-07-08 | 2026-07-08 | N/D | main | b8426e4 | Codex |
+| MISSION_TIA-032_IMPLEMENTAR_POSITION_MANAGER_STOP_MOVEL_REAL | Implementar Position Manager stop movel real | completed | 2026-07-08 | 2026-07-08 | N/D | main | 1ccc1a2 | Codex |
 
 ## Regras
 
