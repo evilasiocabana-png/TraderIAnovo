@@ -1028,6 +1028,27 @@ class DashboardService:
                         model=str(getattr(selected, "model", "WAIT_NO_EDGE")),
                         decision=str(getattr(selected, "decision", "WAIT")),
                         parameters=dict(getattr(selected, "parameters", {}) or {}),
+                        exit_model=str(
+                            getattr(
+                                selected,
+                                "exit_model",
+                                (getattr(selected, "parameters", {}) or {}).get(
+                                    "exit_model",
+                                    "SCENARIO_EXIT_RESEARCH_SELECTION",
+                                ),
+                            )
+                            or "SCENARIO_EXIT_RESEARCH_SELECTION"
+                        ),
+                        stop_management=str(
+                            (getattr(selected, "parameters", {}) or {}).get(
+                                "stop_management",
+                                getattr(selected, "stop_management", "FIXED_STOP"),
+                            )
+                            or "FIXED_STOP"
+                        ),
+                        stop_management_reason=(
+                            "Saida escolhida pelo Lab no cenario vencedor."
+                        ),
                         score=float(getattr(selected, "score", 0.0) or 0.0),
                         lab_confidence=float(
                             getattr(selected, "lab_confidence", 0.0) or 0.0
@@ -1075,6 +1096,18 @@ class DashboardService:
                     ),
                     decision=str(getattr(row, "decision", "WAIT")),
                     parameters=configuration,
+                    exit_model=str(
+                        configuration.get(
+                            "exit_model",
+                            "SCENARIO_EXIT_RESEARCH_SELECTION",
+                        )
+                    ),
+                    stop_management=str(
+                        configuration.get("stop_management", "FIXED_STOP")
+                    ),
+                    stop_management_reason=(
+                        "Saida escolhida pelo Lab no snapshot leve."
+                    ),
                     score=float(getattr(row, "score", 0.0) or 0.0),
                     lab_confidence=float(getattr(row, "confidence", 0.0) or 0.0),
                     target_confidence=float(target_confidence),

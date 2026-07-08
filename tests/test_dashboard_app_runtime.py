@@ -483,6 +483,8 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 "TF",
                 "Direcao",
                 "Setup",
+                "Saida dinamica",
+                "Modelo saida",
                 "Resumo parametros",
                 "Encaixe Tecnico",
                 "Confirmacao Historica",
@@ -1257,6 +1259,8 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                     "atr_stop_factor": "2.0",
                     "rr": "2.5",
                 },
+                exit_model="SCENARIO_EXIT_RESEARCH_SELECTION",
+                stop_management="ATR_TRAILING_STOP",
                 score=0.82,
                 lab_confidence=0.70,
                 status="SUGERIDO_70",
@@ -1268,6 +1272,8 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "EMA 20x50 | RSI 35.0/65.0 | ATR 2.0 | RR 2.5",
         )
         self.assertEqual(row["Status"], "ATINGIU_70")
+        self.assertEqual(row["Saida dinamica"], "ATR_TRAILING_STOP")
+        self.assertEqual(row["Modelo saida"], "SCENARIO_EXIT_RESEARCH_SELECTION")
 
     def test_lab_research_report_resume_status_da_alpha(self) -> None:
         row = dashboard_app._mt5_alpha_research_report_row(

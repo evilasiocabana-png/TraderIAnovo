@@ -499,6 +499,9 @@ class DashboardMT5SetupSuggestionViewModel:
     model: str = "WAIT_NO_EDGE"
     decision: str = "WAIT"
     parameters: dict[str, str] = field(default_factory=dict)
+    exit_model: str = "NONE"
+    stop_management: str = "FIXED_STOP"
+    stop_management_reason: str = "Saida nao informada pelo snapshot."
     score: float = 0.0
     lab_confidence: float = 0.0
     target_confidence: float = 0.70

@@ -4685,6 +4685,8 @@ def _mt5_setup_suggestion_empty_row() -> dict[str, object]:
         "TF": "N/D",
         "Direcao": "WAIT",
         "Setup": "N/D",
+        "Saida dinamica": "N/D",
+        "Modelo saida": "N/D",
         "Resumo parametros": "N/D",
         "Encaixe Tecnico": "N/D",
         "Confirmacao Historica": "N/D",
@@ -4699,6 +4701,8 @@ def _mt5_setup_suggestion_compact_row(suggestion: object) -> dict[str, object]:
         "TF": getattr(suggestion, "timeframe", "M1"),
         "Direcao": getattr(suggestion, "decision", "WAIT"),
         "Setup": getattr(suggestion, "model", "WAIT_NO_EDGE"),
+        "Saida dinamica": getattr(suggestion, "stop_management", "FIXED_STOP"),
+        "Modelo saida": getattr(suggestion, "exit_model", "NONE"),
         "Resumo parametros": _setup_parameters_summary(
             getattr(suggestion, "parameters", {}) or {}
         ),
@@ -4742,6 +4746,8 @@ def _mt5_setup_suggestion_detail_empty_row() -> dict[str, object]:
         "Timeframe": "N/D",
         "Setup sugerido": "N/D",
         "Direcao": "WAIT",
+        "Saida dinamica": "N/D",
+        "Modelo saida": "N/D",
         "Parametros": "N/D",
         "Encaixe Tecnico": "N/D",
         "Confirmacao Historica": "N/D",
@@ -4759,6 +4765,8 @@ def _mt5_setup_suggestion_row(suggestion: object) -> dict[str, object]:
         "Timeframe": getattr(suggestion, "timeframe", "M1"),
         "Setup sugerido": getattr(suggestion, "model", "WAIT_NO_EDGE"),
         "Direcao": getattr(suggestion, "decision", "WAIT"),
+        "Saida dinamica": getattr(suggestion, "stop_management", "FIXED_STOP"),
+        "Modelo saida": getattr(suggestion, "exit_model", "NONE"),
         "Parametros": _scenario_parameters_label(
             getattr(suggestion, "parameters", {}) or {}
         ),
@@ -4771,6 +4779,11 @@ def _mt5_setup_suggestion_row(suggestion: object) -> dict[str, object]:
         ),
         "Status": getattr(suggestion, "status", "SEM_SUGESTAO"),
         "Fonte": getattr(suggestion, "source", "MT5_RESEARCH_SNAPSHOT"),
+        "Motivo saida": getattr(
+            suggestion,
+            "stop_management_reason",
+            "Saida nao informada pelo snapshot.",
+        ),
         "Motivo": getattr(suggestion, "reason", "N/D"),
     }
 

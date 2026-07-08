@@ -884,7 +884,10 @@ class DashboardViewModelContractTest(unittest.TestCase):
                             pair="EURUSD",
                             timeframe="M1",
                             model="TREND_MOMENTUM",
-                            parameters={"rr": "2.0"},
+                            parameters={
+                                "rr": "2.0",
+                                "stop_management": "BREAK_EVEN",
+                            },
                             score=0.90,
                             lab_confidence=0.62,
                             status="APROVADO",
@@ -894,7 +897,10 @@ class DashboardViewModelContractTest(unittest.TestCase):
                             pair="EURUSD",
                             timeframe="H1",
                             model="MA_RSI_FILTER",
-                            parameters={"rr": "1.5"},
+                            parameters={
+                                "rr": "1.5",
+                                "stop_management": "ATR_TRAILING_STOP",
+                            },
                             score=0.80,
                             lab_confidence=0.70,
                             status="APROVADO",
@@ -911,6 +917,11 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertEqual(suggestions[0].model, "MA_RSI_FILTER")
         self.assertEqual(suggestions[0].lab_confidence, 0.70)
         self.assertEqual(suggestions[0].status, "SUGERIDO_70")
+        self.assertEqual(suggestions[0].stop_management, "ATR_TRAILING_STOP")
+        self.assertEqual(
+            suggestions[0].exit_model,
+            "SCENARIO_EXIT_RESEARCH_SELECTION",
+        )
 
     def test_sugestao_setup_lab_declara_quando_nao_atinge_70(self) -> None:
         class SuggestionDashboardService(DashboardService):
