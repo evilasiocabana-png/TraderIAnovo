@@ -35,7 +35,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-026_EXECUCAO_SIMULADA_SAIDA_DINAMICA_STOP_MANAGEMENT | Execucao simulada saida dinamica stop management | completed | 2026-07-07 | 2026-07-07 | N/D | main | 582bcb0 | Codex |
 | MISSION_TIA-027_EXECUCAO_ASSISTIDA_DEMO_MOVE_SL_SAIDA_DINAMICA | Execucao assistida demo move SL saida dinamica | completed | 2026-07-07 | 2026-07-07 | N/D | main | 4d0fa5e | Codex |
 | MISSION_TIA-028_REPARAR_CICLO_ROBO_DEMO_E_DIAGNOSTICO_MT5 | Reparar ciclo robo demo e diagnostico MT5 | completed | 2026-07-07 | 2026-07-07 | N/D | main | 20891a2 | Codex |
-| MISSION_TIA-029_FIX_UX_REFRESH_ESTAVEL_MT5_SEM_RELOAD_TOTAL | Corrigir UX refresh MT5 sem reload total | completed | 2026-07-07 | 2026-07-07 | N/D | main | PENDING | Codex |
+| MISSION_TIA-029_FIX_UX_REFRESH_ESTAVEL_MT5_SEM_RELOAD_TOTAL | Corrigir UX refresh MT5 sem reload total | completed | 2026-07-07 | 2026-07-07 | N/D | main | 7840656 | Codex |
 
 ## Regras
 

@@ -72,7 +72,7 @@ Reverter o commit desta missao restaura o comportamento anterior de refresh. O r
 
 ## Commit
 
-PENDING
+7840656
 
 ## Branch
 
@@ -80,7 +80,7 @@ main
 
 ## Push
 
-PENDING
+Concluido no push da branch main.
 
 ## Conclusao
 

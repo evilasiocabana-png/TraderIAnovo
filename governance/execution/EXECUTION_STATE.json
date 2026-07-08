@@ -6,7 +6,7 @@
     "current_mission":  null,
     "last_completed_mission":  "MISSION_TIA-029_FIX_UX_REFRESH_ESTAVEL_MT5_SEM_RELOAD_TOTAL",
     "last_failed_mission":  null,
-    "last_commit":  "PENDING",
+    "last_commit":  "7840656",
     "last_branch":  "main",
     "last_responsible":  "Codex",
     "last_status":  "completed",
