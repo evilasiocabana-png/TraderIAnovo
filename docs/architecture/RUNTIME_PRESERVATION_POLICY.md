@@ -191,6 +191,40 @@ O Relatorio deve:
 - nao recalcular Lab;
 - nao apagar operacoes em negociacao por oscilacao temporaria.
 
+## Politica Para Safe Mode E Stop Movel
+
+Safe Mode pode manter acompanhamento de mercado e posicao, desde que isso seja feito em leitura leve e sem recalcular o Lab pesado.
+
+O Safe Mode pode preservar e atualizar:
+
+- preco atual;
+- ultimo candle;
+- ATR e indicadores heuristicos disponiveis;
+- leitura de posicao aberta;
+- R atual;
+- recomendacao dinamica read-only;
+- auditoria visual e relatorio.
+
+O Safe Mode nao pode:
+
+- inventar plano operacional;
+- trocar alpha/setup/timeframe durante posicao aberta;
+- mover SL/TP sem gates do Provider Demo;
+- executar politica que dependa de dado ausente;
+- usar diagnostico MT5 como gatilho operacional;
+- limpar plano do Lab por leitura transitoria.
+
+Regra obrigatoria:
+
+```text
+Com posicao aberta + plano valido + dados minimos completos -> acompanhar.
+Com qualquer requisito ausente -> preservar estado, bloquear movimento de stop e alertar.
+```
+
+Para `ATR_TRAILING_STOP`, ATR ausente significa bloqueio seguro, nao erro fatal.
+Para `BREAK_EVEN`, entrada, stop atual, preco atual e gatilho RR sao obrigatorios.
+Para politicas dinamicas ainda read-only, a recomendacao pode aparecer, mas a execucao segue bloqueada ate autorizacao explicita.
+
 ## Politica Para Limpeza
 
 Antes de limpar, toda rotina deve classificar o recurso:
@@ -242,4 +276,3 @@ Rollback de Runtime Guard deve:
 - nao limpar posicoes;
 - nao alterar ordens;
 - nao alterar configuracoes persistentes sem aprovacao explicita.
-

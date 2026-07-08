@@ -4,18 +4,18 @@
   "branch": "main",
   "updated_at": "2026-07-07",
   "latest_inbox_mission": {
-    "id": "MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA",
+    "id": "MISSION_TIA-031_AUDIT_SAFE_MODE_E_STOP_MOVEL",
     "status": "completed",
     "commits": [
-      "619526c"
+      "PENDENTE_COMMIT_FINAL"
     ],
-    "execution_report": "codex/completed/MISSION_TIA-013_PAPER_SIMULATION_SAIDA_DINAMICA/EXECUTION_REPORT.md",
+    "execution_report": "codex/completed/MISSION_TIA-031_AUDIT_SAFE_MODE_E_STOP_MOVEL/EXECUTION_REPORT.md",
     "primary_docs": [
-      "docs/DYNAMIC_EXIT_PAPER_SIMULATION.md",
-      "governance/traceability/DYNAMIC_EXIT_PAPER_SIMULATION_TRACEABILITY.md",
-      "docs/GPT_SYNC_STATUS.md"
+      "docs/architecture/SAFE_MODE_STOP_MOVEL_AUDIT.md",
+      "docs/architecture/SAFE_MODE_POSITION_MANAGER_POLICY.md",
+      "docs/architecture/RUNTIME_PRESERVATION_POLICY.md"
     ],
-    "summary": "A missao criou simulacao paper read-only para registrar recomendacoes dinamicas e comparar com a politica original.",
-    "next_recommended_mission": "MISSION_TIA-014_AUTORIZAR_BREAK_EVEN_DINAMICO_DEMO"
+    "summary": "Auditoria documental concluiu que stop movel em Safe Mode depende de posicao aberta, plano valido salvo, dados minimos de mercado e gates seguros do Provider Demo.",
+    "next_recommended_mission": "MISSION_TIA-032_DESENHAR_MT5_POSITION_MANAGER_CENTRAL_AUDITAVEL"
   }
 }

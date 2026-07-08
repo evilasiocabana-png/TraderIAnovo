@@ -220,3 +220,12 @@
 - Resultado: criados `docs/architecture/RUNTIME_GUARD_EVOLUTION_REPORT.md`, `docs/architecture/RUNTIME_GUARD_TARGET_ARCHITECTURE.md` e `docs/architecture/RUNTIME_PRESERVATION_POLICY.md`.
 - Guardrail: nenhuma alteracao de codigo operacional; nenhuma ordem MT5 enviada; nenhum SL/TP movido; `.traderia` preservada.
 - Commit: 474d6e4
+
+# 2026-07-07 - MISSION_TIA-031_AUDIT_SAFE_MODE_E_STOP_MOVEL
+
+- Status: completed
+- Acao: produzida auditoria documental de Safe Mode MT5 e stop movel.
+- Resultado: criados `docs/architecture/SAFE_MODE_STOP_MOVEL_AUDIT.md` e `docs/architecture/SAFE_MODE_POSITION_MANAGER_POLICY.md`; atualizada `docs/architecture/RUNTIME_PRESERVATION_POLICY.md`.
+- Conclusao: stop movel em Safe Mode e permitido apenas quando ha posicao aberta, plano valido salvo, dados minimos e gates seguros.
+- Guardrail: nenhuma alteracao de codigo operacional; nenhuma ordem MT5 enviada; nenhum SL/TP movido; `.traderia` preservada.
+- Commit: PENDENTE_COMMIT_FINAL
