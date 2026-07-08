@@ -6,7 +6,7 @@
     "current_mission":  null,
     "last_completed_mission":  "MISSION_TIA-032_IMPLEMENTAR_POSITION_MANAGER_STOP_MOVEL_REAL",
     "last_failed_mission":  null,
-    "last_commit":  "PENDENTE_COMMIT_FINAL",
+    "last_commit":  "b8426e4",
     "last_branch":  "main",
     "last_responsible":  "Codex",
     "last_status":  "completed",

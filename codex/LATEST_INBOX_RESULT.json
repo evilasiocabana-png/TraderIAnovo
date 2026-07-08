@@ -7,7 +7,7 @@
     "id": "MISSION_TIA-032_IMPLEMENTAR_POSITION_MANAGER_STOP_MOVEL_REAL",
     "status": "completed",
     "commits": [
-      "PENDENTE_COMMIT_FINAL"
+      "b8426e4"
     ],
     "execution_report": "codex/completed/MISSION_TIA-032_IMPLEMENTAR_POSITION_MANAGER_STOP_MOVEL_REAL/EXECUTION_REPORT.md",
     "primary_docs": [
