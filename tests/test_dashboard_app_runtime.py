@@ -1330,6 +1330,31 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertEqual(html_calls, [])
 
+    def test_ciclo_leve_preserva_snapshot_forex_quando_refresh_vem_vazio(self) -> None:
+        previous = SimpleNamespace(
+            mt5_forex_signals=SimpleNamespace(
+                pairs=[SimpleNamespace(pair="EURUSD")],
+                connection_status="ONLINE",
+            )
+        )
+        refreshed = SimpleNamespace(
+            mt5_forex_signals=SimpleNamespace(
+                pairs=[],
+                connection_status="N/D",
+            )
+        )
+
+        result = dashboard_app._preserve_mt5_forex_snapshot_if_empty(
+            previous,
+            refreshed,
+        )
+
+        self.assertIs(result, previous)
+        self.assertEqual(
+            dashboard_app._forex_pairs_count(result.mt5_forex_signals),
+            1,
+        )
+
     def test_auto_refresh_total_exige_flag_explicita(self) -> None:
         original_st = dashboard_app.st
         original_components = dashboard_app.components

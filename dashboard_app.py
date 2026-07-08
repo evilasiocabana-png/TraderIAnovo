@@ -494,6 +494,30 @@ def _build_fast_mt5_forex_snapshot(
         return None
 
 
+def _forex_pairs_count(data_or_forex: object) -> int:
+    forex = getattr(data_or_forex, "mt5_forex_signals", data_or_forex)
+    return len(list(getattr(forex, "pairs", []) or []))
+
+
+def _preserve_mt5_forex_snapshot_if_empty(
+    previous_data: object,
+    refreshed_data: object,
+) -> object:
+    """Nao deixa snapshot leve vazio apagar a parte operacional da tela."""
+    previous_forex = getattr(previous_data, "mt5_forex_signals", None)
+    refreshed_forex = getattr(refreshed_data, "mt5_forex_signals", None)
+    if previous_forex is None or refreshed_forex is None:
+        return refreshed_data
+    if _forex_pairs_count(refreshed_forex) > 0:
+        return refreshed_data
+    if _forex_pairs_count(previous_forex) <= 0:
+        return refreshed_data
+    try:
+        return replace(refreshed_data, mt5_forex_signals=previous_forex)
+    except TypeError:
+        return previous_data
+
+
 def _mt5_visual_signals_enabled() -> bool:
     return os.getenv("TRADERIA_MT5_VISUAL_SIGNALS_ENABLED", "1").strip() == "1"
 
@@ -556,6 +580,7 @@ def _maybe_run_mt5_forex_auto_cycle(
     )
     st.session_state[MT5_FOREX_LAST_AUTO_LOAD_KEY] = time.monotonic()
     refreshed_data = service.get_light_dashboard_view_model()
+    refreshed_data = _preserve_mt5_forex_snapshot_if_empty(data, refreshed_data)
     return refreshed_data, getattr(refreshed_data, "mt5_forex_signals", forex)
 
 
@@ -1145,8 +1170,12 @@ def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None
         st.session_state.get(MT5_REPORT_AUDIT_CACHE_KEY),
     )
     if cached_report is not None:
-        data = replace(
+        light_data = _preserve_mt5_forex_snapshot_if_empty(
+            data,
             service.get_light_dashboard_view_model(),
+        )
+        data = replace(
+            light_data,
             mt5_trade_audit=cached_report,
         )
     _inject_mt5_forex_auto_refresh()
@@ -1171,8 +1200,12 @@ def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None
                     force=True,
                 )
             )
-            data = replace(
+            light_data = _preserve_mt5_forex_snapshot_if_empty(
+                data,
                 service.get_light_dashboard_view_model(),
+            )
+            data = replace(
+                light_data,
                 mt5_trade_audit=st.session_state[MT5_REPORT_AUDIT_CACHE_KEY],
             )
     _render_forex_session_filter_checkbox(
