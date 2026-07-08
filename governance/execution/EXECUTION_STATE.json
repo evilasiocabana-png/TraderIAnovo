@@ -6,7 +6,7 @@
     "current_mission":  null,
     "last_completed_mission":  "MISSION_TIA-031_AUDIT_SAFE_MODE_E_STOP_MOVEL",
     "last_failed_mission":  null,
-    "last_commit":  "PENDENTE_COMMIT_FINAL",
+    "last_commit":  "db9c348",
     "last_branch":  "main",
     "last_responsible":  "Codex",
     "last_status":  "completed",

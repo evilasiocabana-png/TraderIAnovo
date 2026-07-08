@@ -228,4 +228,4 @@
 - Resultado: criados `docs/architecture/SAFE_MODE_STOP_MOVEL_AUDIT.md` e `docs/architecture/SAFE_MODE_POSITION_MANAGER_POLICY.md`; atualizada `docs/architecture/RUNTIME_PRESERVATION_POLICY.md`.
 - Conclusao: stop movel em Safe Mode e permitido apenas quando ha posicao aberta, plano valido salvo, dados minimos e gates seguros.
 - Guardrail: nenhuma alteracao de codigo operacional; nenhuma ordem MT5 enviada; nenhum SL/TP movido; `.traderia` preservada.
-- Commit: PENDENTE_COMMIT_FINAL
+- Commit: db9c348

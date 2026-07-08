@@ -37,7 +37,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-028_REPARAR_CICLO_ROBO_DEMO_E_DIAGNOSTICO_MT5 | Reparar ciclo robo demo e diagnostico MT5 | completed | 2026-07-07 | 2026-07-07 | N/D | main | 20891a2 | Codex |
 | MISSION_TIA-029_FIX_UX_REFRESH_ESTAVEL_MT5_SEM_RELOAD_TOTAL | Corrigir UX refresh MT5 sem reload total | completed | 2026-07-07 | 2026-07-07 | N/D | main | 7840656 | Codex |
 | MISSION_TIA-030_RUNTIME_GUARD_EVOLUTION_REPORT | Runtime Guard evolution report | completed | 2026-07-07 | 2026-07-07 | N/D | main | 474d6e4 | Codex |
-| MISSION_TIA-031_AUDIT_SAFE_MODE_E_STOP_MOVEL | Auditar Safe Mode MT5 e stop movel | completed | 2026-07-07 | 2026-07-07 | N/D | main | PENDENTE_COMMIT_FINAL | Codex |
+| MISSION_TIA-031_AUDIT_SAFE_MODE_E_STOP_MOVEL | Auditar Safe Mode MT5 e stop movel | completed | 2026-07-07 | 2026-07-07 | N/D | main | db9c348 | Codex |
 
 ## Regras
 

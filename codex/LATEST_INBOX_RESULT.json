@@ -7,7 +7,7 @@
     "id": "MISSION_TIA-031_AUDIT_SAFE_MODE_E_STOP_MOVEL",
     "status": "completed",
     "commits": [
-      "PENDENTE_COMMIT_FINAL"
+      "db9c348"
     ],
     "execution_report": "codex/completed/MISSION_TIA-031_AUDIT_SAFE_MODE_E_STOP_MOVEL/EXECUTION_REPORT.md",
     "primary_docs": [
