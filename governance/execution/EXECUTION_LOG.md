@@ -246,4 +246,4 @@
 - Resultado: `MARKET_AWARE_STOP_PROTECTION`, `VOLATILITY_STOP_PROTECTION`, `MOMENTUM_WEAKNESS_STOP_TIGHTENING` e `STRUCTURE_BASED_STOP_PROTECTION` agora podem calcular/mover SL mais protetivo quando os dados exigidos existem e a flag assistida esta ligada.
 - Guardrail: `FULL_EXIT`, `PARTIAL_EXIT`, `MOVE_TARGET`, inversao e aumento de posicao seguem bloqueados; default seguro continua `False`.
 - Validacao: `tests.test_position_manager_service` OK com 14 testes; `tests.test_application_api` OK; `py_compile` OK.
-- Commit: PENDENTE_COMMIT_FINAL
+- Commit: dc8d752

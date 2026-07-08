@@ -7,7 +7,7 @@
     "id": "MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER",
     "status": "completed",
     "commits": [
-      "PENDENTE_COMMIT_FINAL"
+      "dc8d752"
     ],
     "execution_report": "codex/completed/MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER/EXECUTION_REPORT.md",
     "primary_docs": [

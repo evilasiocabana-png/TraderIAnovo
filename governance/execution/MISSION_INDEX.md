@@ -39,7 +39,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-030_RUNTIME_GUARD_EVOLUTION_REPORT | Runtime Guard evolution report | completed | 2026-07-07 | 2026-07-07 | N/D | main | 474d6e4 | Codex |
 | MISSION_TIA-031_AUDIT_SAFE_MODE_E_STOP_MOVEL | Auditar Safe Mode MT5 e stop movel | completed | 2026-07-07 | 2026-07-07 | N/D | main | db9c348 | Codex |
 | MISSION_TIA-032_IMPLEMENTAR_POSITION_MANAGER_STOP_MOVEL_REAL | Implementar Position Manager stop movel real | completed | 2026-07-08 | 2026-07-08 | N/D | main | 1ccc1a2 | Codex |
-| MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER | Dynamic Exit automatic policies via Position Manager | completed | 2026-07-08 | 2026-07-08 | N/D | main | PENDENTE_COMMIT_FINAL | Codex |
+| MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER | Dynamic Exit automatic policies via Position Manager | completed | 2026-07-08 | 2026-07-08 | N/D | main | dc8d752 | Codex |
 
 ## Regras
 

@@ -6,7 +6,7 @@
     "current_mission":  null,
     "last_completed_mission":  "MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER",
     "last_failed_mission":  null,
-    "last_commit":  "PENDENTE_COMMIT_FINAL",
+    "last_commit":  "dc8d752",
     "last_branch":  "main",
     "last_responsible":  "Codex",
     "last_status":  "completed",
