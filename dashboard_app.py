@@ -17,6 +17,7 @@ from application.dashboard_view_model import (
     DashboardMT5ForexSignalViewModel,
 )
 from application.runtime_guard_service import RuntimeGuardService
+from core.legacy_traderia_process_guard import cleanup_legacy_traderia_processes
 from core.runtime_lock_service import RuntimeLockService
 
 
@@ -43,6 +44,8 @@ RUNTIME_RENDER_DURATIONS_KEY = "runtime_render_durations_ms"
 RUNTIME_CLEANUP_MESSAGE_KEY = "runtime_cleanup_message"
 RUNTIME_EVENT_LOG_KEY = "runtime_event_log"
 RUNTIME_GUARD_SERVICE_KEY = "runtime_guard_service"
+LEGACY_PROCESS_GUARD_RAN_KEY = "legacy_traderia_process_guard_ran"
+LEGACY_PROCESS_GUARD_MESSAGE_KEY = "legacy_traderia_process_guard_message"
 MT5_DEMO_ROBOT_INTERVAL_SECONDS = float(
     os.getenv("TRADERIA_MT5_FOREX_AUTO_REFRESH_SECONDS", "10")
 )
@@ -59,12 +62,28 @@ MT5_RUNTIME_LOCK = RuntimeLockService()
 
 def get_dashboard_service() -> DashboardService:
     """Retorna a instancia persistente da fachada do dashboard."""
+    _cleanup_legacy_traderia_processes_once()
     _start_mt5_forex_background_cycle_once()
     service = st.session_state.get("dashboard_service")
     if service is None or not _dashboard_service_valido(service):
         _clear_streamlit_resource_cache_if_available()
         st.session_state["dashboard_service"] = DashboardService()
     return st.session_state["dashboard_service"]
+
+
+def _cleanup_legacy_traderia_processes_once() -> None:
+    """Fecha TraderIA_WDO legado para evitar sobrecarga concorrente."""
+    if bool(st.session_state.get(LEGACY_PROCESS_GUARD_RAN_KEY, False)):
+        return
+    st.session_state[LEGACY_PROCESS_GUARD_RAN_KEY] = True
+    killed = cleanup_legacy_traderia_processes()
+    if killed:
+        ports = ", ".join(str(process.port) for process in killed)
+        pids = ", ".join(str(process.pid) for process in killed)
+        st.session_state[LEGACY_PROCESS_GUARD_MESSAGE_KEY] = (
+            f"TraderIA legado encerrado automaticamente nas portas {ports} "
+            f"(PID {pids})."
+        )
 
 
 def get_runtime_guard_service() -> RuntimeGuardService:
@@ -3708,6 +3727,9 @@ def _render_runtime_performance_controls(
         message = st.session_state.get(RUNTIME_CLEANUP_MESSAGE_KEY)
         if message:
             st.success(str(message))
+        legacy_message = st.session_state.get(LEGACY_PROCESS_GUARD_MESSAGE_KEY)
+        if legacy_message:
+            st.info(str(legacy_message))
 
         controls = st.columns([1, 1, 2])
         if controls[0].button(
