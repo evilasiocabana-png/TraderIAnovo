@@ -40,6 +40,56 @@ class MT5DemoExecutionProvider:
         positions = self.mt5.positions_get(symbol=symbol)
         return bool(positions)
 
+    def get_open_position(self, symbol: str) -> object | None:
+        """Retorna a primeira posicao aberta do simbolo em conta demo."""
+        initialize_check = self._initialize_check()
+        if initialize_check is not None:
+            return None
+        positions = self.mt5.positions_get(symbol=symbol) or []
+        return positions[0] if positions else None
+
+    def get_current_price(self, symbol: str) -> float | None:
+        """Retorna preco atual read-only para validacao de SL."""
+        initialize_check = self._initialize_check()
+        if initialize_check is not None:
+            return None
+        tick = self.mt5.symbol_info_tick(symbol)
+        if tick is None:
+            return None
+        bid = self._positive_float(getattr(tick, "bid", None))
+        ask = self._positive_float(getattr(tick, "ask", None))
+        if bid is not None and ask is not None:
+            return (bid + ask) / 2.0
+        return bid if bid is not None else ask
+
+    def modify_position_sl(
+        self,
+        symbol: str,
+        ticket: int,
+        new_stop: float,
+    ) -> DynamicExitDemoSLExecutionResult:
+        """Porta generica para alterar somente SL de posicao MT5 Demo."""
+        position = self._find_position(str(symbol or "").upper(), int(ticket or 0))
+        if position is None:
+            created_at = datetime.now().astimezone().isoformat()
+            return self._assisted_sl_result(
+                symbol=str(symbol or "").upper(),
+                ticket=ticket,
+                side="N/D",
+                requested_stop=new_stop,
+                created_at=created_at,
+                message="Posicao demo nao encontrada para modificar SL.",
+                rejection_reasons=("Posicao demo nao encontrada.",),
+            )
+        side = self._position_side(position, {})
+        return self.modify_demo_position_stop_loss(
+            symbol=str(symbol or "").upper(),
+            ticket=int(ticket or 0),
+            side=side,
+            requested_stop=float(new_stop),
+            decision_key="POSITION_MANAGER",
+        )
+
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         """Converte ExecutionOrder em request MT5 e envia para conta demo."""
         initialize_check = self._initialize_check()

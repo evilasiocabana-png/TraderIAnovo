@@ -229,3 +229,12 @@
 - Conclusao: stop movel em Safe Mode e permitido apenas quando ha posicao aberta, plano valido salvo, dados minimos e gates seguros.
 - Guardrail: nenhuma alteracao de codigo operacional; nenhuma ordem MT5 enviada; nenhum SL/TP movido; `.traderia` preservada.
 - Commit: db9c348
+
+# 2026-07-08 - MISSION_TIA-032_IMPLEMENTAR_POSITION_MANAGER_STOP_MOVEL_REAL
+
+- Status: completed
+- Acao: implementado Position Manager real para acompanhar SL de posicoes MT5 Demo abertas.
+- Resultado: `PositionManagerService` calcula break-even e ATR trailing, preserva stop quando nao ha condicao segura e usa portas do provider para modificar somente SL quando autorizado.
+- Guardrail: Position Manager nao abre ordem, nao fecha posicao, nao altera TP, nao recalcula Lab e mantem `dynamic_exit_demo_sl_assisted_execution_enabled=False` como default.
+- Validacao: `run_critical_ci.py` OK com 91 testes; `architecture_audit.py` OK; `architecture_health.py` BOM; suites focadas OK.
+- Commit: PENDENTE_COMMIT_FINAL

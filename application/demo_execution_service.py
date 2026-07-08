@@ -21,6 +21,20 @@ class DemoExecutionProvider(Protocol):
     def has_open_position(self, symbol: str) -> bool:
         """Retorna se ja existe posicao aberta para o simbolo."""
 
+    def get_open_position(self, symbol: str) -> object | None:
+        """Retorna a posicao aberta do simbolo, quando existir."""
+
+    def get_current_price(self, symbol: str) -> float | None:
+        """Retorna preco atual usado para acompanhar posicao aberta."""
+
+    def modify_position_sl(
+        self,
+        symbol: str,
+        ticket: int,
+        new_stop: float,
+    ) -> object:
+        """Modifica somente o SL de uma posicao demo existente."""
+
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         """Envia uma ordem ja validada para o ambiente demo."""
 
@@ -86,6 +100,24 @@ class DisabledDemoExecutionProvider:
 
     def has_open_position(self, symbol: str) -> bool:
         return False
+
+    def get_open_position(self, symbol: str) -> object | None:
+        return None
+
+    def get_current_price(self, symbol: str) -> float | None:
+        return None
+
+    def modify_position_sl(
+        self,
+        symbol: str,
+        ticket: int,
+        new_stop: float,
+    ) -> ExecutionResult:
+        return ExecutionResult(
+            accepted=False,
+            status="PROVIDER_DISABLED",
+            message="Provider de execucao demo nao configurado.",
+        )
 
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         return ExecutionResult(
@@ -160,6 +192,23 @@ class DemoExecutionService:
             self.daily_operations += 1
         self._record(order, result)
         return result
+
+    def get_open_position(self, symbol: str) -> object | None:
+        """Consulta posicao aberta pelo provider demo."""
+        return self.provider.get_open_position(symbol)
+
+    def get_current_price(self, symbol: str) -> float | None:
+        """Consulta preco atual pelo provider demo."""
+        return self.provider.get_current_price(symbol)
+
+    def modify_position_sl(
+        self,
+        symbol: str,
+        ticket: int,
+        new_stop: float,
+    ) -> object:
+        """Solicita ao provider demo a alteracao apenas do SL."""
+        return self.provider.modify_position_sl(symbol, ticket, new_stop)
 
     def register_daily_result(self, result_points: float) -> None:
         """Atualiza perda/ganho do dia para travas posteriores."""

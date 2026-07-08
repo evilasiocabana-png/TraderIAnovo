@@ -96,6 +96,7 @@ from application.mt5_demo_robot_service import (
     MT5DemoRobotSignal,
     MT5DemoTradePlan,
 )
+from application.position_manager_service import PositionManagerService
 from application.paper_trading_service import PaperTradingReport
 from application.paper_trading_service import PaperTradingService
 from application.regime_service import RegimeData, RegimeService
@@ -2636,23 +2637,21 @@ class DashboardService:
         return result
 
     def _apply_mt5_demo_stop_management(self, visual_path: Path) -> None:
-        """Aplica gestao de stop demo sem alterar score, Lab ou decisao."""
+        """Aciona Position Manager sem alterar score, Lab ou entrada."""
         if not self._mt5_demo_execution_enabled():
             return
         self._enable_mt5_demo_provider()
-        provider = getattr(self.demo_robot_execution_service, "provider", None)
-        apply_management = getattr(
-            provider,
-            "apply_stop_management_from_signals",
-            None,
-        )
-        if not callable(apply_management):
-            return
         try:
             payload = json.loads(visual_path.read_text(encoding="utf-8"))
             signals = payload.get("signals", [])
             if isinstance(signals, list):
-                apply_management(signals)
+                manager = PositionManagerService(
+                    provider=self.demo_robot_execution_service,
+                    assisted_execution_enabled=(
+                        self._dynamic_exit_demo_sl_assisted_enabled()
+                    ),
+                )
+                manager.manage_signals(signals)
         except (OSError, ValueError, RuntimeError, TypeError):
             return
 

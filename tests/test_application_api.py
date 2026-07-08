@@ -288,8 +288,15 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'validate_research_benchmarks': '(self) -> '
                                                                   'list[application.research_lab_service.ExperimentValidationData]'},
                       'module': 'application.dashboard_service'},
- 'DemoExecutionService': {'methods': {'list_audit_log': '(self) -> '
+ 'DemoExecutionService': {'methods': {'get_current_price': "(self, symbol: 'str') -> "
+                                                           "'float | None'",
+                                      'get_open_position': "(self, symbol: 'str') -> "
+                                                           "'object | None'",
+                                      'list_audit_log': '(self) -> '
                                                         "'list[DemoExecutionAuditRecord]'",
+                                      'modify_position_sl': "(self, symbol: 'str', ticket: "
+                                                            "'int', new_stop: 'float') -> "
+                                                            "'object'",
                                       'prepare_order': "(self, strategy_signal: 'StrategySignal', "
                                                        "market_snapshot: 'MarketSnapshot', "
                                                        "risk_decision: 'RiskDecision', "
@@ -429,6 +436,12 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                        'entry_price: float) -> '
                                                        'application.paper_trading_service.PaperTradingResult'},
                          'module': 'application.paper_trading_service'},
+ 'PositionManagerService': {'methods': {'manage_plan': "(self, plan: 'PositionTradePlan') -> "
+                                                        "'PositionManagerResult'",
+                                        'manage_signals': "(self, signals: 'list[dict[str, "
+                                                          "Any]]') -> "
+                                                          "'list[PositionManagerResult]'"},
+                            'module': 'application.position_manager_service'},
  'RegimeService': {'methods': {'analyze': '(self, market_snapshot: '
                                           'domain.contracts.market_snapshot.MarketSnapshot) -> '
                                           'application.regime_service.RegimeData'},

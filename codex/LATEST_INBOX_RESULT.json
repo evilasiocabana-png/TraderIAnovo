@@ -4,18 +4,19 @@
   "branch": "main",
   "updated_at": "2026-07-07",
   "latest_inbox_mission": {
-    "id": "MISSION_TIA-031_AUDIT_SAFE_MODE_E_STOP_MOVEL",
+    "id": "MISSION_TIA-032_IMPLEMENTAR_POSITION_MANAGER_STOP_MOVEL_REAL",
     "status": "completed",
     "commits": [
-      "db9c348"
+      "PENDENTE_COMMIT_FINAL"
     ],
-    "execution_report": "codex/completed/MISSION_TIA-031_AUDIT_SAFE_MODE_E_STOP_MOVEL/EXECUTION_REPORT.md",
+    "execution_report": "codex/completed/MISSION_TIA-032_IMPLEMENTAR_POSITION_MANAGER_STOP_MOVEL_REAL/EXECUTION_REPORT.md",
     "primary_docs": [
-      "docs/architecture/SAFE_MODE_STOP_MOVEL_AUDIT.md",
-      "docs/architecture/SAFE_MODE_POSITION_MANAGER_POLICY.md",
-      "docs/architecture/RUNTIME_PRESERVATION_POLICY.md"
+      "docs/architecture/POSITION_MANAGER.md",
+      "docs/architecture/MARKET_AWARE_EXIT_PLAN.md",
+      "application/position_manager_service.py",
+      "tests/test_position_manager_service.py"
     ],
-    "summary": "Auditoria documental concluiu que stop movel em Safe Mode depende de posicao aberta, plano valido salvo, dados minimos de mercado e gates seguros do Provider Demo.",
-    "next_recommended_mission": "MISSION_TIA-032_DESENHAR_MT5_POSITION_MANAGER_CENTRAL_AUDITAVEL"
+    "summary": "Implementado Position Manager real para calcular break-even e ATR trailing apos posicao aberta, preservando stop quando nao houver condicao segura e mantendo execucao assistida desligada por padrao.",
+    "next_recommended_mission": "MISSION_TIA-033_EXIBIR_AUDITORIA_POSITION_MANAGER_NO_FOREX_E_RELATORIO"
   }
 }
