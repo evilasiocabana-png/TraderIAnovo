@@ -256,3 +256,12 @@
 - Guardrail: nenhuma conta real acionada; nenhuma nova ordem aberta; nenhuma posicao fechada; TP preservado; Research Lab nao recalculado.
 - Validacao: suite focada OK com 38 testes; `run_critical_ci.py` OK com 91 testes; `architecture_audit.py` OK.
 - Commit: 77a3f77
+
+# 2026-07-08 - MISSION_TIA-034_RUNTIME_GUARD_INFRASTRUCTURE_EXTRACTION
+
+- Status: completed
+- Acao: criada camada propria de Runtime Guard para infraestrutura de lock, scheduler, preservacao, cleanup, health, eventos e fila MT5.
+- Resultado: `core/runtime_guard/` e `application/runtime_guard_service.py` implementados; dashboard passou a consumir a fachada para protecoes leves.
+- Guardrail: nenhuma decisao operacional alterada; nenhuma ordem aberta; nenhum SL/TP movido; Lab pesado nao foi colocado em ciclo automatico.
+- Validacao: `tests.test_runtime_guard_service` OK com 14 testes; `run_critical_ci.py` OK com 91 testes; `architecture_audit.py` OK; `architecture_health.py` BOM.
+- Commit: pending

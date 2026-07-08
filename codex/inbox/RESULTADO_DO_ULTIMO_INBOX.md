@@ -7,7 +7,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura para GPT/Co
 O ultimo inbox executado foi:
 
 ```text
-MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA
+MISSION_TIA-034_RUNTIME_GUARD_INFRASTRUCTURE_EXTRACTION
 ```
 
 Status:
@@ -16,59 +16,51 @@ Status:
 completed
 ```
 
-Commits:
-
-```text
-77a3f77
-```
-
 ## O Que Foi Executado
 
-Foi executada a validacao demo controlada do Position Manager.
+Foi implementada a primeira camada real de infraestrutura do Runtime Guard.
 
-Conclusao principal:
+Resultado principal:
 
 ```text
-Com flag desligada, o Position Manager calcula e audita sem modificar SL. Com flag ligada, chama `modify_position_sl` apenas quando o novo SL e mais protetivo em provider demo controlado.
+Runtime Guard agora existe fora do dashboard_app.py, com lock, scheduler, state preserver, cleanup seguro, health snapshot, event log e fila/deduplicador MT5.
 ```
-
-Foram validadas as politicas: `BREAK_EVEN`, `ATR_TRAILING_STOP`, `MARKET_AWARE_STOP_PROTECTION`, `VOLATILITY_STOP_PROTECTION`, `MOMENTUM_WEAKNESS_STOP_TIGHTENING` e `STRUCTURE_BASED_STOP_PROTECTION`.
-
-Nenhuma conta real foi acionada; a validacao foi controlada/simulada.
 
 Foram criados/atualizados:
 
 ```text
-docs/validation/POSITION_MANAGER_DEMO_VALIDATION.md
-docs/architecture/POSITION_MANAGER.md
-docs/architecture/DYNAMIC_EXIT_AUTOMATIC_POLICIES.md
-application/position_manager_service.py
-tests/test_position_manager_service.py
+core/runtime_guard/
+application/runtime_guard_service.py
+tests/test_runtime_guard_service.py
+docs/architecture/RUNTIME_GUARD_IMPLEMENTATION.md
+docs/architecture/RUNTIME_GUARD_TARGET_ARCHITECTURE.md
+docs/architecture/RUNTIME_PRESERVATION_POLICY.md
+dashboard_app.py
+architecture_manifest.json
 ```
-
-Eventos de auditoria obrigatorios foram cobertos/documentados: `POSITION_ABSENT`, `TRADE_PLAN_ABSENT`, `MARKET_DATA_ABSENT`, `ATR_ABSENT`, `STRUCTURE_ABSENT`, `STOP_MOVE_BLOCKED_BY_CONFIG`, `STOP_MOVE_BLOCKED_NOT_PROTECTIVE`, `STOP_MOVED`, `STOP_MOVE_FAILED` e `POLICY_BLOCKED_UNSUPPORTED_ACTION`.
 
 ## Validacao
 
 ```text
-Suite focada: OK, 38 testes.
-py_compile: OK.
-architecture_audit.py: OK.
+Runtime Guard + API freeze: OK, 22 testes.
 run_critical_ci.py: OK, 91 testes.
+architecture_audit.py: OK.
+architecture_health.py: BOM.
+run_static_analysis.py: OK_WITH_WARNINGS por pyflakes opcional ausente.
 ```
 
 ## Guardrail
 
-Nao abriu novas ordens pelo Position Manager, nao fechou posicoes, nao alterou TP, nao recalculou Lab, nao acionou conta real e nao apagou `.traderia` ou banco local.
+Runtime Guard nao decide trade, nao abre ordem, nao fecha posicao, nao move SL/TP, nao recalcula Lab pesado automaticamente e nao substitui Position Manager nem DemoExecutionService.
 
 ## Relatorio Completo
 
 ```text
-codex/completed/MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA/EXECUTION_REPORT.md
+codex/completed/MISSION_TIA-034_RUNTIME_GUARD_INFRASTRUCTURE_EXTRACTION/EXECUTION_REPORT.md
 ```
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-034_OPERATIONAL_DECISION_ENGINE_FULL_POSITION_ACTIONS_READ_ONLY
+MISSION_TIA-035_RUNTIME_GUARD_POSITION_MANAGER_OBSERVABILITY
 ```

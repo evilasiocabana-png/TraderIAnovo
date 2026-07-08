@@ -16,6 +16,7 @@ from application.dashboard_view_model import (
     DashboardMT5ForexSignalRowViewModel,
     DashboardMT5ForexSignalViewModel,
 )
+from application.runtime_guard_service import RuntimeGuardService
 from core.runtime_lock_service import RuntimeLockService
 
 
@@ -41,6 +42,7 @@ FOREX_SESSION_FILTER_UI_KEY = "forex_session_filter_enabled_ui"
 RUNTIME_RENDER_DURATIONS_KEY = "runtime_render_durations_ms"
 RUNTIME_CLEANUP_MESSAGE_KEY = "runtime_cleanup_message"
 RUNTIME_EVENT_LOG_KEY = "runtime_event_log"
+RUNTIME_GUARD_SERVICE_KEY = "runtime_guard_service"
 MT5_DEMO_ROBOT_INTERVAL_SECONDS = float(
     os.getenv("TRADERIA_MT5_FOREX_AUTO_REFRESH_SECONDS", "10")
 )
@@ -63,6 +65,16 @@ def get_dashboard_service() -> DashboardService:
         _clear_streamlit_resource_cache_if_available()
         st.session_state["dashboard_service"] = DashboardService()
     return st.session_state["dashboard_service"]
+
+
+def get_runtime_guard_service() -> RuntimeGuardService:
+    """Retorna a fachada Runtime Guard persistente na sessao."""
+    guard = st.session_state.get(RUNTIME_GUARD_SERVICE_KEY)
+    if not isinstance(guard, RuntimeGuardService):
+        guard = RuntimeGuardService()
+        st.session_state[RUNTIME_GUARD_SERVICE_KEY] = guard
+        guard.event_log.record("RUNTIME_STARTED")
+    return guard
 
 
 def _start_mt5_forex_background_cycle_once(force: bool = False) -> None:
@@ -144,9 +156,9 @@ def _load_mt5_trade_audit_report_locked(service: DashboardService) -> object | N
 
 
 def _record_runtime_event(event: str) -> None:
-    events = list(st.session_state.get(RUNTIME_EVENT_LOG_KEY, []) or [])
-    events.append(f"{datetime.now().isoformat(timespec='seconds')} {event}")
-    st.session_state[RUNTIME_EVENT_LOG_KEY] = events[-50:]
+    guard = get_runtime_guard_service()
+    guard.event_log.record(event)
+    st.session_state[RUNTIME_EVENT_LOG_KEY] = guard.event_log.as_strings()
 
 
 def _dashboard_service_valido(service: object) -> bool:
@@ -285,8 +297,21 @@ def _runtime_performance_snapshot(
     lock_busy = _mt5_forex_cycle_lock_busy()
     state_hint = _session_state_size_hint()
     report_cache_key = _mt5_trade_audit_report_cache_key(data)
+    guard = get_runtime_guard_service()
+    health = guard.health_snapshot(
+        mode="LIGHT",
+        lock_status="BUSY" if lock_busy else "AVAILABLE",
+        forex_cycle_status="ENABLED" if _mt5_forex_auto_cycle_enabled() else "PAUSED",
+        report_cycle_status="ENABLED" if _mt5_report_auto_refresh_enabled() else "PAUSED",
+        demo_robot_cycle_status=getattr(robot, "status", "N/D"),
+        cache_status="REPORT_CACHED" if report_cache_key in st.session_state else "EMPTY",
+        render_durations=dict(st.session_state.get(RUNTIME_RENDER_DURATIONS_KEY, {}) or {}),
+    )
     return {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "runtime_guard_mode": health.mode,
+        "runtime_guard_lock": health.lock_status,
+        "runtime_guard_cache": health.cache_status,
         "refresh_id": int(getattr(forex, "refresh_id", 0) or 0),
         "last_mt5_read": getattr(forex, "last_mt5_read", "N/D"),
         "seconds_since_last_auto_load": round(now - last_load, 2) if last_load else "N/D",
@@ -313,6 +338,9 @@ def _runtime_performance_snapshot(
         "mt5_trade_audit_cached": report_cache_key in st.session_state,
         "demo_robot_status": getattr(robot, "status", "N/D"),
         "health_message": getattr(forex, "health_message", "N/D"),
+        "runtime_guard_last_events": " | ".join(
+            event.name for event in health.last_events[-5:]
+        ),
         "render_durations_ms": dict(
             st.session_state.get(RUNTIME_RENDER_DURATIONS_KEY, {}) or {}
         ),
@@ -334,34 +362,8 @@ def _mt5_trade_audit_report_cache_key(data: object) -> str:
 
 def _clear_runtime_queues_and_temporary_caches() -> list[str]:
     """Limpa somente estado temporario de UI/runtime."""
-    explicit_keys = (
-        MT5_FOREX_MANUAL_DIAGNOSTIC_KEY,
-        MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY,
-        MT5_FOREX_LAST_AUTO_LOAD_KEY,
-        MT5_REPORT_LAST_AUTO_LOAD_KEY,
-        MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY,
-        MT5_DEMO_ROBOT_MESSAGE_KEY,
-        UI_LAST_CRITICAL_INTERACTION_KEY,
-        MT5_FOREX_INITIAL_LOAD_ERROR_KEY,
-        REPLAY_PENDING_ACTION_KEY,
-        REPLAY_PENDING_DATASET_KEY,
-        REPLAY_PENDING_MESSAGE_KEY,
-        RUNTIME_CLEANUP_MESSAGE_KEY,
-        RUNTIME_EVENT_LOG_KEY,
-    )
-    prefixes = (
-        "mt5_trade_audit_report_",
-        "runtime_temp_",
-    )
-    removed: list[str] = []
-    for key in explicit_keys:
-        if key in st.session_state:
-            st.session_state.pop(key, None)
-            removed.append(key)
-    for key in list(st.session_state.keys()):
-        if any(str(key).startswith(prefix) for prefix in prefixes):
-            st.session_state.pop(key, None)
-            removed.append(str(key))
+    result = get_runtime_guard_service().cleanup_temporary(st.session_state)
+    removed = list(result.removed_keys)
     for cache_name in ("cache_data", "cache_resource"):
         cache = getattr(st, cache_name, None)
         clear = getattr(cache, "clear", None)
@@ -524,14 +526,26 @@ def _preserve_mt5_forex_snapshot_if_empty(
 def _remember_valid_mt5_forex_snapshot(forex: object) -> object:
     if _forex_pairs_count(forex) > 0:
         st.session_state[MT5_FOREX_LAST_VALID_SNAPSHOT_KEY] = forex
+        get_runtime_guard_service().preserve_snapshot(
+            MT5_FOREX_LAST_VALID_SNAPSHOT_KEY,
+            forex,
+            validator=lambda value: _forex_pairs_count(value) > 0,
+        )
     return forex
 
 
 def _stable_mt5_forex_snapshot(forex: object) -> object:
     if _forex_pairs_count(forex) > 0:
         return _remember_valid_mt5_forex_snapshot(forex)
-    previous = st.session_state.get(MT5_FOREX_LAST_VALID_SNAPSHOT_KEY)
+    previous = get_runtime_guard_service().preserve_snapshot(
+        MT5_FOREX_LAST_VALID_SNAPSHOT_KEY,
+        forex,
+        validator=lambda value: _forex_pairs_count(value) > 0,
+    )
+    if previous is forex:
+        previous = st.session_state.get(MT5_FOREX_LAST_VALID_SNAPSHOT_KEY)
     if previous is not None and _forex_pairs_count(previous) > 0:
+        st.session_state[MT5_FOREX_LAST_VALID_SNAPSHOT_KEY] = previous
         return previous
     return forex
 
@@ -594,16 +608,22 @@ def _maybe_run_mt5_forex_auto_cycle(
 ) -> tuple[object, object]:
     if not _mt5_forex_auto_cycle_enabled():
         return data, forex
-    if _ui_in_critical_interaction_grace():
-        return data, forex
-    last_load = float(st.session_state.get(MT5_FOREX_LAST_AUTO_LOAD_KEY, 0.0) or 0.0)
-    if time.monotonic() - last_load < MT5_FOREX_AUTO_REFRESH_SECONDS:
+    guard = get_runtime_guard_service()
+    now = time.monotonic()
+    decision = guard.should_run_cycle(
+        "forex_auto_cycle",
+        interval_seconds=MT5_FOREX_AUTO_REFRESH_SECONDS,
+        now=now,
+        in_grace_period=_ui_in_critical_interaction_grace(),
+    )
+    if not decision.allowed:
         return data, forex
     _load_mt5_forex_signals_locked(
         service,
         timeframe=str(getattr(forex, "timeframe", "M1") or "M1"),
     )
-    st.session_state[MT5_FOREX_LAST_AUTO_LOAD_KEY] = time.monotonic()
+    guard.mark_cycle_completed("forex_auto_cycle", now=now)
+    st.session_state[MT5_FOREX_LAST_AUTO_LOAD_KEY] = now
     refreshed_data = service.get_light_dashboard_view_model()
     refreshed_data = _preserve_mt5_forex_snapshot_if_empty(data, refreshed_data)
     return refreshed_data, getattr(refreshed_data, "mt5_forex_signals", forex)
@@ -615,20 +635,28 @@ def _maybe_refresh_mt5_trade_audit_report(
     *,
     force: bool = False,
 ) -> object | None:
-    if not force and _ui_in_critical_interaction_grace():
-        return cached_report
+    guard = get_runtime_guard_service()
     if not force and cached_report is not None:
         if not _mt5_report_auto_refresh_enabled():
             return cached_report
-        last_load = float(st.session_state.get(MT5_REPORT_LAST_AUTO_LOAD_KEY, 0.0) or 0.0)
-        if time.monotonic() - last_load < MT5_FOREX_AUTO_REFRESH_SECONDS:
+        now = time.monotonic()
+        decision = guard.should_run_cycle(
+            "report_refresh",
+            interval_seconds=MT5_FOREX_AUTO_REFRESH_SECONDS,
+            now=now,
+            in_grace_period=_ui_in_critical_interaction_grace(),
+        )
+        if not decision.allowed:
             return cached_report
+    else:
+        now = time.monotonic()
     with st.spinner("Atualizando auditoria MT5..."):
         report = _load_mt5_trade_audit_report_locked(service)
     if report is None:
         return cached_report
     st.session_state[MT5_REPORT_AUDIT_CACHE_KEY] = report
-    st.session_state[MT5_REPORT_LAST_AUTO_LOAD_KEY] = time.monotonic()
+    guard.mark_cycle_completed("report_refresh", now=now)
+    st.session_state[MT5_REPORT_LAST_AUTO_LOAD_KEY] = now
     return report
 
 
@@ -4636,9 +4664,21 @@ def exibir_mt5_setup_suggestions(service: DashboardService) -> None:
 def _stable_mt5_lab_setup_suggestions(suggestions: list[object]) -> list[object]:
     if suggestions:
         st.session_state[MT5_LAB_LAST_VALID_SUGGESTIONS_KEY] = list(suggestions)
+        get_runtime_guard_service().preserve_snapshot(
+            MT5_LAB_LAST_VALID_SUGGESTIONS_KEY,
+            list(suggestions),
+            validator=lambda value: bool(value),
+        )
         return list(suggestions)
-    previous = st.session_state.get(MT5_LAB_LAST_VALID_SUGGESTIONS_KEY)
+    previous = get_runtime_guard_service().preserve_snapshot(
+        MT5_LAB_LAST_VALID_SUGGESTIONS_KEY,
+        list(suggestions),
+        validator=lambda value: bool(value),
+    )
+    if previous is suggestions or previous == list(suggestions):
+        previous = st.session_state.get(MT5_LAB_LAST_VALID_SUGGESTIONS_KEY)
     if previous:
+        st.session_state[MT5_LAB_LAST_VALID_SUGGESTIONS_KEY] = list(previous)
         return list(previous)
     return []
 

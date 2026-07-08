@@ -595,6 +595,38 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                             'market_memory: market.market_memory.MarketMemory) -> '
                                             'application.research_service.ResearchData'},
                      'module': 'application.research_service'},
+ 'RuntimeGuardService': {'methods': {'cleanup_expired': "(self, state: 'MutableMapping[str, Any]', "
+                                                        "timestamps: 'MutableMapping[str, float]', "
+                                                        "*, now: 'float | None' = None, "
+                                                        "dry_run: 'bool' = False) -> "
+                                                        "'RuntimeCleanupResult'",
+                                      'cleanup_temporary': "(self, state: 'MutableMapping[str, Any]', "
+                                                           "*, dry_run: 'bool' = False) -> "
+                                                           "'RuntimeCleanupResult'",
+                                      'health_snapshot': "(self, *, mode: 'str' = 'LIGHT', "
+                                                         "lock_status: 'str' = 'UNKNOWN', "
+                                                         "forex_cycle_status: 'str' = 'IDLE', "
+                                                         "report_cycle_status: 'str' = 'IDLE', "
+                                                         "demo_robot_cycle_status: 'str' = 'IDLE', "
+                                                         "cache_status: 'str' = 'UNKNOWN', "
+                                                         "stale_resources: 'tuple[str, ...]' = (), "
+                                                         "warnings: 'tuple[str, ...]' = (), "
+                                                         "render_durations: 'dict[str, float] | None' "
+                                                         "= None) -> 'RuntimeHealthSnapshot'",
+                                      'mark_cycle_completed': "(self, task_name: 'str', *, now: "
+                                                              "'float | None' = None) -> 'None'",
+                                      'preserve_snapshot': "(self, key: 'str', value: 'Any', *, "
+                                                           "validator: 'Callable[[Any], bool] | None' "
+                                                           "= None) -> 'Any'",
+                                      'request_mt5_read': "(self, key: 'object', *, now: "
+                                                          "'float | None' = None) -> 'bool'",
+                                      'should_run_cycle': "(self, task_name: 'str', *, "
+                                                          "interval_seconds: 'float', now: "
+                                                          "'float | None' = None, "
+                                                          "in_grace_period: 'bool' = False, "
+                                                          "diagnostic_only: 'bool' = False) -> "
+                                                          "'RuntimeScheduleDecision'"},
+                         'module': 'application.runtime_guard_service'},
  'SessionService': {'methods': {'get_session_snapshot': '(self) -> '
                                                         'application.session_service.SessionSnapshot'},
                     'module': 'application.session_service'},

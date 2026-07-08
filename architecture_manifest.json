@@ -38,6 +38,7 @@
     "ReportService",
     "ResearchLabService",
     "ResearchService",
+    "RuntimeGuardService",
     "SessionService",
     "SystemService"
   ],

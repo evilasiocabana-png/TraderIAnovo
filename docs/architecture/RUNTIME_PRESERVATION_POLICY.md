@@ -8,6 +8,12 @@ Definir a politica de preservacao do runtime do TraderIA Novo. Esta politica ori
 
 Runtime Guard pode limpar, pausar, preservar e diagnosticar recursos temporarios. Runtime Guard nao pode alterar decisao operacional, posicao, ordem, stop, alvo, entrada, plano do Lab ou estrategia.
 
+## Implementacao Atual
+
+A politica foi materializada em `core/runtime_guard/runtime_state.py`, `runtime_cleanup_policy.py` e `runtime_state_preserver.py`.
+
+O dashboard usa a politica para preservar snapshot Forex e sugestoes do Lab quando leituras novas vierem vazias, e para limpar somente chaves classificadas como temporarias.
+
 ## Classificacao de Estado
 
 ### Estado Operacional Protegido

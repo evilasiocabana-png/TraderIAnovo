@@ -2,22 +2,21 @@
   "project": "TraderIA Novo",
   "repository": "https://github.com/evilasiocabana-png/TraderIAnovo",
   "branch": "main",
-  "updated_at": "2026-07-07",
+  "updated_at": "2026-07-08",
   "latest_inbox_mission": {
-    "id": "MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA",
+    "id": "MISSION_TIA-034_RUNTIME_GUARD_INFRASTRUCTURE_EXTRACTION",
     "status": "completed",
-    "commits": [
-      "77a3f77"
-    ],
-    "execution_report": "codex/completed/MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA/EXECUTION_REPORT.md",
+    "commits": [],
+    "execution_report": "codex/completed/MISSION_TIA-034_RUNTIME_GUARD_INFRASTRUCTURE_EXTRACTION/EXECUTION_REPORT.md",
     "primary_docs": [
-      "docs/validation/POSITION_MANAGER_DEMO_VALIDATION.md",
-      "docs/architecture/POSITION_MANAGER.md",
-      "docs/architecture/DYNAMIC_EXIT_AUTOMATIC_POLICIES.md",
-      "application/position_manager_service.py",
-      "tests/test_position_manager_service.py"
+      "docs/architecture/RUNTIME_GUARD_IMPLEMENTATION.md",
+      "docs/architecture/RUNTIME_GUARD_TARGET_ARCHITECTURE.md",
+      "docs/architecture/RUNTIME_PRESERVATION_POLICY.md",
+      "application/runtime_guard_service.py",
+      "core/runtime_guard/",
+      "tests/test_runtime_guard_service.py"
     ],
-    "summary": "Validacao demo controlada confirmou que flag False apenas audita e flag True modifica somente SL mais protetivo em provider demo simulado, sem conta real.",
-    "next_recommended_mission": "MISSION_TIA-034_OPERATIONAL_DECISION_ENGINE_FULL_POSITION_ACTIONS_READ_ONLY"
+    "summary": "Runtime Guard virou camada propria de infraestrutura com lock, scheduler, state preserver, cleanup seguro, health snapshot, event log e fila MT5, sem alterar decisao operacional.",
+    "next_recommended_mission": "MISSION_TIA-035_RUNTIME_GUARD_POSITION_MANAGER_OBSERVABILITY"
   }
 }

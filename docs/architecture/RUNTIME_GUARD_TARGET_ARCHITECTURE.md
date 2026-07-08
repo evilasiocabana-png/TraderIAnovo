@@ -4,6 +4,12 @@
 
 Definir a arquitetura permanente recomendada para o Runtime Guard do TraderIA Novo. Esta proposta parte do estado atual do repositorio e organiza os componentes hoje dispersos em uma camada clara, testavel e segura.
 
+## Estado Da Implementacao
+
+A missao `MISSION_TIA-034_RUNTIME_GUARD_INFRASTRUCTURE_EXTRACTION` criou a primeira implementacao real em `core/runtime_guard/` e a fachada `application/runtime_guard_service.py`.
+
+O alvo permanece evolutivo: novos ciclos podem migrar para o scheduler central em missoes futuras, mas a camada base ja existe, com lock, scheduler, state preserver, cleanup, health, event log e fila MT5.
+
 ## Principios
 
 1. Runtime Guard protege o sistema; nao decide trade.
@@ -271,4 +277,3 @@ O Runtime Guard definitivo estara pronto quando:
 - o painel Runtime Health mostrar estado real sem acionar MT5;
 - os testes cobrirem oscilacao de Forex, Lab, Relatorio e Robo Demo;
 - rollback de cada modulo for documentado.
-
