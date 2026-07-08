@@ -1417,6 +1417,29 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         finally:
             dashboard_app.st.session_state = previous_session_state
 
+    def test_sugestoes_lab_estaveis_usam_ultimo_snapshot_valido(self) -> None:
+        class FakeSessionState(dict):
+            pass
+
+        previous_session_state = dashboard_app.st.session_state
+        valid = [
+            SimpleNamespace(
+                alpha_id="ALPHA006",
+                pair="EURJPY",
+                timeframe="M1",
+            )
+        ]
+        try:
+            dashboard_app.st.session_state = FakeSessionState()
+
+            first = dashboard_app._stable_mt5_lab_setup_suggestions(valid)
+            second = dashboard_app._stable_mt5_lab_setup_suggestions([])
+
+            self.assertEqual(first, valid)
+            self.assertEqual(second, valid)
+        finally:
+            dashboard_app.st.session_state = previous_session_state
+
     def test_auto_refresh_total_exige_flag_explicita(self) -> None:
         original_st = dashboard_app.st
         original_components = dashboard_app.components

@@ -36,6 +36,7 @@ MT5_REPORT_AUDIT_CACHE_KEY = "mt5_trade_audit_report_cache"
 MT5_FOREX_MANUAL_DIAGNOSTIC_KEY = "mt5_forex_manual_diagnostic"
 MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY = "mt5_forex_manual_diagnostic_message"
 MT5_FOREX_LAST_VALID_SNAPSHOT_KEY = "mt5_forex_last_valid_snapshot"
+MT5_LAB_LAST_VALID_SUGGESTIONS_KEY = "mt5_lab_last_valid_suggestions"
 FOREX_SESSION_FILTER_UI_KEY = "forex_session_filter_enabled_ui"
 RUNTIME_RENDER_DURATIONS_KEY = "runtime_render_durations_ms"
 RUNTIME_CLEANUP_MESSAGE_KEY = "runtime_cleanup_message"
@@ -4524,7 +4525,9 @@ def _research_layer_row(layer: dict[str, object]) -> dict[str, object]:
 
 def exibir_mt5_setup_suggestions(service: DashboardService) -> None:
     """Exibe sugestoes de setup geradas pelo snapshot persistido do Lab."""
-    suggestions = service.suggest_mt5_lab_setups()
+    suggestions = _stable_mt5_lab_setup_suggestions(
+        service.suggest_mt5_lab_setups()
+    )
     st.subheader("Sugestoes de Setup do Lab")
     st.caption(
         "Use esta area como painel de decisao. Clique em Executar Pesquisa "
@@ -4536,24 +4539,31 @@ def exibir_mt5_setup_suggestions(service: DashboardService) -> None:
             "Nenhuma sugestao disponivel. Execute Pesquisa para carregar "
             "o snapshot historico antes de escolher setup."
         )
-        return
-    summary = _mt5_setup_suggestions_summary(suggestions)
-    colunas = st.columns(4)
-    colunas[0].metric("Pares sugeridos", summary["total"])
-    colunas[1].metric("Confirmaram 70%", summary["approved"])
-    colunas[2].metric(
-        "Melhor confirmacao",
-        _optional_percent(summary["best_confidence"]),
+        suggestions = []
+        summary = {
+            "total": 0,
+            "approved": 0,
+            "best_confidence": 0.0,
+            "best_pair": "N/D",
+        }
+    else:
+        summary = _mt5_setup_suggestions_summary(suggestions)
+    _stable_metric_grid(
+        [
+            ("Pares sugeridos", summary["total"]),
+            ("Confirmaram 70%", summary["approved"]),
+            ("Melhor confirmacao", _optional_percent(summary["best_confidence"])),
+            ("Melhor par", summary["best_pair"]),
+        ]
     )
-    colunas[3].metric("Melhor par", summary["best_pair"])
 
-    if summary["approved"] == 0:
+    if suggestions and summary["approved"] == 0:
         st.warning(
             "O snapshot atual ainda nao tem setup com 70% de Confirmacao Historica. "
             "A tabela mostra os mais proximos; rode Executar Pesquisa para "
             "recalcular com a biblioteca de Alphas atual."
         )
-    else:
+    elif suggestions:
         st.success(
             "Existe setup que atingiu o alvo de 70% de Confirmacao Historica."
         )
@@ -4563,10 +4573,24 @@ def exibir_mt5_setup_suggestions(service: DashboardService) -> None:
         [_mt5_setup_suggestion_compact_row(item) for item in suggestions]
     )
 
-    with st.expander("Detalhes completos dos parametros", expanded=False):
+    if st.checkbox(
+        "Mostrar detalhes completos dos parametros",
+        value=False,
+        key="mt5_lab_show_full_setup_details",
+    ):
         _render_stable_readonly_table(
             [_mt5_setup_suggestion_row(item) for item in suggestions]
         )
+
+
+def _stable_mt5_lab_setup_suggestions(suggestions: list[object]) -> list[object]:
+    if suggestions:
+        st.session_state[MT5_LAB_LAST_VALID_SUGGESTIONS_KEY] = list(suggestions)
+        return list(suggestions)
+    previous = st.session_state.get(MT5_LAB_LAST_VALID_SUGGESTIONS_KEY)
+    if previous:
+        return list(previous)
+    return []
 
 
 def _mt5_setup_suggestions_summary(
