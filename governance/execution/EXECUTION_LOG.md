@@ -219,4 +219,4 @@
 - Acao: produzida auditoria arquitetural da evolucao do Runtime Guard.
 - Resultado: criados `docs/architecture/RUNTIME_GUARD_EVOLUTION_REPORT.md`, `docs/architecture/RUNTIME_GUARD_TARGET_ARCHITECTURE.md` e `docs/architecture/RUNTIME_PRESERVATION_POLICY.md`.
 - Guardrail: nenhuma alteracao de codigo operacional; nenhuma ordem MT5 enviada; nenhum SL/TP movido; `.traderia` preservada.
-- Commit: 6e84316
+- Commit: 474d6e4
