@@ -247,3 +247,12 @@
 - Guardrail: `FULL_EXIT`, `PARTIAL_EXIT`, `MOVE_TARGET`, inversao e aumento de posicao seguem bloqueados; default seguro continua `False`.
 - Validacao: `tests.test_position_manager_service` OK com 14 testes; `tests.test_application_api` OK; `py_compile` OK.
 - Commit: dc8d752
+
+# 2026-07-08 - MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA
+
+- Status: completed
+- Acao: validado Position Manager em provider demo controlado.
+- Resultado: flag False bloqueia execucao e apenas audita; flag True permite `modify_position_sl` somente para SL mais protetivo; eventos e campos de auditoria foram cobertos.
+- Guardrail: nenhuma conta real acionada; nenhuma nova ordem aberta; nenhuma posicao fechada; TP preservado; Research Lab nao recalculado.
+- Validacao: suite focada OK com 38 testes; `run_critical_ci.py` OK com 91 testes; `architecture_audit.py` OK.
+- Commit: PENDENTE_COMMIT_FINAL

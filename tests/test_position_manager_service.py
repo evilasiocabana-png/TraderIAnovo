@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -80,7 +81,7 @@ class PositionManagerServiceTest(unittest.TestCase):
             )
         )
 
-        self.assertEqual(result.status, "STOP_MAINTAINED")
+        self.assertEqual(result.status, "STOP_MOVE_BLOCKED_NOT_PROTECTIVE")
         self.assertEqual(provider.modify_calls, 0)
 
     def test_sem_plano_nao_move(self) -> None:
@@ -100,7 +101,7 @@ class PositionManagerServiceTest(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(results[0].status, "PLAN_ABSENT")
+        self.assertEqual(results[0].status, "TRADE_PLAN_ABSENT")
         self.assertEqual(provider.modify_calls, 0)
 
     def test_sem_posicao_nao_move(self) -> None:
@@ -285,6 +286,53 @@ class PositionManagerServiceTest(unittest.TestCase):
 
         self.assertEqual(result.status, "STOP_MOVED")
         self.assertAlmostEqual(provider.modified_stop or 0.0, 1.1000)
+
+    def test_auditoria_registra_campos_obrigatorios_da_validacao(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
+            price=1.1040,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = Path(temp_dir) / "position-manager.jsonl"
+            manager = PositionManagerService(
+                provider=provider,
+                assisted_execution_enabled=True,
+                log_path=log_path,
+            )
+
+            result = manager.manage_plan(
+                self._plan(
+                    "EURUSD",
+                    "BUY",
+                    stop_management="ATR_TRAILING_STOP",
+                    atr=0.0010,
+                    parameters={"atr_trailing_factor": "2.0"},
+                )
+            )
+
+            payload = json.loads(log_path.read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual(result.status, "STOP_MOVED")
+        for key in (
+            "timestamp",
+            "symbol",
+            "ticket",
+            "side",
+            "policy",
+            "entry",
+            "current_price",
+            "old_stop",
+            "new_stop",
+            "action",
+            "execution_mode",
+            "execution_status",
+            "message",
+            "missing_data",
+            "provider_result",
+        ):
+            self.assertIn(key, payload)
+        self.assertEqual(payload["execution_mode"], "AUTOMATIC_DEMO")
+        self.assertEqual(payload["execution_status"], "EXECUTED")
+        self.assertEqual(provider.submit_order_calls, 0)
 
     def _manager(
         self,

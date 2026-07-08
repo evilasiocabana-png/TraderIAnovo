@@ -4,20 +4,20 @@
   "branch": "main",
   "updated_at": "2026-07-07",
   "latest_inbox_mission": {
-    "id": "MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER",
+    "id": "MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA",
     "status": "completed",
     "commits": [
-      "dc8d752"
+      "PENDENTE_COMMIT_FINAL"
     ],
-    "execution_report": "codex/completed/MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER/EXECUTION_REPORT.md",
+    "execution_report": "codex/completed/MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA/EXECUTION_REPORT.md",
     "primary_docs": [
+      "docs/validation/POSITION_MANAGER_DEMO_VALIDATION.md",
       "docs/architecture/POSITION_MANAGER.md",
-      "docs/architecture/MARKET_AWARE_EXIT_PLAN.md",
       "docs/architecture/DYNAMIC_EXIT_AUTOMATIC_POLICIES.md",
       "application/position_manager_service.py",
       "tests/test_position_manager_service.py"
     ],
-    "summary": "Position Manager ampliado para politicas dinamicas conservadoras de MOVE_STOP, mantendo execucao assistida desligada por padrao e bloqueando acoes destrutivas.",
-    "next_recommended_mission": "MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA"
+    "summary": "Validacao demo controlada confirmou que flag False apenas audita e flag True modifica somente SL mais protetivo em provider demo simulado, sem conta real.",
+    "next_recommended_mission": "MISSION_TIA-034_OPERATIONAL_DECISION_ENGINE_FULL_POSITION_ACTIONS_READ_ONLY"
   }
 }

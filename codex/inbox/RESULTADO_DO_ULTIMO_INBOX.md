@@ -7,7 +7,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura para GPT/Co
 O ultimo inbox executado foi:
 
 ```text
-MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER
+MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA
 ```
 
 Status:
@@ -19,60 +19,56 @@ completed
 Commits:
 
 ```text
-dc8d752
+PENDENTE_COMMIT_FINAL
 ```
 
 ## O Que Foi Executado
 
-Foi executada a missao composta TIA-032 para ampliar o Position Manager com politicas dinamicas conservadoras via `MOVE_STOP`.
+Foi executada a validacao demo controlada do Position Manager.
 
 Conclusao principal:
 
 ```text
-Position Manager agora suporta BREAK_EVEN, ATR_TRAILING_STOP e politicas dinamicas conservadoras de protecao de stop, sempre sem aumentar risco.
+Com flag desligada, o Position Manager calcula e audita sem modificar SL. Com flag ligada, chama `modify_position_sl` apenas quando o novo SL e mais protetivo em provider demo controlado.
 ```
 
-Politicas suportadas: `MARKET_AWARE_STOP_PROTECTION`, `VOLATILITY_STOP_PROTECTION`, `MOMENTUM_WEAKNESS_STOP_TIGHTENING` e `STRUCTURE_BASED_STOP_PROTECTION`.
+Foram validadas as politicas: `BREAK_EVEN`, `ATR_TRAILING_STOP`, `MARKET_AWARE_STOP_PROTECTION`, `VOLATILITY_STOP_PROTECTION`, `MOMENTUM_WEAKNESS_STOP_TIGHTENING` e `STRUCTURE_BASED_STOP_PROTECTION`.
 
-A modificacao efetiva de SL no MT5 so ocorre quando `dynamic_exit_demo_sl_assisted_execution_enabled=True`. O default permanece `False`.
+Nenhuma conta real foi acionada; a validacao foi controlada/simulada.
 
 Foram criados/atualizados:
 
 ```text
-docs/architecture/DYNAMIC_EXIT_AUTOMATIC_POLICIES.md
+docs/validation/POSITION_MANAGER_DEMO_VALIDATION.md
 docs/architecture/POSITION_MANAGER.md
-docs/architecture/MARKET_AWARE_EXIT_PLAN.md
+docs/architecture/DYNAMIC_EXIT_AUTOMATIC_POLICIES.md
 application/position_manager_service.py
 tests/test_position_manager_service.py
-application/dashboard_service.py
-application/demo_execution_service.py
-infrastructure/execution/mt5_demo_execution_provider.py
-architecture_manifest.json
 ```
 
-O fluxo separa entrada e gestao: `MT5DemoRobotService` abre posicao, `PositionManagerService` acompanha, `DemoExecutionService`/provider modificam somente SL quando autorizado.
+Eventos de auditoria obrigatorios foram cobertos/documentados: `POSITION_ABSENT`, `TRADE_PLAN_ABSENT`, `MARKET_DATA_ABSENT`, `ATR_ABSENT`, `STRUCTURE_ABSENT`, `STOP_MOVE_BLOCKED_BY_CONFIG`, `STOP_MOVE_BLOCKED_NOT_PROTECTIVE`, `STOP_MOVED`, `STOP_MOVE_FAILED` e `POLICY_BLOCKED_UNSUPPORTED_ACTION`.
 
 ## Validacao
 
 ```text
-tests.test_position_manager_service: OK, 14 testes.
-tests.test_application_api: OK, 8 testes.
-py_compile dos modulos alterados: OK.
-Validacoes base anteriores: run_critical_ci.py OK, architecture_audit.py OK, architecture_health.py BOM.
+Suite focada: OK, 38 testes.
+py_compile: OK.
+architecture_audit.py: OK.
+run_critical_ci.py: OK, 91 testes.
 ```
 
 ## Guardrail
 
-Nao abriu novas ordens pelo Position Manager, nao fechou posicoes, nao alterou TP, nao recalculou Lab, nao mudou o default seguro de execucao assistida e nao apagou `.traderia` ou banco local.
+Nao abriu novas ordens pelo Position Manager, nao fechou posicoes, nao alterou TP, nao recalculou Lab, nao acionou conta real e nao apagou `.traderia` ou banco local.
 
 ## Relatorio Completo
 
 ```text
-codex/completed/MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER/EXECUTION_REPORT.md
+codex/completed/MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA/EXECUTION_REPORT.md
 ```
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA
+MISSION_TIA-034_OPERATIONAL_DECISION_ENGINE_FULL_POSITION_ACTIONS_READ_ONLY
 ```

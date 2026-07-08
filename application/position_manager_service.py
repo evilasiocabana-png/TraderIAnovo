@@ -142,10 +142,12 @@ class PositionManagerResult:
     old_stop: float | None = None
     new_stop: float | None = None
     current_price: float | None = None
+    entry: float | None = None
     atr: float | None = None
     candle_time: str = "N/D"
     missing_data: tuple[str, ...] = ()
     audit_tags: tuple[str, ...] = ()
+    provider_result: str = "N/D"
     submitted: bool = False
     success: bool = False
 
@@ -183,9 +185,11 @@ class PositionManagerService:
                 self._record(
                     PositionManagerResult(
                         symbol=symbol,
-                        status="PLAN_ABSENT",
+                        status="TRADE_PLAN_ABSENT",
                         action="STOP_MAINTAINED",
                         message="Plano valido ausente ou incompleto; SL preservado.",
+                        missing_data=("trade_plan",),
+                        audit_tags=("TRADE_PLAN_ABSENT",),
                     )
                 )
             )
@@ -197,12 +201,15 @@ class PositionManagerService:
             return self._record(
                 PositionManagerResult(
                     symbol=plan.symbol,
-                    status="PLAN_ABSENT",
+                    status="TRADE_PLAN_ABSENT",
                     action="STOP_MAINTAINED",
                     message="Plano do Lab nao esta valido; SL preservado.",
                     policy=plan.stop_management,
                     side=plan.side,
                     candle_time=plan.candle_time,
+                    entry=plan.entry,
+                    missing_data=("trade_plan",),
+                    audit_tags=("TRADE_PLAN_ABSENT",),
                 )
             )
 
@@ -217,6 +224,9 @@ class PositionManagerService:
                     policy=plan.stop_management,
                     side=plan.side,
                     candle_time=plan.candle_time,
+                    entry=plan.entry,
+                    missing_data=("position",),
+                    audit_tags=("POSITION_ABSENT",),
                 )
             )
 
@@ -229,12 +239,15 @@ class PositionManagerService:
                 PositionManagerResult(
                     symbol=plan.symbol,
                     ticket=ticket,
-                    status="READ_ERROR",
+                    status="MARKET_DATA_ABSENT",
                     action="STOP_MAINTAINED",
                     message="Stop atual ausente na posicao MT5; SL preservado.",
                     policy=plan.stop_management,
                     side=side,
                     candle_time=plan.candle_time,
+                    entry=entry,
+                    missing_data=("current_stop",),
+                    audit_tags=("MARKET_DATA_ABSENT",),
                 )
             )
         current_price = self.provider.get_current_price(plan.symbol)
@@ -243,13 +256,16 @@ class PositionManagerService:
                 PositionManagerResult(
                     symbol=plan.symbol,
                     ticket=ticket,
-                    status="READ_ERROR",
+                    status="MARKET_DATA_ABSENT",
                     action="STOP_MAINTAINED",
                     message="Preco atual ausente; SL preservado.",
                     policy=plan.stop_management,
                     side=side,
                     old_stop=current_stop,
                     candle_time=plan.candle_time,
+                    entry=entry,
+                    missing_data=("current_price",),
+                    audit_tags=("MARKET_DATA_ABSENT",),
                 )
             )
 
@@ -273,6 +289,7 @@ class PositionManagerService:
                     side=side,
                     old_stop=current_stop,
                     current_price=float(current_price),
+                    entry=entry,
                     atr=plan.atr,
                     candle_time=plan.candle_time,
                     missing_data=missing,
@@ -284,7 +301,7 @@ class PositionManagerService:
                 PositionManagerResult(
                     symbol=plan.symbol,
                     ticket=ticket,
-                    status="STOP_MAINTAINED",
+                    status="STOP_MOVE_BLOCKED_NOT_PROTECTIVE",
                     action="STOP_MAINTAINED",
                     message="Stop candidato nao melhora o risco; SL preservado.",
                     policy=plan.stop_management,
@@ -292,6 +309,7 @@ class PositionManagerService:
                     old_stop=current_stop,
                     new_stop=candidate,
                     current_price=float(current_price),
+                    entry=entry,
                     atr=plan.atr,
                     candle_time=plan.candle_time,
                     audit_tags=("STOP_MOVE_BLOCKED_NOT_PROTECTIVE",),
@@ -302,7 +320,7 @@ class PositionManagerService:
                 PositionManagerResult(
                     symbol=plan.symbol,
                     ticket=ticket,
-                    status="STOP_MAINTAINED",
+                    status="STOP_MOVE_BLOCKED_NOT_PROTECTIVE",
                     action="STOP_MAINTAINED",
                     message="Stop candidato cruza ou encosta no preco atual; SL preservado.",
                     policy=plan.stop_management,
@@ -310,6 +328,7 @@ class PositionManagerService:
                     old_stop=current_stop,
                     new_stop=candidate,
                     current_price=float(current_price),
+                    entry=entry,
                     atr=plan.atr,
                     candle_time=plan.candle_time,
                     audit_tags=("STOP_MOVE_BLOCKED_INVALID_MARKET_SIDE",),
@@ -331,6 +350,7 @@ class PositionManagerService:
                     old_stop=current_stop,
                     new_stop=candidate,
                     current_price=float(current_price),
+                    entry=entry,
                     atr=plan.atr,
                     candle_time=plan.candle_time,
                     execution_status="BLOCKED_BY_CONFIG",
@@ -340,23 +360,26 @@ class PositionManagerService:
 
         response = self.provider.modify_position_sl(plan.symbol, ticket, candidate)
         success = bool(getattr(response, "success", False) or getattr(response, "accepted", False))
+        provider_message = str(getattr(response, "message", "") or "SL enviado ao MT5.")
         return self._record(
             PositionManagerResult(
                 symbol=plan.symbol,
                 ticket=ticket,
                 status="STOP_MOVED" if success else "MODIFY_REJECTED",
                 action="STOP_MOVED" if success else "STOP_MAINTAINED",
-                message=str(getattr(response, "message", "") or "SL enviado ao MT5."),
+                message=provider_message,
                 policy=plan.stop_management,
                 side=side,
                 old_stop=current_stop,
                 new_stop=candidate,
                 current_price=float(current_price),
+                entry=entry,
                 atr=plan.atr,
                 candle_time=plan.candle_time,
                 execution_mode="AUTOMATIC_DEMO",
                 execution_status="EXECUTED" if success else "BLOCKED",
                 audit_tags=("STOP_MOVED" if success else "STOP_MOVE_FAILED",),
+                provider_result=provider_message,
                 submitted=True,
                 success=success,
             )

@@ -95,8 +95,8 @@ Eventos esperados:
 
 ```text
 POSITION_ABSENT
-PLAN_ABSENT
-READ_ERROR
+TRADE_PLAN_ABSENT
+MARKET_DATA_ABSENT
 ATR_ABSENT
 MARKET_DATA_ABSENT
 STRUCTURE_ABSENT
@@ -113,4 +113,3 @@ Logs:
 .traderia/position_manager.jsonl
 .traderia/mt5_stop_management.jsonl
 ```
-
