@@ -28,7 +28,7 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
         self.assertFalse(result.executed)
         self.assertEqual(provider.orders, [])
 
-    def test_executa_apenas_transicao_wait_para_buy_com_plano_research(self) -> None:
+    def test_executa_buy_atual_com_plano_research_valido(self) -> None:
         provider = _AcceptingProvider()
         service = MT5DemoRobotService(
             execution_service=DemoExecutionService(provider=provider),
@@ -82,7 +82,7 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
         self.assertEqual(second.status, "NO_NEW_CANDLE")
         self.assertEqual(len(provider.orders), 1)
 
-    def test_autoriza_novo_candle_quando_regime_continua_valido(self) -> None:
+    def test_autoriza_novo_candle_quando_sinal_continua_valido(self) -> None:
         provider = _AcceptingProvider()
         service = MT5DemoRobotService(
             execution_service=DemoExecutionService(provider=provider),

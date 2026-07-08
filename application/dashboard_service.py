@@ -4134,10 +4134,10 @@ class DashboardService:
         )
         entry_ok = row.theoretical_entry_status == "SINAL_TEORICO"
         add(
-            "Gatilho novo",
+            "Zona de interesse",
             entry_ok,
             (
-                "Transicao WAIT -> BUY/SELL detectada."
+                "Entrada autorizada na zona de interesse."
                 if entry_ok
                 else row.theoretical_entry_status
             ),

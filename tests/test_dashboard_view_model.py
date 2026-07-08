@@ -1707,7 +1707,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertIn("H1", timeframes)
         self.assertGreater(len(set(timeframes)), 1)
 
-    def test_mt5_forex_marca_entrada_teorica_somente_em_transicao(
+    def test_mt5_forex_marca_entrada_teorica_em_zona_de_interesse(
         self,
     ) -> None:
         service = DashboardService()
