@@ -212,3 +212,11 @@
 - Resultado: contrato, gate final, provider SLTP seguro, exibicao no Dashboard/Relatorio e testes adicionados; `run_critical_ci.py` ficou verde com 91 testes.
 - Guardrail: nenhuma ordem nova foi aberta; nenhuma posicao foi fechada; TP foi preservado; conta real permanece bloqueada.
 - Commit: 4d0fa5e
+
+# 2026-07-07 - MISSION_TIA-030_RUNTIME_GUARD_EVOLUTION_REPORT
+
+- Status: completed
+- Acao: produzida auditoria arquitetural da evolucao do Runtime Guard.
+- Resultado: criados `docs/architecture/RUNTIME_GUARD_EVOLUTION_REPORT.md`, `docs/architecture/RUNTIME_GUARD_TARGET_ARCHITECTURE.md` e `docs/architecture/RUNTIME_PRESERVATION_POLICY.md`.
+- Guardrail: nenhuma alteracao de codigo operacional; nenhuma ordem MT5 enviada; nenhum SL/TP movido; `.traderia` preservada.
+- Commit: 6e84316

@@ -7,7 +7,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura para GPT/Co
 O ultimo inbox executado foi:
 
 ```text
-MISSION_TIA-029_FIX_UX_REFRESH_ESTAVEL_MT5_SEM_RELOAD_TOTAL
+MISSION_TIA-030_RUNTIME_GUARD_EVOLUTION_REPORT
 ```
 
 Status:
@@ -19,36 +19,42 @@ completed
 Commits:
 
 ```text
-7840656
+6e84316
 ```
 
 ## O Que Foi Executado
 
-Foi corrigida a UX do refresh MT5 para evitar recarregamento total da pagina.
+Foi produzida auditoria arquitetural da evolucao do Runtime Guard no TraderIA Novo.
 
-O refresh padrao nao injeta mais `window.parent.location.reload()`. As abas MT5 Forex e Relatorios usam fragmentos Streamlit com refresh leve, preservando aba, par selecionado e interacao do usuario. Controles criticos do robo registram janela de protecao para evitar interrupcao durante armar/desarmar/avaliar.
+Foram criados tres documentos:
+
+```text
+docs/architecture/RUNTIME_GUARD_EVOLUTION_REPORT.md
+docs/architecture/RUNTIME_GUARD_TARGET_ARCHITECTURE.md
+docs/architecture/RUNTIME_PRESERVATION_POLICY.md
+```
+
+O resultado compara a ideia inicial, implementacao atual, componentes de runtime, problemas resolvidos, riscos, arquitetura alvo e politica definitiva de preservacao operacional.
 
 ## Validacao
 
 ```text
-run_critical_ci.py: OK, 91 testes
-testes focados de refresh/UX/robo: OK, 6 testes
+Missao documental: arquivos criados e revisados.
+Nenhum codigo operacional foi alterado.
 ```
-
-Sem falhas no critical CI desta missao.
 
 ## Guardrail
 
-Nao alterou entrada, saida, stop movel, break-even, trailing stop, Lab, envio de ordem real, protecao de conta demo/real, validacao de risco ou Position Manager.
+Nao alterou entrada, saida, stop movel, break-even, trailing stop, Lab, envio de ordem real, protecao de conta demo/real, validacao de risco, Position Manager, `.traderia` ou banco local.
 
 ## Relatorio Completo
 
 ```text
-codex/completed/MISSION_TIA-029_FIX_UX_REFRESH_ESTAVEL_MT5_SEM_RELOAD_TOTAL/EXECUTION_REPORT.md
+codex/completed/MISSION_TIA-030_RUNTIME_GUARD_EVOLUTION_REPORT/EXECUTION_REPORT.md
 ```
 
 ## Proxima Missao Recomendada
 
 ```text
-MISSION_TIA-029_A_DEFINIR
+MISSION_TIA-031_EXTRAIR_RUNTIME_GUARD_POLICY_DOS_HELPERS_DO_DASHBOARD
 ```

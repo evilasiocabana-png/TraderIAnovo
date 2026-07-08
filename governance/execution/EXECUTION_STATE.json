@@ -4,9 +4,9 @@
     "schema_version":  "1.0",
     "status":  "ready",
     "current_mission":  null,
-    "last_completed_mission":  "MISSION_TIA-029_FIX_UX_REFRESH_ESTAVEL_MT5_SEM_RELOAD_TOTAL",
+    "last_completed_mission":  "MISSION_TIA-030_RUNTIME_GUARD_EVOLUTION_REPORT",
     "last_failed_mission":  null,
-    "last_commit":  "7840656",
+    "last_commit":  "6e84316",
     "last_branch":  "main",
     "last_responsible":  "Codex",
     "last_status":  "completed",
@@ -19,5 +19,5 @@
                                 "python scripts/run_static_analysis.py"
                             ],
     "created_at":  "2026-07-06T00:00:00-03:00",
-    "updated_at":  "2026-07-07T22:05:00-03:00"
+    "updated_at":  "2026-07-07T22:55:00-03:00"
 }
