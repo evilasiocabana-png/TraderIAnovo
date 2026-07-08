@@ -1304,6 +1304,79 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         finally:
             dashboard_app.st.session_state = previous_session_state
 
+    def test_auto_refresh_nao_recarrega_pagina_inteira_por_padrao(self) -> None:
+        original_st = dashboard_app.st
+        original_components = dashboard_app.components
+        original_forex_enabled = dashboard_app._mt5_forex_auto_cycle_enabled
+        original_report_enabled = dashboard_app._mt5_report_auto_refresh_enabled
+        previous_flag = os.environ.pop("TRADERIA_UI_FULL_PAGE_RELOAD_ENABLED", None)
+        fake_st = self._fake_streamlit(button_clicked=False)
+        html_calls = []
+        dashboard_app.st = fake_st
+        dashboard_app.components = SimpleNamespace(
+            html=lambda body, **kwargs: html_calls.append(body)
+        )
+        dashboard_app._mt5_forex_auto_cycle_enabled = lambda: True
+        dashboard_app._mt5_report_auto_refresh_enabled = lambda: False
+        try:
+            dashboard_app._inject_mt5_forex_auto_refresh()
+        finally:
+            dashboard_app.st = original_st
+            dashboard_app.components = original_components
+            dashboard_app._mt5_forex_auto_cycle_enabled = original_forex_enabled
+            dashboard_app._mt5_report_auto_refresh_enabled = original_report_enabled
+            if previous_flag is not None:
+                os.environ["TRADERIA_UI_FULL_PAGE_RELOAD_ENABLED"] = previous_flag
+
+        self.assertEqual(html_calls, [])
+
+    def test_auto_refresh_total_exige_flag_explicita(self) -> None:
+        original_st = dashboard_app.st
+        original_components = dashboard_app.components
+        original_forex_enabled = dashboard_app._mt5_forex_auto_cycle_enabled
+        original_report_enabled = dashboard_app._mt5_report_auto_refresh_enabled
+        previous_flag = os.environ.get("TRADERIA_UI_FULL_PAGE_RELOAD_ENABLED")
+        os.environ["TRADERIA_UI_FULL_PAGE_RELOAD_ENABLED"] = "1"
+        fake_st = self._fake_streamlit(button_clicked=False)
+        html_calls = []
+        dashboard_app.st = fake_st
+        dashboard_app.components = SimpleNamespace(
+            html=lambda body, **kwargs: html_calls.append(body)
+        )
+        dashboard_app._mt5_forex_auto_cycle_enabled = lambda: True
+        dashboard_app._mt5_report_auto_refresh_enabled = lambda: False
+        try:
+            dashboard_app._inject_mt5_forex_auto_refresh()
+        finally:
+            dashboard_app.st = original_st
+            dashboard_app.components = original_components
+            dashboard_app._mt5_forex_auto_cycle_enabled = original_forex_enabled
+            dashboard_app._mt5_report_auto_refresh_enabled = original_report_enabled
+            if previous_flag is None:
+                os.environ.pop("TRADERIA_UI_FULL_PAGE_RELOAD_ENABLED", None)
+            else:
+                os.environ["TRADERIA_UI_FULL_PAGE_RELOAD_ENABLED"] = previous_flag
+
+        self.assertTrue(html_calls)
+        self.assertIn("window.parent.location.reload()", html_calls[0])
+
+    def test_interacao_critica_bloqueia_refresh_pesado(self) -> None:
+        original_st = dashboard_app.st
+        fake_st = self._fake_streamlit(button_clicked=False)
+        previous = os.environ.get("TRADERIA_UI_INTERACTION_GRACE_SECONDS")
+        os.environ["TRADERIA_UI_INTERACTION_GRACE_SECONDS"] = "20"
+        dashboard_app.st = fake_st
+        try:
+            dashboard_app._mark_ui_critical_interaction()
+
+            self.assertTrue(dashboard_app._ui_in_critical_interaction_grace())
+        finally:
+            dashboard_app.st = original_st
+            if previous is None:
+                os.environ.pop("TRADERIA_UI_INTERACTION_GRACE_SECONDS", None)
+            else:
+                os.environ["TRADERIA_UI_INTERACTION_GRACE_SECONDS"] = previous
+
     def test_relatorio_mt5_auto_refresh_e_leve_por_intervalo(self) -> None:
         original_st = dashboard_app.st
         original_loader = dashboard_app._load_mt5_trade_audit_report_locked
@@ -1370,6 +1443,9 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
             def spinner(self, *args, **kwargs):
                 return FakeContext()
+
+            def caption(self, *args, **kwargs):
+                return None
 
         return FakeStreamlit()
 

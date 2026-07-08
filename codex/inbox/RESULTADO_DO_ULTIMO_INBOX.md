@@ -7,7 +7,7 @@ Este arquivo NAO e uma missao pendente. Ele e um ponteiro de leitura para GPT/Co
 O ultimo inbox executado foi:
 
 ```text
-MISSION_TIA-028_REPARAR_CICLO_ROBO_DEMO_E_DIAGNOSTICO_MT5
+MISSION_TIA-029_FIX_UX_REFRESH_ESTAVEL_MT5_SEM_RELOAD_TOTAL
 ```
 
 Status:
@@ -19,32 +19,32 @@ completed
 Commits:
 
 ```text
-20891a2
+PENDING
 ```
 
 ## O Que Foi Executado
 
-Foi reparado o acoplamento entre diagnostico MT5, ciclo Forex, Relatorio e robo demo.
+Foi corrigida a UX do refresh MT5 para evitar recarregamento total da pagina.
 
-O diagnostico MT5 agora nao inicia ciclo operacional, o Forex e o Relatorio atualizam em ciclo leve, o robo demo possui monitoramento online independente e limitado por intervalo, e chamadas MT5 repetidas foram reduzidas com batch/deduplicacao.
+O refresh padrao nao injeta mais `window.parent.location.reload()`. As abas MT5 Forex e Relatorios usam fragmentos Streamlit com refresh leve, preservando aba, par selecionado e interacao do usuario. Controles criticos do robo registram janela de protecao para evitar interrupcao durante armar/desarmar/avaliar.
 
 ## Validacao
 
 ```text
 run_critical_ci.py: OK, 91 testes
-testes focados de diagnostico/robo/runtime: OK
+testes focados de refresh/UX/robo: OK, 6 testes
 ```
 
-O primeiro run do critical CI falhou porque o lock foi criado em `application/`; a correcao moveu o lock para `core/` e o critical CI passou.
+Sem falhas no critical CI desta missao.
 
 ## Guardrail
 
-Nao alterou entrada, saida, stop movel, break-even, trailing stop, Lab pesado, envio de ordem real, protecao de conta demo/real ou Position Manager.
+Nao alterou entrada, saida, stop movel, break-even, trailing stop, Lab, envio de ordem real, protecao de conta demo/real, validacao de risco ou Position Manager.
 
 ## Relatorio Completo
 
 ```text
-codex/completed/MISSION_TIA-028_REPARAR_CICLO_ROBO_DEMO_E_DIAGNOSTICO_MT5/EXECUTION_REPORT.md
+codex/completed/MISSION_TIA-029_FIX_UX_REFRESH_ESTAVEL_MT5_SEM_RELOAD_TOTAL/EXECUTION_REPORT.md
 ```
 
 ## Proxima Missao Recomendada

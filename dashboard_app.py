@@ -26,6 +26,7 @@ MT5_DEMO_ROBOT_ONLINE_KEY = "mt5_demo_robot_online_enabled"
 MT5_DEMO_ROBOT_LAST_CYCLE_KEY = "mt5_demo_robot_last_cycle_at"
 MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY = "mt5_demo_robot_last_cycle_monotonic"
 MT5_DEMO_ROBOT_MESSAGE_KEY = "mt5_demo_robot_runtime_message"
+UI_LAST_CRITICAL_INTERACTION_KEY = "ui_last_critical_interaction_at"
 MT5_FOREX_INITIAL_LOAD_ERROR_KEY = "mt5_forex_initial_load_error"
 MT5_FOREX_LAST_AUTO_LOAD_KEY = "mt5_forex_last_auto_load_at"
 MT5_FOREX_AUTO_CYCLE_UI_KEY = "mt5_forex_auto_cycle_enabled_ui"
@@ -37,8 +38,13 @@ FOREX_SESSION_FILTER_UI_KEY = "forex_session_filter_enabled_ui"
 RUNTIME_RENDER_DURATIONS_KEY = "runtime_render_durations_ms"
 RUNTIME_CLEANUP_MESSAGE_KEY = "runtime_cleanup_message"
 RUNTIME_EVENT_LOG_KEY = "runtime_event_log"
-MT5_DEMO_ROBOT_INTERVAL_SECONDS = 10.0
-MT5_FOREX_AUTO_REFRESH_SECONDS = 10.0
+MT5_DEMO_ROBOT_INTERVAL_SECONDS = float(
+    os.getenv("TRADERIA_MT5_FOREX_AUTO_REFRESH_SECONDS", "10")
+)
+MT5_FOREX_AUTO_REFRESH_SECONDS = float(
+    os.getenv("TRADERIA_MT5_FOREX_AUTO_REFRESH_SECONDS", "10")
+)
+MT5_FOREX_FRAGMENT_RUN_EVERY = f"{int(MT5_FOREX_AUTO_REFRESH_SECONDS)}s"
 MT5_LAB_TARGET_CONFIDENCE = 0.70
 MT5_ALPHA_LIBRARY_SEARCH_SPACE_SIZE = 839
 MT5_FOREX_CYCLE_LOCK = threading.Lock()
@@ -332,6 +338,7 @@ def _clear_runtime_queues_and_temporary_caches() -> list[str]:
         MT5_REPORT_LAST_AUTO_LOAD_KEY,
         MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY,
         MT5_DEMO_ROBOT_MESSAGE_KEY,
+        UI_LAST_CRITICAL_INTERACTION_KEY,
         MT5_FOREX_INITIAL_LOAD_ERROR_KEY,
         REPLAY_PENDING_ACTION_KEY,
         REPLAY_PENDING_DATASET_KEY,
@@ -397,6 +404,32 @@ def _mt5_report_auto_refresh_enabled() -> bool:
     if os.getenv("TRADERIA_MT5_REPORT_AUTO_REFRESH_ENABLED", "1").strip() != "1":
         return False
     return _mt5_forex_market_cycle_allowed_now()
+
+
+def _ui_light_refresh_enabled() -> bool:
+    return os.getenv("TRADERIA_UI_LIGHT_REFRESH_ENABLED", "1").strip() == "1"
+
+
+def _ui_full_page_reload_enabled() -> bool:
+    return os.getenv("TRADERIA_UI_FULL_PAGE_RELOAD_ENABLED", "0").strip() == "1"
+
+
+def _ui_interaction_grace_seconds() -> float:
+    return float(os.getenv("TRADERIA_UI_INTERACTION_GRACE_SECONDS", "20"))
+
+
+def _mark_ui_critical_interaction() -> None:
+    st.session_state[UI_LAST_CRITICAL_INTERACTION_KEY] = time.monotonic()
+
+
+def _ui_in_critical_interaction_grace() -> bool:
+    last_interaction = float(
+        st.session_state.get(UI_LAST_CRITICAL_INTERACTION_KEY, 0.0) or 0.0
+    )
+    return (
+        last_interaction > 0.0
+        and time.monotonic() - last_interaction < _ui_interaction_grace_seconds()
+    )
 
 
 def _mt5_forex_market_cycle_allowed_now(moment: datetime | None = None) -> bool:
@@ -466,7 +499,12 @@ def _mt5_visual_signals_enabled() -> bool:
 
 
 def _inject_mt5_forex_auto_refresh() -> None:
+    if not _ui_light_refresh_enabled():
+        return
     if not (_mt5_forex_auto_cycle_enabled() or _mt5_report_auto_refresh_enabled()):
+        return
+    _render_mt5_light_refresh_indicator()
+    if not _ui_full_page_reload_enabled() or _ui_in_critical_interaction_grace():
         return
     interval_ms = int(MT5_FOREX_AUTO_REFRESH_SECONDS * 1000)
     components.html(
@@ -480,12 +518,34 @@ def _inject_mt5_forex_auto_refresh() -> None:
     )
 
 
+def _render_mt5_light_refresh_indicator() -> None:
+    last_load = float(st.session_state.get(MT5_FOREX_LAST_AUTO_LOAD_KEY, 0.0) or 0.0)
+    now = time.monotonic()
+    remaining = (
+        max(0, int(MT5_FOREX_AUTO_REFRESH_SECONDS - (now - last_load)))
+        if last_load
+        else 0
+    )
+    last_label = (
+        st.session_state.get(MT5_DEMO_ROBOT_LAST_CYCLE_KEY)
+        or time.strftime("%H:%M:%S")
+    )
+    st.caption(
+        "Ultima atualizacao MT5: "
+        f"{last_label} | Proxima atualizacao leve em: {remaining}s | "
+        "Refresh de pagina inteira: "
+        f"{'LIGADO' if _ui_full_page_reload_enabled() else 'DESLIGADO'}"
+    )
+
+
 def _maybe_run_mt5_forex_auto_cycle(
     service: DashboardService,
     data: object,
     forex: object,
 ) -> tuple[object, object]:
     if not _mt5_forex_auto_cycle_enabled():
+        return data, forex
+    if _ui_in_critical_interaction_grace():
         return data, forex
     last_load = float(st.session_state.get(MT5_FOREX_LAST_AUTO_LOAD_KEY, 0.0) or 0.0)
     if time.monotonic() - last_load < MT5_FOREX_AUTO_REFRESH_SECONDS:
@@ -505,6 +565,8 @@ def _maybe_refresh_mt5_trade_audit_report(
     *,
     force: bool = False,
 ) -> object | None:
+    if not force and _ui_in_critical_interaction_grace():
+        return cached_report
     if not force and cached_report is not None:
         if not _mt5_report_auto_refresh_enabled():
             return cached_report
@@ -866,6 +928,7 @@ def _dashboard_tab_selector(options: tuple[str, ...]) -> str:
     return str(selected_tab)
 
 
+@st.fragment(run_every=MT5_FOREX_FRAGMENT_RUN_EVERY)
 def exibir_mt5_forex_dashboard(
     service: DashboardService,
     data: object,
@@ -1058,6 +1121,7 @@ def _mt5_history_row(row: object) -> dict[str, object]:
     }
 
 
+@st.fragment(run_every=MT5_FOREX_FRAGMENT_RUN_EVERY)
 def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None:
     """Exibe auditoria das negociacoes TraderIA x historico MT5."""
     forex = getattr(data, "mt5_forex_signals", None)
@@ -1548,6 +1612,7 @@ def _exibir_robo_demo_mt5(
             "Pares monitorados pelo robo demo",
             monitor_options,
             key="mt5_demo_robot_pair",
+            on_change=_mark_ui_critical_interaction,
         )
     st.caption(
         "Modo temporal: o robo fica armado e aguarda entrada teorica do "
@@ -1565,6 +1630,7 @@ def _exibir_robo_demo_mt5(
         key="mt5_demo_robot_forex_session_filter_enabled",
     )
     if controls[1].button("Armar robo demo", key="mt5_demo_robot_arm"):
+        _mark_ui_critical_interaction()
         _record_runtime_event("DEMO_ROBOT_ARM_REQUESTED")
         _apply_forex_session_filter_preference(service, selected_session_filter)
         _enable_mt5_demo_execution_for_session()
@@ -1584,20 +1650,19 @@ def _exibir_robo_demo_mt5(
                 f"{getattr(armed_robot, 'message', 'motivo indisponivel')}"
             )
         data = service.get_dashboard_view_model()
-        st.rerun()
     if controls[3].button("Avaliar gatilho agora", key="mt5_demo_robot_evaluate"):
+        _mark_ui_critical_interaction()
         service.evaluate_armed_demo_robot_once(
             pair=selected_pair,
             timeframe=timeframe,
         )
         data = service.get_dashboard_view_model()
-        st.rerun()
     if controls[4].button("Desarmar robo", key="mt5_demo_robot_disarm"):
+        _mark_ui_critical_interaction()
         service.disarm_demo_robot(pair=selected_pair, timeframe=timeframe)
         st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
         st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = 0.0
         data = service.get_dashboard_view_model()
-        st.rerun()
     controls[5].caption(
         "Para operar em demo: conta MT5 DEMO, env habilitado, plano Research "
         "valido e sem posicao aberta no simbolo."
