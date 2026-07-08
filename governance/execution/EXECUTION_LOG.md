@@ -255,4 +255,4 @@
 - Resultado: flag False bloqueia execucao e apenas audita; flag True permite `modify_position_sl` somente para SL mais protetivo; eventos e campos de auditoria foram cobertos.
 - Guardrail: nenhuma conta real acionada; nenhuma nova ordem aberta; nenhuma posicao fechada; TP preservado; Research Lab nao recalculado.
 - Validacao: suite focada OK com 38 testes; `run_critical_ci.py` OK com 91 testes; `architecture_audit.py` OK.
-- Commit: PENDENTE_COMMIT_FINAL
+- Commit: 77a3f77

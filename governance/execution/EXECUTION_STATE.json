@@ -6,7 +6,7 @@
     "current_mission":  null,
     "last_completed_mission":  "MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA",
     "last_failed_mission":  null,
-    "last_commit":  "PENDENTE_COMMIT_FINAL",
+    "last_commit":  "77a3f77",
     "last_branch":  "main",
     "last_responsible":  "Codex",
     "last_status":  "completed",
