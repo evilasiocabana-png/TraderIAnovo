@@ -20,6 +20,22 @@ class PositionManagerProvider(Protocol):
     def get_current_price(self, symbol: str) -> float | None:
         """Retorna o preco atual usado para validar SL."""
 
+    def get_recent_candles(
+        self,
+        symbol: str,
+        timeframe: str,
+        limit: int,
+    ) -> list[object]:
+        """Retorna candles recentes para futuras politicas de estrutura."""
+
+    def get_atr(
+        self,
+        symbol: str,
+        timeframe: str,
+        period: int,
+    ) -> float | None:
+        """Retorna ATR atual quando o provider suportar calculo direto."""
+
     def modify_position_sl(
         self,
         symbol: str,
@@ -41,6 +57,12 @@ class PositionTradePlan:
     stop_management: str
     stop_management_parameters: dict[str, Any] = field(default_factory=dict)
     atr: float | None = None
+    momentum: float | None = None
+    volatility: float | None = None
+    support: float | None = None
+    resistance: float | None = None
+    swing_high: float | None = None
+    swing_low: float | None = None
     timeframe: str = "M1"
     status: str = "PLANO_VALIDO"
     candle_time: str = "N/D"
@@ -64,6 +86,12 @@ class PositionTradePlan:
         atr = _positive_float(indicators.get("atr"))
         if atr is None:
             atr = _positive_float(signal.get("atr"))
+        momentum = _optional_float(indicators.get("momentum"))
+        if momentum is None:
+            momentum = _optional_float(signal.get("momentum"))
+        volatility = _positive_float(indicators.get("volatility"))
+        if volatility is None:
+            volatility = _positive_float(signal.get("volatility"))
         return cls(
             symbol=symbol,
             side=side,
@@ -79,6 +107,18 @@ class PositionTradePlan:
                 signal.get("stop_management_parameters") or {}
             ),
             atr=atr,
+            momentum=momentum,
+            volatility=volatility,
+            support=_positive_float(indicators.get("support") or signal.get("support")),
+            resistance=_positive_float(
+                indicators.get("resistance") or signal.get("resistance")
+            ),
+            swing_high=_positive_float(
+                indicators.get("swing_high") or signal.get("swing_high")
+            ),
+            swing_low=_positive_float(
+                indicators.get("swing_low") or signal.get("swing_low")
+            ),
             timeframe=str(signal.get("timeframe") or "M1"),
             status=str(signal.get("plan_status") or "PLANO_VALIDO").upper(),
             candle_time=str(signal.get("last_candle_time") or "N/D"),
@@ -96,12 +136,16 @@ class PositionManagerResult:
     message: str
     ticket: int | None = None
     policy: str = "N/D"
+    execution_mode: str = "READ_ONLY"
+    execution_status: str = "BLOCKED"
     side: str = "N/D"
     old_stop: float | None = None
     new_stop: float | None = None
     current_price: float | None = None
     atr: float | None = None
     candle_time: str = "N/D"
+    missing_data: tuple[str, ...] = ()
+    audit_tags: tuple[str, ...] = ()
     submitted: bool = False
     success: bool = False
 
@@ -217,16 +261,7 @@ class PositionManagerService:
             plan=plan,
         )
         if candidate is None:
-            status = (
-                "ATR_ABSENT"
-                if plan.stop_management == "ATR_TRAILING_STOP" and plan.atr is None
-                else "STOP_MAINTAINED"
-            )
-            message = (
-                "ATR ausente para trailing; SL preservado."
-                if status == "ATR_ABSENT"
-                else "Condicao segura nao atingida; SL preservado."
-            )
+            status, message, missing = self._blocked_candidate_reason(plan)
             return self._record(
                 PositionManagerResult(
                     symbol=plan.symbol,
@@ -240,6 +275,8 @@ class PositionManagerService:
                     current_price=float(current_price),
                     atr=plan.atr,
                     candle_time=plan.candle_time,
+                    missing_data=missing,
+                    audit_tags=(status,),
                 )
             )
         if not self._is_better_stop(side, candidate, current_stop):
@@ -257,6 +294,7 @@ class PositionManagerService:
                     current_price=float(current_price),
                     atr=plan.atr,
                     candle_time=plan.candle_time,
+                    audit_tags=("STOP_MOVE_BLOCKED_NOT_PROTECTIVE",),
                 )
             )
         if not self._is_stop_before_market(side, candidate, float(current_price)):
@@ -274,6 +312,7 @@ class PositionManagerService:
                     current_price=float(current_price),
                     atr=plan.atr,
                     candle_time=plan.candle_time,
+                    audit_tags=("STOP_MOVE_BLOCKED_INVALID_MARKET_SIDE",),
                 )
             )
         if not self.assisted_execution_enabled:
@@ -294,6 +333,8 @@ class PositionManagerService:
                     current_price=float(current_price),
                     atr=plan.atr,
                     candle_time=plan.candle_time,
+                    execution_status="BLOCKED_BY_CONFIG",
+                    audit_tags=("STOP_MOVE_CANDIDATE", "STOP_MOVE_BLOCKED_BY_CONFIG"),
                 )
             )
 
@@ -313,6 +354,9 @@ class PositionManagerService:
                 current_price=float(current_price),
                 atr=plan.atr,
                 candle_time=plan.candle_time,
+                execution_mode="AUTOMATIC_DEMO",
+                execution_status="EXECUTED" if success else "BLOCKED",
+                audit_tags=("STOP_MOVED" if success else "STOP_MOVE_FAILED",),
                 submitted=True,
                 success=success,
             )
@@ -332,6 +376,14 @@ class PositionManagerService:
             return self._break_even_stop(side, entry, current_stop, current_price, plan)
         if policy == "ATR_TRAILING_STOP":
             return self._atr_trailing_stop(side, current_price, plan)
+        if policy == "MARKET_AWARE_STOP_PROTECTION":
+            return self._market_aware_stop(side, entry, current_stop, current_price, plan)
+        if policy == "VOLATILITY_STOP_PROTECTION":
+            return self._volatility_stop(side, entry, current_price, plan)
+        if policy == "MOMENTUM_WEAKNESS_STOP_TIGHTENING":
+            return self._momentum_weakness_stop(side, entry, current_price, plan)
+        if policy == "STRUCTURE_BASED_STOP_PROTECTION":
+            return self._structure_based_stop(side, current_price, plan)
         return None
 
     def _break_even_stop(
@@ -371,6 +423,133 @@ class PositionManagerService:
         if side == "BUY":
             return current_price - float(plan.atr) * factor
         return current_price + float(plan.atr) * factor
+
+    def _market_aware_stop(
+        self,
+        side: str,
+        entry: float,
+        current_stop: float,
+        current_price: float,
+        plan: PositionTradePlan,
+    ) -> float | None:
+        if not self._position_is_positive(side, entry, current_price):
+            return None
+        structure = self._structure_based_stop(side, current_price, plan)
+        if structure is not None:
+            return structure
+        if self._momentum_against(side, plan):
+            return entry
+        if plan.atr is not None:
+            return self._atr_trailing_stop(side, current_price, plan)
+        return None
+
+    def _volatility_stop(
+        self,
+        side: str,
+        entry: float,
+        current_price: float,
+        plan: PositionTradePlan,
+    ) -> float | None:
+        if plan.atr is None or plan.volatility is None:
+            return None
+        if not self._position_is_positive(side, entry, current_price):
+            return None
+        factor = _positive_float(
+            plan.stop_management_parameters.get("volatility_stop_factor")
+        ) or 1.5
+        if side == "BUY":
+            return current_price - float(plan.atr) * factor
+        return current_price + float(plan.atr) * factor
+
+    def _momentum_weakness_stop(
+        self,
+        side: str,
+        entry: float,
+        current_price: float,
+        plan: PositionTradePlan,
+    ) -> float | None:
+        if plan.momentum is None:
+            return None
+        if not self._position_is_positive(side, entry, current_price):
+            return None
+        if not self._momentum_against(side, plan):
+            return None
+        return entry
+
+    def _structure_based_stop(
+        self,
+        side: str,
+        current_price: float,
+        plan: PositionTradePlan,
+    ) -> float | None:
+        pip = self._pip_size(plan.symbol)
+        if side == "BUY":
+            base = plan.swing_low or plan.support
+            if base is None or base >= current_price:
+                return None
+            return float(base) - pip
+        base = plan.swing_high or plan.resistance
+        if base is None or base <= current_price:
+            return None
+        return float(base) + pip
+
+    def _blocked_candidate_reason(
+        self,
+        plan: PositionTradePlan,
+    ) -> tuple[str, str, tuple[str, ...]]:
+        if plan.stop_management == "ATR_TRAILING_STOP" and plan.atr is None:
+            return "ATR_ABSENT", "ATR ausente para trailing; SL preservado.", ("atr",)
+        if (
+            plan.stop_management == "VOLATILITY_STOP_PROTECTION"
+            and (plan.atr is None or plan.volatility is None)
+        ):
+            missing = tuple(
+                name
+                for name, value in (("atr", plan.atr), ("volatility", plan.volatility))
+                if value is None
+            )
+            return "MARKET_DATA_ABSENT", "Dados de volatilidade ausentes; SL preservado.", missing
+        if (
+            plan.stop_management == "MOMENTUM_WEAKNESS_STOP_TIGHTENING"
+            and plan.momentum is None
+        ):
+            return "MARKET_DATA_ABSENT", "Momentum ausente; SL preservado.", ("momentum",)
+        if plan.stop_management == "STRUCTURE_BASED_STOP_PROTECTION" and not any(
+            value is not None
+            for value in (plan.support, plan.resistance, plan.swing_high, plan.swing_low)
+        ):
+            return "STRUCTURE_ABSENT", "Estrutura ausente; SL preservado.", ("structure",)
+        if plan.stop_management not in {
+            "BREAK_EVEN",
+            "ATR_TRAILING_STOP",
+            "MARKET_AWARE_STOP_PROTECTION",
+            "VOLATILITY_STOP_PROTECTION",
+            "MOMENTUM_WEAKNESS_STOP_TIGHTENING",
+            "STRUCTURE_BASED_STOP_PROTECTION",
+        }:
+            return (
+                "POLICY_BLOCKED_UNSUPPORTED_ACTION",
+                "Politica sem acao MOVE_STOP segura suportada; SL preservado.",
+                ("supported_policy",),
+            )
+        return "STOP_MAINTAINED", "Condicao segura nao atingida; SL preservado.", ()
+
+    def _position_is_positive(
+        self,
+        side: str,
+        entry: float,
+        current_price: float,
+    ) -> bool:
+        if side == "BUY":
+            return current_price > entry
+        return current_price < entry
+
+    def _momentum_against(self, side: str, plan: PositionTradePlan) -> bool:
+        if plan.momentum is None:
+            return False
+        if side == "BUY":
+            return float(plan.momentum) < 0.0
+        return float(plan.momentum) > 0.0
 
     def _record(self, result: PositionManagerResult) -> PositionManagerResult:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -420,6 +599,13 @@ def _positive_float(value: object) -> float | None:
     if parsed <= 0.0:
         return None
     return parsed
+
+
+def _optional_float(value: object) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _non_negative_float(value: object) -> float:

@@ -288,10 +288,16 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'validate_research_benchmarks': '(self) -> '
                                                                   'list[application.research_lab_service.ExperimentValidationData]'},
                       'module': 'application.dashboard_service'},
- 'DemoExecutionService': {'methods': {'get_current_price': "(self, symbol: 'str') -> "
+ 'DemoExecutionService': {'methods': {'get_atr': "(self, symbol: 'str', timeframe: "
+                                                 "'str', period: 'int') -> 'float | "
+                                                 "None'",
+                                      'get_current_price': "(self, symbol: 'str') -> "
                                                            "'float | None'",
                                       'get_open_position': "(self, symbol: 'str') -> "
                                                            "'object | None'",
+                                      'get_recent_candles': "(self, symbol: 'str', "
+                                                            "timeframe: 'str', limit: "
+                                                            "'int') -> 'list[object]'",
                                       'list_audit_log': '(self) -> '
                                                         "'list[DemoExecutionAuditRecord]'",
                                       'modify_position_sl': "(self, symbol: 'str', ticket: "

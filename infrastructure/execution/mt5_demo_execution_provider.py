@@ -62,6 +62,56 @@ class MT5DemoExecutionProvider:
             return (bid + ask) / 2.0
         return bid if bid is not None else ask
 
+    def get_recent_candles(
+        self,
+        symbol: str,
+        timeframe: str,
+        limit: int,
+    ) -> list[object]:
+        """Retorna candles MT5 recentes em modo read-only."""
+        initialize_check = self._initialize_check()
+        if initialize_check is not None:
+            return []
+        copy_rates = getattr(self.mt5, "copy_rates_from_pos", None)
+        if not callable(copy_rates):
+            return []
+        timeframe_value = getattr(self.mt5, f"TIMEFRAME_{str(timeframe).upper()}", None)
+        if timeframe_value is None:
+            return []
+        try:
+            rates = copy_rates(symbol, timeframe_value, 0, max(int(limit), 1))
+        except Exception:  # noqa: BLE001 - provider externo MT5
+            return []
+        return list(rates or [])
+
+    def get_atr(
+        self,
+        symbol: str,
+        timeframe: str,
+        period: int,
+    ) -> float | None:
+        """Calcula ATR simples a partir de candles recentes quando possivel."""
+        candles = self.get_recent_candles(symbol, timeframe, max(int(period) + 1, 2))
+        if len(candles) < 2:
+            return None
+        true_ranges: list[float] = []
+        for previous, current in zip(candles, candles[1:]):
+            high = self._candle_value(current, "high")
+            low = self._candle_value(current, "low")
+            previous_close = self._candle_value(previous, "close")
+            if high is None or low is None or previous_close is None:
+                return None
+            true_ranges.append(
+                max(
+                    high - low,
+                    abs(high - previous_close),
+                    abs(low - previous_close),
+                )
+            )
+        if not true_ranges:
+            return None
+        return sum(true_ranges[-int(period):]) / min(len(true_ranges), int(period))
+
     def modify_position_sl(
         self,
         symbol: str,
@@ -561,6 +611,15 @@ class MT5DemoExecutionProvider:
         if parsed <= 0.0:
             return None
         return parsed
+
+    def _candle_value(self, candle: object, key: str) -> float | None:
+        if isinstance(candle, dict):
+            return self._positive_float(candle.get(key))
+        try:
+            value = candle[key]  # type: ignore[index]
+        except (KeyError, IndexError, TypeError):
+            value = getattr(candle, key, None)
+        return self._positive_float(value)
 
     def _non_negative_float(self, value: object) -> float:
         try:

@@ -3,13 +3,13 @@
 Ultima missao concluida:
 
 ```text
-MISSION_TIA-032_IMPLEMENTAR_POSITION_MANAGER_STOP_MOVEL_REAL
+MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER
 ```
 
 Relatorio:
 
 ```text
-codex/completed/MISSION_TIA-032_IMPLEMENTAR_POSITION_MANAGER_STOP_MOVEL_REAL/EXECUTION_REPORT.md
+codex/completed/MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER/EXECUTION_REPORT.md
 ```
 
 Status:
@@ -20,15 +20,15 @@ completed
 
 Resumo:
 
-- implementado `PositionManagerService`;
-- adicionadas portas `get_open_position`, `get_current_price` e `modify_position_sl`;
-- separado fluxo de entrada e gestao de posicao;
-- implementado calculo de break-even e ATR trailing;
-- mantido default seguro `dynamic_exit_demo_sl_assisted_execution_enabled=False`;
-- adicionados testes e documentacao.
+- reconciliada a missao composta TIA-032;
+- ampliado Position Manager para politicas dinamicas conservadoras;
+- adicionadas portas `get_recent_candles` e `get_atr`;
+- criado `DYNAMIC_EXIT_AUTOMATIC_POLICIES.md`;
+- mantidas acoes destrutivas bloqueadas;
+- mantido default seguro `dynamic_exit_demo_sl_assisted_execution_enabled=False`.
 
 Proxima missao recomendada:
 
 ```text
-MISSION_TIA-033_EXIBIR_AUDITORIA_POSITION_MANAGER_NO_FOREX_E_RELATORIO
+MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA
 ```

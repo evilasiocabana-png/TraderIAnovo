@@ -27,6 +27,22 @@ class DemoExecutionProvider(Protocol):
     def get_current_price(self, symbol: str) -> float | None:
         """Retorna preco atual usado para acompanhar posicao aberta."""
 
+    def get_recent_candles(
+        self,
+        symbol: str,
+        timeframe: str,
+        limit: int,
+    ) -> list[object]:
+        """Retorna candles recentes para politicas de estrutura."""
+
+    def get_atr(
+        self,
+        symbol: str,
+        timeframe: str,
+        period: int,
+    ) -> float | None:
+        """Retorna ATR quando o provider oferecer leitura direta."""
+
     def modify_position_sl(
         self,
         symbol: str,
@@ -105,6 +121,22 @@ class DisabledDemoExecutionProvider:
         return None
 
     def get_current_price(self, symbol: str) -> float | None:
+        return None
+
+    def get_recent_candles(
+        self,
+        symbol: str,
+        timeframe: str,
+        limit: int,
+    ) -> list[object]:
+        return []
+
+    def get_atr(
+        self,
+        symbol: str,
+        timeframe: str,
+        period: int,
+    ) -> float | None:
         return None
 
     def modify_position_sl(
@@ -200,6 +232,24 @@ class DemoExecutionService:
     def get_current_price(self, symbol: str) -> float | None:
         """Consulta preco atual pelo provider demo."""
         return self.provider.get_current_price(symbol)
+
+    def get_recent_candles(
+        self,
+        symbol: str,
+        timeframe: str,
+        limit: int,
+    ) -> list[object]:
+        """Consulta candles recentes pelo provider demo."""
+        return self.provider.get_recent_candles(symbol, timeframe, limit)
+
+    def get_atr(
+        self,
+        symbol: str,
+        timeframe: str,
+        period: int,
+    ) -> float | None:
+        """Consulta ATR pelo provider demo."""
+        return self.provider.get_atr(symbol, timeframe, period)
 
     def modify_position_sl(
         self,

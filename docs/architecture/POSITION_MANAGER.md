@@ -69,6 +69,17 @@ atr_trailing_factor
 
 Se ATR estiver ausente, o stop e preservado e o evento e registrado como `ATR_ABSENT`.
 
+### Politicas Dynamic Exit Conservadoras
+
+O Position Manager tambem reconhece politicas dinamicas que so podem executar `MOVE_STOP` seguro:
+
+- `MARKET_AWARE_STOP_PROTECTION`
+- `VOLATILITY_STOP_PROTECTION`
+- `MOMENTUM_WEAKNESS_STOP_TIGHTENING`
+- `STRUCTURE_BASED_STOP_PROTECTION`
+
+Essas politicas nunca executam `FULL_EXIT`, `PARTIAL_EXIT`, `MOVE_TARGET`, inversao ou aumento de posicao nesta fase.
+
 ## Gates De Seguranca
 
 O Position Manager so solicita modificacao de SL quando:
@@ -113,6 +124,9 @@ Eventos esperados:
 - `ATR_ABSENT`
 - `EXECUTION_DISABLED`
 - `MODIFY_REJECTED`
+- `MARKET_DATA_ABSENT`
+- `STRUCTURE_ABSENT`
+- `POLICY_BLOCKED_UNSUPPORTED_ACTION`
 
 O provider MT5 tambem preserva o log historico:
 

@@ -4,19 +4,20 @@
   "branch": "main",
   "updated_at": "2026-07-07",
   "latest_inbox_mission": {
-    "id": "MISSION_TIA-032_IMPLEMENTAR_POSITION_MANAGER_STOP_MOVEL_REAL",
+    "id": "MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER",
     "status": "completed",
     "commits": [
-      "1ccc1a2"
+      "PENDENTE_COMMIT_FINAL"
     ],
-    "execution_report": "codex/completed/MISSION_TIA-032_IMPLEMENTAR_POSITION_MANAGER_STOP_MOVEL_REAL/EXECUTION_REPORT.md",
+    "execution_report": "codex/completed/MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER/EXECUTION_REPORT.md",
     "primary_docs": [
       "docs/architecture/POSITION_MANAGER.md",
       "docs/architecture/MARKET_AWARE_EXIT_PLAN.md",
+      "docs/architecture/DYNAMIC_EXIT_AUTOMATIC_POLICIES.md",
       "application/position_manager_service.py",
       "tests/test_position_manager_service.py"
     ],
-    "summary": "Implementado Position Manager real para calcular break-even e ATR trailing apos posicao aberta, preservando stop quando nao houver condicao segura e mantendo execucao assistida desligada por padrao.",
-    "next_recommended_mission": "MISSION_TIA-033_EXIBIR_AUDITORIA_POSITION_MANAGER_NO_FOREX_E_RELATORIO"
+    "summary": "Position Manager ampliado para politicas dinamicas conservadoras de MOVE_STOP, mantendo execucao assistida desligada por padrao e bloqueando acoes destrutivas.",
+    "next_recommended_mission": "MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA"
   }
 }

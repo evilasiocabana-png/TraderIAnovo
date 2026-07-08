@@ -128,10 +128,27 @@ preco_atual +/- ATR * fator
 
 Se ATR estiver ausente, nao move.
 
+### Market aware stop protection
+
+Pode proteger stop quando a operacao ja esta positiva e existe estrutura segura, momentum contra ou ATR disponivel. A unica acao permitida e `MOVE_STOP`.
+
+### Volatility stop protection
+
+Pode apertar stop quando ha ATR e volatilidade no plano/sinal salvo. Expansao de volatilidade nunca autoriza afastar stop.
+
+### Momentum weakness stop tightening
+
+Pode mover stop para entrada quando o momentum enfraquece contra a posicao e a operacao esta positiva.
+
+### Structure based stop protection
+
+BUY usa suporte/fundo recente; SELL usa resistencia/topo recente. Se estrutura estiver ausente, bloqueia com `STRUCTURE_ABSENT`.
+
 ## Roadmap Seguro
 
 1. Manter `BREAK_EVEN` e `ATR_TRAILING_STOP` como politicas operacionais iniciais.
-2. Usar Dynamic Exit adicional como leitura/auditoria.
-3. Persistir maximo/minimo desde entrada em camada futura.
-4. Autorizar novas politicas uma por vez, com testes e rollback.
+2. Manter `FULL_EXIT`, `PARTIAL_EXIT`, `MOVE_TARGET`, inversao e aumento de posicao bloqueados.
+3. Usar Dynamic Exit adicional como leitura/auditoria para politicas ainda nao seguras.
+4. Persistir maximo/minimo desde entrada em camada futura.
+5. Autorizar novas politicas destrutivas uma por vez, com testes e rollback.
 

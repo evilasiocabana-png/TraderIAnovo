@@ -238,3 +238,12 @@
 - Guardrail: Position Manager nao abre ordem, nao fecha posicao, nao altera TP, nao recalcula Lab e mantem `dynamic_exit_demo_sl_assisted_execution_enabled=False` como default.
 - Validacao: `run_critical_ci.py` OK com 91 testes; `architecture_audit.py` OK; `architecture_health.py` BOM; suites focadas OK.
 - Commit: 1ccc1a2
+
+# 2026-07-08 - MISSION_TIA-032_DYNAMIC_EXIT_AUTOMATIC_POLICIES_VIA_POSITION_MANAGER
+
+- Status: completed
+- Acao: ampliado Position Manager para politicas dinamicas conservadoras de `MOVE_STOP`.
+- Resultado: `MARKET_AWARE_STOP_PROTECTION`, `VOLATILITY_STOP_PROTECTION`, `MOMENTUM_WEAKNESS_STOP_TIGHTENING` e `STRUCTURE_BASED_STOP_PROTECTION` agora podem calcular/mover SL mais protetivo quando os dados exigidos existem e a flag assistida esta ligada.
+- Guardrail: `FULL_EXIT`, `PARTIAL_EXIT`, `MOVE_TARGET`, inversao e aumento de posicao seguem bloqueados; default seguro continua `False`.
+- Validacao: `tests.test_position_manager_service` OK com 14 testes; `tests.test_application_api` OK; `py_compile` OK.
+- Commit: PENDENTE_COMMIT_FINAL

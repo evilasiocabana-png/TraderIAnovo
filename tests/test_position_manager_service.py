@@ -196,6 +196,96 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertAlmostEqual(result.new_stop or 0.0, 1.1020)
         self.assertEqual(provider.modify_calls, 0)
 
+    def test_politica_unsupported_fica_bloqueada(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
+            price=1.1040,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan("EURUSD", "BUY", stop_management="FULL_EXIT")
+        )
+
+        self.assertEqual(result.status, "POLICY_BLOCKED_UNSUPPORTED_ACTION")
+        self.assertEqual(provider.modify_calls, 0)
+
+    def test_market_aware_stop_protection_move_stop_seguro(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
+            price=1.1040,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan(
+                "EURUSD",
+                "BUY",
+                stop_management="MARKET_AWARE_STOP_PROTECTION",
+                atr=0.0010,
+                support=1.1025,
+            )
+        )
+
+        self.assertEqual(result.status, "STOP_MOVED")
+        self.assertAlmostEqual(provider.modified_stop or 0.0, 1.1024)
+
+    def test_structure_based_stop_protection_bloqueia_sem_estrutura(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
+            price=1.1040,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan("EURUSD", "BUY", stop_management="STRUCTURE_BASED_STOP_PROTECTION")
+        )
+
+        self.assertEqual(result.status, "STRUCTURE_ABSENT")
+        self.assertEqual(provider.modify_calls, 0)
+
+    def test_volatility_stop_protection_move_stop_seguro(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("USDCHF", "SELL", 0.8060, 0.8070, 0.8030),
+            price=0.8040,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan(
+                "USDCHF",
+                "SELL",
+                entry=0.8060,
+                stop=0.8070,
+                target=0.8030,
+                stop_management="VOLATILITY_STOP_PROTECTION",
+                atr=0.0005,
+                volatility=0.0010,
+            )
+        )
+
+        self.assertEqual(result.status, "STOP_MOVED")
+        self.assertAlmostEqual(provider.modified_stop or 0.0, 0.80475)
+
+    def test_momentum_weakness_stop_tightening_move_para_entrada(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
+            price=1.1030,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan(
+                "EURUSD",
+                "BUY",
+                stop_management="MOMENTUM_WEAKNESS_STOP_TIGHTENING",
+                momentum=-0.0002,
+            )
+        )
+
+        self.assertEqual(result.status, "STOP_MOVED")
+        self.assertAlmostEqual(provider.modified_stop or 0.0, 1.1000)
+
     def _manager(
         self,
         provider: "_FakePositionProvider",
@@ -218,6 +308,12 @@ class PositionManagerServiceTest(unittest.TestCase):
         stop_management: str = "ATR_TRAILING_STOP",
         atr: float | None = 0.0010,
         parameters: dict[str, str] | None = None,
+        momentum: float | None = None,
+        volatility: float | None = None,
+        support: float | None = None,
+        resistance: float | None = None,
+        swing_high: float | None = None,
+        swing_low: float | None = None,
     ) -> PositionTradePlan:
         return PositionTradePlan(
             symbol=symbol,
@@ -228,6 +324,12 @@ class PositionManagerServiceTest(unittest.TestCase):
             stop_management=stop_management,
             stop_management_parameters=parameters or {},
             atr=atr,
+            momentum=momentum,
+            volatility=volatility,
+            support=support,
+            resistance=resistance,
+            swing_high=swing_high,
+            swing_low=swing_low,
         )
 
 
@@ -267,6 +369,22 @@ class _FakePositionProvider:
 
     def get_current_price(self, symbol: str) -> float | None:
         return self.price
+
+    def get_recent_candles(
+        self,
+        symbol: str,
+        timeframe: str,
+        limit: int,
+    ) -> list[object]:
+        return []
+
+    def get_atr(
+        self,
+        symbol: str,
+        timeframe: str,
+        period: int,
+    ) -> float | None:
+        return None
 
     def modify_position_sl(
         self,
