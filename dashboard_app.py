@@ -2140,10 +2140,10 @@ def _stable_demo_robot_snapshot(robot: object) -> object:
 
 
 def _demo_robot_online_status(data: object) -> bool:
-    """Mantem estado visual estavel; somente acoes explicitas limpam o online."""
+    """Mostra online somente quando a sessao e o backend concordam."""
     session_online = bool(st.session_state.get(MT5_DEMO_ROBOT_ONLINE_KEY, False))
     backend_online = _demo_robot_online_allowed(getattr(data, "demo_robot", None))
-    return session_online or backend_online
+    return session_online and backend_online
 
 
 def _arm_all_demo_robot_from_reports(service: DashboardService, data: object) -> object:
@@ -2180,11 +2180,13 @@ def _run_demo_robot_online_cycle_if_due(
 
     current_robot = service.get_demo_robot_status()
     if not _demo_robot_online_allowed(current_robot):
+        st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
+        st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = 0.0
         st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY] = (
-            "Monitoramento online aguardando confirmacao do backend; "
-            "ultimo estado valido mantido na tela."
+            "Monitoramento online desligado: backend confirmou robo desarmado "
+            "ou envio MT5 indisponivel."
         )
-        return data, True
+        return data, False
 
     _record_runtime_event("DEMO_ROBOT_ONLINE_CYCLE_STARTED")
     st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = now
@@ -2195,8 +2197,9 @@ def _run_demo_robot_online_cycle_if_due(
     st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_KEY] = time.strftime("%H:%M:%S")
     _record_runtime_event("DEMO_ROBOT_ONLINE_CYCLE_COMPLETED")
     if not _demo_robot_online_allowed(cycle_robot):
+        st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
         st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY] = (
-            "Monitoramento online aguardando proximo ciclo: "
+            "Monitoramento online bloqueado pelo backend: "
             f"{getattr(cycle_robot, 'message', 'motivo indisponivel')}"
         )
         refreshed_data = service.get_dashboard_view_model()
@@ -2207,7 +2210,7 @@ def _run_demo_robot_online_cycle_if_due(
             refreshed_data = replace(refreshed_data, demo_robot=refreshed_robot)
         except TypeError:
             pass
-        return refreshed_data, True
+        return refreshed_data, False
     return service.get_dashboard_view_model(), True
 
 
@@ -2230,6 +2233,7 @@ def _demo_robot_online_allowed(robot: object) -> bool:
         "AGUARDANDO_PLANO",
         "NO_SIGNAL",
         "SEM_GATILHO_VALIDO",
+        "BATCH_COMPLETED",
     }
     return mt5_send_enabled and (
         status in armed_statuses or result_status in armed_statuses
