@@ -10,7 +10,7 @@ from typing import Any, Protocol
 
 from application.demo_execution_service import DisabledDemoExecutionProvider
 
-DEFAULT_BETA_ID = "LEGACY_CURRENT_EXIT"
+DEFAULT_BETA_ID = "BETA001"
 DEFAULT_BETA_VERSION = "BETA v1"
 
 
@@ -1313,4 +1313,6 @@ def _non_negative_float(value: object) -> float:
 
 def _normalize_beta_id(value: object) -> str:
     normalized = str(value or DEFAULT_BETA_ID).strip().upper()
+    if normalized == "LEGACY_CURRENT_EXIT":
+        return DEFAULT_BETA_ID
     return normalized or DEFAULT_BETA_ID

@@ -1662,7 +1662,7 @@ def _mt5_trade_audit_row(
         "Setup entrada": str(getattr(row, "entry_setup", "N/D")),
         "Alpha entrada": str(getattr(row, "alpha_id", "ALPHA001")),
         "Setup saida": str(getattr(row, "exit_setup", "DYNAMIC_POSITION_MANAGER")),
-        "Beta saida": str(getattr(row, "beta_id", "LEGACY_CURRENT_EXIT")),
+        "Beta saida": str(getattr(row, "beta_id", "BETA001")),
         "Versao Beta": str(getattr(row, "beta_version", "BETA v1")),
         "Modo Beta": str(getattr(row, "beta_mode", "PROTECT_ONLY")),
         "Stop movel acionado": "SIM"
@@ -2255,7 +2255,7 @@ def _demo_robot_audit_row(row: object) -> dict[str, object]:
         "Quantidade": getattr(row, "quantity", 0),
         "Alpha": getattr(row, "alpha_id", "N/D"),
         "Versao Alpha": getattr(row, "alpha_version", "N/D"),
-        "Beta": getattr(row, "beta_id", "LEGACY_CURRENT_EXIT"),
+        "Beta": getattr(row, "beta_id", "BETA001"),
         "Versao Beta": getattr(row, "beta_version", "BETA v1"),
         "Modo Beta": getattr(row, "beta_mode", "PROTECT_ONLY"),
         "Versao politica sessao": getattr(row, "session_policy_version", "N/D"),
@@ -3551,7 +3551,7 @@ def _forex_signal_row(
         "Tendencia": getattr(row, "trend", "N/D"),
         "Zona Operacional": _forex_zone_label(row),
         "Alpha Lab": getattr(row, "lab_alpha_id", "ALPHA001"),
-        "Beta Saida": getattr(row, "beta_id", "LEGACY_CURRENT_EXIT"),
+        "Beta Saida": getattr(row, "beta_id", "BETA001"),
         "Modo Beta": getattr(row, "beta_mode", "PROTECT_ONLY"),
         "Modelo Ativo": getattr(row, "active_model", "TREND_MOMENTUM"),
         "Fonte Config": getattr(row, "lab_configuration_source", "DEFAULT"),
@@ -5116,7 +5116,7 @@ def _mt5_setup_suggestions_status_message(
 def _mt5_setup_suggestion_empty_row() -> dict[str, object]:
     return {
         "Alpha": "N/D",
-        "Beta": "LEGACY_CURRENT_EXIT",
+        "Beta": "BETA001",
         "Par": "N/D",
         "TF": "N/D",
         "Direcao": "WAIT",
@@ -5137,9 +5137,9 @@ def _mt5_setup_suggestion_compact_row(suggestion: object) -> dict[str, object]:
         "Beta": getattr(
             suggestion,
             "beta_id",
-            parameters.get("beta_id", "LEGACY_CURRENT_EXIT")
+            parameters.get("beta_id", "BETA001")
             if isinstance(parameters, dict)
-            else "LEGACY_CURRENT_EXIT",
+            else "BETA001",
         ),
         "Par": getattr(suggestion, "pair", "N/D"),
         "TF": getattr(suggestion, "timeframe", "M1"),
@@ -5188,7 +5188,7 @@ def _setup_status_label(status: object) -> str:
 def _mt5_setup_suggestion_detail_empty_row() -> dict[str, object]:
     return {
         "Alpha": "N/D",
-        "Beta": "LEGACY_CURRENT_EXIT",
+        "Beta": "BETA001",
         "Par": "N/D",
         "Timeframe": "N/D",
         "Setup sugerido": "N/D",
@@ -5213,9 +5213,9 @@ def _mt5_setup_suggestion_row(suggestion: object) -> dict[str, object]:
         "Beta": getattr(
             suggestion,
             "beta_id",
-            parameters.get("beta_id", "LEGACY_CURRENT_EXIT")
+            parameters.get("beta_id", "BETA001")
             if isinstance(parameters, dict)
-            else "LEGACY_CURRENT_EXIT",
+            else "BETA001",
         ),
         "Par": getattr(suggestion, "pair", "N/D"),
         "Timeframe": getattr(suggestion, "timeframe", "M1"),

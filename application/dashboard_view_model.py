@@ -219,7 +219,7 @@ class DashboardMT5ForexSignalRowViewModel:
     active_model_indicators: tuple[str, ...] = ()
     lab_alpha_id: str = "ALPHA001"
     lab_alpha_version: str = "v1"
-    beta_id: str = "LEGACY_CURRENT_EXIT"
+    beta_id: str = "BETA001"
     beta_version: str = "BETA v1"
     beta_mode: str = "PROTECT_ONLY"
     beta_reason: str = "Position Manager administra a saida apos a entrada."
@@ -594,7 +594,7 @@ class DashboardDemoRobotAuditViewModel:
     ticket: int | None = None
     alpha_id: str = "N/D"
     alpha_version: str = "N/D"
-    beta_id: str = "LEGACY_CURRENT_EXIT"
+    beta_id: str = "BETA001"
     beta_version: str = "BETA v1"
     beta_mode: str = "PROTECT_ONLY"
     session_policy_version: str = "N/D"
@@ -707,7 +707,7 @@ class DashboardMT5TradeAuditRowViewModel:
     lab_configuration_version: str = "N/D"
     alpha_id: str = "ALPHA001"
     alpha_version: str = "N/D"
-    beta_id: str = "LEGACY_CURRENT_EXIT"
+    beta_id: str = "BETA001"
     beta_version: str = "BETA v1"
     beta_mode: str = "PROTECT_ONLY"
     trade_plan_version: str = "N/D"

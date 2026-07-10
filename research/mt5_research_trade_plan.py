@@ -20,7 +20,7 @@ SUPPORTED_STOP_MANAGEMENT_POLICIES = frozenset(
     )
 )
 
-DEFAULT_BETA_ID = "LEGACY_CURRENT_EXIT"
+DEFAULT_BETA_ID = "BETA001"
 DEFAULT_BETA_VERSION = "BETA v1"
 
 STOP_MANAGEMENT_PARAMETER_KEYS = {
@@ -347,6 +347,8 @@ class MT5ResearchTradePlanEngine:
 
     def _normalize_beta_id(self, value: str | None) -> str:
         normalized = str(value or DEFAULT_BETA_ID).strip().upper()
+        if normalized == "LEGACY_CURRENT_EXIT":
+            return DEFAULT_BETA_ID
         return normalized or DEFAULT_BETA_ID
 
     def _stop_management_parameters(

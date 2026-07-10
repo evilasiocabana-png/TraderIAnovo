@@ -2784,7 +2784,7 @@ class DashboardService:
                 dict(robot.lab_configuration).get("alpha_version", "v1")
             ),
             "beta_id": str(
-                dict(robot.lab_configuration).get("beta_id", "LEGACY_CURRENT_EXIT")
+                dict(robot.lab_configuration).get("beta_id", "BETA001")
             ),
             "beta_version": str(
                 dict(robot.lab_configuration).get("beta_version", "BETA v1")
@@ -3383,7 +3383,7 @@ class DashboardService:
                 beta_id=str(
                     record.get("beta_id")
                     or (position_manager_record or {}).get("beta_id")
-                    or "LEGACY_CURRENT_EXIT"
+                    or "BETA001"
                 ),
                 beta_version=str(
                     record.get("beta_version")
@@ -3490,7 +3490,7 @@ class DashboardService:
             beta_id=str(
                 record.get("beta_id")
                 or (position_manager_record or {}).get("beta_id")
-                or "LEGACY_CURRENT_EXIT"
+                or "BETA001"
             ),
             beta_version=str(
                 record.get("beta_version")
@@ -5494,7 +5494,7 @@ class DashboardService:
         certification_rejection_reasons: tuple[str, ...] = (),
         alpha_id: str = "ALPHA001",
         alpha_version: str = "v1",
-        beta_id: str = "LEGACY_CURRENT_EXIT",
+        beta_id: str = "BETA001",
         beta_version: str = "BETA v1",
     ) -> MT5ResearchTradePlan:
         parameters = lab_parameters or {}
@@ -5520,7 +5520,7 @@ class DashboardService:
                 stop_management_parameters=dict(parameters),
                 alpha_id=str(parameters.get("alpha") or alpha_id or "ALPHA001"),
                 alpha_version=str(parameters.get("alpha_version") or alpha_version or "v1"),
-                beta_id=str(parameters.get("beta_id") or beta_id or "LEGACY_CURRENT_EXIT"),
+                beta_id=str(parameters.get("beta_id") or beta_id or "BETA001"),
                 beta_version=str(parameters.get("beta_version") or beta_version or "BETA v1"),
                 certification_demo_allowed=certification_demo_allowed,
                 certification_score=certification_score,

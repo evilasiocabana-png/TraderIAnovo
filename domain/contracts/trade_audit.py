@@ -17,7 +17,7 @@ class TradeAuditRow:
     current_price: float | None = None
     profit: float = 0.0
     alpha_id: str = "ALPHA001"
-    beta_id: str = "LEGACY_CURRENT_EXIT"
+    beta_id: str = "BETA001"
     beta_version: str = "BETA v1"
     beta_mode: str = "PROTECT_ONLY"
     dynamic_exit_policy: str = "N/D"

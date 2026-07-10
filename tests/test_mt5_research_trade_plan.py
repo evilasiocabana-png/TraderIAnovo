@@ -53,7 +53,7 @@ class MT5ResearchTradePlanEngineTest(unittest.TestCase):
         self.assertIn("RR 2.00", plan.target_reason)
         self.assertEqual(plan.exit_model, "INITIAL_RISK_PLAN")
         self.assertEqual(plan.stop_management, "DYNAMIC_POSITION_MANAGER")
-        self.assertEqual(plan.beta_id, "LEGACY_CURRENT_EXIT")
+        self.assertEqual(plan.beta_id, "BETA001")
         self.assertEqual(plan.beta_mode, "PROTECT_ONLY")
         self.assertIn("Position Manager", plan.stop_management_reason)
         self.assertIn("Position Manager", plan.beta_reason)

@@ -90,7 +90,7 @@ class DemoExecutionAuditRecord:
     ticket: int | None = None
     alpha_id: str = "N/D"
     alpha_version: str = "N/D"
-    beta_id: str = "LEGACY_CURRENT_EXIT"
+    beta_id: str = "BETA001"
     beta_version: str = "BETA v1"
     beta_mode: str = "PROTECT_ONLY"
     session_policy_version: str = "N/D"
@@ -424,7 +424,7 @@ class DemoExecutionService:
                 ticket=result.ticket,
                 alpha_id=str(metadata.get("alpha_id", "N/D")),
                 alpha_version=str(metadata.get("alpha_version", "N/D")),
-                beta_id=str(metadata.get("beta_id", "LEGACY_CURRENT_EXIT")),
+                beta_id=str(metadata.get("beta_id", "BETA001")),
                 beta_version=str(metadata.get("beta_version", "BETA v1")),
                 beta_mode=str(metadata.get("beta_mode", "PROTECT_ONLY")),
                 session_policy_version=str(

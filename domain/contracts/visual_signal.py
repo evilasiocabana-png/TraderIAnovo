@@ -15,7 +15,7 @@ class VisualSignal:
     reason: str
     stop_management: str
     alpha_id: str = "ALPHA001"
-    beta_id: str = "LEGACY_CURRENT_EXIT"
+    beta_id: str = "BETA001"
     beta_version: str = "BETA v1"
     beta_mode: str = "PROTECT_ONLY"
     dynamic_exit_policy: str = "FIXED_STOP"
