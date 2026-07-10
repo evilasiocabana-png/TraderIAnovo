@@ -536,6 +536,8 @@ void DrawStatusLabel(string block, int index)
 
 void DrawOperationalPlanComment(string text)
 {
+   ClearLegacyOperationalPlanLabels();
+
    if(text == LAST_PLAN_TEXT && PlanLabelsExist(text))
       return;
    LAST_PLAN_TEXT = text;
@@ -582,6 +584,51 @@ void DrawOperationalPlanComment(string text)
       if(ObjectFind(0, clear_name) >= 0)
          ObjectSetString(0, clear_name, OBJPROP_TEXT, "");
    }
+}
+
+void ClearLegacyOperationalPlanLabels()
+{
+   for(int index = 0; index < 32; index++)
+   {
+      string legacy_name = "OPERATIONAL_PLAN_LABEL_" + IntegerToString(index);
+      if(ObjectFind(0, legacy_name) >= 0)
+         ObjectDelete(0, legacy_name);
+
+      string prefixed_legacy_name = PREFIX + "OPERATIONAL_PLAN_LABEL_" + IntegerToString(index);
+      if(ObjectFind(0, prefixed_legacy_name) >= 0)
+         ObjectDelete(0, prefixed_legacy_name);
+   }
+
+   int total = ObjectsTotal(0, 0, -1);
+   for(int i = total - 1; i >= 0; i--)
+   {
+      string name = ObjectName(0, i, 0, -1);
+      if(IsLegacyOperationalPlanObject(name))
+         ObjectDelete(0, name);
+   }
+}
+
+bool IsLegacyOperationalPlanObject(string name)
+{
+   string text = ObjectGetString(0, name, OBJPROP_TEXT);
+   if(StringFind(text, "Setup:") >= 0)
+      return(true);
+   if(StringFind(text, "Tempo:") >= 0)
+      return(true);
+   if(StringFind(text, "Entrada:") >= 0 && StringFind(text, "Entrada Alpha:") < 0)
+      return(true);
+   if(StringFind(text, "Motivo:") >= 0)
+      return(true);
+   if(StringFind(text, "Saida:") >= 0 && StringFind(text, "Saida Beta:") < 0)
+      return(true);
+
+   string tooltip = ObjectGetString(0, name, OBJPROP_TOOLTIP);
+   if(StringFind(tooltip, "Setup:") >= 0)
+      return(true);
+   if(StringFind(tooltip, "Saida:") >= 0 && StringFind(tooltip, "Saida Beta:") < 0)
+      return(true);
+
+   return(false);
 }
 
 bool PlanLabelsExist(string text)
