@@ -3228,6 +3228,13 @@ class DashboardService:
             ) + float(
                 merged.get("fee") or 0.0
             )
+        if existing.get("source") in {"POSITION", "ORDER_OPEN"}:
+            merged["projected_open_cost"] = existing.get(
+                "projected_open_cost",
+                merged.get("projected_open_cost", merged.get("open_cost", 0.0)),
+            )
+        elif "projected_open_cost" not in merged:
+            merged["projected_open_cost"] = merged.get("open_cost", 0.0)
         merged["history_key"] = ticket
         history[ticket] = merged
 
@@ -3268,16 +3275,47 @@ class DashboardService:
                 or 0
             ),
             "profit": float(data.get("profit") or 0),
+            "stop": self._float_or_none(data.get("sl")),
             "commission": cost_components["commission"],
             "swap": cost_components["swap"],
             "fee": cost_components["fee"],
             "open_cost": cost_components["open_cost"],
+            "projected_open_cost": self._projected_open_cost_from_mt5_payload(
+                data,
+                cost_components,
+            ),
             "net_profit": cost_components["net_profit"],
             "time": self._mt5_history_time(timestamp),
             "position_id": self._int_or_none(data.get("position_id")),
             "order": self._int_or_none(data.get("order")),
             "entry": self._int_or_none(data.get("entry")),
         }
+
+    def _projected_open_cost_from_mt5_payload(
+        self,
+        data: dict[str, Any],
+        cost_components: dict[str, float],
+    ) -> float:
+        """Projeta custo round-turn aberto: corretagem ida/volta + swap/fee MT5."""
+        volume = self._float_or_none(
+            data.get("volume")
+            or data.get("volume_initial")
+            or data.get("volume_current")
+        )
+        if volume is None or volume <= 0:
+            return float(cost_components.get("open_cost") or 0.0)
+        try:
+            commission_per_lot_side = float(
+                os.getenv("TRADERIA_FX_COMMISSION_PER_LOT_SIDE_USD", "3.5")
+            )
+        except ValueError:
+            commission_per_lot_side = 3.5
+        round_turn_commission = -abs(float(volume) * commission_per_lot_side * 2.0)
+        return (
+            round_turn_commission
+            + float(cost_components.get("swap") or 0.0)
+            + float(cost_components.get("fee") or 0.0)
+        )
 
     def _mt5_trade_audit_row(
         self,
@@ -3385,7 +3423,12 @@ class DashboardService:
             stop=self._float_or_none(record.get("stop")),
             target=self._float_or_none(record.get("target")),
             projected_profit=self._projected_profit_from_local_record(record),
-            projected_loss=self._projected_loss_from_local_record(record),
+            projected_loss=self._projected_loss_from_local_record(
+                record,
+                stop_override=self._float_or_none(mt5_record.get("stop"))
+                if self._mt5_operation_status(mt5_record) in {"ABERTA", "ORDEM_ABERTA"}
+                else None,
+            ),
             local_status=str(record.get("status") or "N/D"),
             local_message=str(record.get("message") or "N/D"),
             local_ticket=local_ticket,
@@ -3398,11 +3441,17 @@ class DashboardService:
             mt5_side=str(mt5_record.get("side") or "N/D"),
             mt5_volume=float(mt5_record.get("volume") or 0),
             mt5_price=float(mt5_record.get("price") or 0),
+            mt5_stop=self._float_or_none(mt5_record.get("stop")),
             mt5_realized_profit=float(mt5_record.get("profit") or 0),
             mt5_commission=float(mt5_record.get("commission") or 0),
             mt5_swap=float(mt5_record.get("swap") or 0),
             mt5_fee=float(mt5_record.get("fee") or 0),
             mt5_open_cost=float(mt5_record.get("open_cost") or 0),
+            mt5_projected_open_cost=float(
+                mt5_record.get("projected_open_cost")
+                or mt5_record.get("open_cost")
+                or 0
+            ),
             mt5_time=str(mt5_record.get("time") or "N/D"),
             audit_status=status,
             audit_message=message,
@@ -3494,7 +3543,9 @@ class DashboardService:
             quantity=float(mt5_record.get("volume") or 0),
             entry_price=float(mt5_record.get("price") or 0),
             projected_profit=0.0,
-            projected_loss=0.0,
+            projected_loss=self._projected_loss_from_mt5_record(mt5_record)
+            if is_open
+            else 0.0,
             local_status="MT5_ONLY",
             local_message=(
                 "Posicao aberta no MT5 sem ticket local casado."
@@ -3510,11 +3561,17 @@ class DashboardService:
             mt5_side=str(mt5_record.get("side") or "N/D"),
             mt5_volume=float(mt5_record.get("volume") or 0),
             mt5_price=float(mt5_record.get("price") or 0),
+            mt5_stop=self._float_or_none(mt5_record.get("stop")),
             mt5_realized_profit=float(mt5_record.get("profit") or 0),
             mt5_commission=float(mt5_record.get("commission") or 0),
             mt5_swap=float(mt5_record.get("swap") or 0),
             mt5_fee=float(mt5_record.get("fee") or 0),
             mt5_open_cost=float(mt5_record.get("open_cost") or 0),
+            mt5_projected_open_cost=float(
+                mt5_record.get("projected_open_cost")
+                or mt5_record.get("open_cost")
+                or 0
+            ),
             mt5_time=str(mt5_record.get("time") or "N/D"),
             audit_status="MT5_ONLY",
             audit_message=(
@@ -3727,17 +3784,66 @@ class DashboardService:
             return max(0.0, self._mt5_projected_money(record, target, entry))
         return 0.0
 
-    def _projected_loss_from_local_record(self, record: dict[str, Any]) -> float:
+    def _projected_loss_from_local_record(
+        self,
+        record: dict[str, Any],
+        *,
+        stop_override: float | None = None,
+    ) -> float:
         side = str(record.get("side") or "").upper()
         entry = self._float_or_none(record.get("entry_price"))
-        stop = self._float_or_none(record.get("stop"))
+        stop = stop_override
+        if stop is None:
+            stop = self._float_or_none(record.get("stop"))
         if entry is None or stop is None:
             return 0.0
+        return self._mt5_stop_result_money(record, side, entry, stop)
+
+    def _projected_loss_from_mt5_record(self, mt5_record: dict[str, Any]) -> float:
+        side = str(mt5_record.get("side") or "").upper()
+        entry = self._float_or_none(mt5_record.get("price"))
+        stop = self._float_or_none(mt5_record.get("stop"))
+        if entry is None or stop is None:
+            return 0.0
+        record = {
+            "symbol": mt5_record.get("symbol"),
+            "quantity": mt5_record.get("volume"),
+            "contract_size": mt5_record.get("contract_size", 100000),
+        }
+        return self._mt5_stop_result_money(record, side, entry, stop)
+
+    def _mt5_stop_result_money(
+        self,
+        record: dict[str, Any],
+        side: str,
+        entry: float,
+        stop: float,
+    ) -> float:
         if side == "BUY":
-            return -max(0.0, self._mt5_projected_money(record, stop, entry))
+            return self._mt5_signed_projected_money(record, stop - entry, entry, stop)
         if side == "SELL":
-            return -max(0.0, self._mt5_projected_money(record, entry, stop))
+            return self._mt5_signed_projected_money(record, entry - stop, entry, stop)
         return 0.0
+
+    def _mt5_signed_projected_money(
+        self,
+        record: dict[str, Any],
+        price_delta: float,
+        entry: float,
+        stop: float,
+    ) -> float:
+        quantity = float(record.get("quantity") or 0)
+        if quantity <= 0:
+            return 0.0
+        symbol = str(record.get("symbol") or "").upper()
+        contract_size = float(record.get("contract_size") or 100000)
+        gross = price_delta * quantity * contract_size
+        quote_currency = symbol[-3:] if len(symbol) >= 6 else "USD"
+        if quote_currency != "USD":
+            conversion_price = max(abs(entry), abs(stop))
+            if conversion_price > 0:
+                return gross / conversion_price
+        return gross
 
     def _mt5_projected_money(
         self,

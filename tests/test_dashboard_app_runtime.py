@@ -743,6 +743,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 mt5_swap=-0.3,
                 mt5_fee=-0.05,
                 mt5_open_cost=-1.55,
+                mt5_projected_open_cost=-1.05,
                 session_is_rollover=False,
             ),
             SimpleNamespace(
@@ -754,6 +755,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 mt5_swap=-0.25,
                 mt5_fee=0.0,
                 mt5_open_cost=-1.25,
+                mt5_projected_open_cost=-0.95,
                 session_is_rollover=True,
             ),
         ]
@@ -762,6 +764,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertEqual(summary["Lucro projetado aberto"], "64.15")
         self.assertEqual(summary["Custo aberto"], "-2.80")
+        self.assertEqual(summary["Custo aberto projetado"], "-2.00")
         self.assertEqual(summary["Risco em aberto"], "-21.41")
         self.assertEqual(summary["Lucro MT5 aberto"], "15.47")
         self.assertEqual(summary["Rollover custo"], "COM ROLLOVER")
@@ -778,6 +781,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             mt5_swap=-0.4,
             mt5_fee=-0.05,
             mt5_open_cost=-1.70,
+            mt5_projected_open_cost=-0.75,
             session_is_rollover=False,
         )
         closed_row = SimpleNamespace(
@@ -791,6 +795,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             mt5_swap=-0.4,
             mt5_fee=-0.05,
             mt5_open_cost=-1.70,
+            mt5_projected_open_cost=-0.75,
             session_is_rollover=True,
         )
 
@@ -798,6 +803,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         closed_view = dashboard_app._mt5_trade_audit_row(closed_row)
 
         self.assertEqual(open_view["Lucro projetado aberto"], "105.37")
+        self.assertEqual(open_view["Custo aberto projetado"], "-0.75")
         self.assertEqual(open_view["Custo aberto"], "-1.70")
         self.assertEqual(open_view["Corretagem aberta"], "-1.25")
         self.assertEqual(open_view["Swap aberto"], "-0.40")
@@ -806,6 +812,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(open_view["Lucro MT5 aberto"], "7.60")
         self.assertEqual(open_view["Rollover custo"], "SEM ROLLOVER")
         self.assertEqual(closed_view["Lucro projetado aberto"], "N/D")
+        self.assertEqual(closed_view["Custo aberto projetado"], "N/D")
         self.assertEqual(closed_view["Custo aberto"], "N/D")
         self.assertEqual(closed_view["Corretagem aberta"], "N/D")
         self.assertEqual(closed_view["Swap aberto"], "N/D")

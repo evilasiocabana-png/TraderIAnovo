@@ -1030,6 +1030,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
                                 "swap": -0.40,
                                 "fee": -0.05,
                                 "open_cost": -1.70,
+                                "projected_open_cost": -0.75,
                                 "time": "2026-07-01T00:00:00+00:00",
                             }
                         },
@@ -1053,6 +1054,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertAlmostEqual(report.rows[0].mt5_swap, -0.40)
         self.assertAlmostEqual(report.rows[0].mt5_fee, -0.05)
         self.assertAlmostEqual(report.rows[0].mt5_open_cost, -1.70)
+        self.assertAlmostEqual(report.rows[0].mt5_projected_open_cost, -0.75)
         self.assertEqual(report.rows[0].dynamic_exit_policy, "ATR_TRAILING_STOP")
         self.assertEqual(report.rows[0].dynamic_exit_action, "TRAIL_BY_ATR")
         self.assertEqual(report.rows[0].dynamic_exit_market_state, "TREND_RUNNER")
@@ -1100,6 +1102,49 @@ class DashboardViewModelContractTest(unittest.TestCase):
 
         self.assertEqual(report.rows[0].mt5_source, "DEAL")
         self.assertEqual(report.rows[0].operation_status, "FECHADA/HISTORICO")
+
+    def test_risco_aberto_usa_stop_atual_do_mt5(self) -> None:
+        class CurrentStopAuditDashboardService(DashboardService):
+            def _read_mt5_demo_execution_jsonl(self):
+                return [
+                    {
+                        "timestamp": "2026-07-10T02:49:00-03:00",
+                        "symbol": "EURUSD",
+                        "side": "BUY",
+                        "quantity": 0.1,
+                        "entry_price": 1.1000,
+                        "target": 1.1300,
+                        "stop": 1.0900,
+                        "accepted": True,
+                        "status": "ACCEPTED",
+                        "ticket": 7001,
+                    }
+                ]
+
+            def _load_mt5_trade_history(self):
+                return (
+                    {
+                        7001: {
+                            "ticket": 7001,
+                            "source": "POSITION",
+                            "symbol": "EURUSD",
+                            "side": "BUY",
+                            "volume": 0.1,
+                            "price": 1.1000,
+                            "stop": 1.0980,
+                            "profit": 0.0,
+                            "time": "2026-07-10T02:49:00+00:00",
+                        }
+                    },
+                    "CONNECTED",
+                    "Historico MT5 carregado.",
+                )
+
+        report = CurrentStopAuditDashboardService().get_mt5_trade_audit_report()
+
+        self.assertEqual(report.rows[0].operation_status, "ABERTA")
+        self.assertAlmostEqual(report.rows[0].mt5_stop or 0.0, 1.0980)
+        self.assertAlmostEqual(report.rows[0].projected_loss, -20.0)
 
     def test_relatorio_mt5_inclui_posicao_aberta_sem_ticket_local_casado(self) -> None:
         class OpenPositionAuditDashboardService(DashboardService):

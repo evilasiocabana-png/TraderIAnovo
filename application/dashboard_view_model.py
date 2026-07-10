@@ -684,11 +684,13 @@ class DashboardMT5TradeAuditRowViewModel:
     mt5_side: str = "N/D"
     mt5_volume: float = 0.0
     mt5_price: float = 0.0
+    mt5_stop: float | None = None
     mt5_realized_profit: float = 0.0
     mt5_commission: float = 0.0
     mt5_swap: float = 0.0
     mt5_fee: float = 0.0
     mt5_open_cost: float = 0.0
+    mt5_projected_open_cost: float = 0.0
     mt5_time: str = "N/D"
     audit_status: str = "PENDENTE"
     audit_message: str = "Aguardando confronto com historico MT5."

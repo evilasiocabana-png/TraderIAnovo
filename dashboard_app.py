@@ -1419,11 +1419,16 @@ def _mt5_open_profit_summary(rows: list[object]) -> dict[str, str]:
     projected_profit = sum(float(getattr(row, "projected_profit", 0.0) or 0.0) for row in rows)
     projected_loss = sum(float(getattr(row, "projected_loss", 0.0) or 0.0) for row in rows)
     open_cost = sum(float(getattr(row, "mt5_open_cost", 0.0) or 0.0) for row in rows)
+    projected_open_cost = sum(
+        float(getattr(row, "mt5_projected_open_cost", 0.0) or 0.0)
+        for row in rows
+    )
     mt5_profit = sum(float(getattr(row, "mt5_realized_profit", 0.0) or 0.0) for row in rows)
     has_rollover = any(bool(getattr(row, "session_is_rollover", False)) for row in rows)
     return {
         "Lucro projetado aberto": f"{projected_profit:.2f}",
         "Custo aberto": f"{open_cost:.2f}",
+        "Custo aberto projetado": f"{projected_open_cost:.2f}",
         "Risco em aberto": f"{projected_loss:.2f}",
         "Lucro MT5 aberto": f"{mt5_profit:.2f}",
         "Rollover custo": "COM ROLLOVER" if has_rollover else "SEM ROLLOVER",
@@ -1432,12 +1437,13 @@ def _mt5_open_profit_summary(rows: list[object]) -> dict[str, str]:
 
 def _exibir_resumo_lucro_em_negociacao_mt5(rows: list[object]) -> None:
     summary = _mt5_open_profit_summary(rows)
-    colunas = st.columns(5)
+    colunas = st.columns(6)
     colunas[0].metric("Lucro projetado aberto", summary["Lucro projetado aberto"])
-    colunas[1].metric("Custo aberto", summary["Custo aberto"])
-    colunas[2].metric("Risco em aberto", summary["Risco em aberto"])
-    colunas[3].metric("Lucro MT5 aberto", summary["Lucro MT5 aberto"])
-    colunas[4].metric("Rollover custo", summary["Rollover custo"])
+    colunas[1].metric("Custo aberto projetado", summary["Custo aberto projetado"])
+    colunas[2].metric("Custo aberto", summary["Custo aberto"])
+    colunas[3].metric("Risco em aberto", summary["Risco em aberto"])
+    colunas[4].metric("Lucro MT5 aberto", summary["Lucro MT5 aberto"])
+    colunas[5].metric("Rollover custo", summary["Rollover custo"])
 
 
 def _mt5_signal_metrics_by_pair(data: object) -> dict[str, dict[str, object]]:
@@ -1640,6 +1646,7 @@ def _mt5_trade_audit_row(
         "Prejuizo projetado app": f"{float(getattr(row, 'projected_loss', 0.0) or 0.0):.2f}",
         "Mercado aberto": _forex_market_session_status(row),
         "Lucro projetado aberto": _mt5_open_trade_money(row, "projected_profit"),
+        "Custo aberto projetado": _mt5_open_trade_money(row, "mt5_projected_open_cost"),
         "Custo aberto": _mt5_open_trade_money(row, "mt5_open_cost"),
         "Corretagem aberta": _mt5_open_trade_money(row, "mt5_commission"),
         "Swap aberto": _mt5_open_trade_money(row, "mt5_swap"),
@@ -1711,6 +1718,7 @@ def _mt5_trade_audit_row(
         "Lado MT5": str(getattr(row, "mt5_side", "N/D")),
         "Volume MT5": float(getattr(row, "mt5_volume", 0.0) or 0.0),
         "Preco MT5": _price_label(float(getattr(row, "mt5_price", 0.0) or 0.0)),
+        "Stop MT5 atual": _optional_price(getattr(row, "mt5_stop", None)),
         "Rollover": bool(getattr(row, "session_is_rollover", False)),
         "Overlap Londres NY": bool(
             getattr(row, "session_is_london_ny_overlap", False)
