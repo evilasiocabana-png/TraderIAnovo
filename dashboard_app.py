@@ -5116,6 +5116,7 @@ def _mt5_setup_suggestions_status_message(
 def _mt5_setup_suggestion_empty_row() -> dict[str, object]:
     return {
         "Alpha": "N/D",
+        "Beta": "LEGACY_CURRENT_EXIT",
         "Par": "N/D",
         "TF": "N/D",
         "Direcao": "WAIT",
@@ -5130,8 +5131,16 @@ def _mt5_setup_suggestion_empty_row() -> dict[str, object]:
 
 
 def _mt5_setup_suggestion_compact_row(suggestion: object) -> dict[str, object]:
+    parameters = getattr(suggestion, "parameters", {}) or {}
     return {
         "Alpha": getattr(suggestion, "alpha_id", "ALPHA001"),
+        "Beta": getattr(
+            suggestion,
+            "beta_id",
+            parameters.get("beta_id", "LEGACY_CURRENT_EXIT")
+            if isinstance(parameters, dict)
+            else "LEGACY_CURRENT_EXIT",
+        ),
         "Par": getattr(suggestion, "pair", "N/D"),
         "TF": getattr(suggestion, "timeframe", "M1"),
         "Direcao": getattr(suggestion, "decision", "WAIT"),
@@ -5141,7 +5150,7 @@ def _mt5_setup_suggestion_compact_row(suggestion: object) -> dict[str, object]:
             getattr(suggestion, "exit_model", "INITIAL_RISK_PLAN")
         ),
         "Resumo parametros": _setup_parameters_summary(
-            getattr(suggestion, "parameters", {}) or {}
+            parameters
         ),
         "Encaixe Tecnico": _optional_percent(getattr(suggestion, "score", 0.0)),
         "Confirmacao Historica": _optional_percent(
@@ -5179,6 +5188,7 @@ def _setup_status_label(status: object) -> str:
 def _mt5_setup_suggestion_detail_empty_row() -> dict[str, object]:
     return {
         "Alpha": "N/D",
+        "Beta": "LEGACY_CURRENT_EXIT",
         "Par": "N/D",
         "Timeframe": "N/D",
         "Setup sugerido": "N/D",
@@ -5197,8 +5207,16 @@ def _mt5_setup_suggestion_detail_empty_row() -> dict[str, object]:
 
 
 def _mt5_setup_suggestion_row(suggestion: object) -> dict[str, object]:
+    parameters = getattr(suggestion, "parameters", {}) or {}
     return {
         "Alpha": getattr(suggestion, "alpha_id", "ALPHA001"),
+        "Beta": getattr(
+            suggestion,
+            "beta_id",
+            parameters.get("beta_id", "LEGACY_CURRENT_EXIT")
+            if isinstance(parameters, dict)
+            else "LEGACY_CURRENT_EXIT",
+        ),
         "Par": getattr(suggestion, "pair", "N/D"),
         "Timeframe": getattr(suggestion, "timeframe", "M1"),
         "Setup sugerido": getattr(suggestion, "model", "WAIT_NO_EDGE"),
@@ -5209,7 +5227,7 @@ def _mt5_setup_suggestion_row(suggestion: object) -> dict[str, object]:
         ),
         "Hint legado": getattr(suggestion, "stop_management", "N/D"),
         "Parametros": _scenario_parameters_label(
-            getattr(suggestion, "parameters", {}) or {}
+            parameters
         ),
         "Encaixe Tecnico": _optional_percent(getattr(suggestion, "score", 0.0)),
         "Confirmacao Historica": _optional_percent(
