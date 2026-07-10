@@ -3,13 +3,13 @@
 Ultima missao concluida:
 
 ```text
-MISSION_ROLLOVER_FIRST_DAILY_OPERATION_LAB_DECISION
+ARCHITECTURE_AUDIT_ALPHA_BETA
 ```
 
 Relatorio:
 
 ```text
-codex/completed/MISSION_ROLLOVER_FIRST_DAILY_OPERATION_LAB_DECISION/EXECUTION_REPORT.md
+codex/completed/ARCHITECTURE_AUDIT_ALPHA_BETA_REPORT.md
 ```
 
 Status:
@@ -20,15 +20,13 @@ completed
 
 Resumo:
 
-- criado `PostRolloverAnalyzer`;
-- criado evento `POST_ROLLOVER_DAILY_OPEN`;
-- evento aparece como `EVENT_POST_ROLLOVER_DAILY_OPEN` no ranking do Lab;
-- o Lab passa a avaliar o pos-rollover como primeira oportunidade candidata do dia;
-- se houver edge, gera candidato `POST_ROLLOVER_TRADE_READY`;
-- se nao houver edge, registra skip e volta para `NORMAL_LAB_FLOW`;
-- nenhuma Alpha existente foi removida ou substituida;
-- nao foi criada Alpha 16;
-- nenhuma ordem, SL ou TP foi alterado.
+- auditoria arquitetural read-only concluida;
+- confirmado que Alpha representa a logica de entrada do Research Lab;
+- identificado que ainda nao existe `beta_id` formal;
+- recomendado `LEGACY_CURRENT_EXIT` como Beta de compatibilidade;
+- confirmado que entrada nao deve depender de pesquisa de melhor saida;
+- Position Manager deve decidir gestao/saida somente apos posicao aberta;
+- nenhuma alteracao operacional foi realizada.
 
 Proxima missao pendente no inbox:
 
