@@ -17,3 +17,8 @@ class ExecutionOrder:
     entry_setup: str = "N/D"
     exit_setup: str = "DYNAMIC_POSITION_MANAGER"
     exit_policy: str = "DYNAMIC_POSITION_MANAGER"
+    alpha_id: str = "ALPHA001"
+    alpha_version: str = "v1"
+    beta_id: str = "LEGACY_CURRENT_EXIT"
+    beta_version: str = "BETA v1"
+    beta_mode: str = "PROTECT_ONLY"

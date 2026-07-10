@@ -35,6 +35,8 @@ class PositionManagerServiceTest(unittest.TestCase):
         )
 
         self.assertEqual(result.status, "STOP_MOVED")
+        self.assertEqual(result.beta_id, "LEGACY_CURRENT_EXIT")
+        self.assertEqual(result.beta_mode, "PROTECT_ONLY")
         self.assertAlmostEqual(provider.modified_stop, 1.1020)
         self.assertEqual(provider.modify_calls, 1)
         self.assertEqual(provider.submit_order_calls, 0)

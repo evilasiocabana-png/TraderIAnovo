@@ -24,6 +24,8 @@ INDICATOR_BUNDLE_VERSION = "Indicators v9"
 MICROSTRUCTURE_VERSION = "Micro v2"
 VALIDATION_PIPELINE_VERSION = "VAL v4"
 STRATEGY_DEFINITION_VERSION = "STRAT v3"
+DEFAULT_BETA_ID = "LEGACY_CURRENT_EXIT"
+DEFAULT_BETA_VERSION = "BETA v1"
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,11 @@ class MT5DemoTradePlan:
     target_reason: str = ""
     exit_model: str = "NONE"
     stop_management: str = "DYNAMIC_POSITION_MANAGER"
+    alpha_id: str = DEFAULT_ALPHA_ID
+    alpha_version: str = DEFAULT_ALPHA_VERSION
+    beta_id: str = DEFAULT_BETA_ID
+    beta_version: str = DEFAULT_BETA_VERSION
+    beta_mode: str = "PROTECT_ONLY"
     trade_plan_version: str = TRADE_PLAN_VERSION
 
 
@@ -241,10 +248,18 @@ class MT5DemoRobotService:
             entry_setup=signal.active_model,
             exit_setup=trade_plan.stop_management,
             exit_policy=trade_plan.stop_management,
+            alpha_id=trade_plan.alpha_id or signal.alpha_id,
+            alpha_version=trade_plan.alpha_version or signal.alpha_version,
+            beta_id=trade_plan.beta_id or DEFAULT_BETA_ID,
+            beta_version=trade_plan.beta_version or DEFAULT_BETA_VERSION,
+            beta_mode=trade_plan.beta_mode or "PROTECT_ONLY",
         )
         self.execution_service.pending_audit_metadata = {
-            "alpha_id": signal.alpha_id,
-            "alpha_version": signal.alpha_version,
+            "alpha_id": trade_plan.alpha_id or signal.alpha_id,
+            "alpha_version": trade_plan.alpha_version or signal.alpha_version,
+            "beta_id": trade_plan.beta_id or DEFAULT_BETA_ID,
+            "beta_version": trade_plan.beta_version or DEFAULT_BETA_VERSION,
+            "beta_mode": trade_plan.beta_mode or "PROTECT_ONLY",
             "session_policy_version": SESSION_POLICY_VERSION,
             "execution_pipeline_version": EXECUTION_PIPELINE_VERSION,
             "lab_configuration_version": signal.lab_configuration_version,
@@ -333,6 +348,8 @@ class MT5DemoRobotService:
             trade_plan.trade_plan_version,
             trade_plan.source,
             trade_plan.status,
+            trade_plan.beta_id,
+            trade_plan.beta_version,
         )
         return "|".join(str(part or "N/D").upper() for part in parts)
 

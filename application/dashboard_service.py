@@ -2779,6 +2779,19 @@ class DashboardService:
             "lab_alpha_id": str(
                 dict(robot.lab_configuration).get("alpha", "ALPHA001")
             ),
+            "alpha_id": str(dict(robot.lab_configuration).get("alpha", "ALPHA001")),
+            "alpha_version": str(
+                dict(robot.lab_configuration).get("alpha_version", "v1")
+            ),
+            "beta_id": str(
+                dict(robot.lab_configuration).get("beta_id", "LEGACY_CURRENT_EXIT")
+            ),
+            "beta_version": str(
+                dict(robot.lab_configuration).get("beta_version", "BETA v1")
+            ),
+            "beta_mode": str(
+                dict(robot.lab_configuration).get("beta_mode", "PROTECT_ONLY")
+            ),
             "lab_timeframe": str(
                 dict(robot.lab_configuration).get("timeframe", robot.timeframe)
             ),
@@ -3365,6 +3378,23 @@ class DashboardService:
                 operation_status="NAO_ENCONTRADA",
                 audit_status="NAO_ENCONTRADO_MT5",
                 audit_message="Ticket local aceito nao encontrado no historico MT5.",
+                alpha_id=str(record.get("alpha_id") or "ALPHA001"),
+                alpha_version=str(record.get("alpha_version") or "N/D"),
+                beta_id=str(
+                    record.get("beta_id")
+                    or (position_manager_record or {}).get("beta_id")
+                    or "LEGACY_CURRENT_EXIT"
+                ),
+                beta_version=str(
+                    record.get("beta_version")
+                    or (position_manager_record or {}).get("beta_version")
+                    or "BETA v1"
+                ),
+                beta_mode=str(
+                    record.get("beta_mode")
+                    or (position_manager_record or {}).get("beta_mode")
+                    or "PROTECT_ONLY"
+                ),
                 dynamic_exit_policy=str(
                     record.get("dynamic_exit_policy") or record.get("stop_management") or "N/D"
                 ),
@@ -3455,6 +3485,23 @@ class DashboardService:
             mt5_time=str(mt5_record.get("time") or "N/D"),
             audit_status=status,
             audit_message=message,
+            alpha_id=str(record.get("alpha_id") or "ALPHA001"),
+            alpha_version=str(record.get("alpha_version") or "N/D"),
+            beta_id=str(
+                record.get("beta_id")
+                or (position_manager_record or {}).get("beta_id")
+                or "LEGACY_CURRENT_EXIT"
+            ),
+            beta_version=str(
+                record.get("beta_version")
+                or (position_manager_record or {}).get("beta_version")
+                or "BETA v1"
+            ),
+            beta_mode=str(
+                record.get("beta_mode")
+                or (position_manager_record or {}).get("beta_mode")
+                or "PROTECT_ONLY"
+            ),
             dynamic_exit_policy=str(
                 record.get("dynamic_exit_policy") or record.get("stop_management") or "N/D"
             ),
@@ -4223,7 +4270,7 @@ class DashboardService:
             active_model=row.active_model,
             reason=row.reason,
             alpha_id=row.lab_alpha_id,
-            alpha_version=str(row.lab_parameters.get("alpha_version", "1.0")),
+            alpha_version=row.lab_alpha_version,
             technical_score=row.confidence,
             historical_confirmation=row.lab_confidence,
             temporal_blocked=bool(session_filter_enabled and temporal_blocked),
@@ -4425,6 +4472,12 @@ class DashboardService:
             stop_reason=plan.stop_reason,
             target_reason=plan.target_reason,
             exit_model=plan.exit_model,
+            stop_management=plan.stop_management,
+            alpha_id=plan.alpha_id,
+            alpha_version=plan.alpha_version,
+            beta_id=plan.beta_id,
+            beta_version=plan.beta_version,
+            beta_mode=plan.beta_mode,
         )
 
     def _mt5_demo_execution_enabled(self) -> bool:
@@ -4644,6 +4697,9 @@ class DashboardService:
                 ticket=row.ticket,
                 alpha_id=row.alpha_id,
                 alpha_version=row.alpha_version,
+                beta_id=row.beta_id,
+                beta_version=row.beta_version,
+                beta_mode=row.beta_mode,
                 technical_score=row.technical_score,
                 historical_confirmation=row.historical_confirmation,
                 entry_price=row.entry_price,
@@ -5053,6 +5109,13 @@ class DashboardService:
                 lab_parameters,
             ),
             lab_alpha_id=str(lab_parameters.get("alpha", "ALPHA001")),
+            lab_alpha_version=str(lab_parameters.get("alpha_version", "v1")),
+            beta_id=str(lab_parameters.get("beta_id", research_plan.beta_id)),
+            beta_version=str(
+                lab_parameters.get("beta_version", research_plan.beta_version)
+            ),
+            beta_mode=str(lab_parameters.get("beta_mode", research_plan.beta_mode)),
+            beta_reason=research_plan.beta_reason,
             lab_timeframe=lab_timeframe,
             lab_parameters=lab_parameters,
             lab_configuration_source=(
@@ -5405,6 +5468,10 @@ class DashboardService:
             certification_status=row.lab_ict_status,
             certification_usage=row.lab_ict_usage,
             certification_rejection_reasons=row.lab_ict_rejection_reasons,
+            alpha_id=row.lab_alpha_id,
+            alpha_version=row.lab_alpha_version,
+            beta_id=row.beta_id,
+            beta_version=row.beta_version,
         )
 
     def _mt5_research_trade_plan_for_data(
@@ -5425,7 +5492,12 @@ class DashboardService:
         certification_status: str = "CERTIFICADA_A_PLUS",
         certification_usage: str = "Operacao automatica Demo liberada.",
         certification_rejection_reasons: tuple[str, ...] = (),
+        alpha_id: str = "ALPHA001",
+        alpha_version: str = "v1",
+        beta_id: str = "LEGACY_CURRENT_EXIT",
+        beta_version: str = "BETA v1",
     ) -> MT5ResearchTradePlan:
+        parameters = lab_parameters or {}
         return self.mt5_research_trade_plan_engine.build_plan(
             MT5ResearchTradePlanInput(
                 symbol=symbol,
@@ -5437,15 +5509,19 @@ class DashboardService:
                 active_model=active_model,
                 reason=reason,
                 atr_stop_factor=self._optional_float(
-                    (lab_parameters or {}).get("atr_stop_factor")
+                    parameters.get("atr_stop_factor")
                 ),
                 research_risk_reward=self._optional_float(
-                    (lab_parameters or {}).get("rr")
+                    parameters.get("rr")
                 ),
                 stop_management=str(
-                    (lab_parameters or {}).get("stop_management", "FIXED_STOP")
+                    parameters.get("stop_management", "FIXED_STOP")
                 ),
-                stop_management_parameters=dict(lab_parameters or {}),
+                stop_management_parameters=dict(parameters),
+                alpha_id=str(parameters.get("alpha") or alpha_id or "ALPHA001"),
+                alpha_version=str(parameters.get("alpha_version") or alpha_version or "v1"),
+                beta_id=str(parameters.get("beta_id") or beta_id or "LEGACY_CURRENT_EXIT"),
+                beta_version=str(parameters.get("beta_version") or beta_version or "BETA v1"),
                 certification_demo_allowed=certification_demo_allowed,
                 certification_score=certification_score,
                 certification_grade=certification_grade,

@@ -46,9 +46,13 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
         self.assertEqual(order.entry_price, plan.entry_price)
         self.assertEqual(order.stop, plan.stop)
         self.assertEqual(order.target, plan.target)
+        self.assertEqual(order.beta_id, "LEGACY_CURRENT_EXIT")
+        self.assertEqual(order.beta_mode, "PROTECT_ONLY")
         audit = service.execution_service.list_audit_log()[0]
         self.assertEqual(audit.alpha_id, "ALPHA007")
         self.assertEqual(audit.alpha_version, "v1.6")
+        self.assertEqual(audit.beta_id, "LEGACY_CURRENT_EXIT")
+        self.assertEqual(audit.beta_mode, "PROTECT_ONLY")
         self.assertEqual(audit.session_policy_version, "v2.1")
         self.assertEqual(audit.execution_pipeline_version, "v3.4")
         self.assertEqual(audit.lab_configuration_version, "v8")

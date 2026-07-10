@@ -179,6 +179,12 @@ class MT5VisualSignalExporter:
             "score": row.active_model_score,
             "confidence": row.confidence,
             "lab_alpha_id": row.lab_alpha_id,
+            "alpha_id": row.lab_alpha_id,
+            "alpha_version": row.lab_alpha_version,
+            "beta_id": row.beta_id,
+            "beta_version": row.beta_version,
+            "beta_mode": row.beta_mode,
+            "beta_reason": row.beta_reason,
             "lab_timeframe": row.lab_timeframe,
             "lab_configuration_source": row.lab_configuration_source,
             "lab_configuration": self._lab_configuration(row),
@@ -214,6 +220,7 @@ class MT5VisualSignalExporter:
         return "\n".join(
             (
                 self._text_or_na(row.lab_alpha_id),
+                f"Beta {self._text_or_na(row.beta_id)}",
                 "",
                 "Entrada",
                 "--------",

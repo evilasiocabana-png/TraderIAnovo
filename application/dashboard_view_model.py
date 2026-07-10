@@ -218,6 +218,11 @@ class DashboardMT5ForexSignalRowViewModel:
     active_model_score: float = 0.0
     active_model_indicators: tuple[str, ...] = ()
     lab_alpha_id: str = "ALPHA001"
+    lab_alpha_version: str = "v1"
+    beta_id: str = "LEGACY_CURRENT_EXIT"
+    beta_version: str = "BETA v1"
+    beta_mode: str = "PROTECT_ONLY"
+    beta_reason: str = "Position Manager administra a saida apos a entrada."
     lab_timeframe: str = "M1"
     lab_parameters: dict[str, str] = field(default_factory=dict)
     lab_configuration_source: str = "DEFAULT"
@@ -589,6 +594,9 @@ class DashboardDemoRobotAuditViewModel:
     ticket: int | None = None
     alpha_id: str = "N/D"
     alpha_version: str = "N/D"
+    beta_id: str = "LEGACY_CURRENT_EXIT"
+    beta_version: str = "BETA v1"
+    beta_mode: str = "PROTECT_ONLY"
     session_policy_version: str = "N/D"
     execution_pipeline_version: str = "N/D"
     lab_configuration_version: str = "N/D"
@@ -697,7 +705,11 @@ class DashboardMT5TradeAuditRowViewModel:
     session_policy_version: str = "N/D"
     execution_pipeline_version: str = "N/D"
     lab_configuration_version: str = "N/D"
+    alpha_id: str = "ALPHA001"
     alpha_version: str = "N/D"
+    beta_id: str = "LEGACY_CURRENT_EXIT"
+    beta_version: str = "BETA v1"
+    beta_mode: str = "PROTECT_ONLY"
     trade_plan_version: str = "N/D"
     execution_engine_version: str = "N/D"
     indicator_bundle_version: str = "N/D"

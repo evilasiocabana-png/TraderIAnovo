@@ -1147,6 +1147,11 @@ class MT5DemoExecutionProvider:
             "entry_setup": getattr(order, "entry_setup", "N/D"),
             "exit_setup": getattr(order, "exit_setup", "DYNAMIC_POSITION_MANAGER"),
             "exit_policy": getattr(order, "exit_policy", "DYNAMIC_POSITION_MANAGER"),
+            "alpha_id": getattr(order, "alpha_id", "ALPHA001"),
+            "alpha_version": getattr(order, "alpha_version", "v1"),
+            "beta_id": getattr(order, "beta_id", "LEGACY_CURRENT_EXIT"),
+            "beta_version": getattr(order, "beta_version", "BETA v1"),
+            "beta_mode": getattr(order, "beta_mode", "PROTECT_ONLY"),
         }
         with self.log_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(payload, ensure_ascii=True) + "\n")

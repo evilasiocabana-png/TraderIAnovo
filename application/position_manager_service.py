@@ -10,6 +10,9 @@ from typing import Any, Protocol
 
 from application.demo_execution_service import DisabledDemoExecutionProvider
 
+DEFAULT_BETA_ID = "LEGACY_CURRENT_EXIT"
+DEFAULT_BETA_VERSION = "BETA v1"
+
 
 class PositionManagerProvider(Protocol):
     """Porta MT5 necessaria para gestao de posicao aberta."""
@@ -67,6 +70,11 @@ class PositionTradePlan:
     target: float | None
     stop_management: str
     stop_management_parameters: dict[str, Any] = field(default_factory=dict)
+    alpha_id: str = "ALPHA001"
+    alpha_version: str = "v1"
+    beta_id: str = DEFAULT_BETA_ID
+    beta_version: str = DEFAULT_BETA_VERSION
+    beta_mode: str = "PROTECT_ONLY"
     atr: float | None = None
     momentum: float | None = None
     volatility: float | None = None
@@ -126,6 +134,15 @@ class PositionTradePlan:
             stop_management_parameters=dict(
                 signal.get("stop_management_parameters") or {}
             ),
+            alpha_id=str(
+                signal.get("alpha_id")
+                or signal.get("lab_alpha_id")
+                or "ALPHA001"
+            ),
+            alpha_version=str(signal.get("alpha_version") or "v1"),
+            beta_id=_normalize_beta_id(signal.get("beta_id")),
+            beta_version=str(signal.get("beta_version") or DEFAULT_BETA_VERSION),
+            beta_mode=str(signal.get("beta_mode") or "PROTECT_ONLY").upper(),
             atr=atr,
             momentum=momentum,
             volatility=volatility,
@@ -181,6 +198,9 @@ class PositionManagerDecision:
     action: str
     reason: str
     confidence: float
+    beta_id: str = DEFAULT_BETA_ID
+    beta_version: str = DEFAULT_BETA_VERSION
+    beta_mode: str = "PROTECT_ONLY"
     allowed_to_execute: bool = False
     execution_mode: str = "READ_ONLY"
     requested_stop: float | None = None
@@ -219,6 +239,11 @@ class PositionManagerResult:
     provider_result: str = "N/D"
     submitted: bool = False
     success: bool = False
+    alpha_id: str = "ALPHA001"
+    alpha_version: str = "v1"
+    beta_id: str = DEFAULT_BETA_ID
+    beta_version: str = DEFAULT_BETA_VERSION
+    beta_mode: str = "PROTECT_ONLY"
 
 
 @dataclass
@@ -275,6 +300,11 @@ class PositionManagerService:
                     action="STOP_MAINTAINED",
                     message="Plano do Lab nao esta valido; SL preservado.",
                     policy=plan.stop_management,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=plan.beta_id,
+                    beta_version=plan.beta_version,
+                    beta_mode=plan.beta_mode,
                     side=plan.side,
                     candle_time=plan.candle_time,
                     entry=plan.entry,
@@ -292,6 +322,11 @@ class PositionManagerService:
                     action="STOP_MAINTAINED",
                     message="Sem posicao aberta no MT5; nada a gerenciar.",
                     policy=plan.stop_management,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=plan.beta_id,
+                    beta_version=plan.beta_version,
+                    beta_mode=plan.beta_mode,
                     side=plan.side,
                     candle_time=plan.candle_time,
                     entry=plan.entry,
@@ -313,6 +348,11 @@ class PositionManagerService:
                     action="STOP_MAINTAINED",
                     message="Stop atual ausente na posicao MT5; SL preservado.",
                     policy=plan.stop_management,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=plan.beta_id,
+                    beta_version=plan.beta_version,
+                    beta_mode=plan.beta_mode,
                     side=side,
                     candle_time=plan.candle_time,
                     entry=entry,
@@ -330,6 +370,11 @@ class PositionManagerService:
                     action="STOP_MAINTAINED",
                     message="Preco atual ausente; SL preservado.",
                     policy=plan.stop_management,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=plan.beta_id,
+                    beta_version=plan.beta_version,
+                    beta_mode=plan.beta_mode,
                     side=side,
                     old_stop=current_stop,
                     candle_time=plan.candle_time,
@@ -368,6 +413,11 @@ class PositionManagerService:
                     r_multiple=snapshot.r_multiple,
                     position_state=decision.state,
                     confidence=decision.confidence,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=decision.beta_id,
+                    beta_version=decision.beta_version,
+                    beta_mode=decision.beta_mode,
                     evidence=decision.evidence,
                     candle_time=plan.candle_time,
                     audit_tags=("HOLD_POSITION", decision.state),
@@ -393,6 +443,11 @@ class PositionManagerService:
                     r_multiple=snapshot.r_multiple,
                     position_state=decision.state,
                     confidence=decision.confidence,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=decision.beta_id,
+                    beta_version=decision.beta_version,
+                    beta_mode=decision.beta_mode,
                     evidence=decision.evidence,
                     candle_time=plan.candle_time,
                     missing_data=missing,
@@ -417,6 +472,11 @@ class PositionManagerService:
                     r_multiple=snapshot.r_multiple,
                     position_state=decision.state,
                     confidence=decision.confidence,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=decision.beta_id,
+                    beta_version=decision.beta_version,
+                    beta_mode=decision.beta_mode,
                     evidence=decision.evidence,
                     candle_time=plan.candle_time,
                     audit_tags=("STOP_MOVE_BLOCKED_NOT_PROTECTIVE",),
@@ -440,6 +500,11 @@ class PositionManagerService:
                     r_multiple=snapshot.r_multiple,
                     position_state=decision.state,
                     confidence=decision.confidence,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=decision.beta_id,
+                    beta_version=decision.beta_version,
+                    beta_mode=decision.beta_mode,
                     evidence=decision.evidence,
                     candle_time=plan.candle_time,
                     audit_tags=("STOP_MOVE_BLOCKED_INVALID_MARKET_SIDE",),
@@ -466,6 +531,11 @@ class PositionManagerService:
                     r_multiple=snapshot.r_multiple,
                     position_state=decision.state,
                     confidence=decision.confidence,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=decision.beta_id,
+                    beta_version=decision.beta_version,
+                    beta_mode=decision.beta_mode,
                     evidence=decision.evidence,
                     candle_time=plan.candle_time,
                     execution_status="BLOCKED_BY_CONFIG",
@@ -493,6 +563,11 @@ class PositionManagerService:
                 r_multiple=snapshot.r_multiple,
                 position_state=decision.state,
                 confidence=decision.confidence,
+                alpha_id=plan.alpha_id,
+                alpha_version=plan.alpha_version,
+                beta_id=decision.beta_id,
+                beta_version=decision.beta_version,
+                beta_mode=decision.beta_mode,
                 evidence=decision.evidence,
                 candle_time=plan.candle_time,
                 execution_mode="AUTOMATIC_DEMO",
@@ -569,6 +644,9 @@ class PositionManagerService:
                 action="NO_ACTION_BAD_CONTEXT",
                 reason="Contexto de execucao incompleto ou inseguro; posicao preservada.",
                 confidence=0.0,
+                beta_id=plan.beta_id,
+                beta_version=plan.beta_version,
+                beta_mode=plan.beta_mode,
                 evidence=snapshot.evidence,
             )
         if self.early_exit_enabled and self._early_exit_confirmed(snapshot):
@@ -580,6 +658,9 @@ class PositionManagerService:
                 action="FULL_EXIT",
                 reason=f"Saida antecipada confirmada dinamicamente: {reason}.",
                 confidence=min(0.95, 0.45 + len(snapshot.evidence) * 0.12),
+                beta_id=plan.beta_id,
+                beta_version=plan.beta_version,
+                beta_mode=plan.beta_mode,
                 allowed_to_execute=self.assisted_execution_enabled,
                 execution_mode="AUTOMATIC_DEMO"
                 if self.assisted_execution_enabled
@@ -596,6 +677,9 @@ class PositionManagerService:
                 action="HOLD_POSITION",
                 reason="Posicao nova; preservar stop inicial e alvo original.",
                 confidence=0.50,
+                beta_id=plan.beta_id,
+                beta_version=plan.beta_version,
+                beta_mode=plan.beta_mode,
                 evidence=snapshot.evidence,
             )
         if snapshot.r_multiple < 0.50:
@@ -609,6 +693,9 @@ class PositionManagerService:
                     "e dar espaco ao plano do Lab."
                 ),
                 confidence=0.55,
+                beta_id=plan.beta_id,
+                beta_version=plan.beta_version,
+                beta_mode=plan.beta_mode,
                 evidence=snapshot.evidence + ("PROTECTION_WAIT_UNDER_0_50R",),
             )
         if snapshot.r_multiple < 1.00:
@@ -622,6 +709,9 @@ class PositionManagerService:
                     "nao move SL antes de confirmacao minima de 1.00R."
                 ),
                 confidence=0.55,
+                beta_id=plan.beta_id,
+                beta_version=plan.beta_version,
+                beta_mode=plan.beta_mode,
                 evidence=snapshot.evidence + ("PROTECTION_WAIT_UNDER_1_00R",),
             )
         candidate = self._dynamic_candidate_stop(
@@ -640,6 +730,9 @@ class PositionManagerService:
                 action="PROTECT_POSITION",
                 reason="Protecao candidata definida dinamicamente pelo cenario atual.",
                 confidence=0.60,
+                beta_id=plan.beta_id,
+                beta_version=plan.beta_version,
+                beta_mode=plan.beta_mode,
                 allowed_to_execute=self.assisted_execution_enabled,
                 execution_mode="AUTOMATIC_DEMO"
                 if self.assisted_execution_enabled
@@ -655,6 +748,9 @@ class PositionManagerService:
                 action="HOLD_POSITION",
                 reason="Politica fixa; manter plano original.",
                 confidence=0.50,
+                beta_id=plan.beta_id,
+                beta_version=plan.beta_version,
+                beta_mode=plan.beta_mode,
                 evidence=snapshot.evidence,
             )
         return PositionManagerDecision(
@@ -664,6 +760,9 @@ class PositionManagerService:
             action="HOLD_POSITION",
             reason="Cenario sem confirmacao para protecao ou saida; manter plano original.",
             confidence=0.40,
+            beta_id=plan.beta_id,
+            beta_version=plan.beta_version,
+            beta_mode=plan.beta_mode,
             evidence=snapshot.evidence,
         )
 
@@ -770,6 +869,11 @@ class PositionManagerService:
                     r_multiple=snapshot.r_multiple,
                     position_state=decision.state,
                     confidence=decision.confidence,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=decision.beta_id,
+                    beta_version=decision.beta_version,
+                    beta_mode=decision.beta_mode,
                     evidence=decision.evidence,
                     final_exit_reason=decision.final_exit_reason,
                     requested_close_volume=decision.requested_close_volume,
@@ -804,6 +908,11 @@ class PositionManagerService:
                 r_multiple=snapshot.r_multiple,
                 position_state=decision.state,
                 confidence=decision.confidence,
+                alpha_id=plan.alpha_id,
+                alpha_version=plan.alpha_version,
+                beta_id=decision.beta_id,
+                beta_version=decision.beta_version,
+                beta_mode=decision.beta_mode,
                 evidence=decision.evidence,
                 final_exit_reason=decision.final_exit_reason,
                 requested_close_volume=decision.requested_close_volume,
@@ -1200,3 +1309,8 @@ def _non_negative_float(value: object) -> float:
     except (TypeError, ValueError):
         return 0.0
     return max(parsed, 0.0)
+
+
+def _normalize_beta_id(value: object) -> str:
+    normalized = str(value or DEFAULT_BETA_ID).strip().upper()
+    return normalized or DEFAULT_BETA_ID

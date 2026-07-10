@@ -20,6 +20,9 @@ SUPPORTED_STOP_MANAGEMENT_POLICIES = frozenset(
     )
 )
 
+DEFAULT_BETA_ID = "LEGACY_CURRENT_EXIT"
+DEFAULT_BETA_VERSION = "BETA v1"
+
 STOP_MANAGEMENT_PARAMETER_KEYS = {
     "DYNAMIC_POSITION_MANAGER": (
         "atr_trailing_factor",
@@ -81,6 +84,10 @@ class MT5ResearchTradePlanInput:
     research_risk_reward: float | None = None
     stop_management: str = "DYNAMIC_POSITION_MANAGER"
     stop_management_parameters: dict[str, str] = field(default_factory=dict)
+    alpha_id: str = "ALPHA001"
+    alpha_version: str = "v1"
+    beta_id: str = DEFAULT_BETA_ID
+    beta_version: str = DEFAULT_BETA_VERSION
     certification_demo_allowed: bool = True
     certification_score: float = 100.0
     certification_grade: str = "A+"
@@ -114,6 +121,12 @@ class MT5ResearchTradePlan:
     stop_management: str = "FIXED_STOP"
     stop_management_parameters: dict[str, str] = field(default_factory=dict)
     stop_management_reason: str = "Saida dinamica decidida pelo Position Manager."
+    alpha_id: str = "ALPHA001"
+    alpha_version: str = "v1"
+    beta_id: str = DEFAULT_BETA_ID
+    beta_version: str = DEFAULT_BETA_VERSION
+    beta_mode: str = "PROTECT_ONLY"
+    beta_reason: str = "Position Manager administra a saida apos a entrada."
     source: str = "RESEARCH_LAB"
     reason: str = ""
     invalid_reason: str = ""
@@ -222,6 +235,13 @@ class MT5ResearchTradePlanEngine:
             "na aprovacao do trade; o Position Manager decidira dinamicamente "
             "apos existir posicao aberta."
         )
+        beta_id = self._normalize_beta_id(payload.beta_id)
+        beta_version = str(payload.beta_version or DEFAULT_BETA_VERSION)
+        beta_reason = (
+            f"Beta {beta_id}: gestao pos-entrada executada pelo Position Manager. "
+            "O Lab define entrada, stop inicial e alvo; o Beta protege/gerencia "
+            "somente depois de existir posicao aberta."
+        )
         stop_reason = (
             f"Stop definido por {stop_multiplier:.2f}x ATR com distancia minima "
             "institucional."
@@ -251,6 +271,12 @@ class MT5ResearchTradePlanEngine:
             stop_management=stop_management,
             stop_management_parameters=stop_management_parameters,
             stop_management_reason=stop_management_reason,
+            alpha_id=str(payload.alpha_id or "ALPHA001"),
+            alpha_version=str(payload.alpha_version or "v1"),
+            beta_id=beta_id,
+            beta_version=beta_version,
+            beta_mode="PROTECT_ONLY",
+            beta_reason=beta_reason,
             status="PLANO_VALIDO",
             reason=(
                 f"{payload.active_model}: entrada aprovada com stop inicial "
@@ -270,6 +296,7 @@ class MT5ResearchTradePlanEngine:
                 f"Stop calculado com {stop_multiplier:.2f}x ATR/distancia minima.",
                 f"RR inicial {risk_reward:.2f}.",
                 "Saida dinamica sera decidida pelo Position Manager em tempo de posicao.",
+                beta_reason,
                 f"Risco {risk_pips:.1f} pips ({risk_percent:.4f}%).",
                 f"Ganho potencial {reward_pips:.1f} pips ({reward_percent:.4f}%).",
             ),
@@ -317,6 +344,10 @@ class MT5ResearchTradePlanEngine:
         if normalized in SUPPORTED_STOP_MANAGEMENT_POLICIES:
             return normalized
         return "DYNAMIC_POSITION_MANAGER"
+
+    def _normalize_beta_id(self, value: str | None) -> str:
+        normalized = str(value or DEFAULT_BETA_ID).strip().upper()
+        return normalized or DEFAULT_BETA_ID
 
     def _stop_management_parameters(
         self,
@@ -401,6 +432,15 @@ class MT5ResearchTradePlanEngine:
             ),
             stop_management_reason=(
                 "Saida dinamica registrada, mas sem aplicacao porque o plano nao esta valido."
+            ),
+            alpha_id=str(payload.alpha_id or "ALPHA001"),
+            alpha_version=str(payload.alpha_version or "v1"),
+            beta_id=self._normalize_beta_id(payload.beta_id),
+            beta_version=str(payload.beta_version or DEFAULT_BETA_VERSION),
+            beta_mode="PROTECT_ONLY",
+            beta_reason=(
+                "Beta registrado por compatibilidade; sem execucao porque o plano "
+                "nao esta valido."
             ),
             status=status,
             reason=reason,
