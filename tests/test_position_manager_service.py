@@ -81,7 +81,8 @@ class PositionManagerServiceTest(unittest.TestCase):
             )
         )
 
-        self.assertEqual(result.status, "STOP_MOVE_BLOCKED_NOT_PROTECTIVE")
+        self.assertEqual(result.status, "POSITION_HELD")
+        self.assertEqual(result.action, "HOLD_POSITION")
         self.assertEqual(provider.modify_calls, 0)
 
     def test_sem_plano_nao_move(self) -> None:
@@ -113,7 +114,7 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertEqual(result.status, "POSITION_ABSENT")
         self.assertEqual(provider.modify_calls, 0)
 
-    def test_sem_atr_nao_move_atr_trailing(self) -> None:
+    def test_sem_atr_ainda_pode_proteger_por_break_even(self) -> None:
         provider = _FakePositionProvider(
             position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
             price=1.1040,
@@ -124,8 +125,9 @@ class PositionManagerServiceTest(unittest.TestCase):
             self._plan("EURUSD", "BUY", stop_management="ATR_TRAILING_STOP", atr=None)
         )
 
-        self.assertEqual(result.status, "ATR_ABSENT")
-        self.assertEqual(provider.modify_calls, 0)
+        self.assertEqual(result.status, "STOP_MOVED")
+        self.assertAlmostEqual(provider.modified_stop or 0.0, 1.1000)
+        self.assertEqual(provider.modify_calls, 1)
 
     def test_break_even_move_para_entrada(self) -> None:
         provider = _FakePositionProvider(
@@ -142,6 +144,7 @@ class PositionManagerServiceTest(unittest.TestCase):
                 stop=1.33508,
                 target=1.34043,
                 stop_management="BREAK_EVEN",
+                atr=None,
                 parameters={
                     "break_even_trigger_rr": "1.0",
                     "break_even_offset_pips": "0.0",
@@ -197,7 +200,7 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertAlmostEqual(result.new_stop or 0.0, 1.1020)
         self.assertEqual(provider.modify_calls, 0)
 
-    def test_politica_unsupported_fica_bloqueada(self) -> None:
+    def test_politica_legada_unsupported_nao_bloqueia_decisao_dinamica(self) -> None:
         provider = _FakePositionProvider(
             position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
             price=1.1040,
@@ -205,10 +208,77 @@ class PositionManagerServiceTest(unittest.TestCase):
         manager = self._manager(provider, enabled=True)
 
         result = manager.manage_plan(
-            self._plan("EURUSD", "BUY", stop_management="FULL_EXIT")
+            self._plan("EURUSD", "BUY", stop_management="UNSUPPORTED_EXIT")
         )
 
-        self.assertEqual(result.status, "POLICY_BLOCKED_UNSUPPORTED_ACTION")
+        self.assertEqual(result.status, "STOP_MOVED")
+        self.assertEqual(provider.modify_calls, 1)
+
+    def test_fixed_stop_mantem_posicao_sem_acao_operacional(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1030),
+            price=1.1012,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan("EURUSD", "BUY", stop_management="FIXED_STOP")
+        )
+
+        self.assertEqual(result.status, "POSITION_HELD")
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertEqual(result.position_state, "HEALTHY_POSITION")
+        self.assertEqual(provider.modify_calls, 0)
+        self.assertEqual(provider.close_calls, 0)
+
+    def test_abaixo_de_meio_r_preserva_plano_do_lab(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
+            price=1.1008,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan(
+                "EURUSD",
+                "BUY",
+                stop_management="ATR_TRAILING_STOP",
+                atr=0.0002,
+                parameters={
+                    "break_even_trigger_rr": "0.25",
+                    "atr_trailing_activation_rr": "0.25",
+                },
+            )
+        )
+
+        self.assertEqual(result.status, "POSITION_HELD")
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertIn("PROTECTION_WAIT_UNDER_0_50R", result.evidence)
+        self.assertEqual(provider.modify_calls, 0)
+
+    def test_entre_meio_r_e_um_r_monitora_sem_mover_stop(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
+            price=1.1012,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan(
+                "EURUSD",
+                "BUY",
+                stop_management="ATR_TRAILING_STOP",
+                atr=0.0002,
+                parameters={
+                    "break_even_trigger_rr": "0.25",
+                    "atr_trailing_activation_rr": "0.25",
+                },
+            )
+        )
+
+        self.assertEqual(result.status, "POSITION_HELD")
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertIn("PROTECTION_WAIT_UNDER_1_00R", result.evidence)
         self.assertEqual(provider.modify_calls, 0)
 
     def test_market_aware_stop_protection_move_stop_seguro(self) -> None:
@@ -231,7 +301,7 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertEqual(result.status, "STOP_MOVED")
         self.assertAlmostEqual(provider.modified_stop or 0.0, 1.1024)
 
-    def test_structure_based_stop_protection_bloqueia_sem_estrutura(self) -> None:
+    def test_sem_estrutura_ainda_pode_proteger_por_break_even(self) -> None:
         provider = _FakePositionProvider(
             position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
             price=1.1040,
@@ -239,11 +309,17 @@ class PositionManagerServiceTest(unittest.TestCase):
         manager = self._manager(provider, enabled=True)
 
         result = manager.manage_plan(
-            self._plan("EURUSD", "BUY", stop_management="STRUCTURE_BASED_STOP_PROTECTION")
+            self._plan(
+                "EURUSD",
+                "BUY",
+                stop_management="STRUCTURE_BASED_STOP_PROTECTION",
+                atr=None,
+            )
         )
 
-        self.assertEqual(result.status, "STRUCTURE_ABSENT")
-        self.assertEqual(provider.modify_calls, 0)
+        self.assertEqual(result.status, "STOP_MOVED")
+        self.assertAlmostEqual(provider.modified_stop or 0.0, 1.1000)
+        self.assertEqual(provider.modify_calls, 1)
 
     def test_volatility_stop_protection_move_stop_seguro(self) -> None:
         provider = _FakePositionProvider(
@@ -334,6 +410,77 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertEqual(payload["execution_status"], "EXECUTED")
         self.assertEqual(provider.submit_order_calls, 0)
 
+    def test_evidencia_simples_nao_fecha_e_aguarda_um_r(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1030),
+            price=1.1012,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan(
+                "EURUSD",
+                "BUY",
+                stop_management="EARLY_EXIT",
+                momentum=-0.0002,
+                target=1.1030,
+            )
+        )
+
+        self.assertEqual(result.status, "POSITION_HELD")
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertIn("PROTECTION_WAIT_UNDER_1_00R", result.evidence)
+        self.assertIsNone(provider.modified_stop)
+        self.assertEqual(provider.close_calls, 0)
+
+    def test_early_exit_fica_desligado_e_preserva_posicao(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060, volume=0.1),
+            price=1.1010,
+        )
+        manager = self._manager(provider, enabled=False)
+
+        result = manager.manage_plan(
+            self._plan(
+                "EURUSD",
+                "BUY",
+                stop_management="EARLY_EXIT",
+                momentum=-0.0002,
+                target=1.1100,
+            )
+        )
+
+        self.assertEqual(result.status, "POSITION_HELD")
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertEqual(result.final_exit_reason, "N/D")
+        self.assertIn("MOMENTUM_AGAINST", result.evidence)
+        self.assertIn("LOW_PROBABILITY_TO_TARGET", result.evidence)
+        self.assertEqual(provider.close_calls, 0)
+
+    def test_full_exit_fica_desligado_mesmo_com_execucao_assistida(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1100, volume=0.1),
+            price=1.1010,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan(
+                "EURUSD",
+                "BUY",
+                stop_management="FULL_EXIT",
+                momentum=-0.0002,
+                target=1.1100,
+            )
+        )
+
+        self.assertEqual(result.status, "POSITION_HELD")
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertEqual(result.execution_status, "BLOCKED")
+        self.assertEqual(provider.close_calls, 0)
+        self.assertEqual(provider.close_reason, "")
+        self.assertEqual(provider.submit_order_calls, 0)
+
     def _manager(
         self,
         provider: "_FakePositionProvider",
@@ -387,6 +534,7 @@ def _position(
     entry: float,
     stop: float,
     target: float,
+    volume: float = 0.1,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         ticket=123,
@@ -396,6 +544,7 @@ def _position(
         price_open=entry,
         sl=stop,
         tp=target,
+        volume=volume,
     )
 
 
@@ -405,6 +554,8 @@ class _FakePositionProvider:
         self.price = price
         self.modified_stop: float | None = None
         self.modify_calls = 0
+        self.close_calls = 0
+        self.close_reason = ""
         self.submit_order_calls = 0
         self.lab_recalculate_calls = 0
 
@@ -443,6 +594,19 @@ class _FakePositionProvider:
         self.modify_calls += 1
         self.modified_stop = new_stop
         return SimpleNamespace(success=True, message="SL atualizado.")
+
+    def close_position(
+        self,
+        *,
+        symbol: str,
+        ticket: int,
+        side: str,
+        volume: float,
+        reason: str,
+    ) -> SimpleNamespace:
+        self.close_calls += 1
+        self.close_reason = reason
+        return SimpleNamespace(accepted=True, status="ACCEPTED", message="Posicao fechada.")
 
 
 if __name__ == "__main__":

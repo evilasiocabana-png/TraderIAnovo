@@ -265,3 +265,30 @@
 - Guardrail: nenhuma decisao operacional alterada; nenhuma ordem aberta; nenhum SL/TP movido; Lab pesado nao foi colocado em ciclo automatico.
 - Validacao: `tests.test_runtime_guard_service` OK com 14 testes; `run_critical_ci.py` OK com 91 testes; `architecture_audit.py` OK; `architecture_health.py` BOM.
 - Commit: a8dc0ec
+
+# 2026-07-09 - INVESTIGACAO_CONTRATO_POSITION_MANAGER
+
+- Status: completed
+- Acao: encerrada missao documental pendente no inbox sobre contrato entre Research Lab, Trade Plan, Robo Demo, Position Manager e Relatorio.
+- Resultado: contrato confirmado nos documentos `TRADE_ENTRY_EXIT_CONTRACT_AUDIT.md`, `POSITION_MANAGER_TARGET_ARCHITECTURE.md`, `POSITION_MANAGER_OFFICIAL_CONTRACT.md` e `POSITION_MANAGER.md`.
+- Guardrail: nenhuma alteracao operacional feita por esta missao; nenhuma ordem aberta; nenhuma posicao fechada; nenhum SL/TP movido; `.traderia` preservada.
+- Validacao: auditoria documental; validacoes relacionadas ja registradas no relatorio de execucao.
+- Commit: pendente.
+
+# 2026-07-09 - MISSION_COST_MANAGER_MT5_REAL_COSTS
+
+- Status: completed
+- Acao: criado CostManager centralizado para custos reais e estimados do MT5.
+- Resultado: custo aberto passou a representar `commission + swap + fee`, separado de risco projetado; provider MT5 expoe snapshot read-only de custos por simbolo; dashboard e historico exibem custo, corretagem, swap, fee e rollover.
+- Guardrail: nenhuma regra de entrada do Lab alterada; nenhum RR alterado; nenhum envio de ordem, SL ou TP alterado; nenhuma corretagem hardcoded.
+- Validacao: `tests.test_cost_manager` OK; provider MT5 focado OK; dashboard runtime focado OK; relatorio MT5 focado OK; `py_compile` OK.
+- Commit: pendente.
+
+# 2026-07-09 - MISSION_ROLLOVER_FIRST_DAILY_OPERATION_LAB_DECISION
+
+- Status: completed
+- Acao: implementada avaliacao prioritaria pos-rollover no Research Lab.
+- Resultado: criado `PostRolloverAnalyzer`, evento `POST_ROLLOVER_DAILY_OPEN` e ranking `EVENT_POST_ROLLOVER_DAILY_OPEN`; dashboard mostra modo/evento/contexto/motivo.
+- Guardrail: nenhuma Alpha removida; Alpha 16 nao foi criada; nenhuma ordem aberta; nenhum SL/TP alterado; sem horario fixo de Brasilia; se nao houver edge volta para `NORMAL_LAB_FLOW`.
+- Validacao: `tests.test_post_rollover_analyzer` OK; testes focados de DashboardViewModel OK; `tests.test_forex_time_layer` OK; teste focado de dashboard runtime OK; `py_compile` OK.
+- Commit: pendente.

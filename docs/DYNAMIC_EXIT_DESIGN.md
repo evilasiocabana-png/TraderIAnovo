@@ -172,8 +172,10 @@ mover SL/TP automaticamente.
 
 ### Lab
 
-O Lab continua escolhendo `stop_management` e parametros. A saida dinamica deve
-usar a politica do Lab como base, nao como sugestao descartavel.
+O Lab continua definindo setup, entrada, stop inicial, RR e alvo inicial.
+`stop_management` permanece apenas como legado/hint de compatibilidade. A saida
+dinamica nao nasce escolhida no Lab; ela e decidida pelo Position Manager a
+partir do cenario da posicao aberta.
 
 ### Forex MT5
 
@@ -182,7 +184,8 @@ Ele nao deve recalcular biblioteca pesada de Alphas a cada ciclo.
 
 ### TradePlan
 
-O `MT5ResearchTradePlan` deve continuar normalizando politica e parametros
+O `MT5ResearchTradePlan` deve materializar o plano inicial de risco e preservar
+parametros legados apenas como hints
 canonicos. Campos dinamicos devem ser adicionados em contrato separado ou como
 extensao clara, para nao quebrar testes existentes.
 

@@ -1121,7 +1121,11 @@ def exibir_mt5_forex_dashboard(
     st.caption(getattr(forex, "message", "N/D"))
     display_rows = [_forex_signal_row(row) for row in pares]
     _render_stable_forex_table(display_rows)
-    _exibir_entradas_teoricas_mt5(display_rows)
+    _exibir_entradas_teoricas_mt5(
+        display_rows,
+        robot_online=_demo_robot_online_status(data),
+        mt5_status=getattr(forex, "connection_status", "N/D"),
+    )
     data = _exibir_robo_demo_mt5(service, data, forex, display_rows)
     colunas = st.columns(4)
     decision_counts = _forex_decision_counts(display_rows)
@@ -1414,20 +1418,26 @@ def _mt5_position_manager_status_message(rows: list[object]) -> str:
 def _mt5_open_profit_summary(rows: list[object]) -> dict[str, str]:
     projected_profit = sum(float(getattr(row, "projected_profit", 0.0) or 0.0) for row in rows)
     projected_loss = sum(float(getattr(row, "projected_loss", 0.0) or 0.0) for row in rows)
+    open_cost = sum(float(getattr(row, "mt5_open_cost", 0.0) or 0.0) for row in rows)
     mt5_profit = sum(float(getattr(row, "mt5_realized_profit", 0.0) or 0.0) for row in rows)
+    has_rollover = any(bool(getattr(row, "session_is_rollover", False)) for row in rows)
     return {
         "Lucro projetado aberto": f"{projected_profit:.2f}",
+        "Custo aberto": f"{open_cost:.2f}",
         "Risco em aberto": f"{projected_loss:.2f}",
         "Lucro MT5 aberto": f"{mt5_profit:.2f}",
+        "Rollover custo": "COM ROLLOVER" if has_rollover else "SEM ROLLOVER",
     }
 
 
 def _exibir_resumo_lucro_em_negociacao_mt5(rows: list[object]) -> None:
     summary = _mt5_open_profit_summary(rows)
-    colunas = st.columns(3)
+    colunas = st.columns(5)
     colunas[0].metric("Lucro projetado aberto", summary["Lucro projetado aberto"])
-    colunas[1].metric("Risco em aberto", summary["Risco em aberto"])
-    colunas[2].metric("Lucro MT5 aberto", summary["Lucro MT5 aberto"])
+    colunas[1].metric("Custo aberto", summary["Custo aberto"])
+    colunas[2].metric("Risco em aberto", summary["Risco em aberto"])
+    colunas[3].metric("Lucro MT5 aberto", summary["Lucro MT5 aberto"])
+    colunas[4].metric("Rollover custo", summary["Rollover custo"])
 
 
 def _mt5_signal_metrics_by_pair(data: object) -> dict[str, dict[str, object]]:
@@ -1628,12 +1638,27 @@ def _mt5_trade_audit_row(
         "Lucro projetado app": f"{float(getattr(row, 'projected_profit', 0.0) or 0.0):.2f}",
         "Lucro realizado MT5": f"{float(getattr(row, 'mt5_realized_profit', 0.0) or 0.0):.2f}",
         "Prejuizo projetado app": f"{float(getattr(row, 'projected_loss', 0.0) or 0.0):.2f}",
-        "Mercado aberto": bool(getattr(row, "forex_session_open", False)),
+        "Mercado aberto": _forex_market_session_status(row),
+        "Lucro projetado aberto": _mt5_open_trade_money(row, "projected_profit"),
+        "Custo aberto": _mt5_open_trade_money(row, "mt5_open_cost"),
+        "Corretagem aberta": _mt5_open_trade_money(row, "mt5_commission"),
+        "Swap aberto": _mt5_open_trade_money(row, "mt5_swap"),
+        "Fee aberta": _mt5_open_trade_money(row, "mt5_fee"),
+        "Risco em aberto": _mt5_open_trade_money(row, "projected_loss"),
+        "Lucro MT5 aberto": _mt5_open_trade_money(row, "mt5_realized_profit"),
+        "Rollover custo": _mt5_open_trade_rollover_label(row),
         "Operacao MT5": str(getattr(row, "operation_status", "N/D")),
         "Fonte MT5": str(getattr(row, "mt5_source", "N/D")),
         "Auditoria": str(getattr(row, "audit_status", "PENDENTE")),
         "Lado TraderIA": str(getattr(row, "side", "N/D")),
         "Volume TraderIA": float(getattr(row, "quantity", 0.0) or 0.0),
+        "Setup entrada": str(getattr(row, "entry_setup", "N/D")),
+        "Setup saida": str(getattr(row, "exit_setup", "DYNAMIC_POSITION_MANAGER")),
+        "Stop movel acionado": "SIM"
+        if bool(getattr(row, "stop_movel_acionado", False))
+        else "NAO",
+        "Acao stop movel": str(getattr(row, "position_manager_action", "N/D")),
+        "Status stop movel": str(getattr(row, "position_manager_status", "N/D")),
         "Pontuacao Lab": metrics["score"],
         "Confianca Lab": metrics["lab_confidence"],
         "Politica Saida Lab": str(getattr(row, "dynamic_exit_policy", "N/D")),
@@ -1655,6 +1680,7 @@ def _mt5_trade_audit_row(
             getattr(row, "dynamic_exit_executed_action", "NONE")
         ),
         "Resultado saida": str(getattr(row, "dynamic_exit_final_result", "N/D")),
+        "Motivo final saida": str(getattr(row, "final_exit_reason", "N/D")),
         "Execucao saida permitida": "SIM"
         if bool(getattr(row, "dynamic_exit_allowed_to_execute_demo", False))
         else "NAO",
@@ -1663,7 +1689,7 @@ def _mt5_trade_audit_row(
         "Stop movel monitorado": "SIM"
         if _mt5_trade_audit_has_active_position(row)
         else "NAO",
-        "Mensagem gestao stop": _mt5_trade_audit_stop_message(row),
+        "Mensagem gestao stop": _mt5_trade_audit_position_manager_message(row),
         "Stop candidato ativo": _optional_price(
             getattr(row, "dynamic_exit_candidate_stop", None)
         ),
@@ -1705,6 +1731,20 @@ def _mt5_trade_audit_row(
     }
 
 
+def _mt5_open_trade_money(row: object, attr: str) -> str:
+    """Mostra custo/lucro aberto somente para posicoes ou ordens abertas."""
+    if not _is_mt5_open_operation(row):
+        return "N/D"
+    return f"{float(getattr(row, attr, 0.0) or 0.0):.2f}"
+
+
+def _mt5_open_trade_rollover_label(row: object) -> str:
+    """Indica se o custo aberto esta dentro da janela de rollover."""
+    if not _is_mt5_open_operation(row):
+        return "N/D"
+    return "COM ROLLOVER" if bool(getattr(row, "session_is_rollover", False)) else "SEM ROLLOVER"
+
+
 def _mt5_trade_audit_has_active_position(row: object) -> bool:
     """Indica se a linha representa uma posicao aberta acompanhavel."""
     final_result = str(getattr(row, "dynamic_exit_final_result", "") or "").upper()
@@ -1715,6 +1755,22 @@ def _mt5_trade_audit_has_active_position(row: object) -> bool:
         or operation_status in {"ABERTA", "OPEN", "POSICAO_ABERTA"}
         or (mt5_found and str(getattr(row, "mt5_ticket", "") or ""))
     )
+
+
+def _forex_market_session_status(row: object) -> str:
+    """Mostra status operacional de mercado sem expor booleano cru."""
+    open_status = (
+        "ABERTO" if bool(getattr(row, "forex_session_open", False)) else "FECHADO"
+    )
+    session = str(getattr(row, "forex_session", "N/D") or "N/D")
+    filter_result = str(getattr(row, "session_filter_result", "N/D") or "N/D")
+    reason = str(getattr(row, "session_reason", "") or "").strip()
+    label = f"{open_status} | Sessao: {session}"
+    if filter_result and filter_result.upper() not in {"N/D", "NONE"}:
+        label = f"{label} | {filter_result}"
+    if reason and reason.upper() not in {"N/D", "NONE"}:
+        label = f"{label} | {reason}"
+    return label
 
 
 def _mt5_trade_audit_stop_engine_label(row: object) -> str:
@@ -1736,6 +1792,14 @@ def _mt5_trade_audit_stop_mode_label(row: object) -> str:
     if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
         return "READ_ONLY_CANDIDATO"
     return "READ_ONLY"
+
+
+def _mt5_trade_audit_position_manager_message(row: object) -> str:
+    """Usa a mensagem auditavel do Position Manager quando ela existe."""
+    message = str(getattr(row, "position_manager_message", "") or "").strip()
+    if message and message.upper() not in {"N/D", "NONE"}:
+        return message
+    return _mt5_trade_audit_stop_message(row)
 
 
 def _mt5_trade_audit_stop_message(row: object) -> str:
@@ -1789,8 +1853,8 @@ def _exibir_robo_demo_mt5(
         )
     st.caption(
         "Modo temporal: o robo fica armado e aguarda entrada teorica do "
-        "Research Lab. A avaliacao processa no maximo um gatilho valido; "
-        "nao dispara todos os ativos de uma vez."
+        "Research Lab. Em TODOS, processa todos os candidatos prontos; "
+        "em par individual, avalia apenas o ativo selecionado."
     )
     controls = st.columns([0.12, 1, 1.8, 1, 1, 2])
     timeframe = getattr(forex, "timeframe", "M1")
@@ -1825,10 +1889,13 @@ def _exibir_robo_demo_mt5(
         data = service.get_dashboard_view_model()
     if controls[3].button("Avaliar gatilho agora", key="mt5_demo_robot_evaluate"):
         _mark_ui_critical_interaction()
-        service.evaluate_armed_demo_robot_once(
-            pair=selected_pair,
-            timeframe=timeframe,
-        )
+        if str(selected_pair or "").upper() in {"TODOS", "ALL"}:
+            service.run_demo_robot_for_all(timeframe=timeframe)
+        else:
+            service.evaluate_armed_demo_robot_once(
+                pair=selected_pair,
+                timeframe=timeframe,
+            )
         data = service.get_dashboard_view_model()
     if controls[4].button("Desarmar robo", key="mt5_demo_robot_disarm"):
         _mark_ui_critical_interaction()
@@ -2197,7 +2264,7 @@ def _demo_robot_audit_row(row: object) -> dict[str, object]:
         "RR": _optional_number(getattr(row, "risk_reward", None)),
         "Candle Gatilho": getattr(row, "candle_time", "N/D"),
         "Sessao Forex": getattr(row, "forex_session", "N/D"),
-        "Mercado aberto": bool(getattr(row, "forex_session_open", False)),
+        "Mercado aberto": _forex_market_session_status(row),
         "Filtro sessao": "LIGADO"
         if bool(getattr(row, "session_filter_enabled", True))
         else "IGNORADO",
@@ -2218,23 +2285,76 @@ def _demo_robot_audit_row(row: object) -> dict[str, object]:
     }
 
 
-def _exibir_entradas_teoricas_mt5(rows: list[dict[str, object]]) -> None:
+def _exibir_entradas_teoricas_mt5(
+    rows: list[dict[str, object]],
+    *,
+    robot_online: bool = False,
+    mt5_status: object = "N/D",
+) -> None:
     """Exibe radar read-only de entrada teorica fora da grade virtualizada."""
     st.subheader("Entrada Teorica MT5")
     st.caption(
         "Radar somente leitura: marca apenas entrada autorizada por regime de mercado."
     )
+    st.markdown(
+        (
+            "<div class='traderia-status-legend'>"
+            "<span class='traderia-legend-ok'>OK</span>"
+            "<span class='traderia-legend-wait'>Aguardando encaixe</span>"
+            "<span class='traderia-legend-blocked'>Bloqueado/Rejeitado</span>"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+    mt5_online = _mt5_connection_online(mt5_status)
     _render_stable_readonly_table(
-        [_forex_theoretical_entry_row(row) for row in rows],
+        [
+            _forex_theoretical_entry_row(
+                row,
+                robot_online=robot_online,
+                mt5_online=mt5_online,
+            )
+            for row in rows
+        ],
         model_column="Modelo ativo",
         decision_column="Direcao",
+        color_status_cells=True,
     )
 
 
-def _forex_theoretical_entry_row(row: dict[str, object]) -> dict[str, object]:
+def _forex_theoretical_entry_row(
+    row: dict[str, object],
+    *,
+    robot_online: bool = False,
+    mt5_online: bool = False,
+) -> dict[str, object]:
+    entry_gate = _entry_signal_gate(row)
+    plan_gate = _entry_plan_gate(row)
+    zone_gate = _entry_zone_gate(row)
+    robot_gate = _entry_robot_gate(robot_online)
+    mt5_gate = _entry_mt5_gate(mt5_online)
+    price_gate = _entry_price_gate(row)
+    position_gate = _entry_position_gate(row)
+    send_gate = _entry_send_gate(
+        entry_gate=entry_gate,
+        plan_gate=plan_gate,
+        zone_gate=zone_gate,
+        robot_gate=robot_gate,
+        mt5_gate=mt5_gate,
+        price_gate=price_gate,
+        position_gate=position_gate,
+    )
     return {
         "Par": row.get("Par", "N/D"),
         "Timeframe": row.get("Periodo de tempo", row.get("Timeframe", "N/D")),
+        "Sinal": entry_gate,
+        "Plano": plan_gate,
+        "Zona gate": zone_gate,
+        "Robo": robot_gate,
+        "MT5": mt5_gate,
+        "Plano vigente": price_gate,
+        "Posicao": position_gate,
+        "Envio": send_gate,
         "Modelo ativo": row.get("Modelo Ativo", "N/D"),
         "Zona": row.get("Zona Operacional", "N/D"),
         "Suporte": row.get("Suporte", "N/D"),
@@ -2256,6 +2376,155 @@ def _forex_theoretical_entry_row(row: dict[str, object]) -> dict[str, object]:
         "Score Saida": row.get("Score Saida", "N/D"),
         "Motivo": row.get("Motivo Entrada", "N/D"),
     }
+
+
+def _mt5_connection_online(value: object) -> bool:
+    status = str(value or "").strip().upper()
+    return status in {"ONLINE", "CONECTADO", "CONNECTED", "OK"}
+
+
+def _entry_signal_gate(row: dict[str, object]) -> str:
+    status = str(row.get("Entrada Teorica", "") or "").upper()
+    if status == "SINAL_TEORICO":
+        return "OK"
+    return f"AGUARDA: {status or 'SEM_GATILHO'}"
+
+
+def _entry_plan_gate(row: dict[str, object]) -> str:
+    status = str(row.get("Plano Research", "") or "").upper()
+    if status == "PLANO_VALIDO":
+        return "OK"
+    reason = str(row.get("Codigo Rejeicao", "") or "").strip()
+    if reason and reason.upper() != "N/D":
+        return f"BLOQ: {reason}"
+    return f"BLOQ: {status or 'SEM_PLANO'}"
+
+
+def _entry_zone_gate(row: dict[str, object]) -> str:
+    zone = str(row.get("Zona Operacional", "") or "").upper()
+    if zone in {"SUPORTE", "RESISTENCIA", "PIVO", "ZONA DE VALOR"}:
+        return "OK"
+    if zone in {"FORA_DA_ZONA_DE_INTERESSE", "FORA DA ZONA", "FORA_DA_ZONA"}:
+        return "BLOQ: fora da zona"
+    return f"AGUARDA: {zone or 'zona indefinida'}"
+
+
+def _entry_robot_gate(robot_online: bool) -> str:
+    return "OK" if robot_online else "AGUARDA: robo desarmado"
+
+
+def _entry_mt5_gate(mt5_online: bool) -> str:
+    return "OK" if mt5_online else "AGUARDA: MT5 offline"
+
+
+def _entry_price_gate(row: dict[str, object]) -> str:
+    direction = str(row.get("Direcao Teorica", "") or "").upper()
+    last_price = _price_from_display(row.get("Ultimo preco"))
+    stop = _price_from_display(row.get("Stop Research"))
+    target = _price_from_display(row.get("Alvo Research"))
+    if direction not in {"BUY", "SELL"}:
+        return "AGUARDA: sem direcao"
+    if last_price is None or stop is None or target is None:
+        return "AGUARDA: preco/SL/alvo ausente"
+    if direction == "BUY" and stop < last_price < target:
+        return "OK"
+    if direction == "SELL" and target < last_price < stop:
+        return "OK"
+    if direction == "BUY":
+        return "BLOQ: preco saiu do plano BUY"
+    return "BLOQ: preco saiu do plano SELL"
+
+
+def _entry_position_gate(row: dict[str, object]) -> str:
+    reason = str(row.get("Motivo Entrada", "") or "").upper()
+    if "POSICAO ABERTA" in reason or "POSIÇÃO ABERTA" in reason:
+        return "BLOQUEADO"
+    return "OK"
+
+
+def _entry_send_gate(
+    *,
+    entry_gate: str,
+    plan_gate: str,
+    zone_gate: str,
+    robot_online: bool,
+    mt5_online: bool,
+    price_gate: str,
+    position_gate: str,
+) -> str:
+    gates = [entry_gate, plan_gate, zone_gate, price_gate, position_gate]
+    if any(gate == "BLOQUEADO" for gate in gates):
+        return "BLOQUEADO"
+    if not robot_online or not mt5_online:
+        return "AGUARDANDO"
+    if all(gate == "OK" for gate in gates):
+        return "PRONTO"
+    return "AGUARDANDO"
+
+
+def _entry_position_gate(row: dict[str, object]) -> str:
+    reason = str(row.get("Motivo Entrada", "") or "").upper()
+    if (
+        "POSICAO ABERTA" in reason
+        or "POSIÇÃO ABERTA" in reason
+        or "POSIÃ‡ÃƒO ABERTA" in reason
+    ):
+        return "BLOQ: posicao aberta"
+    return "OK"
+
+
+def _entry_send_gate(
+    *,
+    entry_gate: str,
+    plan_gate: str,
+    zone_gate: str,
+    robot_gate: str,
+    mt5_gate: str,
+    price_gate: str,
+    position_gate: str,
+) -> str:
+    gates = [
+        ("Sinal", entry_gate),
+        ("Plano", plan_gate),
+        ("Zona", zone_gate),
+        ("Robo", robot_gate),
+        ("MT5", mt5_gate),
+        ("Plano vigente", price_gate),
+        ("Posicao", position_gate),
+    ]
+    for name, gate in gates:
+        if _gate_status(gate) == "blocked":
+            return f"BLOQ: {name}"
+    for name, gate in gates:
+        if _gate_status(gate) == "wait":
+            return f"AGUARDA: {name}"
+    if all(_gate_status(gate) == "ok" for _, gate in gates):
+        return "PRONTO"
+    return "AGUARDA: validacao"
+
+
+def _gate_status(value: object) -> str:
+    text = str(value or "").strip().upper()
+    if text in {"OK", "PRONTO", "SIM", "APROVADO"}:
+        return "ok"
+    if text.startswith("BLOQ") or text in {"BLOQUEADO", "REJEITADO"}:
+        return "blocked"
+    return "wait"
+
+
+def _price_from_display(value: object) -> float | None:
+    text = str(value or "").strip()
+    if not text or text.upper() == "N/D":
+        return None
+    text = text.replace(" ", "")
+    if "," in text and "." in text:
+        text = text.replace(".", "").replace(",", ".")
+    elif "," in text:
+        text = text.replace(",", ".")
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 
 def _forex_zone_label(row: object) -> str:
@@ -2531,7 +2800,6 @@ def _forex_main_table_columns() -> list[str]:
         "Confianca Saida Dinamica",
         "R Atual Saida",
         "Stop Candidato",
-        "Execucao Saida Permitida",
         "Candles recebidos",
     ]
 
@@ -2542,6 +2810,7 @@ def _render_stable_readonly_table(
     model_column: str = "Modelo",
     decision_column: str = "Decisao",
     highlight_active_indicators: bool = False,
+    color_status_cells: bool = False,
     empty_columns: list[str] | None = None,
     empty_message: str = "Nenhum registro disponivel.",
 ) -> None:
@@ -2569,10 +2838,16 @@ def _render_stable_readonly_table(
         )
         cells = []
         for column in columns:
-            cell_class = "traderia-cell-active" if column in active_columns else ""
+            cell_classes = []
+            if column in active_columns:
+                cell_classes.append("traderia-cell-active")
+            if color_status_cells:
+                status_class = _stable_table_status_cell_class(row.get(column, ""))
+                if status_class:
+                    cell_classes.append(status_class)
             cells.append(
                 "<td class='"
-                f"{cell_class}"
+                f"{' '.join(cell_classes)}"
                 "'>"
                 f"{_html_escape(row.get(column, ''))}"
                 "</td>"
@@ -2590,6 +2865,47 @@ def _render_stable_readonly_table(
         ),
         unsafe_allow_html=True,
     )
+
+
+def _stable_table_status_cell_class(value: object) -> str:
+    text = str(value or "").strip().upper()
+    if text.startswith("BLOQ"):
+        return "traderia-cell-blocked"
+    if text.startswith("AGUARDA"):
+        return "traderia-cell-wait"
+    if text in {
+        "OK",
+        "SIM",
+        "PRONTO",
+        "APROVADO",
+        "PLANO_VALIDO",
+        "SINAL_TEORICO",
+        "SEM_POSICAO",
+    }:
+        return "traderia-cell-ok"
+    if text in {
+        "AGUARDANDO",
+        "N/D",
+        "",
+        "WAIT",
+        "SEM_GATILHO",
+        "REAVALIAR",
+    }:
+        return "traderia-cell-wait"
+    if text in {
+        "NAO",
+        "NÃO",
+        "REJEITADO",
+        "BLOQUEADO",
+        "INVALIDO",
+        "PLANO_INVALIDO",
+        "SEM_PLANO",
+        "FORA_DA_ZONA_DE_INTERESSE",
+        "POSICAO_ABERTA",
+        "PRECO_INVALIDO",
+    }:
+        return "traderia-cell-blocked"
+    return ""
 
 
 def _html_escape(value: object) -> str:
@@ -2703,6 +3019,46 @@ def _inject_dashboard_css() -> None:
             background: #DBEAFE !important;
             color: #0F172A !important;
             font-weight: 750;
+        }
+        .traderia-stable-table td.traderia-cell-ok {
+            background: #DDF7E3 !important;
+            color: #0F3D24 !important;
+            font-weight: 800;
+        }
+        .traderia-stable-table td.traderia-cell-wait {
+            background: #FEF3C7 !important;
+            color: #78350F !important;
+            font-weight: 800;
+        }
+        .traderia-stable-table td.traderia-cell-blocked {
+            background: #FDE0E0 !important;
+            color: #5C1A1A !important;
+            font-weight: 800;
+        }
+        .traderia-status-legend {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin: 0.25rem 0 0.75rem 0;
+        }
+        .traderia-status-legend span {
+            border-radius: 6px;
+            border: 1px solid rgba(49, 51, 63, 0.14);
+            font-size: 0.82rem;
+            font-weight: 800;
+            padding: 0.28rem 0.55rem;
+        }
+        .traderia-legend-ok {
+            background: #DDF7E3;
+            color: #0F3D24;
+        }
+        .traderia-legend-wait {
+            background: #FEF3C7;
+            color: #78350F;
+        }
+        .traderia-legend-blocked {
+            background: #FDE0E0;
+            color: #5C1A1A;
         }
         </style>
         """,
@@ -4747,8 +5103,8 @@ def _mt5_setup_suggestion_empty_row() -> dict[str, object]:
         "TF": "N/D",
         "Direcao": "WAIT",
         "Setup": "N/D",
-        "Saida dinamica": "N/D",
-        "Modelo saida": "N/D",
+        "Gestao runtime": "N/D",
+        "Plano de risco": "N/D",
         "Resumo parametros": "N/D",
         "Encaixe Tecnico": "N/D",
         "Confirmacao Historica": "N/D",
@@ -4763,8 +5119,10 @@ def _mt5_setup_suggestion_compact_row(suggestion: object) -> dict[str, object]:
         "TF": getattr(suggestion, "timeframe", "M1"),
         "Direcao": getattr(suggestion, "decision", "WAIT"),
         "Setup": getattr(suggestion, "model", "WAIT_NO_EDGE"),
-        "Saida dinamica": getattr(suggestion, "stop_management", "FIXED_STOP"),
-        "Modelo saida": getattr(suggestion, "exit_model", "NONE"),
+        "Gestao runtime": "POSITION_MANAGER_DINAMICO",
+        "Plano de risco": _runtime_risk_plan_label(
+            getattr(suggestion, "exit_model", "INITIAL_RISK_PLAN")
+        ),
         "Resumo parametros": _setup_parameters_summary(
             getattr(suggestion, "parameters", {}) or {}
         ),
@@ -4808,8 +5166,9 @@ def _mt5_setup_suggestion_detail_empty_row() -> dict[str, object]:
         "Timeframe": "N/D",
         "Setup sugerido": "N/D",
         "Direcao": "WAIT",
-        "Saida dinamica": "N/D",
-        "Modelo saida": "N/D",
+        "Gestao runtime": "N/D",
+        "Plano de risco": "N/D",
+        "Hint legado": "N/D",
         "Parametros": "N/D",
         "Encaixe Tecnico": "N/D",
         "Confirmacao Historica": "N/D",
@@ -4827,8 +5186,11 @@ def _mt5_setup_suggestion_row(suggestion: object) -> dict[str, object]:
         "Timeframe": getattr(suggestion, "timeframe", "M1"),
         "Setup sugerido": getattr(suggestion, "model", "WAIT_NO_EDGE"),
         "Direcao": getattr(suggestion, "decision", "WAIT"),
-        "Saida dinamica": getattr(suggestion, "stop_management", "FIXED_STOP"),
-        "Modelo saida": getattr(suggestion, "exit_model", "NONE"),
+        "Gestao runtime": "POSITION_MANAGER_DINAMICO",
+        "Plano de risco": _runtime_risk_plan_label(
+            getattr(suggestion, "exit_model", "INITIAL_RISK_PLAN")
+        ),
+        "Hint legado": getattr(suggestion, "stop_management", "N/D"),
         "Parametros": _scenario_parameters_label(
             getattr(suggestion, "parameters", {}) or {}
         ),
@@ -4841,13 +5203,26 @@ def _mt5_setup_suggestion_row(suggestion: object) -> dict[str, object]:
         ),
         "Status": getattr(suggestion, "status", "SEM_SUGESTAO"),
         "Fonte": getattr(suggestion, "source", "MT5_RESEARCH_SNAPSHOT"),
-        "Motivo saida": getattr(
+        "Motivo gestao": getattr(
             suggestion,
             "stop_management_reason",
-            "Saida nao informada pelo snapshot.",
+            "Gestao runtime decidida pelo Position Manager.",
         ),
         "Motivo": getattr(suggestion, "reason", "N/D"),
     }
+
+
+def _runtime_risk_plan_label(value: object) -> str:
+    normalized = str(value or "INITIAL_RISK_PLAN").strip().upper()
+    if normalized in {
+        "SCENARIO_EXIT_RESEARCH_SELECTION",
+        "ATR_RR_RESEARCH_SELECTION",
+        "NONE",
+        "N/D",
+        "",
+    }:
+        return "INITIAL_RISK_PLAN"
+    return normalized
 
 
 def exibir_mt5_alpha_research_report(service: DashboardService) -> None:
@@ -5047,6 +5422,20 @@ def exibir_mt5_scenario_runner_research(research: object) -> None:
         "Definicao oficial: Encaixe Tecnico = setup parece bom agora; "
         "Confirmacao Historica = setups parecidos funcionaram no historico."
     )
+    _render_stable_readonly_table(
+        [
+            {
+                "Modo Lab": getattr(research, "priority_event_mode", "NORMAL_LAB_FLOW"),
+                "Evento": getattr(research, "priority_event_type", "NONE"),
+                "Contexto": getattr(research, "priority_event_context", "NO_TRADE"),
+                "Motivo": getattr(
+                    research,
+                    "priority_event_reason",
+                    "Nenhum evento prioritario ativo.",
+                ),
+            }
+        ]
+    )
     if best_scenario is None:
         st.info("Nenhum melhor cenario geral disponivel.")
     else:
@@ -5098,6 +5487,9 @@ def _mt5_scenario_row(scenario: object) -> dict[str, object]:
         )
         or "N/D",
         "Modelo": getattr(scenario, "model", "N/D"),
+        "Evento": parameters.get("event_type", "N/D"),
+        "Modo Evento": parameters.get("event_mode", "N/D"),
+        "Contexto Evento": parameters.get("context", "N/D"),
         "Parametros": " | ".join(
             f"{key}={value}" for key, value in dict(parameters).items()
         )

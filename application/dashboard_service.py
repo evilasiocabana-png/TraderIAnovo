@@ -18,6 +18,7 @@ from application.configuration_service import (
     ConfigurationData,
     ConfigurationService,
 )
+from application.cost_manager import CostManager
 from application.data_readiness_gate_log import (
     DataReadinessGateLog,
     DataReadinessGateLogger,
@@ -159,6 +160,12 @@ from research.traderia_certification_index import (
     TraderIACertificationResult,
 )
 from research.forex_time_layer import ForexTimeLayer
+from research.post_rollover_analyzer import (
+    POST_ROLLOVER_ALPHA_ID,
+    POST_ROLLOVER_EVENT,
+    PostRolloverAnalyzer,
+    PostRolloverDecision,
+)
 from research.research_layer import OFFICIAL_RESEARCH_LAYERS
 from market.feature_engine import FeatureSnapshot
 from market.market_memory import MarketMemory
@@ -608,6 +615,9 @@ class DashboardService:
         default_factory=TraderIACertificationEngine
     )
     forex_time_layer: ForexTimeLayer = field(default_factory=ForexTimeLayer)
+    post_rollover_analyzer: PostRolloverAnalyzer = field(
+        default_factory=PostRolloverAnalyzer
+    )
     mt5_visual_signal_exporter: MT5VisualSignalExporter = field(
         default_factory=MT5VisualSignalExporter
     )
@@ -1034,10 +1044,10 @@ class DashboardService:
                                 "exit_model",
                                 (getattr(selected, "parameters", {}) or {}).get(
                                     "exit_model",
-                                    "SCENARIO_EXIT_RESEARCH_SELECTION",
+                                    "INITIAL_RISK_PLAN",
                                 ),
                             )
-                            or "SCENARIO_EXIT_RESEARCH_SELECTION"
+                            or "INITIAL_RISK_PLAN"
                         ),
                         stop_management=str(
                             (getattr(selected, "parameters", {}) or {}).get(
@@ -1047,7 +1057,7 @@ class DashboardService:
                             or "FIXED_STOP"
                         ),
                         stop_management_reason=(
-                            "Saida escolhida pelo Lab no cenario vencedor."
+                            "Hint legado preservado; saida real decidida pelo Position Manager."
                         ),
                         score=float(getattr(selected, "score", 0.0) or 0.0),
                         lab_confidence=float(
@@ -1099,14 +1109,14 @@ class DashboardService:
                     exit_model=str(
                         configuration.get(
                             "exit_model",
-                            "SCENARIO_EXIT_RESEARCH_SELECTION",
+                            "INITIAL_RISK_PLAN",
                         )
                     ),
                     stop_management=str(
                         configuration.get("stop_management", "FIXED_STOP")
                     ),
                     stop_management_reason=(
-                        "Saida escolhida pelo Lab no snapshot leve."
+                        "Hint legado preservado; saida real decidida pelo Position Manager."
                     ),
                     score=float(getattr(row, "score", 0.0) or 0.0),
                     lab_confidence=float(getattr(row, "confidence", 0.0) or 0.0),
@@ -2918,10 +2928,12 @@ class DashboardService:
             record for record in local_records if bool(record.get("accepted"))
         ]
         mt5_history, mt5_status, mt5_message = self._load_mt5_trade_history()
+        position_manager_audit = self._read_position_manager_audit_index()
         rows = [
-            self._mt5_trade_audit_row(record, mt5_history)
+            self._mt5_trade_audit_row(record, mt5_history, position_manager_audit)
             for record in accepted_records
         ]
+        rows.extend(self._mt5_only_trade_audit_rows(rows, mt5_history))
         rows.sort(key=lambda row: str(row.timestamp), reverse=True)
         total_matched = sum(1 for row in rows if row.audit_status == "CONFERE")
         total_mismatched = sum(
@@ -3173,18 +3185,50 @@ class DashboardService:
         existing = history.get(ticket, {})
         existing_profit = float(existing.get("profit") or 0.0)
         payload_profit = float(payload.get("profit") or 0.0)
+        existing_commission = float(existing.get("commission") or 0.0)
+        payload_commission = float(payload.get("commission") or 0.0)
+        existing_swap = float(existing.get("swap") or 0.0)
+        payload_swap = float(payload.get("swap") or 0.0)
+        existing_fee = float(existing.get("fee") or 0.0)
+        payload_fee = float(payload.get("fee") or 0.0)
         merged = {**existing, **payload}
         if existing.get("source") in {"POSITION", "ORDER_OPEN"}:
             merged["source"] = existing.get("source")
             merged["profit"] = existing.get("profit", merged.get("profit", 0.0))
+            merged["commission"] = existing.get(
+                "commission",
+                merged.get("commission", 0.0),
+            )
+            merged["swap"] = existing.get("swap", merged.get("swap", 0.0))
+            merged["fee"] = existing.get("fee", merged.get("fee", 0.0))
+            merged["open_cost"] = float(merged.get("commission") or 0.0) + float(
+                merged.get("swap") or 0.0
+            ) + float(
+                merged.get("fee") or 0.0
+            )
             merged["time"] = existing.get("time", merged.get("time", "N/D"))
         elif aggregate_profit:
             merged["source"] = "DEAL"
             merged["profit"] = existing_profit + payload_profit
+            merged["commission"] = existing_commission + payload_commission
+            merged["swap"] = existing_swap + payload_swap
+            merged["fee"] = existing_fee + payload_fee
+            merged["open_cost"] = (
+                float(merged.get("commission") or 0.0)
+                + float(merged.get("swap") or 0.0)
+                + float(merged.get("fee") or 0.0)
+            )
             for key in ("symbol", "side", "volume", "price"):
                 current = existing.get(key)
                 if current not in (None, "", "N/D", 0, 0.0):
                     merged[key] = current
+        else:
+            merged["open_cost"] = float(merged.get("commission") or 0.0) + float(
+                merged.get("swap") or 0.0
+            ) + float(
+                merged.get("fee") or 0.0
+            )
+        merged["history_key"] = ticket
         history[ticket] = merged
 
     def _mt5_namedtuple_dict(self, item: object) -> dict[str, Any]:
@@ -3205,6 +3249,7 @@ class DashboardService:
     ) -> dict[str, Any]:
         side = self._mt5_side_from_type(data.get("type"))
         timestamp = data.get("time_done") or data.get("time")
+        cost_components = CostManager.trade_cost_components(data)
         return {
             "ticket": ticket,
             "source": source,
@@ -3223,6 +3268,11 @@ class DashboardService:
                 or 0
             ),
             "profit": float(data.get("profit") or 0),
+            "commission": cost_components["commission"],
+            "swap": cost_components["swap"],
+            "fee": cost_components["fee"],
+            "open_cost": cost_components["open_cost"],
+            "net_profit": cost_components["net_profit"],
             "time": self._mt5_history_time(timestamp),
             "position_id": self._int_or_none(data.get("position_id")),
             "order": self._int_or_none(data.get("order")),
@@ -3233,9 +3283,32 @@ class DashboardService:
         self,
         record: dict[str, Any],
         mt5_history: dict[int, dict[str, Any]],
+        position_manager_audit: dict[str, dict[str, Any]] | None = None,
     ) -> DashboardMT5TradeAuditRowViewModel:
         local_ticket = self._int_or_none(record.get("ticket"))
         mt5_record = mt5_history.get(local_ticket or -1)
+        position_manager_record = self._position_manager_record_for_trade(
+            record,
+            mt5_record,
+            position_manager_audit or {},
+        )
+        position_manager_reason = self._position_manager_exit_reason(
+            position_manager_record
+        )
+        entry_setup = self._entry_setup_from_record(record)
+        exit_setup = self._exit_setup_from_record(record)
+        position_manager_action = self._position_manager_field(
+            position_manager_record, "action"
+        )
+        position_manager_status = self._position_manager_field(
+            position_manager_record, "status"
+        )
+        position_manager_message = self._position_manager_field(
+            position_manager_record, "message"
+        )
+        stop_movel_acionado = self._position_manager_stop_moved(
+            position_manager_record
+        )
         if mt5_record is None:
             return DashboardMT5TradeAuditRowViewModel(
                 timestamp=str(record.get("timestamp") or "N/D"),
@@ -3284,6 +3357,16 @@ class DashboardService:
                     record.get("dynamic_exit_executed_action") or "NONE"
                 ),
                 dynamic_exit_final_result="NAO_ENCONTRADO_MT5",
+                final_exit_reason=(
+                    position_manager_reason
+                    or str(record.get("final_exit_reason") or "N/D")
+                ),
+                entry_setup=entry_setup,
+                exit_setup=exit_setup,
+                position_manager_action=position_manager_action,
+                position_manager_status=position_manager_status,
+                position_manager_message=position_manager_message,
+                stop_movel_acionado=stop_movel_acionado,
             )
         checks = self._mt5_trade_checks(record, mt5_record)
         status = "CONFERE" if all(checks.values()) else "DIVERGENTE"
@@ -3307,7 +3390,8 @@ class DashboardService:
             local_message=str(record.get("message") or "N/D"),
             local_ticket=local_ticket,
             mt5_found=True,
-            mt5_ticket=self._int_or_none(mt5_record.get("ticket")),
+            mt5_ticket=self._int_or_none(mt5_record.get("history_key"))
+            or self._int_or_none(mt5_record.get("ticket")),
             mt5_source=str(mt5_record.get("source") or "N/D"),
             operation_status=self._mt5_operation_status(mt5_record),
             mt5_symbol=str(mt5_record.get("symbol") or "N/D"),
@@ -3315,6 +3399,10 @@ class DashboardService:
             mt5_volume=float(mt5_record.get("volume") or 0),
             mt5_price=float(mt5_record.get("price") or 0),
             mt5_realized_profit=float(mt5_record.get("profit") or 0),
+            mt5_commission=float(mt5_record.get("commission") or 0),
+            mt5_swap=float(mt5_record.get("swap") or 0),
+            mt5_fee=float(mt5_record.get("fee") or 0),
+            mt5_open_cost=float(mt5_record.get("open_cost") or 0),
             mt5_time=str(mt5_record.get("time") or "N/D"),
             audit_status=status,
             audit_message=message,
@@ -3344,7 +3432,259 @@ class DashboardService:
                 record.get("dynamic_exit_executed_action") or "NONE"
             ),
             dynamic_exit_final_result=self._dynamic_exit_final_result(status, mt5_record),
+            final_exit_reason=str(
+                position_manager_reason
+                or record.get("final_exit_reason")
+                or self._dynamic_exit_final_result(status, mt5_record)
+            ),
+            entry_setup=entry_setup,
+            exit_setup=exit_setup,
+            position_manager_action=position_manager_action,
+            position_manager_status=position_manager_status,
+            position_manager_message=position_manager_message,
+            stop_movel_acionado=stop_movel_acionado,
         )
+
+    def _mt5_only_trade_audit_rows(
+        self,
+        local_rows: list[DashboardMT5TradeAuditRowViewModel],
+        mt5_history: dict[int, dict[str, Any]],
+    ) -> list[DashboardMT5TradeAuditRowViewModel]:
+        """Inclui operacoes do MT5 que ainda nao foram casadas ao log local."""
+        used_tickets = {
+            ticket
+            for row in local_rows
+            for ticket in (row.local_ticket, row.mt5_ticket)
+            if ticket is not None
+        }
+        rows: list[DashboardMT5TradeAuditRowViewModel] = []
+        for ticket, record in mt5_history.items():
+            if ticket in used_tickets:
+                continue
+            position_id = self._int_or_none(record.get("position_id"))
+            order_ticket = self._int_or_none(record.get("order"))
+            if position_id in used_tickets or order_ticket in used_tickets:
+                continue
+            history_key = self._int_or_none(record.get("history_key")) or ticket
+            if position_id is not None and history_key != position_id:
+                continue
+            operation_status = self._mt5_operation_status(record)
+            if operation_status not in {
+                "ABERTA",
+                "ORDEM_ABERTA",
+                "FECHADA/HISTORICO",
+            }:
+                continue
+            rows.append(self._mt5_only_trade_audit_row(record))
+        return rows
+
+    def _mt5_only_trade_audit_row(
+        self,
+        mt5_record: dict[str, Any],
+    ) -> DashboardMT5TradeAuditRowViewModel:
+        operation_status = self._mt5_operation_status(mt5_record)
+        ticket = self._int_or_none(mt5_record.get("history_key"))
+        if ticket is None:
+            ticket = self._int_or_none(mt5_record.get("ticket"))
+        is_open = operation_status in {"ABERTA", "ORDEM_ABERTA"}
+        return DashboardMT5TradeAuditRowViewModel(
+            timestamp=str(mt5_record.get("time") or "N/D"),
+            symbol=str(mt5_record.get("symbol") or "N/D"),
+            side=str(mt5_record.get("side") or "N/D"),
+            quantity=float(mt5_record.get("volume") or 0),
+            entry_price=float(mt5_record.get("price") or 0),
+            projected_profit=0.0,
+            projected_loss=0.0,
+            local_status="MT5_ONLY",
+            local_message=(
+                "Posicao aberta no MT5 sem ticket local casado."
+                if is_open
+                else "Operacao encontrada no historico MT5 sem ticket local casado."
+            ),
+            local_ticket=None,
+            mt5_found=True,
+            mt5_ticket=ticket,
+            mt5_source=str(mt5_record.get("source") or "N/D"),
+            operation_status=operation_status,
+            mt5_symbol=str(mt5_record.get("symbol") or "N/D"),
+            mt5_side=str(mt5_record.get("side") or "N/D"),
+            mt5_volume=float(mt5_record.get("volume") or 0),
+            mt5_price=float(mt5_record.get("price") or 0),
+            mt5_realized_profit=float(mt5_record.get("profit") or 0),
+            mt5_commission=float(mt5_record.get("commission") or 0),
+            mt5_swap=float(mt5_record.get("swap") or 0),
+            mt5_fee=float(mt5_record.get("fee") or 0),
+            mt5_open_cost=float(mt5_record.get("open_cost") or 0),
+            mt5_time=str(mt5_record.get("time") or "N/D"),
+            audit_status="MT5_ONLY",
+            audit_message=(
+                "Posicao aberta importada diretamente do MT5."
+                if is_open
+                else "Fechamento importado diretamente do historico MT5."
+            ),
+            dynamic_exit_policy="N/D",
+            dynamic_exit_action="N/D",
+            dynamic_exit_reason="N/D",
+            dynamic_exit_confidence=0.0,
+            dynamic_exit_market_state="N/D",
+            dynamic_exit_r_multiple=0.0,
+            dynamic_exit_candidate_stop=None,
+            dynamic_exit_allowed_to_execute_demo=False,
+            dynamic_exit_executed_action="NONE",
+            dynamic_exit_final_result="POSICAO_ABERTA" if is_open else "MT5_ONLY",
+            final_exit_reason="N/D",
+            entry_setup="N/D",
+            exit_setup="N/D",
+            position_manager_action="N/D",
+            position_manager_status="N/D",
+            position_manager_message="N/D",
+            stop_movel_acionado=False,
+        )
+
+    def _entry_setup_from_record(self, record: dict[str, Any]) -> str:
+        identity = str(record.get("plan_identity") or "")
+        if record.get("entry_setup"):
+            return str(record.get("entry_setup"))
+        if record.get("active_model"):
+            return str(record.get("active_model"))
+        parts = identity.split("|")
+        if len(parts) >= 4 and parts[3].strip():
+            return parts[3].strip()
+        return str(record.get("setup") or "N/D")
+
+    def _exit_setup_from_record(self, record: dict[str, Any]) -> str:
+        return str(
+            record.get("exit_setup")
+            or record.get("exit_policy")
+            or record.get("dynamic_exit_policy")
+            or record.get("stop_management")
+            or "DYNAMIC_POSITION_MANAGER"
+        )
+
+    def _position_manager_field(
+        self,
+        record: dict[str, Any] | None,
+        field: str,
+    ) -> str:
+        if not record:
+            return "N/D"
+        return str(record.get(field) or "N/D")
+
+    def _position_manager_stop_moved(self, record: dict[str, Any] | None) -> bool:
+        if not record:
+            return False
+        action = str(record.get("action") or "").upper()
+        status = str(record.get("status") or "").upper()
+        execution_status = str(record.get("execution_status") or "").upper()
+        new_stop = record.get("new_stop")
+        return (
+            action == "STOP_MOVED"
+            or status == "STOP_MOVED"
+            or execution_status == "EXECUTED"
+        ) and new_stop is not None
+
+    def _read_position_manager_audit_index(self) -> dict[str, dict[str, Any]]:
+        """Indexa ultimo motivo auditavel do Position Manager por ticket e simbolo."""
+        path = Path(".traderia") / "position_manager.jsonl"
+        if not path.exists():
+            return {}
+        index: dict[str, dict[str, Any]] = {}
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return {}
+        for line in lines[-2000:]:
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not self._position_manager_record_is_exit_relevant(record):
+                continue
+            ticket = self._int_or_none(record.get("ticket"))
+            symbol = str(record.get("symbol") or "").upper()
+            if ticket is not None:
+                index[f"ticket:{ticket}"] = record
+            if symbol:
+                index[f"symbol:{symbol}"] = record
+        return index
+
+    def _position_manager_record_is_exit_relevant(
+        self,
+        record: dict[str, Any],
+    ) -> bool:
+        action = str(record.get("action") or "").upper()
+        status = str(record.get("status") or "").upper()
+        final_reason = str(record.get("final_exit_reason") or "").upper()
+        tags = {str(tag).upper() for tag in record.get("audit_tags", []) or []}
+        return (
+            action in {
+                "EARLY_EXIT",
+                "FULL_EXIT",
+                "STOP_MOVED",
+                "STOP_MAINTAINED",
+                "HOLD_POSITION",
+                "PROTECT_POSITION",
+            }
+            or status in {
+                "POSITION_CLOSED",
+                "CLOSE_REJECTED",
+                "STOP_MOVED",
+                "POSITION_HELD",
+                "EXECUTION_DISABLED",
+            }
+            or final_reason not in {"", "N/D", "NONE"}
+            or bool(tags & {
+                "EARLY_EXIT_CANDIDATE",
+                "FULL_EXIT_EXECUTED",
+                "FULL_EXIT_REJECTED",
+                "STOP_MOVED",
+                "STOP_MOVE_CANDIDATE",
+                "STOP_MOVE_BLOCKED_BY_CONFIG",
+            })
+        )
+
+    def _position_manager_record_for_trade(
+        self,
+        record: dict[str, Any],
+        mt5_record: dict[str, Any] | None,
+        index: dict[str, dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        ticket_candidates = [
+            self._int_or_none(record.get("ticket")),
+            self._int_or_none(mt5_record.get("ticket")) if mt5_record else None,
+            self._int_or_none(mt5_record.get("position_id")) if mt5_record else None,
+            self._int_or_none(mt5_record.get("order")) if mt5_record else None,
+        ]
+        for ticket in ticket_candidates:
+            if ticket is not None and f"ticket:{ticket}" in index:
+                return index[f"ticket:{ticket}"]
+        symbol = str(record.get("symbol") or "").upper()
+        if symbol and f"symbol:{symbol}" in index:
+            return index[f"symbol:{symbol}"]
+        return None
+
+    def _position_manager_exit_reason(
+        self,
+        record: dict[str, Any] | None,
+    ) -> str:
+        if not record:
+            return ""
+        final_reason = str(record.get("final_exit_reason") or "").strip()
+        message = str(record.get("message") or "").strip()
+        action = str(record.get("action") or "").strip()
+        status = str(record.get("status") or "").strip()
+        parts = []
+        if final_reason and final_reason.upper() not in {"N/D", "NONE"}:
+            parts.append(final_reason)
+        if action and action.upper() not in {"N/D", "NONE"}:
+            parts.append(action)
+        if status and status.upper() not in {"N/D", "NONE"}:
+            parts.append(status)
+        if message and message.upper() not in {"N/D", "NONE"}:
+            parts.append(message)
+        return " | ".join(dict.fromkeys(parts)) or "N/D"
 
     def _dynamic_exit_final_result(
         self,
@@ -3655,6 +3995,7 @@ class DashboardService:
             time_context = self.forex_time_layer.classify(
                 row.pair,
                 str(getattr(source_row, "last_candle_time", "")),
+                server_timestamp=self._mt5_server_timestamp(row.pair),
             )
             signal = self._mt5_demo_signal_from_view_row(
                 row,
@@ -3828,6 +4169,8 @@ class DashboardService:
         """Atualiza MT5 e avalia o robo armado em um ciclo online."""
         if self.mt5_demo_robot_service.enabled and self._mt5_demo_execution_enabled():
             self.load_mt5_forex_signals(timeframe=timeframe)
+        if str(pair or "TODOS").upper() in {"TODOS", "ALL"}:
+            return self.run_demo_robot_for_all(timeframe=timeframe)
         return self.evaluate_armed_demo_robot_once(pair=pair, timeframe=timeframe)
 
     def run_demo_robot_once(
@@ -5159,11 +5502,7 @@ class DashboardService:
         )
         if timeframe:
             parameters["timeframe"] = timeframe
-        if (
-            "stop_management" not in parameters
-            and str(parameters.get("atr_stop_factor", "")).strip()
-        ):
-            parameters["stop_management"] = "ATR_TRAILING_STOP"
+        if str(parameters.get("atr_stop_factor", "")).strip():
             parameters.setdefault(
                 "atr_trailing_factor",
                 str(parameters.get("atr_stop_factor", "2.0")),
@@ -5691,6 +6030,7 @@ class DashboardService:
             str(scenario.pair).upper(): scenario
             for scenario in best_scenarios
         }
+        priority_event = self._priority_event_summary(scenario_ranking)
         rows = []
         for pair in self._ordered_mt5_research_pairs(source_rows):
             scenario = scenario_by_market.get(pair)
@@ -5726,6 +6066,10 @@ class DashboardService:
                 rows=rows,
                 scenario_ranking=scenario_ranking,
                 best_scenarios_by_market=best_scenarios,
+                priority_event_mode=priority_event["mode"],
+                priority_event_type=priority_event["type"],
+                priority_event_context=priority_event["context"],
+                priority_event_reason=priority_event["reason"],
                 status="SEM_HEURISTICA_APROVADA",
                 timeframe=str(getattr(forex, "timeframe", "M1")),
                 candles_loaded=sum(
@@ -5766,6 +6110,10 @@ class DashboardService:
             best_score=best.score,
             best_decision=best.decision,
             best_confidence=best.confidence,
+            priority_event_mode=priority_event["mode"],
+            priority_event_type=priority_event["type"],
+            priority_event_context=priority_event["context"],
+            priority_event_reason=priority_event["reason"],
             winner_configuration=self._winner_model_configuration(
                 data.configuration_data,
                 best.recommended_heuristic,
@@ -5798,15 +6146,123 @@ class DashboardService:
     ) -> list[DashboardMT5ScenarioViewModel]:
         scenarios: list[DashboardMT5ScenarioViewModel] = []
         for row in rows:
+            scenarios.extend(self._post_rollover_priority_scenarios_for_row(row))
             scenarios.extend(self._mt5_research_scenarios_for_row(row, configuration))
         return sorted(
             scenarios,
             key=lambda scenario: (
+                0
+                if str(scenario.alpha_id).upper() == POST_ROLLOVER_ALPHA_ID
+                and str(scenario.status).upper() == "APROVADO"
+                else 1,
                 -float(scenario.score),
                 str(scenario.pair),
                 str(scenario.timeframe),
                 str(scenario.model),
             ),
+        )
+
+    def _priority_event_summary(
+        self,
+        scenarios: list[DashboardMT5ScenarioViewModel],
+    ) -> dict[str, str]:
+        for scenario in scenarios:
+            if str(scenario.alpha_id).upper() != POST_ROLLOVER_ALPHA_ID:
+                continue
+            parameters = dict(getattr(scenario, "parameters", {}) or {})
+            return {
+                "mode": str(parameters.get("event_mode") or "POST_ROLLOVER_ANALYSIS"),
+                "type": str(parameters.get("event_type") or POST_ROLLOVER_EVENT),
+                "context": str(parameters.get("context") or "NO_TRADE"),
+                "reason": str(getattr(scenario, "reason", "N/D") or "N/D"),
+            }
+        return {
+            "mode": "NORMAL_LAB_FLOW",
+            "type": "NONE",
+            "context": "NO_TRADE",
+            "reason": "Nenhum evento pos-rollover prioritario ativo.",
+        }
+
+    def _post_rollover_priority_scenarios_for_row(
+        self,
+        row: object,
+    ) -> list[DashboardMT5ScenarioViewModel]:
+        time_context = self.forex_time_layer.classify(
+            str(getattr(row, "pair", "N/D")),
+            getattr(row, "last_candle_time", "N/D"),
+            server_timestamp=self._mt5_server_timestamp(
+                str(getattr(row, "pair", "N/D"))
+            ),
+        )
+        decision = self.post_rollover_analyzer.analyze(row, time_context)
+        if decision.mode == "NORMAL_LAB_FLOW":
+            return []
+        return [self._post_rollover_scenario_from_decision(decision, time_context)]
+
+    def _post_rollover_scenario_from_decision(
+        self,
+        decision: PostRolloverDecision,
+        time_context: object,
+    ) -> DashboardMT5ScenarioViewModel:
+        approved = decision.status == "POST_ROLLOVER_TRADE_READY"
+        return DashboardMT5ScenarioViewModel(
+            alpha_id=decision.alpha_id,
+            pair=decision.pair,
+            timeframe=decision.timeframe,
+            temporal_session=str(getattr(time_context, "session", "N/D")),
+            temporal_session_label=str(getattr(time_context, "session_label", "N/D")),
+            temporal_window_brt=str(getattr(time_context, "brt_window", "N/D")),
+            temporal_hour_utc=getattr(time_context, "hour_utc", None),
+            temporal_hour_brt=getattr(time_context, "hour_brt", None),
+            temporal_weekday=str(getattr(time_context, "weekday", "UNKNOWN")),
+            temporal_is_london_session=bool(getattr(time_context, "is_london_session", False)),
+            temporal_is_new_york_session=bool(getattr(time_context, "is_new_york_session", False)),
+            temporal_is_asia_session=bool(getattr(time_context, "is_asia_session", False)),
+            temporal_is_overlap=bool(getattr(time_context, "is_london_new_york_overlap", False)),
+            temporal_is_rollover=bool(getattr(time_context, "is_rollover_window", False)),
+            temporal_is_friday_late=bool(getattr(time_context, "is_friday_late", False)),
+            temporal_is_sunday_open=bool(getattr(time_context, "is_sunday_open", False)),
+            temporal_is_off_hours=bool(getattr(time_context, "is_off_hours", False)),
+            temporal_status=str(getattr(time_context, "temporal_status", "N/D")),
+            temporal_blocked=bool(getattr(time_context, "temporal_blocked", False)),
+            temporal_score_adjustment=0.0,
+            temporal_reason=str(getattr(time_context, "temporal_reason", "N/D")),
+            temporal_preferred_sessions=tuple(getattr(time_context, "preferred_sessions", ())),
+            temporal_financial_centers=tuple(getattr(time_context, "financial_centers", ())),
+            temporal_quality_note=str(getattr(time_context, "quality_note", "N/D")),
+            model=POST_ROLLOVER_EVENT,
+            parameters={
+                "event_type": decision.event_type,
+                "event_mode": decision.mode,
+                "context": decision.context,
+                "skip_reason": decision.skip_reason,
+                "entry_price": str(decision.entry_price or ""),
+                "stop": str(decision.stop or ""),
+                "target": str(decision.target or ""),
+                "rr": str(decision.risk_reward or 0.0),
+                **decision.metrics,
+            },
+            score=decision.score,
+            lab_confidence=decision.confidence,
+            lab_confidence_sample_size=1 if approved else 0,
+            lab_confidence_profit_factor=0.0,
+            lab_confidence_expectancy=0.0,
+            lab_confidence_max_drawdown=0.0,
+            lab_confidence_source="POST_ROLLOVER_EVENT_ANALYSIS",
+            ict_score=100.0 if approved else 0.0,
+            ict_grade="A" if approved else "E",
+            ict_status="EVENTO_PRIORITARIO_APROVADO" if approved else "EVENTO_PRIORITARIO_SKIP",
+            ict_usage="Prioridade diaria pos-rollover." if approved else "Skip pos-rollover; segue fluxo normal.",
+            ict_demo_allowed=approved,
+            ict_minimum_filters_passed=approved,
+            ict_rejection_reasons=() if approved else (decision.skip_reason,),
+            ict_component_scores=dict(
+                post_rollover_score=decision.score,
+                post_rollover_confidence=decision.confidence,
+            ),
+            status="APROVADO" if approved else "REJEITADO",
+            decision=decision.decision,
+            reason=decision.reason,
         )
 
     def _best_mt5_scenarios_by_pair(
@@ -6343,7 +6799,7 @@ class DashboardService:
             "rr": rr,
             "momentum_threshold": momentum_threshold,
             "volatility_threshold": volatility_threshold,
-            "exit_model": "SCENARIO_EXIT_RESEARCH_SELECTION",
+            "exit_model": "INITIAL_RISK_PLAN",
         }
         parameters.update(extras)
         return parameters
@@ -6460,6 +6916,9 @@ class DashboardService:
         time_context = self.forex_time_layer.classify(
             str(getattr(row, "pair", "N/D")),
             getattr(row, "last_candle_time", "N/D"),
+            server_timestamp=self._mt5_server_timestamp(
+                str(getattr(row, "pair", "N/D"))
+            ),
         )
         if session_filter_enabled is None:
             configuration = self.configuration_service.get_configuration_data()
@@ -6553,6 +7012,17 @@ class DashboardService:
             decision=decision,
             reason=reason,
         )
+
+    def _mt5_server_timestamp(self, symbol: str = "EURUSD") -> str:
+        """Le horario do servidor MT5 por provider quando disponivel."""
+        provider = getattr(self.mt5_market_data_service, "provider", None)
+        get_server_time = getattr(provider, "get_server_time", None)
+        if not callable(get_server_time):
+            return "N/D"
+        try:
+            return str(get_server_time(symbol) or "N/D")
+        except (OSError, RuntimeError, ValueError, TypeError):
+            return "N/D"
 
     def _exit_management_score_adjustment(
         self,

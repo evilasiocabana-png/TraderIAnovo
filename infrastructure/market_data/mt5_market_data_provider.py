@@ -202,6 +202,68 @@ class MT5MarketDataProvider:
             "spread_points": spread_points,
         }
 
+    def get_symbol_cost_data(self, symbol: str) -> dict[str, float | int | str | None]:
+        """Le dados read-only de custo operacional do simbolo no MT5."""
+        normalized_symbol = str(symbol or "").strip()
+        if not normalized_symbol:
+            return {"source": "MT5", "symbol": "N/D"}
+        if self._use_external_mt5_process():
+            payload = self._external_mt5_call("cost_snapshot", symbol=normalized_symbol)
+            data = payload.get("data", {}) if bool(payload.get("ok")) else {}
+            return dict(data) if isinstance(data, dict) else {}
+
+        mt5 = self._mt5()
+        symbol_info = self._safe_symbol_call(mt5, "symbol_info", normalized_symbol)
+        symbol_tick = self._safe_symbol_call(mt5, "symbol_info_tick", normalized_symbol)
+        point = self._positive_float(self._object_value(symbol_info, "point", None))
+        spread_points = self._positive_float(
+            self._object_value(symbol_info, "spread", None)
+        )
+        bid = self._positive_float(self._object_value(symbol_tick, "bid", None))
+        ask = self._positive_float(self._object_value(symbol_tick, "ask", None))
+        spread_price = None
+        if bid is not None and ask is not None and ask >= bid:
+            spread_price = ask - bid
+        elif spread_points is not None and point is not None:
+            spread_price = spread_points * point
+        return {
+            "symbol": normalized_symbol.upper(),
+            "bid": bid,
+            "ask": ask,
+            "spread_points": spread_points,
+            "spread_price": spread_price,
+            "spread": spread_price,
+            "swap_long": self._object_value(symbol_info, "swap_long", None),
+            "swap_short": self._object_value(symbol_info, "swap_short", None),
+            "tick_value": self._object_value(symbol_info, "trade_tick_value", None),
+            "tick_size": self._object_value(symbol_info, "trade_tick_size", None),
+            "contract_size": self._object_value(symbol_info, "trade_contract_size", None),
+            "digits": self._object_value(symbol_info, "digits", None),
+            "point": point,
+            "source": "MT5",
+            "captured_at": datetime.now(UTC).isoformat(),
+        }
+
+    def get_server_time(self, symbol: str = "EURUSD") -> str:
+        """Retorna horario do servidor MT5 usando timestamp do tick mais recente."""
+        normalized_symbol = str(symbol or "EURUSD").strip() or "EURUSD"
+        if self._use_external_mt5_process():
+            payload = self._external_mt5_call("server_time", symbol=normalized_symbol)
+            if bool(payload.get("ok")):
+                return str(payload.get("server_time") or "N/D")
+            self.last_error = str(payload.get("message", "Horario do servidor indisponivel."))
+            return "N/D"
+        try:
+            mt5 = self._mt5()
+            mt5.symbol_select(normalized_symbol, True)
+            tick = mt5.symbol_info_tick(normalized_symbol)
+        except (OSError, RuntimeError, ValueError, TypeError):
+            return "N/D"
+        tick_time = self._positive_float(self._object_value(tick, "time", None))
+        if tick_time is None:
+            return "N/D"
+        return datetime.fromtimestamp(float(tick_time), tz=UTC).isoformat()
+
     def get_forex_batch(
         self,
         symbols_timeframes: dict[str, Any],
@@ -396,7 +458,7 @@ class MT5MarketDataProvider:
         code = r'''
 import json
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 
 request = json.loads(sys.argv[1])
 try:
@@ -468,6 +530,46 @@ try:
             "spread": spread,
             "spread_points": spread_points,
         }})
+    elif action == "cost_snapshot":
+        symbol = str(request.get("symbol", ""))
+        mt5.symbol_select(symbol, True)
+        info = mt5.symbol_info(symbol)
+        tick = mt5.symbol_info_tick(symbol)
+        point = float(getattr(info, "point", 0.0) or 0.0) if info else None
+        spread_points = float(getattr(info, "spread", 0.0) or 0.0) if info else None
+        bid = float(getattr(tick, "bid", 0.0) or 0.0) if tick else None
+        ask = float(getattr(tick, "ask", 0.0) or 0.0) if tick else None
+        spread = ask - bid if bid is not None and ask is not None and ask >= bid else None
+        if spread is None and point is not None and spread_points is not None:
+            spread = point * spread_points
+        emit({"ok": info is not None, "data": {
+            "symbol": symbol.upper(),
+            "bid": bid,
+            "ask": ask,
+            "spread_points": spread_points,
+            "spread_price": spread,
+            "spread": spread,
+            "swap_long": float(getattr(info, "swap_long", 0.0) or 0.0) if info else None,
+            "swap_short": float(getattr(info, "swap_short", 0.0) or 0.0) if info else None,
+            "tick_value": float(getattr(info, "trade_tick_value", 0.0) or 0.0) if info else None,
+            "tick_size": float(getattr(info, "trade_tick_size", 0.0) or 0.0) if info else None,
+            "contract_size": float(getattr(info, "trade_contract_size", 0.0) or 0.0) if info else None,
+            "digits": int(getattr(info, "digits", 0) or 0) if info else None,
+            "point": point,
+            "source": "MT5_EXTERNAL",
+            "captured_at": datetime.now(UTC).isoformat(),
+        }})
+    elif action == "server_time":
+        symbol = str(request.get("symbol", "EURUSD") or "EURUSD")
+        mt5.symbol_select(symbol, True)
+        tick = mt5.symbol_info_tick(symbol)
+        tick_time = getattr(tick, "time", None) if tick else None
+        server_time = (
+            datetime.fromtimestamp(float(tick_time)).isoformat()
+            if tick_time
+            else "N/D"
+        )
+        emit({"ok": tick_time is not None, "server_time": server_time})
     elif action == "forex_batch":
         symbols_timeframes = dict(request.get("symbols_timeframes", {}))
         count = int(request.get("count", 0))
@@ -554,6 +656,7 @@ finally:
             "microstructure",
             "forex_batch",
             "symbol_exists",
+            "server_time",
         }:
             return ""
         try:

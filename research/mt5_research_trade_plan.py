@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 SUPPORTED_STOP_MANAGEMENT_POLICIES = frozenset(
     (
+        "DYNAMIC_POSITION_MANAGER",
         "FIXED_STOP",
         "ATR_TRAILING_STOP",
         "BREAK_EVEN",
@@ -20,6 +21,22 @@ SUPPORTED_STOP_MANAGEMENT_POLICIES = frozenset(
 )
 
 STOP_MANAGEMENT_PARAMETER_KEYS = {
+    "DYNAMIC_POSITION_MANAGER": (
+        "atr_trailing_factor",
+        "atr_trailing_activation_rr",
+        "break_even_trigger_rr",
+        "break_even_offset_pips",
+        "volatility_stop_factor",
+        "chandelier_period",
+        "chandelier_atr_factor",
+        "donchian_stop_period",
+        "exit_ma_period",
+        "exit_ma_type",
+        "max_bars_in_trade",
+        "max_minutes_in_trade",
+        "volatility_window",
+        "volatility_multiplier",
+    ),
     "FIXED_STOP": (),
     "ATR_TRAILING_STOP": ("atr_trailing_factor", "atr_trailing_activation_rr"),
     "BREAK_EVEN": ("break_even_trigger_rr", "break_even_offset_pips"),
@@ -44,6 +61,8 @@ class MT5ResearchTradePlanConfiguration:
     )
     minimum_distance_percent: float = 0.001
     minimum_risk_reward: float = 1.5
+    default_stop_multiplier: float = 2.0
+    default_risk_reward: float = 2.0
 
 
 @dataclass(frozen=True)
@@ -60,7 +79,7 @@ class MT5ResearchTradePlanInput:
     reason: str
     atr_stop_factor: float | None = None
     research_risk_reward: float | None = None
-    stop_management: str = "FIXED_STOP"
+    stop_management: str = "DYNAMIC_POSITION_MANAGER"
     stop_management_parameters: dict[str, str] = field(default_factory=dict)
     certification_demo_allowed: bool = True
     certification_score: float = 100.0
@@ -94,7 +113,7 @@ class MT5ResearchTradePlan:
     target_reason: str = ""
     stop_management: str = "FIXED_STOP"
     stop_management_parameters: dict[str, str] = field(default_factory=dict)
-    stop_management_reason: str = "Gestao fixa por compatibilidade."
+    stop_management_reason: str = "Saida dinamica decidida pelo Position Manager."
     source: str = "RESEARCH_LAB"
     reason: str = ""
     invalid_reason: str = ""
@@ -164,7 +183,7 @@ class MT5ResearchTradePlanEngine:
                 expected_trigger="Entrada teorica positiva no candle de sinal.",
             )
         entry = float(payload.entry_price)
-        stop_multiplier, risk_reward, exit_score = self._select_exit_combination(
+        stop_multiplier, risk_reward, exit_score = self._initial_risk_parameters(
             payload,
         )
         if risk_reward < self.configuration.minimum_risk_reward:
@@ -198,8 +217,10 @@ class MT5ResearchTradePlanEngine:
             payload.stop_management_parameters,
         )
         stop_management_reason = (
-            f"Gestao {stop_management} definida pelo Research Lab; "
-            "Trade Plan apenas transporta a politica para execucao/gestao futura."
+            f"Hint legado {stop_management} preservado por compatibilidade. "
+            "Entrada aprovada por plano inicial de risco. A saida nao e escolhida "
+            "na aprovacao do trade; o Position Manager decidira dinamicamente "
+            "apos existir posicao aberta."
         )
         stop_reason = (
             f"Stop definido por {stop_multiplier:.2f}x ATR com distancia minima "
@@ -218,9 +239,9 @@ class MT5ResearchTradePlanEngine:
             target=target,
             risk_reward=risk_reward,
             stop_multiplier=stop_multiplier,
-            exit_model="ATR_RR_RESEARCH_SELECTION",
+            exit_model="INITIAL_RISK_PLAN",
             exit_score=exit_score,
-            exit_candidates=self._exit_candidate_count(payload),
+            exit_candidates=0,
             risk_pips=risk_pips,
             reward_pips=reward_pips,
             risk_percent=risk_percent,
@@ -232,8 +253,8 @@ class MT5ResearchTradePlanEngine:
             stop_management_reason=stop_management_reason,
             status="PLANO_VALIDO",
             reason=(
-                f"{payload.active_model}: saida escolhida pelo Research Lab "
-                f"com stop {stop_multiplier:.2f}x ATR e RR {risk_reward:.2f}. "
+                f"{payload.active_model}: entrada aprovada com stop inicial "
+                f"{stop_multiplier:.2f}x ATR e RR inicial {risk_reward:.2f}. "
                 f"{payload.reason}"
             ),
             next_retry="Plano pronto para avaliacao do robo demo temporal.",
@@ -247,8 +268,8 @@ class MT5ResearchTradePlanEngine:
                     f"({payload.certification_grade}); nao bloqueia operacao Demo."
                 ),
                 f"Stop calculado com {stop_multiplier:.2f}x ATR/distancia minima.",
-                f"RR selecionado {risk_reward:.2f}.",
-                f"Gestao selecionada {stop_management}.",
+                f"RR inicial {risk_reward:.2f}.",
+                "Saida dinamica sera decidida pelo Position Manager em tempo de posicao.",
                 f"Risco {risk_pips:.1f} pips ({risk_percent:.4f}%).",
                 f"Ganho potencial {reward_pips:.1f} pips ({reward_percent:.4f}%).",
             ),
@@ -260,29 +281,20 @@ class MT5ResearchTradePlanEngine:
             certification_rejection_reasons=payload.certification_rejection_reasons,
         )
 
-    def _select_exit_combination(
+    def _initial_risk_parameters(
         self,
         payload: MT5ResearchTradePlanInput,
     ) -> tuple[float, float, float]:
-        """Seleciona combinacao leve de saida sem backtest pesado."""
+        """Define risco inicial sem escolher uma saida operacional."""
         lab_stop_multiplier = self._positive_float(payload.atr_stop_factor)
         lab_risk_reward = self._positive_float(payload.research_risk_reward)
         if lab_stop_multiplier is not None and lab_risk_reward is not None:
-            return lab_stop_multiplier, lab_risk_reward, 100.0
-        candidates = self.configuration.exit_candidates
-        if not candidates:
-            return 2.0, 2.0, 0.0
-        atr_value = max(float(payload.atr or 0.0), 0.0)
-        scored: list[tuple[float, float, float]] = []
-        for stop_multiplier, risk_reward in candidates:
-            score = self._exit_candidate_score(
-                stop_multiplier,
-                risk_reward,
-                atr_value,
-            )
-            scored.append((score, stop_multiplier, risk_reward))
-        score, stop_multiplier, risk_reward = max(scored, key=lambda item: item[0])
-        return stop_multiplier, risk_reward, score
+            return lab_stop_multiplier, lab_risk_reward, 0.0
+        return (
+            self.configuration.default_stop_multiplier,
+            self.configuration.default_risk_reward,
+            0.0,
+        )
 
     def _exit_candidate_count(self, payload: MT5ResearchTradePlanInput) -> int:
         if (
@@ -290,7 +302,7 @@ class MT5ResearchTradePlanEngine:
             and self._positive_float(payload.research_risk_reward) is not None
         ):
             return 1
-        return len(self.configuration.exit_candidates)
+        return 0
 
     def _positive_float(self, value: float | None) -> float | None:
         if value is None:
@@ -301,10 +313,10 @@ class MT5ResearchTradePlanEngine:
         return parsed
 
     def _normalize_stop_management(self, value: str | None) -> str:
-        normalized = str(value or "FIXED_STOP").strip().upper()
+        normalized = str(value or "DYNAMIC_POSITION_MANAGER").strip().upper()
         if normalized in SUPPORTED_STOP_MANAGEMENT_POLICIES:
             return normalized
-        return "FIXED_STOP"
+        return "DYNAMIC_POSITION_MANAGER"
 
     def _stop_management_parameters(
         self,
@@ -388,7 +400,7 @@ class MT5ResearchTradePlanEngine:
                 payload.stop_management_parameters,
             ),
             stop_management_reason=(
-                "Gestao registrada, mas sem aplicacao porque o plano nao esta valido."
+                "Saida dinamica registrada, mas sem aplicacao porque o plano nao esta valido."
             ),
             status=status,
             reason=reason,

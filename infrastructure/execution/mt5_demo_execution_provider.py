@@ -140,6 +140,203 @@ class MT5DemoExecutionProvider:
             decision_key="POSITION_MANAGER",
         )
 
+    def close_position(
+        self,
+        *,
+        symbol: str,
+        ticket: int,
+        side: str,
+        volume: float,
+        reason: str,
+    ) -> ExecutionResult:
+        """Fecha posicao existente em conta demo usando ordem oposta."""
+        normalized_symbol = str(symbol or "").upper()
+        normalized_side = str(side or "").upper()
+        created_at = datetime.now().astimezone().isoformat()
+        initialize_check = self._initialize_check()
+        if initialize_check is not None:
+            self._write_management_log(
+                self._close_log_payload(
+                    created_at,
+                    normalized_symbol,
+                    ticket,
+                    normalized_side,
+                    volume,
+                    reason,
+                    initialize_check,
+                    submitted=False,
+                )
+            )
+            return initialize_check
+        demo_check = self._demo_account_check()
+        if demo_check is not None:
+            self._write_management_log(
+                self._close_log_payload(
+                    created_at,
+                    normalized_symbol,
+                    ticket,
+                    normalized_side,
+                    volume,
+                    reason,
+                    demo_check,
+                    submitted=False,
+                )
+            )
+            return demo_check
+        symbol_check = self._ensure_symbol(normalized_symbol)
+        if symbol_check is not None:
+            self._write_management_log(
+                self._close_log_payload(
+                    created_at,
+                    normalized_symbol,
+                    ticket,
+                    normalized_side,
+                    volume,
+                    reason,
+                    symbol_check,
+                    submitted=False,
+                )
+            )
+            return symbol_check
+        position = self._find_position(normalized_symbol, int(ticket or 0))
+        if position is None:
+            result = ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message="Posicao demo nao encontrada para fechamento.",
+            )
+            self._write_management_log(
+                self._close_log_payload(
+                    created_at,
+                    normalized_symbol,
+                    ticket,
+                    normalized_side,
+                    volume,
+                    reason,
+                    result,
+                    submitted=False,
+                )
+            )
+            return result
+        position_side = self._position_side(position, {"decision": normalized_side})
+        if normalized_side not in {"BUY", "SELL"} or position_side != normalized_side:
+            result = ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message="Lado informado nao confere com posicao MT5.",
+            )
+            self._write_management_log(
+                self._close_log_payload(
+                    created_at,
+                    normalized_symbol,
+                    ticket,
+                    normalized_side,
+                    volume,
+                    reason,
+                    result,
+                    submitted=False,
+                )
+            )
+            return result
+        close_volume = float(volume or getattr(position, "volume", 0.0) or 0.0)
+        if close_volume <= 0.0:
+            result = ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message="Volume invalido para fechamento demo.",
+            )
+            self._write_management_log(
+                self._close_log_payload(
+                    created_at,
+                    normalized_symbol,
+                    ticket,
+                    normalized_side,
+                    volume,
+                    reason,
+                    result,
+                    submitted=False,
+                )
+            )
+            return result
+        tick = self.mt5.symbol_info_tick(normalized_symbol)
+        if tick is None:
+            result = ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message="Tick indisponivel para fechamento demo.",
+            )
+            self._write_management_log(
+                self._close_log_payload(
+                    created_at,
+                    normalized_symbol,
+                    ticket,
+                    normalized_side,
+                    close_volume,
+                    reason,
+                    result,
+                    submitted=False,
+                )
+            )
+            return result
+        close_type = (
+            self.mt5.ORDER_TYPE_SELL
+            if normalized_side == "BUY"
+            else self.mt5.ORDER_TYPE_BUY
+        )
+        price = (
+            self._positive_float(getattr(tick, "bid", None))
+            if normalized_side == "BUY"
+            else self._positive_float(getattr(tick, "ask", None))
+        )
+        if price is None:
+            result = ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message="Preco indisponivel para fechamento demo.",
+            )
+            self._write_management_log(
+                self._close_log_payload(
+                    created_at,
+                    normalized_symbol,
+                    ticket,
+                    normalized_side,
+                    close_volume,
+                    reason,
+                    result,
+                    submitted=False,
+                )
+            )
+            return result
+        request = {
+            "action": self.mt5.TRADE_ACTION_DEAL,
+            "position": int(ticket),
+            "symbol": normalized_symbol,
+            "volume": close_volume,
+            "type": close_type,
+            "price": float(price),
+            "deviation": self.deviation,
+            "magic": self.magic,
+            "comment": f"TraderIA POSITION_MANAGER {reason}"[:31],
+            "type_time": self.mt5.ORDER_TIME_GTC,
+            "type_filling": self.mt5.ORDER_FILLING_IOC,
+        }
+        response = self.mt5.order_send(request)
+        result = self._result_from_response(response)
+        self._write_management_log(
+            self._close_log_payload(
+                created_at,
+                normalized_symbol,
+                ticket,
+                normalized_side,
+                close_volume,
+                reason,
+                result,
+                submitted=True,
+                price=float(price),
+            )
+        )
+        return result
+
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         """Converte ExecutionOrder em request MT5 e envia para conta demo."""
         initialize_check = self._initialize_check()
@@ -157,6 +354,11 @@ class MT5DemoExecutionProvider:
             self._write_log(order, symbol_check)
             return symbol_check
 
+        duplicate_rejection = self._duplicate_plan_preflight(order)
+        if duplicate_rejection is not None:
+            self._write_log(order, duplicate_rejection)
+            return duplicate_rejection
+
         tick = self.mt5.symbol_info_tick(order.symbol)
         if tick is None:
             result = ExecutionResult(
@@ -166,6 +368,11 @@ class MT5DemoExecutionProvider:
             )
             self._write_log(order, result)
             return result
+
+        stop_target_rejection = self._stop_target_preflight(order, tick)
+        if stop_target_rejection is not None:
+            self._write_log(order, stop_target_rejection)
+            return stop_target_rejection
 
         response = self.mt5.order_send(self._request(order, tick))
         result = self._result_from_response(response)
@@ -603,6 +810,35 @@ class MT5DemoExecutionProvider:
         )
         return result
 
+    def _close_log_payload(
+        self,
+        timestamp: str,
+        symbol: str,
+        ticket: int | None,
+        side: str,
+        volume: float,
+        reason: str,
+        result: ExecutionResult,
+        *,
+        submitted: bool,
+        price: float | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "timestamp": timestamp,
+            "type": "POSITION_MANAGER_CLOSE",
+            "symbol": symbol,
+            "ticket": ticket,
+            "side": side,
+            "volume": volume,
+            "reason": reason,
+            "submitted": submitted,
+            "success": result.accepted,
+            "status": result.status,
+            "message": result.message,
+            "price": price,
+            "error_code": result.error_code,
+        }
+
     def _positive_float(self, value: object) -> float | None:
         try:
             parsed = float(value)
@@ -697,6 +933,159 @@ class MT5DemoExecutionProvider:
             "type_filling": self.mt5.ORDER_FILLING_IOC,
         }
 
+    def _stop_target_preflight(
+        self,
+        order: ExecutionOrder,
+        tick: object,
+    ) -> ExecutionResult | None:
+        """Rejeita plano stale antes do MT5 retornar Invalid stops."""
+        side = str(order.side or "").upper()
+        price = self._positive_float(
+            getattr(tick, "ask", None) if side == "BUY" else getattr(tick, "bid", None)
+        )
+        stop = self._positive_float(getattr(order, "stop", None))
+        target = self._positive_float(getattr(order, "target", None))
+        if price is None:
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=f"Preco executavel indisponivel para {order.symbol}.",
+            )
+        if stop is None or target is None:
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message="Stop Loss e Take Profit invalidos para envio MT5 Demo.",
+            )
+        if side == "BUY" and not (stop < price < target):
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=(
+                    "Plano MT5 Demo stale: preco atual tornou SL/TP invalidos "
+                    f"para BUY ({stop:.6f} < {price:.6f} < {target:.6f})."
+                ),
+                executed_price=price,
+            )
+        if side == "SELL" and not (target < price < stop):
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=(
+                    "Plano MT5 Demo stale: preco atual tornou SL/TP invalidos "
+                    f"para SELL ({target:.6f} < {price:.6f} < {stop:.6f})."
+                ),
+                executed_price=price,
+            )
+        if side not in {"BUY", "SELL"}:
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message="Direcao invalida para envio MT5 Demo.",
+            )
+        return None
+
+    def _duplicate_plan_preflight(
+        self,
+        order: ExecutionOrder,
+    ) -> ExecutionResult | None:
+        """Bloqueia reenvio do mesmo plano no mesmo candle/identidade do Lab."""
+        current_identity = str(getattr(order, "plan_identity", "") or "").strip()
+        if not current_identity or current_identity.upper() == "N/D":
+            return None
+        current_key = self._execution_plan_key(order)
+        if current_key is None:
+            return None
+        for record in self._read_execution_log_records():
+            if not self._record_counts_as_plan_evaluation(record):
+                continue
+            record_identity = str(record.get("plan_identity") or "").strip()
+            if not record_identity or record_identity.upper() == "N/D":
+                continue
+            if record_identity != current_identity:
+                continue
+            if self._record_plan_key(record) != current_key:
+                continue
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=(
+                    "Plano operacional duplicado bloqueado: mesmo par, direcao, "
+                    "entrada, stop, alvo e candle/plano do Lab ja foram avaliados. "
+                    "Aguarde novo candle ou novo plano valido do Research Lab."
+                ),
+            )
+        return None
+
+    def _record_counts_as_plan_evaluation(self, record: dict[str, Any]) -> bool:
+        message = str(record.get("message") or "").lower()
+        transient_markers = (
+            "tick indisponivel",
+            "preco executavel indisponivel",
+            "mt5 retornou resposta vazia",
+            "initialize() falhou",
+            "simbolo",
+            "nao pode ser selecionado",
+            "provider de execucao demo nao configurado",
+        )
+        return not any(marker in message for marker in transient_markers)
+
+    def _read_execution_log_records(self) -> list[dict[str, Any]]:
+        if not self.log_path.exists():
+            return []
+        try:
+            lines = self.log_path.read_text(
+                encoding="utf-8",
+                errors="ignore",
+            ).splitlines()
+        except OSError:
+            return []
+        records: list[dict[str, Any]] = []
+        for line in lines[-2000:]:
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                records.append(payload)
+        return records
+
+    def _execution_plan_key(
+        self,
+        order: ExecutionOrder,
+    ) -> tuple[str, str, float, float, float] | None:
+        entry = self._positive_float(getattr(order, "entry_price", None))
+        stop = self._positive_float(getattr(order, "stop", None))
+        target = self._positive_float(getattr(order, "target", None))
+        if entry is None or stop is None or target is None:
+            return None
+        return (
+            str(order.symbol or "").upper(),
+            str(order.side or "").upper(),
+            round(float(entry), 6),
+            round(float(stop), 6),
+            round(float(target), 6),
+        )
+
+    def _record_plan_key(
+        self,
+        record: dict[str, Any],
+    ) -> tuple[str, str, float, float, float] | None:
+        entry = self._positive_float(record.get("entry_price"))
+        stop = self._positive_float(record.get("stop"))
+        target = self._positive_float(record.get("target"))
+        if entry is None or stop is None or target is None:
+            return None
+        return (
+            str(record.get("symbol") or "").upper(),
+            str(record.get("side") or "").upper(),
+            round(float(entry), 6),
+            round(float(stop), 6),
+            round(float(target), 6),
+        )
+
     def _result_from_response(self, response: object) -> ExecutionResult:
         if response is None:
             return ExecutionResult(
@@ -754,6 +1143,10 @@ class MT5DemoExecutionProvider:
             "ticket": result.ticket,
             "executed_price": result.executed_price,
             "error_code": result.error_code,
+            "plan_identity": getattr(order, "plan_identity", "N/D"),
+            "entry_setup": getattr(order, "entry_setup", "N/D"),
+            "exit_setup": getattr(order, "exit_setup", "DYNAMIC_POSITION_MANAGER"),
+            "exit_policy": getattr(order, "exit_policy", "DYNAMIC_POSITION_MANAGER"),
         }
         with self.log_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(payload, ensure_ascii=True) + "\n")

@@ -81,8 +81,9 @@ Os tipos de stop/saida conhecidos no contrato atual sao:
 - `TIME_STOP`
 - `VOLATILITY_STOP`
 
-A melhor saida deve vir do Lab por ativo, setup e timeframe, assim como a
-entrada.
+A entrada, o stop inicial, o RR inicial e o alvo inicial vêm do Lab/Trade Plan.
+A saida nao deve ser predefinida para aprovar o trade: ela e decidida
+dinamicamente pelo Position Manager conforme o cenario da posicao aberta.
 
 ## Ciclos operacionais
 

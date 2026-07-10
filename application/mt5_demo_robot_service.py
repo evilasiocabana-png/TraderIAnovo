@@ -96,6 +96,7 @@ class MT5DemoTradePlan:
     stop_reason: str = ""
     target_reason: str = ""
     exit_model: str = "NONE"
+    stop_management: str = "DYNAMIC_POSITION_MANAGER"
     trade_plan_version: str = TRADE_PLAN_VERSION
 
 
@@ -149,12 +150,10 @@ class MT5DemoRobotService:
                 trade_plan,
             )
 
-        previous_decision = self.last_decision_by_market.get(key, "WAIT")
         current_decision = str(signal.decision).upper()
-        self.last_candle_by_market[key] = signal.candle_time
-        self.last_decision_by_market[key] = current_decision
 
         if current_decision not in {"BUY", "SELL"}:
+            self._mark_candle_evaluated(key, signal.candle_time, current_decision)
             return self._result(
                 "NO_SIGNAL",
                 "Modelo ativo nao gerou BUY/SELL no candle novo.",
@@ -163,6 +162,7 @@ class MT5DemoRobotService:
             )
         regime_result = self.market_regime_pipeline.evaluate(signal)
         if not regime_result.authorized:
+            self._mark_candle_evaluated(key, signal.candle_time, current_decision)
             return self._result(
                 regime_result.block_reason or "REGIME_BLOCKED",
                 regime_result.message or "Regime de mercado nao autorizou entrada.",
@@ -170,6 +170,7 @@ class MT5DemoRobotService:
                 trade_plan,
             )
         if regime_result.direction != current_decision:
+            self._mark_candle_evaluated(key, signal.candle_time, current_decision)
             return self._result(
                 "REGIME_DIRECTION_MISMATCH",
                 (
@@ -180,6 +181,7 @@ class MT5DemoRobotService:
                 trade_plan,
             )
         if signal.temporal_blocked and signal.session_filter_enabled:
+            self._mark_candle_evaluated(key, signal.candle_time, current_decision)
             return self._result(
                 "TEMPORAL_BLOCKED",
                 signal.temporal_reason
@@ -188,6 +190,7 @@ class MT5DemoRobotService:
                 trade_plan,
             )
         if signal.macro_event_blocked:
+            self._mark_candle_evaluated(key, signal.candle_time, current_decision)
             return self._result(
                 "MACRO_EVENT_BLOCKED",
                 signal.macro_event_reason
@@ -234,6 +237,10 @@ class MT5DemoRobotService:
             entry_price=float(trade_plan.entry_price),
             stop=float(trade_plan.stop),
             target=float(trade_plan.target),
+            plan_identity=self._trade_plan_identity(signal, trade_plan),
+            entry_setup=signal.active_model,
+            exit_setup=trade_plan.stop_management,
+            exit_policy=trade_plan.stop_management,
         )
         self.execution_service.pending_audit_metadata = {
             "alpha_id": signal.alpha_id,
@@ -272,6 +279,8 @@ class MT5DemoRobotService:
             order,
             paper_validated=True,
         )
+        if execution.accepted or self._is_terminal_rejection(execution.message):
+            self._mark_candle_evaluated(key, signal.candle_time, current_decision)
         return MT5DemoRobotResult(
             status="EXECUTED" if execution.accepted else "REJECTED",
             message=execution.message,
@@ -310,6 +319,23 @@ class MT5DemoRobotService:
             return "Plano SELL invalido: alvo/entrada/stop inconsistentes."
         return ""
 
+    def _trade_plan_identity(
+        self,
+        signal: MT5DemoRobotSignal,
+        trade_plan: MT5DemoTradePlan,
+    ) -> str:
+        """Identifica quando o Lab realmente produziu um novo plano/candle."""
+        parts = (
+            trade_plan.symbol,
+            trade_plan.timeframe,
+            signal.candle_time,
+            signal.active_model,
+            trade_plan.trade_plan_version,
+            trade_plan.source,
+            trade_plan.status,
+        )
+        return "|".join(str(part or "N/D").upper() for part in parts)
+
     def _result(
         self,
         status: str,
@@ -329,3 +355,31 @@ class MT5DemoRobotService:
 
     def _market_key(self, symbol: str, timeframe: str) -> tuple[str, str]:
         return (str(symbol).upper(), str(timeframe).upper())
+
+    def _mark_candle_evaluated(
+        self,
+        key: tuple[str, str],
+        candle_time: str,
+        decision: str,
+    ) -> None:
+        self.last_candle_by_market[key] = candle_time
+        self.last_decision_by_market[key] = decision
+
+    def _is_terminal_rejection(self, message: str) -> bool:
+        """Consome candle apenas para rejeicoes logicas, nao falhas transitorias."""
+        normalized = str(message or "").lower()
+        transient_markers = (
+            "stale",
+            "tick indisponivel",
+            "preco executavel indisponivel",
+            "preco atual tornou",
+            "mt5 retornou resposta vazia",
+            "initialize() falhou",
+            "autotrading disabled",
+            "automated trading is disabled",
+            "trading disabled by client",
+            "client disabled autotrading",
+            "simbolo",
+            "nao pode ser selecionado",
+        )
+        return not any(marker in normalized for marker in transient_markers)

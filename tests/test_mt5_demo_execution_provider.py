@@ -38,6 +38,85 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertEqual(mt5.last_request["tp"], 120.0)
         self.assertEqual(mt5.last_request["comment"], "TraderIA DEMO")
 
+    def test_rejeita_preflight_quando_preco_atual_invalida_sl_tp(self) -> None:
+        mt5 = _FakeMT5()
+        mt5.tick = SimpleNamespace(ask=1.33567, bid=1.33565)
+        provider = self._provider(mt5)
+
+        result = provider.submit_order(
+            ExecutionOrder(
+                symbol="GBPUSD",
+                side="SELL",
+                quantity=0.1,
+                entry_price=1.33833,
+                stop=1.33966833,
+                target=1.33565334,
+            )
+        )
+
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.status, "REJECTED")
+        self.assertIn("stale", result.message)
+        self.assertIsNone(mt5.last_request)
+
+    def test_bloqueia_mesmo_plano_no_mesmo_candle_do_lab(self) -> None:
+        mt5 = _FakeMT5()
+        mt5.tick = SimpleNamespace(ask=1.33712, bid=1.33710)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = MT5DemoExecutionProvider(
+                mt5=mt5,
+                log_path=Path(temp_dir) / "orders.jsonl",
+            )
+            order = ExecutionOrder(
+                symbol="GBPUSD",
+                side="SELL",
+                quantity=0.1,
+                entry_price=1.33833,
+                stop=1.33966833,
+                target=1.33565334,
+                plan_identity="GBPUSD|M1|2026-07-08 21:18|ADX|TP v5",
+            )
+
+            first = provider.submit_order(order)
+            second = provider.submit_order(order)
+
+            self.assertTrue(first.accepted)
+            self.assertFalse(second.accepted)
+            self.assertIn("duplicado", second.message)
+
+    def test_libera_mesmo_plano_quando_candle_do_lab_muda(self) -> None:
+        mt5 = _FakeMT5()
+        mt5.tick = SimpleNamespace(ask=1.33712, bid=1.33710)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = MT5DemoExecutionProvider(
+                mt5=mt5,
+                log_path=Path(temp_dir) / "orders.jsonl",
+            )
+            first_order = ExecutionOrder(
+                symbol="GBPUSD",
+                side="SELL",
+                quantity=0.1,
+                entry_price=1.33833,
+                stop=1.33966833,
+                target=1.33565334,
+                plan_identity="GBPUSD|M1|2026-07-08 21:18|ADX|TP v5",
+            )
+            second_order = ExecutionOrder(
+                symbol="GBPUSD",
+                side="SELL",
+                quantity=0.1,
+                entry_price=1.33833,
+                stop=1.33966833,
+                target=1.33565334,
+                plan_identity="GBPUSD|M1|2026-07-08 21:19|ADX|TP v5",
+            )
+
+            first = provider.submit_order(first_order)
+            second = provider.submit_order(second_order)
+
+            self.assertTrue(first.accepted)
+            self.assertTrue(second.accepted)
+
     def test_has_open_position_consulta_simbolo(self) -> None:
         mt5 = _FakeMT5(open_positions=[object()])
         provider = self._provider(mt5)
@@ -244,6 +323,60 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
 
         self.assertFalse(result.success)
         self.assertIn("nao melhora", " ".join(result.rejection_reasons))
+        self.assertIsNone(mt5.last_request)
+
+    def test_close_position_demo_usa_ordem_oposta(self) -> None:
+        position = SimpleNamespace(
+            ticket=987,
+            symbol="EURUSD",
+            type=_FakeMT5.POSITION_TYPE_BUY,
+            price_open=1.1000,
+            sl=1.0980,
+            tp=1.1060,
+            volume=0.1,
+        )
+        mt5 = _FakeMT5(open_positions=[position])
+        mt5.tick = SimpleNamespace(ask=1.1042, bid=1.1040)
+        provider = self._provider(mt5)
+
+        result = provider.close_position(
+            symbol="EURUSD",
+            ticket=987,
+            side="BUY",
+            volume=0.1,
+            reason="EARLY_EXIT_MOMENTUM_LOSS",
+        )
+
+        self.assertTrue(result.accepted)
+        self.assertEqual(mt5.last_request["action"], mt5.TRADE_ACTION_DEAL)
+        self.assertEqual(mt5.last_request["position"], 987)
+        self.assertEqual(mt5.last_request["type"], mt5.ORDER_TYPE_SELL)
+        self.assertEqual(mt5.last_request["volume"], 0.1)
+        self.assertAlmostEqual(mt5.last_request["price"], 1.1040)
+
+    def test_close_position_conta_nao_demo_rejeita(self) -> None:
+        position = SimpleNamespace(
+            ticket=987,
+            symbol="EURUSD",
+            type=_FakeMT5.POSITION_TYPE_BUY,
+            price_open=1.1000,
+            sl=1.0980,
+            tp=1.1060,
+            volume=0.1,
+        )
+        mt5 = _FakeMT5(trade_mode=99, open_positions=[position])
+        provider = self._provider(mt5)
+
+        result = provider.close_position(
+            symbol="EURUSD",
+            ticket=987,
+            side="BUY",
+            volume=0.1,
+            reason="EARLY_EXIT_MOMENTUM_LOSS",
+        )
+
+        self.assertFalse(result.accepted)
+        self.assertIn("nao e demo", result.message)
         self.assertIsNone(mt5.last_request)
 
     def _provider(self, mt5: object) -> MT5DemoExecutionProvider:

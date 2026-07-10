@@ -50,6 +50,7 @@ class MT5TradeAuditService:
                 ),
                 dynamic_exit_executed_action="NONE",
                 dynamic_exit_final_result=self._final_result(signal),
+                final_exit_reason=self._final_result(signal),
             )
             for signal in signals
         ]

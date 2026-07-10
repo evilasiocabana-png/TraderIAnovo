@@ -920,7 +920,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertEqual(suggestions[0].stop_management, "ATR_TRAILING_STOP")
         self.assertEqual(
             suggestions[0].exit_model,
-            "SCENARIO_EXIT_RESEARCH_SELECTION",
+            "INITIAL_RISK_PLAN",
         )
 
     def test_sugestao_setup_lab_declara_quando_nao_atinge_70(self) -> None:
@@ -1026,6 +1026,10 @@ class DashboardViewModelContractTest(unittest.TestCase):
                                 "volume": 0.1,
                                 "price": 1.1,
                                 "profit": 12.34,
+                                "commission": -1.25,
+                                "swap": -0.40,
+                                "fee": -0.05,
+                                "open_cost": -1.70,
                                 "time": "2026-07-01T00:00:00+00:00",
                             }
                         },
@@ -1045,6 +1049,10 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertAlmostEqual(report.rows[0].projected_profit, 1000.0)
         self.assertAlmostEqual(report.rows[0].projected_loss, -1000.0)
         self.assertAlmostEqual(report.rows[0].mt5_realized_profit, 12.34)
+        self.assertAlmostEqual(report.rows[0].mt5_commission, -1.25)
+        self.assertAlmostEqual(report.rows[0].mt5_swap, -0.40)
+        self.assertAlmostEqual(report.rows[0].mt5_fee, -0.05)
+        self.assertAlmostEqual(report.rows[0].mt5_open_cost, -1.70)
         self.assertEqual(report.rows[0].dynamic_exit_policy, "ATR_TRAILING_STOP")
         self.assertEqual(report.rows[0].dynamic_exit_action, "TRAIL_BY_ATR")
         self.assertEqual(report.rows[0].dynamic_exit_market_state, "TREND_RUNNER")
@@ -1092,6 +1100,119 @@ class DashboardViewModelContractTest(unittest.TestCase):
 
         self.assertEqual(report.rows[0].mt5_source, "DEAL")
         self.assertEqual(report.rows[0].operation_status, "FECHADA/HISTORICO")
+
+    def test_relatorio_mt5_inclui_posicao_aberta_sem_ticket_local_casado(self) -> None:
+        class OpenPositionAuditDashboardService(DashboardService):
+            def _read_mt5_demo_execution_jsonl(self):
+                return [
+                    {
+                        "timestamp": "2026-07-10T02:49:00-03:00",
+                        "symbol": "NZDUSD",
+                        "side": "BUY",
+                        "quantity": 0.1,
+                        "entry_price": 0.56863,
+                        "target": 0.57030,
+                        "stop": 0.56804,
+                        "accepted": True,
+                        "status": "ACCEPTED",
+                        "ticket": 3387305,
+                    }
+                ]
+
+            def _load_mt5_trade_history(self):
+                return (
+                    {
+                        3387305: {
+                            "ticket": 3387305,
+                            "source": "POSITION",
+                            "symbol": "NZDUSD",
+                            "side": "BUY",
+                            "volume": 0.1,
+                            "price": 0.56863,
+                            "profit": 19.20,
+                            "time": "2026-07-10T02:49:00+00:00",
+                        },
+                        3379365: {
+                            "ticket": 3379365,
+                            "source": "POSITION",
+                            "symbol": "AUDUSD",
+                            "side": "BUY",
+                            "volume": 0.1,
+                            "price": 0.65720,
+                            "profit": -1.40,
+                            "time": "2026-07-09T05:56:00+00:00",
+                        },
+                    },
+                    "CONNECTED",
+                    "Historico MT5 carregado.",
+                )
+
+        report = OpenPositionAuditDashboardService().get_mt5_trade_audit_report()
+
+        mt5_only = [row for row in report.rows if row.audit_status == "MT5_ONLY"]
+        self.assertEqual(len(mt5_only), 1)
+        self.assertEqual(mt5_only[0].symbol, "AUDUSD")
+        self.assertEqual(mt5_only[0].operation_status, "ABERTA")
+        self.assertEqual(mt5_only[0].local_ticket, None)
+        self.assertAlmostEqual(mt5_only[0].mt5_realized_profit, -1.40)
+        self.assertEqual(report.total_audited, 2)
+
+    def test_relatorio_mt5_registra_motivo_saida_do_position_manager(self) -> None:
+        class PositionManagerAuditDashboardService(DashboardService):
+            def _read_mt5_demo_execution_jsonl(self):
+                return [
+                    {
+                        "timestamp": "2026-07-08T17:00:00-03:00",
+                        "symbol": "GBPUSD",
+                        "side": "SELL",
+                        "quantity": 0.1,
+                        "entry_price": 1.33962,
+                        "target": 1.33565,
+                        "accepted": True,
+                        "status": "ACCEPTED",
+                        "ticket": 337770472,
+                    }
+                ]
+
+            def _load_mt5_trade_history(self):
+                return (
+                    {
+                        337770472: {
+                            "ticket": 337770472,
+                            "source": "DEAL",
+                            "symbol": "GBPUSD",
+                            "side": "SELL",
+                            "volume": 0.1,
+                            "price": 1.33944,
+                            "profit": 1.2,
+                            "time": "2026-07-08T17:28:00-03:00",
+                        }
+                    },
+                    "CONNECTED",
+                    "Historico MT5 carregado.",
+                )
+
+            def _read_position_manager_audit_index(self):
+                return {
+                    "ticket:337770472": {
+                        "symbol": "GBPUSD",
+                        "ticket": 337770472,
+                        "action": "FULL_EXIT",
+                        "status": "POSITION_CLOSED",
+                        "final_exit_reason": "EARLY_EXIT_MOMENTUM_LOSS",
+                        "message": "Saida antecipada confirmada dinamicamente.",
+                    }
+                }
+
+        report = PositionManagerAuditDashboardService().get_mt5_trade_audit_report()
+
+        self.assertEqual(report.rows[0].operation_status, "FECHADA/HISTORICO")
+        self.assertIn("EARLY_EXIT_MOMENTUM_LOSS", report.rows[0].final_exit_reason)
+        self.assertIn("FULL_EXIT", report.rows[0].final_exit_reason)
+        self.assertIn(
+            "Saida antecipada confirmada",
+            report.rows[0].final_exit_reason,
+        )
 
     def test_relatorio_mt5_converte_projecao_jpy_para_formato_monetario_mt5(
         self,
@@ -1766,9 +1887,9 @@ class DashboardViewModelContractTest(unittest.TestCase):
             self.assertEqual(view_row.research_plan_status, "PLANO_VALIDO")
             self.assertEqual(
                 view_row.research_plan_exit_model,
-                "ATR_RR_RESEARCH_SELECTION",
+                "INITIAL_RISK_PLAN",
             )
-            self.assertGreater(view_row.research_plan_exit_score, 0.0)
+            self.assertEqual(view_row.research_plan_exit_score, 0.0)
             self.assertIsNotNone(view_row.research_plan_stop)
             self.assertIsNotNone(view_row.research_plan_target)
         else:
@@ -1936,6 +2057,46 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertGreater(scenario.score, 0.0)
         self.assertIn("Filtro de sessao ignorado", scenario.reason)
         self.assertEqual(scenario.temporal_score_adjustment, 0.0)
+
+    def test_research_lab_prioriza_evento_pos_rollover_antes_das_alphas(
+        self,
+    ) -> None:
+        class PostRolloverDashboardService(DashboardService):
+            def _mt5_server_timestamp(self, symbol: str = "EURUSD") -> str:
+                return "2026-07-09T00:12:00+00:00"
+
+        service = PostRolloverDashboardService()
+        row = self._forex_row(
+            pair="EURUSD",
+            timeframe="M1",
+            trend="ALTA",
+            momentum=0.001,
+            rsi=55.0,
+            short_average=1.02,
+            long_average=1.01,
+            last_candle_time="2026-07-09T00:12:00+00:00",
+        )
+        row.atr = 0.0008
+        row.volatility = 0.0004
+        row.spread = 0.0001
+        row.spread_average = 0.0001
+        row.last_price = 1.1000
+        row.theoretical_entry_price = 1.1000
+        row.tick_volume = 80
+
+        scenarios = service._mt5_research_scenario_ranking(
+            [row],
+            service.configuration_service.get_configuration_data(),
+        )
+
+        self.assertEqual(scenarios[0].alpha_id, "EVENT_POST_ROLLOVER_DAILY_OPEN")
+        self.assertEqual(scenarios[0].model, "POST_ROLLOVER_DAILY_OPEN")
+        self.assertEqual(scenarios[0].status, "APROVADO")
+        self.assertEqual(scenarios[0].decision, "BUY")
+        self.assertEqual(
+            scenarios[0].parameters["event_mode"],
+            "POST_ROLLOVER_TRADE_READY",
+        )
 
     def test_dashboard_service_entrega_filtro_de_sessao_ignorado_ao_robo(
         self,

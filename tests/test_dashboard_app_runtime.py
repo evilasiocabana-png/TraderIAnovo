@@ -308,7 +308,6 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(view_row["Confianca Saida Dinamica"], "65.00%")
         self.assertEqual(view_row["R Atual Saida"], "1.25")
         self.assertEqual(view_row["Stop Candidato"], "1.12200")
-        self.assertEqual(view_row["Execucao Saida Permitida"], "NAO")
         self.assertIn("atr_trailing_factor=2.0", view_row["Parametros Gestao"])
         self.assertEqual(view_row["Motivo Gestao"], "Gestao definida pelo Lab.")
         self.assertEqual(view_row["Motivo Stop"], "Stop por ATR.")
@@ -318,9 +317,21 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertNotIn("Melhor timeframe", view_row)
         self.assertNotIn("Rank score", view_row)
 
-        entry_row = dashboard_app._forex_theoretical_entry_row(view_row)
+        entry_row = dashboard_app._forex_theoretical_entry_row(
+            view_row,
+            robot_online=True,
+            mt5_online=True,
+        )
 
         self.assertEqual(entry_row["Par"], "EURUSD")
+        self.assertEqual(entry_row["Sinal"], "OK")
+        self.assertEqual(entry_row["Plano"], "OK")
+        self.assertEqual(entry_row["Zona gate"], "OK")
+        self.assertEqual(entry_row["Robo"], "OK")
+        self.assertEqual(entry_row["MT5"], "OK")
+        self.assertEqual(entry_row["Plano vigente"], "OK")
+        self.assertEqual(entry_row["Posicao"], "OK")
+        self.assertEqual(entry_row["Envio"], "PRONTO")
         self.assertEqual(entry_row["Modelo ativo"], "TREND_MOMENTUM")
         self.assertEqual(entry_row["Entrada Teorica"], "SINAL_TEORICO")
         self.assertEqual(entry_row["Candle do Sinal"], "29/06/2026 07:00")
@@ -330,6 +341,36 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(entry_row["Proxima Tentativa"], "Plano pronto.")
         self.assertEqual(entry_row["Stop Research"], "1.12145")
         self.assertEqual(entry_row["Alvo Research"], "1.12745")
+
+    def test_entrada_teorica_mostra_gate_preco_sl_tp_bloqueado(self) -> None:
+        row = {
+            "Par": "GBPUSD",
+            "Periodo de tempo": "M1",
+            "Modelo Ativo": "ADX_TREND_STRENGTH",
+            "Zona Operacional": "RESISTENCIA",
+            "Entrada Teorica": "SINAL_TEORICO",
+            "Ultimo preco": "1.33981",
+            "Direcao Teorica": "SELL",
+            "Plano Research": "PLANO_VALIDO",
+            "Stop Research": "1.33967",
+            "Alvo Research": "1.33565",
+            "Motivo Entrada": "Gatilho teorico.",
+        }
+
+        entry_row = dashboard_app._forex_theoretical_entry_row(
+            row,
+            robot_online=True,
+            mt5_online=True,
+        )
+
+        self.assertEqual(entry_row["Sinal"], "OK")
+        self.assertEqual(entry_row["Plano"], "OK")
+        self.assertEqual(entry_row["Zona gate"], "OK")
+        self.assertEqual(
+            entry_row["Plano vigente"],
+            "BLOQ: preco saiu do plano SELL",
+        )
+        self.assertEqual(entry_row["Envio"], "BLOQ: Plano vigente")
 
     def test_auditoria_mt5_exibe_projecoes_do_app_ao_lado_do_realizado(self) -> None:
         """Lucro/prejuizo projetados devem ficar juntos do lucro realizado MT5."""
@@ -373,6 +414,10 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             dynamic_exit_allowed_to_execute_demo=False,
             dynamic_exit_executed_action="NONE",
             dynamic_exit_final_result="POSICAO_ABERTA",
+            forex_session="LONDON_NEW_YORK_OVERLAP",
+            forex_session_open=True,
+            session_filter_result="ALLOWED",
+            session_reason="Sessao Londres/NY aberta.",
         )
 
         view_row = dashboard_app._mt5_trade_audit_row(row)
@@ -398,6 +443,10 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(view_row["Lucro realizado MT5"], "12.34")
         self.assertEqual(view_row["Lucro projetado app"], "10.00")
         self.assertEqual(view_row["Prejuizo projetado app"], "-5.00")
+        self.assertEqual(
+            view_row["Mercado aberto"],
+            "ABERTO | Sessao: LONDON_NEW_YORK_OVERLAP | ALLOWED | Sessao Londres/NY aberta.",
+        )
         self.assertEqual(view_row["Pontuacao Lab"], "N/D")
         self.assertEqual(view_row["Confianca Lab"], "N/D")
         self.assertEqual(view_row["Politica Saida Lab"], "ATR_TRAILING_STOP")
@@ -483,8 +532,8 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 "TF",
                 "Direcao",
                 "Setup",
-                "Saida dinamica",
-                "Modelo saida",
+                "Gestao runtime",
+                "Plano de risco",
                 "Resumo parametros",
                 "Encaixe Tecnico",
                 "Confirmacao Historica",
@@ -690,20 +739,80 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 projected_profit=29.91,
                 projected_loss=-10.0,
                 mt5_realized_profit=7.37,
+                mt5_commission=-1.2,
+                mt5_swap=-0.3,
+                mt5_fee=-0.05,
+                mt5_open_cost=-1.55,
+                session_is_rollover=False,
             ),
             SimpleNamespace(
                 operation_status="ORDEM_ABERTA",
                 projected_profit=34.24,
                 projected_loss=-11.41,
                 mt5_realized_profit=8.1,
+                mt5_commission=-1.0,
+                mt5_swap=-0.25,
+                mt5_fee=0.0,
+                mt5_open_cost=-1.25,
+                session_is_rollover=True,
             ),
         ]
 
         summary = dashboard_app._mt5_open_profit_summary(rows)
 
         self.assertEqual(summary["Lucro projetado aberto"], "64.15")
+        self.assertEqual(summary["Custo aberto"], "-2.80")
         self.assertEqual(summary["Risco em aberto"], "-21.41")
         self.assertEqual(summary["Lucro MT5 aberto"], "15.47")
+        self.assertEqual(summary["Rollover custo"], "COM ROLLOVER")
+
+    def test_auditoria_mt5_mostra_custo_aberto_por_operacao_aberta(self) -> None:
+        open_row = SimpleNamespace(
+            audit_status="CONFERE",
+            operation_status="ABERTA",
+            symbol="GBPUSD",
+            projected_profit=105.37,
+            projected_loss=-42.91,
+            mt5_realized_profit=7.6,
+            mt5_commission=-1.25,
+            mt5_swap=-0.4,
+            mt5_fee=-0.05,
+            mt5_open_cost=-1.70,
+            session_is_rollover=False,
+        )
+        closed_row = SimpleNamespace(
+            audit_status="CONFERE",
+            operation_status="FECHADA/HISTORICO",
+            symbol="GBPUSD",
+            projected_profit=105.37,
+            projected_loss=-42.91,
+            mt5_realized_profit=7.6,
+            mt5_commission=-1.25,
+            mt5_swap=-0.4,
+            mt5_fee=-0.05,
+            mt5_open_cost=-1.70,
+            session_is_rollover=True,
+        )
+
+        open_view = dashboard_app._mt5_trade_audit_row(open_row)
+        closed_view = dashboard_app._mt5_trade_audit_row(closed_row)
+
+        self.assertEqual(open_view["Lucro projetado aberto"], "105.37")
+        self.assertEqual(open_view["Custo aberto"], "-1.70")
+        self.assertEqual(open_view["Corretagem aberta"], "-1.25")
+        self.assertEqual(open_view["Swap aberto"], "-0.40")
+        self.assertEqual(open_view["Fee aberta"], "-0.05")
+        self.assertEqual(open_view["Risco em aberto"], "-42.91")
+        self.assertEqual(open_view["Lucro MT5 aberto"], "7.60")
+        self.assertEqual(open_view["Rollover custo"], "SEM ROLLOVER")
+        self.assertEqual(closed_view["Lucro projetado aberto"], "N/D")
+        self.assertEqual(closed_view["Custo aberto"], "N/D")
+        self.assertEqual(closed_view["Corretagem aberta"], "N/D")
+        self.assertEqual(closed_view["Swap aberto"], "N/D")
+        self.assertEqual(closed_view["Fee aberta"], "N/D")
+        self.assertEqual(closed_view["Risco em aberto"], "N/D")
+        self.assertEqual(closed_view["Lucro MT5 aberto"], "N/D")
+        self.assertEqual(closed_view["Rollover custo"], "N/D")
 
     def test_historico_mt5_colore_vencedoras_e_perdedoras(self) -> None:
         pd = __import__("pandas")
@@ -1198,6 +1307,10 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(audit["Ticket"], 123)
         self.assertEqual(audit["Posicao MT5"], "OPEN")
         self.assertEqual(audit["Sessao Forex"], "LONDON")
+        self.assertEqual(
+            audit["Mercado aberto"],
+            "ABERTO | Sessao: LONDON | ALLOWED | London Session",
+        )
         self.assertEqual(audit["Resultado sessao"], "ALLOWED")
         self.assertEqual(audit["Motivo sessao"], "London Session")
 
@@ -1259,7 +1372,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                     "atr_stop_factor": "2.0",
                     "rr": "2.5",
                 },
-                exit_model="SCENARIO_EXIT_RESEARCH_SELECTION",
+                exit_model="INITIAL_RISK_PLAN",
                 stop_management="ATR_TRAILING_STOP",
                 score=0.82,
                 lab_confidence=0.70,
@@ -1272,8 +1385,27 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "EMA 20x50 | RSI 35.0/65.0 | ATR 2.0 | RR 2.5",
         )
         self.assertEqual(row["Status"], "ATINGIU_70")
-        self.assertEqual(row["Saida dinamica"], "ATR_TRAILING_STOP")
-        self.assertEqual(row["Modelo saida"], "SCENARIO_EXIT_RESEARCH_SELECTION")
+        self.assertEqual(row["Gestao runtime"], "POSITION_MANAGER_DINAMICO")
+        self.assertEqual(row["Plano de risco"], "INITIAL_RISK_PLAN")
+
+    def test_lab_sugestoes_normalizam_modelo_saida_legado(self) -> None:
+        row = dashboard_app._mt5_setup_suggestion_compact_row(
+            SimpleNamespace(
+                pair="EURUSD",
+                timeframe="H1",
+                decision="BUY",
+                model="TREND_MOMENTUM",
+                parameters={},
+                exit_model="SCENARIO_EXIT_RESEARCH_SELECTION",
+                stop_management="ATR_TRAILING_STOP",
+                score=0.82,
+                lab_confidence=0.70,
+                status="SUGERIDO_70",
+            )
+        )
+
+        self.assertEqual(row["Gestao runtime"], "POSITION_MANAGER_DINAMICO")
+        self.assertEqual(row["Plano de risco"], "INITIAL_RISK_PLAN")
 
     def test_lab_research_report_resume_status_da_alpha(self) -> None:
         row = dashboard_app._mt5_alpha_research_report_row(

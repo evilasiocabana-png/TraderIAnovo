@@ -51,6 +51,17 @@ class DemoExecutionProvider(Protocol):
     ) -> object:
         """Modifica somente o SL de uma posicao demo existente."""
 
+    def close_position(
+        self,
+        *,
+        symbol: str,
+        ticket: int,
+        side: str,
+        volume: float,
+        reason: str,
+    ) -> ExecutionResult:
+        """Fecha uma posicao demo existente quando a politica permitir."""
+
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         """Envia uma ordem ja validada para o ambiente demo."""
 
@@ -149,6 +160,21 @@ class DisabledDemoExecutionProvider:
             accepted=False,
             status="PROVIDER_DISABLED",
             message="Provider de execucao demo nao configurado.",
+        )
+
+    def close_position(
+        self,
+        *,
+        symbol: str,
+        ticket: int,
+        side: str,
+        volume: float,
+        reason: str,
+    ) -> ExecutionResult:
+        return ExecutionResult(
+            accepted=False,
+            status="PROVIDER_DISABLED",
+            message="Provider de execucao demo nao configurado para fechamento.",
         )
 
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
@@ -259,6 +285,24 @@ class DemoExecutionService:
     ) -> object:
         """Solicita ao provider demo a alteracao apenas do SL."""
         return self.provider.modify_position_sl(symbol, ticket, new_stop)
+
+    def close_position(
+        self,
+        *,
+        symbol: str,
+        ticket: int,
+        side: str,
+        volume: float,
+        reason: str,
+    ) -> ExecutionResult:
+        """Solicita fechamento de posicao demo existente ao provider."""
+        return self.provider.close_position(
+            symbol=symbol,
+            ticket=ticket,
+            side=side,
+            volume=volume,
+            reason=reason,
+        )
 
     def register_daily_result(self, result_points: float) -> None:
         """Atualiza perda/ganho do dia para travas posteriores."""

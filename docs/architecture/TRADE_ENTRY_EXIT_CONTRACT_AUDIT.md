@@ -4,6 +4,8 @@ Data: 2026-07-08
 Projeto: TraderIA Novo
 Escopo: Research Lab, Trade Plan, Robo Demo, Position Manager, saida dinamica e Relatorio.
 
+Nota de consolidacao: este documento descreve o estado atual auditado. A referencia oficial consolidada para futuras implementacoes e `docs/architecture/POSITION_MANAGER_OFFICIAL_CONTRACT.md`.
+
 ## Objetivo
 
 Mapear o contrato operacional atual sem alterar codigo. Esta auditoria responde quem decide entrada, stop inicial, RR, alvo, politica de saida, gestao de stop e eventual fechamento antecipado.
@@ -65,17 +67,17 @@ Campos decididos ou carregados a partir do Lab:
 | `RR` | Sim, quando `rr` esta em `final_configuration`. |
 | `target` | Nao diretamente. O Trade Plan calcula target usando distancia do stop x RR. |
 | `atr_stop_factor` | Sim, quando presente no cenario vencedor. |
-| `stop_management` | Sim, quando presente. Se ausente e existir `atr_stop_factor`, o Dashboard preenche `ATR_TRAILING_STOP`. |
-| `exit_policy` | Nao existe como campo separado consolidado. O equivalente atual e `stop_management`/`dynamic_exit_policy`. |
+| `stop_management` | Campo legado/hint de compatibilidade. Nao deve aprovar entrada nem predefinir saida. |
+| `exit_policy` | A saida operacional passa a ser decisao dinamica do Position Manager apos posicao aberta. |
 
-Observacao critica: hoje `stop_management` mistura duas ideias diferentes: politica de saida escolhida pelo Lab e politica de gestao posterior da posicao.
+Observacao critica corrigida em 2026-07-08: `stop_management` nao deve mais misturar aprovacao de entrada com escolha de saida. O contrato novo separa plano inicial de risco e decisao dinamica de saida.
 
 ## 2. O Que o Trade Plan Faz Hoje
 
 O `MT5ResearchTradePlanEngine` nao apenas copia o plano do Lab. Ele materializa e calcula:
 
 ```text
-stop_multiplier, risk_reward = _select_exit_combination(...)
+stop_multiplier, risk_reward = _initial_risk_parameters(...)
 distance = _stop_distance(entry, atr, stop_multiplier)
 target_distance = distance * risk_reward
 ```
@@ -83,17 +85,17 @@ target_distance = distance * risk_reward
 Regras atuais:
 
 - Se o Lab fornece `atr_stop_factor` e `rr`, o Trade Plan usa esses valores diretamente.
-- Se o Lab nao fornece esses valores, o Trade Plan escolhe uma combinacao fallback de uma grade (`exit_candidates`).
+- Se o Lab nao fornece esses valores, o Trade Plan usa o risco inicial padrao configurado.
 - O stop inicial e calculado por `max(ATR x multiplicador, distancia_minima_percentual)`.
 - O target e calculado por `distancia_do_stop x RR`.
-- O `stop_management` e normalizado e transportado.
+- O `stop_management` e preservado apenas como compatibilidade/hint; a saida nao nasce escolhida no plano.
 
 Conclusao: o Trade Plan altera/materializa parametros. Ele nao e apenas um envelope passivo. Ele pode:
 
 - alterar stop inicial, porque calcula a distancia;
-- alterar RR, quando usa fallback;
+- materializar RR inicial por parametro do Lab ou padrao conservador;
 - alterar target, porque sempre calcula o alvo;
-- impor ATR/multiplicador proprio quando os parametros do Lab estao ausentes.
+- impor ATR/multiplicador padrao de risco inicial quando os parametros do Lab estao ausentes.
 
 ## 3. O Que o Robo Demo Envia ao MT5
 
@@ -179,28 +181,28 @@ Se a flag estiver desligada, ele calcula o candidato, registra auditoria e prese
 
 ## 6. BREAK_EVEN e ATR_TRAILING_STOP Nascem Ativos ou Futuros?
 
-Eles nascem como politica no Trade Plan quando o Lab define `stop_management`, ou quando o Dashboard infere `ATR_TRAILING_STOP` a partir de `atr_stop_factor`.
+Eles nao devem nascer ativos no Trade Plan. Quando `stop_management` aparece, ele deve ser tratado apenas como hint legado de compatibilidade.
 
 Porem, ha duas camadas diferentes:
 
-1. No Trade Plan, `stop_management` e apenas politica declarada.
-2. No Position Manager, a politica so executa se houver posicao aberta e se `dynamic_exit_demo_sl_assisted_execution_enabled` estiver ligada.
+1. No Trade Plan, `stop_management` nao aprova entrada nem predefine saida.
+2. No Position Manager, a saida e decidida dinamicamente pelo estado da posicao e so executa se houver posicao aberta e se `dynamic_exit_demo_sl_assisted_execution_enabled` estiver ligada.
 
 Hoje nao existe campo explicito separando:
 
 ```text
-post_entry_policy_status = PENDING | ACTIVE | EXECUTED | BLOCKED
+runtime_exit_state = OBSERVED | CANDIDATE | EXECUTED | BLOCKED
 ```
 
 O controle pratico e feito por:
 
 - existencia de posicao aberta;
-- politica `stop_management`;
+- estado dinamico calculado pelo Position Manager;
 - dados disponiveis;
 - `dynamic_exit_demo_sl_assisted_execution_enabled`;
 - retorno do Position Manager.
 
-Lacuna: falta um contrato claro dizendo "a politica de saida esta pendente ate atingir +1R" ou "trailing ativo a partir de condicao X". Alguns parametros existem, como `atr_trailing_activation_rr`, mas o Position Manager atual nao aplica explicitamente esse parametro no calculo de ATR trailing.
+Lacuna historica corrigida: a saida nao deve ser aprovada junto da entrada. O runtime pode usar parametros como `atr_trailing_activation_rr`, mas a decisao final pertence ao Position Manager.
 
 ## 7. Conceitos de Fraqueza, Reversao e Saida Antecipada
 
@@ -316,10 +318,10 @@ initial_stop
 initial_risk_distance
 initial_rr
 initial_target
-post_entry_exit_policy
-post_entry_policy_status
-post_entry_activation_condition
-post_entry_activation_r
+runtime_exit_mode
+runtime_exit_state
+runtime_exit_hints
+runtime_exit_activation_r
 current_stop
 candidate_stop
 stop_move_reason

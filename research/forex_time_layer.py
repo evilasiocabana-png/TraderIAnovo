@@ -41,6 +41,10 @@ class ForexTimeContext:
     preferred_sessions: tuple[str, ...]
     financial_centers: tuple[str, ...]
     quality_note: str
+    server_timestamp: str = "N/D"
+    server_day: str = "N/D"
+    minutes_to_server_rollover: float | None = None
+    minutes_from_server_rollover: float | None = None
 
 
 class ForexTimeLayer:
@@ -78,10 +82,19 @@ class ForexTimeLayer:
         "USDCAD": ("Toronto", "Nova York", "Londres"),
     }
 
-    def classify(self, pair: str, timestamp: object) -> ForexTimeContext:
+    def classify(
+        self,
+        pair: str,
+        timestamp: object,
+        *,
+        server_timestamp: object | None = None,
+        rollover_guard_minutes: int = 5,
+    ) -> ForexTimeContext:
         """Retorna a classificacao temporal do candle informado."""
         source = str(timestamp or "").strip()
         parsed = self._parse_timestamp(source)
+        server_source = str(server_timestamp or "").strip()
+        server_dt = self._parse_timestamp(server_source)
         normalized_pair = str(pair or "").upper()
         if parsed is None:
             return ForexTimeContext(
@@ -113,16 +126,26 @@ class ForexTimeLayer:
                 preferred_sessions=self._preferred_sessions(normalized_pair),
                 financial_centers=self._financial_centers(normalized_pair),
                 quality_note="Timestamp ausente ou invalido para Camada Tempo.",
+                server_timestamp=server_source or "N/D",
             )
 
         utc_dt = parsed.astimezone(timezone.utc)
         brt_dt = utc_dt.astimezone(BRASILIA_OFFSET)
-        session = self._session(utc_dt.hour)
+        server_rollover = self._server_rollover_context(
+            server_dt,
+            guard_minutes=rollover_guard_minutes,
+        )
+        session = (
+            "ROLLOVER"
+            if bool(server_rollover["is_rollover_window"])
+            else self._session(utc_dt.hour)
+        )
         preferred_sessions = self._preferred_sessions(normalized_pair)
         status, blocked, adjustment, reason = self._temporal_decision(
             session,
             utc_dt,
             preferred_sessions,
+            server_rollover=server_rollover,
         )
         return ForexTimeContext(
             pair=normalized_pair,
@@ -141,8 +164,14 @@ class ForexTimeLayer:
             is_asia_session=session == "ASIA",
             is_london_new_york_overlap=session == "LONDON_NEW_YORK_OVERLAP",
             is_london_ny_overlap=session == "LONDON_NEW_YORK_OVERLAP",
-            is_rollover_window=self._is_rollover_window(utc_dt.hour),
-            is_rollover=self._is_rollover_window(utc_dt.hour),
+            is_rollover_window=bool(
+                server_rollover["is_rollover_window"]
+                or self._is_rollover_window(utc_dt.hour)
+            ),
+            is_rollover=bool(
+                server_rollover["is_rollover_window"]
+                or self._is_rollover_window(utc_dt.hour)
+            ),
             is_friday_late=self._is_friday_late(utc_dt),
             is_sunday_open=self._is_sunday_open(utc_dt),
             is_off_hours=session == "OFF_HOURS",
@@ -153,6 +182,10 @@ class ForexTimeLayer:
             preferred_sessions=preferred_sessions,
             financial_centers=self._financial_centers(normalized_pair),
             quality_note=reason,
+            server_timestamp=str(server_rollover["server_timestamp"]),
+            server_day=str(server_rollover["server_day"]),
+            minutes_to_server_rollover=server_rollover["minutes_to_rollover"],
+            minutes_from_server_rollover=server_rollover["minutes_from_rollover"],
         )
 
     def _parse_timestamp(self, value: str) -> datetime | None:
@@ -201,6 +234,44 @@ class ForexTimeLayer:
     def _is_rollover_window(self, hour_utc: int) -> bool:
         return 21 <= hour_utc < 22
 
+    def _server_rollover_context(
+        self,
+        server_timestamp: datetime | None,
+        *,
+        guard_minutes: int,
+    ) -> dict[str, object]:
+        if server_timestamp is None:
+            return {
+                "is_rollover_window": False,
+                "server_timestamp": "N/D",
+                "server_day": "N/D",
+                "minutes_to_rollover": None,
+                "minutes_from_rollover": None,
+                "reason": "",
+            }
+        server_dt = server_timestamp
+        midnight = server_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        if server_dt < midnight:
+            midnight = midnight - timedelta(days=1)
+        next_midnight = midnight + timedelta(days=1)
+        minutes_from = (server_dt - midnight).total_seconds() / 60.0
+        minutes_to = (next_midnight - server_dt).total_seconds() / 60.0
+        is_guard = minutes_from <= guard_minutes or minutes_to <= guard_minutes
+        reason = ""
+        if is_guard:
+            reason = (
+                "Rollover do servidor MT5: janela de protecao "
+                f"{guard_minutes} min antes/depois da virada do dia do servidor."
+            )
+        return {
+            "is_rollover_window": is_guard,
+            "server_timestamp": server_dt.isoformat(),
+            "server_day": server_dt.date().isoformat(),
+            "minutes_to_rollover": round(minutes_to, 2),
+            "minutes_from_rollover": round(minutes_from, 2),
+            "reason": reason,
+        }
+
     def _is_friday_late(self, timestamp_utc: datetime) -> bool:
         return timestamp_utc.weekday() == 4 and timestamp_utc.hour >= 20
 
@@ -212,7 +283,16 @@ class ForexTimeLayer:
         session: str,
         timestamp_utc: datetime,
         preferred_sessions: tuple[str, ...],
+        *,
+        server_rollover: dict[str, object] | None = None,
     ) -> tuple[str, bool, float, str]:
+        if server_rollover and bool(server_rollover.get("is_rollover_window")):
+            return (
+                "ROLLOVER_SERVIDOR_MT5_BLOQUEADO",
+                True,
+                0.0,
+                str(server_rollover.get("reason") or "Rollover do servidor MT5."),
+            )
         if self._is_sunday_open(timestamp_utc):
             return (
                 "DOMINGO_ABERTURA_BLOQUEADO",

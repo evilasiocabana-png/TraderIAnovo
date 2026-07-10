@@ -291,6 +291,10 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
  'DemoExecutionService': {'methods': {'get_atr': "(self, symbol: 'str', timeframe: "
                                                  "'str', period: 'int') -> 'float | "
                                                  "None'",
+                                      'close_position': "(self, *, symbol: 'str', "
+                                                        "ticket: 'int', side: 'str', "
+                                                        "volume: 'float', reason: "
+                                                        "'str') -> 'ExecutionResult'",
                                       'get_current_price': "(self, symbol: 'str') -> "
                                                            "'float | None'",
                                       'get_open_position': "(self, symbol: 'str') -> "

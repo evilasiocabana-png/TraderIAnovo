@@ -26,6 +26,7 @@ class TradeAuditRow:
     dynamic_exit_allowed_to_execute_demo: bool = False
     dynamic_exit_executed_action: str = "NONE"
     dynamic_exit_final_result: str = "N/D"
+    final_exit_reason: str = "N/D"
 
 
 @dataclass(frozen=True)

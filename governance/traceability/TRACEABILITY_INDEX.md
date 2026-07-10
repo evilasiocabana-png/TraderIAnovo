@@ -56,6 +56,8 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
   com cache LRU pequeno e fallback seguro sem executar.
 - `DYNAMIC_EXIT_FINAL_VALIDATION_TRACEABILITY.md`: validacao final da cadeia
   dynamic exit read-only, gates oficiais, pendencias e rollback.
+- `POST_ROLLOVER_DAILY_OPEN_TRACEABILITY.md`: rastreabilidade do evento
+  prioritario pos-rollover antes do fluxo normal das Alphas.
 
 ## Regra de uso
 

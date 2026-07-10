@@ -4,6 +4,8 @@ Data: 2026-07-08
 Projeto: TraderIA Novo
 Status: proposta arquitetural, sem implementacao operacional
 
+Nota de consolidacao: este documento registra a arquitetura-alvo proposta. A referencia oficial consolidada para futuras implementacoes e `docs/architecture/POSITION_MANAGER_OFFICIAL_CONTRACT.md`.
+
 ## Objetivo
 
 Definir a arquitetura futura do gerenciamento de posicoes do TraderIA Novo.
@@ -58,10 +60,8 @@ O Research Lab continua responsavel por decidir:
 - stop inicial;
 - RR;
 - alvo;
-- politica de gestao pos-entrada;
-- parametros da politica pos-entrada.
 
-O Lab nao deve administrar a posicao em tempo real. Ele define o plano.
+O Lab nao deve administrar a posicao em tempo real e nao deve escolher previamente qual saida sera executada. Ele aprova a entrada e o risco inicial.
 
 ### Trade Plan
 
@@ -73,9 +73,7 @@ Responsabilidades-alvo:
 - transportar `initial_stop`;
 - transportar `initial_rr`;
 - transportar `initial_target`;
-- transportar `post_entry_exit_policy`;
-- transportar `post_entry_exit_parameters`;
-- transportar `post_entry_activation_condition`;
+- transportar parametros legados apenas como hints de compatibilidade;
 - nao distorcer o racional do Lab;
 - nao trocar stop inicial por politica movel;
 - nao acoplar stop inicial e gestao pos-entrada.
@@ -122,6 +120,7 @@ Responsabilidades-alvo:
 - calcular estado da posicao;
 - avaliar saude do trade;
 - decidir se mantem, protege ou encerra;
+- escolher dinamicamente a saida conforme o cenario de mercado;
 - auditar toda decisao;
 - executar apenas acoes autorizadas por contrato e configuracao.
 

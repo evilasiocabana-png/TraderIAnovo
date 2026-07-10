@@ -82,6 +82,52 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
         self.assertEqual(second.status, "NO_NEW_CANDLE")
         self.assertEqual(len(provider.orders), 1)
 
+    def test_rejeicao_transitoria_nao_consumir_candle(self) -> None:
+        provider = _RejectingProvider(
+            ExecutionResult(
+                False,
+                "REJECTED",
+                "Plano MT5 Demo stale: preco atual tornou SL/TP invalidos.",
+            )
+        )
+        service = MT5DemoRobotService(
+            execution_service=DemoExecutionService(provider=provider),
+            enabled=True,
+        )
+        signal = self._signal("BUY")
+        plan = self._plan("BUY")
+
+        first = service.evaluate_once(signal, plan)
+        second = service.evaluate_once(signal, plan)
+
+        self.assertEqual(first.status, "REJECTED")
+        self.assertEqual(second.status, "REJECTED")
+        self.assertEqual(provider.calls, 2)
+        self.assertEqual(service.last_candle_by_market, {})
+
+    def test_autotrading_desligado_nao_consumir_candle(self) -> None:
+        provider = _RejectingProvider(
+            ExecutionResult(
+                False,
+                "REJECTED",
+                "AutoTrading disabled by client",
+            )
+        )
+        service = MT5DemoRobotService(
+            execution_service=DemoExecutionService(provider=provider),
+            enabled=True,
+        )
+        signal = self._signal("SELL")
+        plan = self._plan("SELL")
+
+        first = service.evaluate_once(signal, plan)
+        second = service.evaluate_once(signal, plan)
+
+        self.assertEqual(first.status, "REJECTED")
+        self.assertEqual(second.status, "REJECTED")
+        self.assertEqual(provider.calls, 2)
+        self.assertEqual(service.last_candle_by_market, {})
+
     def test_autoriza_novo_candle_quando_sinal_continua_valido(self) -> None:
         provider = _AcceptingProvider()
         service = MT5DemoRobotService(
@@ -298,6 +344,17 @@ class _AcceptingProvider:
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         self.orders.append(order)
         return ExecutionResult(True, "ACCEPTED", "demo", ticket=1)
+
+
+class _RejectingProvider(_AcceptingProvider):
+    def __init__(self, result: ExecutionResult) -> None:
+        super().__init__()
+        self.result = result
+        self.calls = 0
+
+    def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
+        self.calls += 1
+        return self.result
 
 
 if __name__ == "__main__":

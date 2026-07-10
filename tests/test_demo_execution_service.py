@@ -136,6 +136,22 @@ class DemoExecutionServiceTest(unittest.TestCase):
         self.assertEqual(service.daily_operations, 1)
         self.assertEqual(provider.orders, [order])
 
+    def test_close_position_delega_para_provider_demo(self) -> None:
+        provider = _AcceptingProvider()
+        service = DemoExecutionService(provider=provider)
+
+        result = service.close_position(
+            symbol="EURUSD",
+            ticket=123,
+            side="BUY",
+            volume=0.1,
+            reason="EARLY_EXIT_MOMENTUM_LOSS",
+        )
+
+        self.assertTrue(result.accepted)
+        self.assertEqual(provider.close_requests[0]["symbol"], "EURUSD")
+        self.assertEqual(provider.close_requests[0]["reason"], "EARLY_EXIT_MOMENTUM_LOSS")
+
     def test_dashboard_service_expoe_fluxo_sem_provider_externo_por_padrao(self) -> None:
         service = DashboardService()
         context, order = service.prepare_demo_execution_order(
@@ -273,9 +289,9 @@ class DemoExecutionServiceTest(unittest.TestCase):
         self,
     ) -> None:
         service = DashboardService()
-        service.mt5_market_data_service.latest_forex_signal_dashboard = (
-            self._forex_dashboard(include_multiple_pairs=True)
-        )
+        dashboard = self._forex_dashboard(include_multiple_pairs=True)
+        object.__setattr__(dashboard, "pairs", dashboard.pairs[:2])
+        service.mt5_market_data_service.latest_forex_signal_dashboard = dashboard
         service.mt5_market_data_service.latest_forex_candles[("EURUSD", "H1")] = (
             self._flat_then_trigger_candles("BUY")
         )
@@ -496,8 +512,47 @@ class DemoExecutionServiceTest(unittest.TestCase):
             os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
 
         self.assertEqual(calls, ["H1"])
-        self.assertIn(result.status, {"EXECUTED", "REJECTED"})
+        self.assertEqual(result.status, "BATCH_COMPLETED")
         self.assertEqual(len(provider.orders), 1)
+
+    def test_robo_online_todos_executa_todos_os_candidatos_prontos(self) -> None:
+        service = DashboardService()
+        dashboard = self._forex_dashboard(include_multiple_pairs=True)
+        object.__setattr__(dashboard, "pairs", dashboard.pairs[:2])
+        service.mt5_market_data_service.latest_forex_signal_dashboard = dashboard
+        service.mt5_market_data_service.latest_forex_candles[("EURUSD", "H1")] = (
+            self._flat_then_trigger_candles("BUY")
+        )
+        service.mt5_market_data_service.latest_forex_candles[("GBPUSD", "H1")] = (
+            self._flat_then_trigger_candles("SELL")
+        )
+        self._install_certified_research_constants(service, ("EURUSD", "GBPUSD"))
+        os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = "1"
+        provider = _AcceptingProvider()
+
+        def load_forex(timeframe: str = "H1"):
+            return service.mt5_market_data_service.latest_forex_signal_dashboard
+
+        object.__setattr__(service, "load_mt5_forex_signals", load_forex)
+        object.__setattr__(
+            service,
+            "_enable_mt5_demo_provider",
+            lambda: object.__setattr__(
+                service,
+                "demo_robot_execution_service",
+                DemoExecutionService(provider=provider),
+            ),
+        )
+
+        try:
+            service.arm_demo_robot("TODOS", "H1")
+            result = service.run_online_demo_robot_cycle("TODOS", "H1")
+        finally:
+            os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
+
+        self.assertEqual(result.status, "BATCH_COMPLETED")
+        self.assertIn("2 aceita", result.message)
+        self.assertEqual([order.symbol for order in provider.orders], ["EURUSD", "GBPUSD"])
 
     def test_robo_temporal_continua_apos_par_sem_plano_research(self) -> None:
         service = DashboardService()
@@ -704,9 +759,60 @@ class DemoExecutionServiceTest(unittest.TestCase):
 class _AcceptingProvider:
     def __init__(self) -> None:
         self.orders: list[ExecutionOrder] = []
+        self.close_requests: list[dict[str, object]] = []
 
     def has_open_position(self, symbol: str) -> bool:
         return False
+
+    def get_open_position(self, symbol: str) -> object | None:
+        return None
+
+    def get_current_price(self, symbol: str) -> float | None:
+        return None
+
+    def get_recent_candles(
+        self,
+        symbol: str,
+        timeframe: str,
+        limit: int,
+    ) -> list[object]:
+        return []
+
+    def get_atr(
+        self,
+        symbol: str,
+        timeframe: str,
+        period: int,
+    ) -> float | None:
+        return None
+
+    def modify_position_sl(
+        self,
+        symbol: str,
+        ticket: int,
+        new_stop: float,
+    ) -> ExecutionResult:
+        return ExecutionResult(True, "ACCEPTED", "sl")
+
+    def close_position(
+        self,
+        *,
+        symbol: str,
+        ticket: int,
+        side: str,
+        volume: float,
+        reason: str,
+    ) -> ExecutionResult:
+        self.close_requests.append(
+            {
+                "symbol": symbol,
+                "ticket": ticket,
+                "side": side,
+                "volume": volume,
+                "reason": reason,
+            }
+        )
+        return ExecutionResult(True, "ACCEPTED", "closed", ticket=ticket)
 
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         self.orders.append(order)

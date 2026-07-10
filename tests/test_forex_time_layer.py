@@ -55,6 +55,34 @@ class ForexTimeLayerTest(unittest.TestCase):
         self.assertTrue(context.temporal_blocked)
         self.assertEqual(context.temporal_status, "ROLLOVER_BLOQUEADO")
 
+    def test_bloqueia_cinco_minutos_antes_do_rollover_do_servidor_mt5(self) -> None:
+        context = ForexTimeLayer().classify(
+            "EURUSD",
+            "2026-07-01T14:30:00+00:00",
+            server_timestamp="2026-07-01T23:56:00+00:00",
+        )
+
+        self.assertEqual(context.session, "ROLLOVER")
+        self.assertTrue(context.is_rollover_window)
+        self.assertTrue(context.temporal_blocked)
+        self.assertEqual(context.temporal_status, "ROLLOVER_SERVIDOR_MT5_BLOQUEADO")
+        self.assertEqual(context.server_day, "2026-07-01")
+        self.assertLessEqual(context.minutes_to_server_rollover or 999.0, 5.0)
+
+    def test_bloqueia_cinco_minutos_depois_do_rollover_do_servidor_mt5(self) -> None:
+        context = ForexTimeLayer().classify(
+            "EURUSD",
+            "2026-07-01T14:30:00+00:00",
+            server_timestamp="2026-07-02T00:03:00+00:00",
+        )
+
+        self.assertEqual(context.session, "ROLLOVER")
+        self.assertTrue(context.is_rollover)
+        self.assertTrue(context.temporal_blocked)
+        self.assertEqual(context.temporal_status, "ROLLOVER_SERVIDOR_MT5_BLOQUEADO")
+        self.assertEqual(context.server_day, "2026-07-02")
+        self.assertLessEqual(context.minutes_from_server_rollover or 999.0, 5.0)
+
     def test_bloqueia_domingo_abertura(self) -> None:
         context = ForexTimeLayer().classify(
             "EURUSD",

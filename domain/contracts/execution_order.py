@@ -13,3 +13,7 @@ class ExecutionOrder:
     stop: float
     target: float
     symbol: str = "UNKNOWN"
+    plan_identity: str = "N/D"
+    entry_setup: str = "N/D"
+    exit_setup: str = "DYNAMIC_POSITION_MANAGER"
+    exit_policy: str = "DYNAMIC_POSITION_MANAGER"

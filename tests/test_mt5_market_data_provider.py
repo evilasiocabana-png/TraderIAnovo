@@ -41,7 +41,17 @@ class FakeMT5:
     def symbol_info(self, symbol: str) -> object | None:
         self.symbol_info_calls.append(symbol)
         if symbol in {"EURUSD", "GBPUSD"}:
-            return {"name": symbol, "point": 0.00001, "spread": 12}
+            return {
+                "name": symbol,
+                "point": 0.00001,
+                "spread": 12,
+                "swap_long": -3.5,
+                "swap_short": 1.2,
+                "trade_tick_value": 1.0,
+                "trade_tick_size": 0.00001,
+                "trade_contract_size": 100000,
+                "digits": 5,
+            }
         return None
 
     def symbol_info_tick(self, symbol: str) -> object | None:
@@ -189,6 +199,19 @@ class MT5MarketDataProviderTest(unittest.TestCase):
         self.assertAlmostEqual(float(microstructure["spread"]), 0.00012)
         self.assertEqual(microstructure["point"], 0.00001)
         self.assertEqual(microstructure["spread_points"], 12.0)
+
+    def test_get_symbol_cost_data_le_custos_read_only(self) -> None:
+        fake_mt5 = FakeMT5()
+        provider = MT5MarketDataProvider(mt5_module=fake_mt5)
+
+        cost_data = provider.get_symbol_cost_data("EURUSD")
+
+        self.assertEqual(cost_data["symbol"], "EURUSD")
+        self.assertEqual(cost_data["swap_long"], -3.5)
+        self.assertEqual(cost_data["swap_short"], 1.2)
+        self.assertEqual(cost_data["tick_value"], 1.0)
+        self.assertEqual(cost_data["tick_size"], 0.00001)
+        self.assertAlmostEqual(float(cost_data["spread_price"] or 0.0), 0.00012)
 
     def test_provider_nao_expoe_capacidade_operacional(self) -> None:
         provider_source = inspect.getsource(MT5MarketDataProvider)

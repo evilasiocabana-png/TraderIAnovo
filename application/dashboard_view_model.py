@@ -316,7 +316,7 @@ class DashboardMT5ForexSignalRowViewModel:
     dynamic_exit_candidate_stop: float | None = None
     dynamic_exit_allowed_to_execute_demo: bool = False
     dynamic_exit_source: str = "DYNAMIC_EXIT_READ_ONLY"
-    dynamic_exit_simulation_enabled: bool = False
+    dynamic_exit_simulation_enabled: bool = True
     dynamic_exit_simulation_allowed: bool = False
     dynamic_exit_simulation_current_stop: float | None = None
     dynamic_exit_simulation_candidate_stop: float | None = None
@@ -558,6 +558,10 @@ class DashboardMT5HeuristicResearchViewModel:
     best_score: float = 0.0
     best_decision: str = "WAIT"
     best_confidence: float = 0.0
+    priority_event_mode: str = "NORMAL_LAB_FLOW"
+    priority_event_type: str = "NONE"
+    priority_event_context: str = "NO_TRADE"
+    priority_event_reason: str = "Nenhum evento prioritario ativo."
     winner_configuration: dict[str, str] = field(default_factory=dict)
     winner_score_breakdown: dict[str, str] = field(default_factory=dict)
     winner_diagnostics: list[str] = field(default_factory=list)
@@ -681,6 +685,10 @@ class DashboardMT5TradeAuditRowViewModel:
     mt5_volume: float = 0.0
     mt5_price: float = 0.0
     mt5_realized_profit: float = 0.0
+    mt5_commission: float = 0.0
+    mt5_swap: float = 0.0
+    mt5_fee: float = 0.0
+    mt5_open_cost: float = 0.0
     mt5_time: str = "N/D"
     audit_status: str = "PENDENTE"
     audit_message: str = "Aguardando confronto com historico MT5."
@@ -716,6 +724,13 @@ class DashboardMT5TradeAuditRowViewModel:
     dynamic_exit_allowed_to_execute_demo: bool = False
     dynamic_exit_executed_action: str = "NONE"
     dynamic_exit_final_result: str = "N/D"
+    final_exit_reason: str = "N/D"
+    entry_setup: str = "N/D"
+    exit_setup: str = "DYNAMIC_POSITION_MANAGER"
+    position_manager_action: str = "N/D"
+    position_manager_status: str = "N/D"
+    position_manager_message: str = "N/D"
+    stop_movel_acionado: bool = False
 
 
 @dataclass(frozen=True)

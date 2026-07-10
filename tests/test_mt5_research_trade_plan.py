@@ -10,9 +10,9 @@ from research.mt5_research_trade_plan import (
 
 
 class MT5ResearchTradePlanEngineTest(unittest.TestCase):
-    """Valida entrada, stop, alvo e combinacao de saida read-only."""
+    """Valida entrada, stop inicial e alvo sem predefinir saida operacional."""
 
-    def test_cria_plano_buy_com_saida_escolhida_pelo_research_lab(self) -> None:
+    def test_cria_plano_buy_sem_saida_predefinida_pelo_research_lab(self) -> None:
         engine = MT5ResearchTradePlanEngine(
             MT5ResearchTradePlanConfiguration(
                 exit_candidates=((1.5, 1.5), (2.0, 2.0)),
@@ -35,13 +35,13 @@ class MT5ResearchTradePlanEngineTest(unittest.TestCase):
 
         self.assertEqual(plan.status, "PLANO_VALIDO")
         self.assertEqual(plan.source, "RESEARCH_LAB")
-        self.assertEqual(plan.exit_model, "ATR_RR_RESEARCH_SELECTION")
+        self.assertEqual(plan.exit_model, "INITIAL_RISK_PLAN")
         self.assertEqual(plan.stop_multiplier, 2.0)
         self.assertEqual(plan.risk_reward, 2.0)
         self.assertAlmostEqual(plan.stop or 0.0, 1.0980)
         self.assertAlmostEqual(plan.target or 0.0, 1.1040)
-        self.assertGreater(plan.exit_score, 0.0)
-        self.assertEqual(plan.exit_candidates, 2)
+        self.assertEqual(plan.exit_score, 0.0)
+        self.assertEqual(plan.exit_candidates, 0)
         self.assertEqual(plan.invalid_reason, "")
         self.assertEqual(plan.rr_current, 2.0)
         self.assertEqual(plan.rr_minimum, 1.5)
@@ -51,12 +51,15 @@ class MT5ResearchTradePlanEngineTest(unittest.TestCase):
         self.assertAlmostEqual(plan.reward_percent, 0.3636363636)
         self.assertIn("2.00x ATR", plan.stop_reason)
         self.assertIn("RR 2.00", plan.target_reason)
-        self.assertEqual(plan.exit_model, "ATR_RR_RESEARCH_SELECTION")
+        self.assertEqual(plan.exit_model, "INITIAL_RISK_PLAN")
+        self.assertEqual(plan.stop_management, "DYNAMIC_POSITION_MANAGER")
+        self.assertIn("Position Manager", plan.stop_management_reason)
         self.assertIn("Entrada teorica valida.", plan.diagnostics)
+        self.assertTrue(any("Saida dinamica" in item for item in plan.diagnostics))
         self.assertTrue(any("Risco 20.0 pips" in item for item in plan.diagnostics))
         self.assertTrue(any("Ganho potencial 40.0 pips" in item for item in plan.diagnostics))
 
-    def test_usa_parametros_do_cenario_vencedor_quando_disponiveis(self) -> None:
+    def test_usa_parametros_de_risco_inicial_quando_disponiveis(self) -> None:
         engine = MT5ResearchTradePlanEngine(
             MT5ResearchTradePlanConfiguration(
                 exit_candidates=((1.5, 1.5), (2.0, 2.0)),
@@ -88,7 +91,7 @@ class MT5ResearchTradePlanEngineTest(unittest.TestCase):
         self.assertEqual(plan.status, "PLANO_VALIDO")
         self.assertEqual(plan.stop_multiplier, 2.5)
         self.assertEqual(plan.risk_reward, 3.0)
-        self.assertEqual(plan.exit_candidates, 1)
+        self.assertEqual(plan.exit_candidates, 0)
         self.assertAlmostEqual(plan.stop or 0.0, 1.0975)
         self.assertAlmostEqual(plan.target or 0.0, 1.1075)
         self.assertAlmostEqual(plan.risk_pips, 25.0)
@@ -101,9 +104,10 @@ class MT5ResearchTradePlanEngineTest(unittest.TestCase):
                 "atr_trailing_activation_rr": "1.0",
             },
         )
-        self.assertIn("Research Lab", plan.stop_management_reason)
+        self.assertIn("Position Manager", plan.stop_management_reason)
+        self.assertIn("Hint legado ATR_TRAILING_STOP", plan.stop_management_reason)
 
-    def test_fallback_usa_grade_fixa_quando_cenario_nao_tem_parametros(self) -> None:
+    def test_fallback_usa_risco_inicial_padrao_quando_cenario_nao_tem_parametros(self) -> None:
         engine = MT5ResearchTradePlanEngine(
             MT5ResearchTradePlanConfiguration(
                 exit_candidates=((1.5, 1.5), (2.0, 2.0)),
@@ -127,7 +131,7 @@ class MT5ResearchTradePlanEngineTest(unittest.TestCase):
         self.assertEqual(plan.status, "PLANO_VALIDO")
         self.assertEqual(plan.stop_multiplier, 2.0)
         self.assertEqual(plan.risk_reward, 2.0)
-        self.assertEqual(plan.exit_candidates, 2)
+        self.assertEqual(plan.exit_candidates, 0)
 
     def test_cria_plano_sell_com_stop_acima_e_alvo_abaixo(self) -> None:
         plan = MT5ResearchTradePlanEngine().build_plan(
