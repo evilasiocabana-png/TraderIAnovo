@@ -4950,7 +4950,9 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
 
         status_box.write("Carregando base local salva do MT5.")
         progress.progress(0.20)
-        status_box.write("Executando biblioteca de Alphas por par e timeframe.")
+        status_box.write(
+            "Executando biblioteca pesada de Alphas, Betas e timeframes."
+        )
         research = service._update_mt5_research_calculations(
             timeframe="MULTI",
             progress_callback=on_calculation_progress,
@@ -4961,7 +4963,7 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
         progress.progress(0.85)
         status_box.write(f"Candles processados: {candles_loaded}.")
         status_box.write(f"Pares avaliados: {rows_count}.")
-        status_box.write(f"Cenários gerados: {scenarios_count}.")
+        status_box.write(f"Cenários Alpha+Beta gerados: {scenarios_count}.")
         progress.progress(1.0)
         if scenarios_count > 0:
             status_box.update(
@@ -4978,11 +4980,11 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
         st.success(
             "Cálculos atualizados: "
             f"{candles_loaded} candles em {rows_count} pares e "
-            f"{scenarios_count} cenarios multi-TF."
+            f"{scenarios_count} cenarios Alpha+Beta multi-TF."
         )
     colunas[3].caption(
         "Use o primeiro botão para baixar/salvar candles do MT5. Use o segundo "
-        "para recalcular Alpha001-Alpha015 sobre o histórico salvo. Nenhuma "
+        "para recalcular Alphas, Betas e timeframes sobre o histórico salvo. Nenhuma "
         "ação envia ordens ou participa do refresh leve do MT5 Forex."
     )
 

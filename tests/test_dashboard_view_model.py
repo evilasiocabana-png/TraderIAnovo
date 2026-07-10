@@ -948,6 +948,63 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertEqual(suggestions[0].status, "MAIS_PROXIMO_DE_70")
         self.assertLess(suggestions[0].lab_confidence, 0.70)
 
+    def test_sugestao_setup_lab_transporta_beta_vencedora(self) -> None:
+        class SuggestionDashboardService(DashboardService):
+            def _load_mt5_research_snapshot(self):
+                return DashboardMT5HeuristicResearchViewModel(
+                    scenario_ranking=[
+                        DashboardMT5ScenarioViewModel(
+                            pair="EURJPY",
+                            timeframe="M1",
+                            model="ADX_TREND_STRENGTH",
+                            parameters={
+                                "rr": "3.0",
+                                "stop_management": "ATR_TRAILING_STOP",
+                                "beta_id": "BETA002",
+                                "beta_version": "M1_EMA14_MOMENTUM_VOLATILITY",
+                            },
+                            beta_id="BETA002",
+                            beta_version="M1_EMA14_MOMENTUM_VOLATILITY",
+                            beta_mode="PROTECT_ONLY",
+                            beta_reason="Pesquisa pesada selecionou BETA002.",
+                            score=0.91,
+                            lab_confidence=0.74,
+                            status="APROVADO",
+                            decision="BUY",
+                        )
+                    ],
+                    source="MT5_RESEARCH_SNAPSHOT",
+                )
+
+        suggestions = SuggestionDashboardService().suggest_mt5_lab_setups()
+
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0].pair, "EURJPY")
+        self.assertEqual(suggestions[0].beta_id, "BETA002")
+        self.assertEqual(
+            suggestions[0].beta_version,
+            "M1_EMA14_MOMENTUM_VOLATILITY",
+        )
+
+    def test_lab_pesado_expande_alphas_com_betas(self) -> None:
+        service = DashboardService()
+
+        expanded = service._mt5_expand_position_management_grid(
+            [
+                {
+                    "alpha": "ALPHA007",
+                    "modelo": "MACD_MOMENTUM_SHIFT",
+                    "atr_stop_factor": "2.0",
+                    "rr": "3.0",
+                }
+            ]
+        )
+
+        self.assertEqual(
+            {item["beta_id"] for item in expanded},
+            {"BETA001", "BETA002"},
+        )
+
     def test_research_report_reprova_alpha_sem_confianca_minima(self) -> None:
         class ReportDashboardService(DashboardService):
             def _load_mt5_research_snapshot(self):

@@ -1038,6 +1038,25 @@ class DashboardService:
                         model=str(getattr(selected, "model", "WAIT_NO_EDGE")),
                         decision=str(getattr(selected, "decision", "WAIT")),
                         parameters=dict(getattr(selected, "parameters", {}) or {}),
+                        beta_id=str(
+                            getattr(selected, "beta_id", "BETA001") or "BETA001"
+                        ),
+                        beta_version=str(
+                            getattr(selected, "beta_version", "BETA v1")
+                            or "BETA v1"
+                        ),
+                        beta_mode=str(
+                            getattr(selected, "beta_mode", "PROTECT_ONLY")
+                            or "PROTECT_ONLY"
+                        ),
+                        beta_reason=str(
+                            getattr(
+                                selected,
+                                "beta_reason",
+                                "Position Manager administra a saida apos a entrada.",
+                            )
+                            or "Position Manager administra a saida apos a entrada."
+                        ),
                         exit_model=str(
                             getattr(
                                 selected,
@@ -1106,6 +1125,38 @@ class DashboardService:
                     ),
                     decision=str(getattr(row, "decision", "WAIT")),
                     parameters=configuration,
+                    beta_id=str(
+                        configuration.get(
+                            "beta_id",
+                            getattr(row, "beta_id", "BETA001"),
+                        )
+                        or "BETA001"
+                    ),
+                    beta_version=str(
+                        configuration.get(
+                            "beta_version",
+                            getattr(row, "beta_version", "BETA v1"),
+                        )
+                        or "BETA v1"
+                    ),
+                    beta_mode=str(
+                        configuration.get(
+                            "beta_mode",
+                            getattr(row, "beta_mode", "PROTECT_ONLY"),
+                        )
+                        or "PROTECT_ONLY"
+                    ),
+                    beta_reason=str(
+                        configuration.get(
+                            "beta_reason",
+                            getattr(
+                                row,
+                                "beta_reason",
+                                "Position Manager administra a saida apos a entrada.",
+                            ),
+                        )
+                        or "Position Manager administra a saida apos a entrada."
+                    ),
                     exit_model=str(
                         configuration.get(
                             "exit_model",
@@ -6599,10 +6650,17 @@ class DashboardService:
             base_parameters = {
                 key: value
                 for key, value in dict(scenario.parameters).items()
-                if key != "stop_management"
+                if key
+                not in {
+                    "stop_management",
+                    "beta_id",
+                    "beta_version",
+                    "beta_mode",
+                    "beta_reason",
+                }
             }
             base_parameters["modelo"] = scenario.model
-            for parameters in self._mt5_expand_stop_management_grid([base_parameters]):
+            for parameters in self._mt5_expand_position_management_grid([base_parameters]):
                 scenarios.append(
                     self._mt5_scenario_for_parameters(
                         row,
@@ -6948,8 +7006,16 @@ class DashboardService:
                 )
             )
         if expand_exits:
-            return self._mt5_expand_stop_management_grid(grid)
+            return self._mt5_expand_position_management_grid(grid)
         return grid
+
+    def _mt5_expand_position_management_grid(
+        self,
+        base_grid: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        return self._mt5_expand_beta_strategy_grid(
+            self._mt5_expand_stop_management_grid(base_grid)
+        )
 
     def _mt5_expand_stop_management_grid(
         self,
@@ -6967,6 +7033,34 @@ class DashboardService:
                 candidate.update(exit_parameters)
                 expanded.append(candidate)
         return expanded
+
+    def _mt5_expand_beta_strategy_grid(
+        self,
+        base_grid: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        expanded: list[dict[str, object]] = []
+        for parameters in base_grid:
+            for beta_parameters in self._mt5_beta_strategy_variants():
+                candidate = dict(parameters)
+                candidate.update(beta_parameters)
+                expanded.append(candidate)
+        return expanded
+
+    def _mt5_beta_strategy_variants(self) -> tuple[dict[str, object], ...]:
+        return (
+            {
+                "beta_id": "BETA001",
+                "beta_version": "LEGACY_CURRENT_EXIT",
+                "beta_mode": "PROTECT_ONLY",
+                "beta_reason": "Baseline legado: Position Manager preserva/protege sem analise M1 dedicada.",
+            },
+            {
+                "beta_id": "BETA002",
+                "beta_version": "M1_EMA14_MOMENTUM_VOLATILITY",
+                "beta_mode": "PROTECT_ONLY",
+                "beta_reason": "Pesquisa pesada: gestao M1 por EMA14, momentum e volatilidade.",
+            },
+        )
 
     def _mt5_exit_management_variants(
         self,
@@ -7174,7 +7268,8 @@ class DashboardService:
         raw_score = min(
             1.0,
             float(candidate["score"])
-            + self._exit_management_score_adjustment(row, parameters),
+            + self._exit_management_score_adjustment(row, parameters)
+            + self._beta_strategy_score_adjustment(row, parameters),
         )
         score = self._time_adjusted_scenario_score(
             raw_score,
@@ -7235,6 +7330,22 @@ class DashboardService:
                 for key, value in parameters.items()
                 if key != "modelo"
             },
+            beta_id=str(parameters.get("beta_id", "BETA001") or "BETA001"),
+            beta_version=str(parameters.get("beta_version", "BETA v1") or "BETA v1"),
+            beta_mode=str(
+                parameters.get("beta_mode", "PROTECT_ONLY") or "PROTECT_ONLY"
+            ),
+            beta_score_adjustment=self._beta_strategy_score_adjustment(
+                row,
+                parameters,
+            ),
+            beta_reason=str(
+                parameters.get(
+                    "beta_reason",
+                    "Position Manager administra a saida apos a entrada.",
+                )
+                or "Position Manager administra a saida apos a entrada."
+            ),
             score=score,
             lab_confidence=lab_confidence,
             lab_confidence_sample_size=evidence.sample_size,
@@ -7293,6 +7404,30 @@ class DashboardService:
         if policy == "TIME_STOP":
             return 0.018
         return 0.0
+
+    def _beta_strategy_score_adjustment(
+        self,
+        row: object,
+        parameters: dict[str, object],
+    ) -> float:
+        beta_id = str(parameters.get("beta_id", "BETA001")).upper()
+        if beta_id != "BETA002":
+            return 0.0
+        timeframe = str(getattr(row, "timeframe", "") or "").upper()
+        trend = str(getattr(row, "trend", "INDEFINIDA")).upper()
+        momentum = abs(float(getattr(row, "momentum", 0.0) or 0.0))
+        volatility = abs(float(getattr(row, "volatility", 0.0) or 0.0))
+        policy = str(parameters.get("stop_management", "FIXED_STOP")).upper()
+        adjustment = 0.0
+        if timeframe == "M1":
+            adjustment += 0.020
+        if trend in {"ALTA", "BAIXA"} and momentum > 0.0:
+            adjustment += 0.012
+        if 0.00015 <= volatility <= 0.0006:
+            adjustment += 0.010
+        if policy in {"ATR_TRAILING_STOP", "BREAK_EVEN", "FIXED_STOP"}:
+            adjustment += 0.008
+        return min(adjustment, 0.05)
 
     def _time_adjusted_scenario_score(
         self,
@@ -7375,6 +7510,7 @@ class DashboardService:
         parameters: dict[str, object],
     ) -> float:
         policy = str(parameters.get("stop_management", "FIXED_STOP")).upper()
+        beta_id = str(parameters.get("beta_id", "BETA001")).upper()
         if directional_return == 0.0:
             return 0.0
         if directional_return > 0.0:
@@ -7389,6 +7525,8 @@ class DashboardService:
                 "TIME_STOP": 0.76,
                 "VOLATILITY_STOP": 0.90,
             }.get(policy, 1.0)
+            if beta_id == "BETA002":
+                capture = min(1.0, capture + 0.03)
             return directional_return * capture
 
         loss_factor = {
@@ -7402,6 +7540,8 @@ class DashboardService:
             "TIME_STOP": 0.94,
             "VOLATILITY_STOP": 0.72,
         }.get(policy, 1.0)
+        if beta_id == "BETA002":
+            loss_factor = max(0.42, loss_factor - 0.08)
         return directional_return * loss_factor
 
     def _scenario_evidence_minimum_candles(
@@ -8115,6 +8255,10 @@ class DashboardService:
             final_configuration={
                 "modelo": scenario.model,
                 "timeframe": scenario.timeframe,
+                "beta_id": scenario.beta_id,
+                "beta_version": scenario.beta_version,
+                "beta_mode": scenario.beta_mode,
+                "beta_reason": scenario.beta_reason,
                 **scenario.parameters,
             },
             buy_scenario=self._scenario_summary(buy_scenario),
@@ -8128,11 +8272,14 @@ class DashboardService:
                 "Classe ICT": scenario.ict_grade,
                 "Uso ICT": scenario.ict_usage,
                 "Status": scenario.status,
+                "Beta": scenario.beta_id,
+                "Ajuste Beta": f"{scenario.beta_score_adjustment:.4f}",
                 **scenario.parameters,
             },
             diagnostics=[
                 f"Cenario vencedor por par/timeframe: {scenario.model}",
                 f"Decisao: {scenario.decision}",
+                f"Beta: {scenario.beta_id} ({scenario.beta_version})",
                 f"ICT: {scenario.ict_score:.2f} ({scenario.ict_grade})",
                 f"Motivo: {scenario.reason}",
             ],

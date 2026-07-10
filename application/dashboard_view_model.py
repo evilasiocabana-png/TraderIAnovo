@@ -474,6 +474,11 @@ class DashboardMT5ScenarioViewModel:
     temporal_quality_note: str = "Camada Tempo nao avaliada."
     model: str = "WAIT_NO_EDGE"
     parameters: dict[str, str] = field(default_factory=dict)
+    beta_id: str = "BETA001"
+    beta_version: str = "BETA v1"
+    beta_mode: str = "PROTECT_ONLY"
+    beta_score_adjustment: float = 0.0
+    beta_reason: str = "Saida padrao do Position Manager."
     score: float = 0.0
     lab_confidence: float = 0.0
     lab_confidence_sample_size: int = 0
@@ -504,6 +509,10 @@ class DashboardMT5SetupSuggestionViewModel:
     model: str = "WAIT_NO_EDGE"
     decision: str = "WAIT"
     parameters: dict[str, str] = field(default_factory=dict)
+    beta_id: str = "BETA001"
+    beta_version: str = "BETA v1"
+    beta_mode: str = "PROTECT_ONLY"
+    beta_reason: str = "Position Manager administra a saida apos a entrada."
     exit_model: str = "NONE"
     stop_management: str = "FIXED_STOP"
     stop_management_reason: str = "Saida nao informada pelo snapshot."
