@@ -1,6 +1,6 @@
 """Servico de aplicacao para dados do dashboard."""
 
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields as dataclass_fields, replace
 from datetime import datetime, timedelta, timezone
 import importlib
 import json
@@ -2550,23 +2550,26 @@ class DashboardService:
         except (OSError, json.JSONDecodeError):
             return None
         rows = [
-            DashboardMT5HeuristicResearchRowViewModel(**row)
+            self._view_model_from_payload(DashboardMT5HeuristicResearchRowViewModel, row)
             for row in list(payload.get("rows", []) or [])
             if isinstance(row, dict)
         ]
         scenario_ranking = [
-            DashboardMT5ScenarioViewModel(**row)
+            self._view_model_from_payload(DashboardMT5ScenarioViewModel, row)
             for row in list(payload.get("scenario_ranking", []) or [])
             if isinstance(row, dict)
         ]
         best_scenarios_by_market = [
-            DashboardMT5ScenarioViewModel(**row)
+            self._view_model_from_payload(DashboardMT5ScenarioViewModel, row)
             for row in list(payload.get("best_scenarios_by_market", []) or [])
             if isinstance(row, dict)
         ]
         best_scenario_payload = payload.get("best_scenario")
         best_scenario = (
-            DashboardMT5ScenarioViewModel(**best_scenario_payload)
+            self._view_model_from_payload(
+                DashboardMT5ScenarioViewModel,
+                best_scenario_payload,
+            )
             if isinstance(best_scenario_payload, dict)
             else None
         )
@@ -2601,6 +2604,20 @@ class DashboardService:
         snapshot = self._normalize_mt5_research_snapshot(snapshot)
         object.__setattr__(self, "mt5_research_snapshot_cache", snapshot)
         return snapshot
+
+    def _view_model_from_payload(
+        self,
+        model_type: type,
+        payload: dict[str, object],
+    ) -> object:
+        allowed_fields = {item.name for item in dataclass_fields(model_type)}
+        return model_type(
+            **{
+                key: value
+                for key, value in dict(payload).items()
+                if key in allowed_fields
+            }
+        )
 
     def _mt5_research_rows_snapshot(
         self,
