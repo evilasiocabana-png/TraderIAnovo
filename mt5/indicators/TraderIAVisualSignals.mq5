@@ -513,10 +513,14 @@ void DrawStatusLabel(string block, int index)
    string robot_status = ExtractJsonString(block, "robot_status");
    string operational_plan_text = DecodeJsonText(ExtractJsonString(block, "operational_plan_text"));
    string stop_management = ExtractJsonString(block, "stop_management");
+   string alpha_id = ExtractJsonString(block, "alpha_id");
+   string beta_id = ExtractJsonString(block, "beta_id");
    string signal_timeframe = ExtractJsonString(block, "timeframe");
    string dynamic_exit_visual_text = DecodeJsonText(ExtractJsonString(block, "dynamic_exit_visual_text"));
 
    string text = CompactPlanText(
+      alpha_id,
+      beta_id,
       model,
       decision,
       reason,
@@ -614,6 +618,8 @@ int CountPlanLines(string text)
 }
 
 string CompactPlanText(
+   string alpha_id,
+   string beta_id,
    string model,
    string decision,
    string reason,
@@ -629,11 +635,11 @@ string CompactPlanText(
       timeframe_text = timeframe_text + " (grafico " + chart_timeframe + ")";
 
    string text = (
-      "Setup: " + ValueOrNA(model) + "\n" +
+      "Entrada Alpha: " + ValueOrNA(alpha_id) + " | " + ValueOrNA(model) + "\n" +
       "Tempo: " + timeframe_text + "\n" +
       "Entrada: " + ValueOrNA(decision) + "\n" +
       "Motivo: " + CompactEntryReason(reason) + "\n" +
-      "Saida: " + ExitSummary(stop_management, rr)
+      "Saida Beta: " + ValueOrNA(beta_id) + " | " + ExitSummary(stop_management, rr)
    );
 
    dynamic_exit_visual_text = NormalizeOneLine(dynamic_exit_visual_text);
@@ -974,6 +980,8 @@ bool IsTraderIAText(string text)
       return(true);
    if(StringFind(text, "Setup:") >= 0)
       return(true);
+   if(StringFind(text, "Entrada Alpha:") >= 0)
+      return(true);
    if(StringFind(text, "Tempo:") >= 0)
       return(true);
    if(StringFind(text, "Entrada:") >= 0)
@@ -981,6 +989,8 @@ bool IsTraderIAText(string text)
    if(StringFind(text, "Motivo:") >= 0)
       return(true);
    if(StringFind(text, "Saida:") >= 0)
+      return(true);
+   if(StringFind(text, "Saida Beta:") >= 0)
       return(true);
    if(StringFind(text, "SL ") == 0)
       return(true);
