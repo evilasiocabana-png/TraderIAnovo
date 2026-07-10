@@ -190,7 +190,7 @@ class MT5VisualSignalExporter:
             "lab_configuration": self._lab_configuration(row),
             "market_indicators": self._market_indicators(row),
             "active_indicators": list(row.active_model_indicators),
-            "plan_status": row.research_plan_status,
+            "plan_status": "PLANO_VALIDO" if is_positioned else row.research_plan_status,
             "reason": row.research_plan_reason or row.reason,
             "reason_codes": self._reason_codes(row),
             "theoretical_entry_status": row.theoretical_entry_status,

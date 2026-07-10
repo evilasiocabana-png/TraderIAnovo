@@ -105,6 +105,11 @@ class PositionTradePlan:
         target = _positive_float(signal.get("target"))
         if not symbol or side not in {"BUY", "SELL"} or entry is None or stop is None:
             return None
+        robot_status = str(signal.get("robot_status") or "").upper()
+        is_positioned = bool(signal.get("is_positioned")) or robot_status == "POSICAO_ABERTA_MT5"
+        plan_status = str(signal.get("plan_status") or "PLANO_VALIDO").upper()
+        if is_positioned and plan_status != "PLANO_VALIDO":
+            plan_status = "PLANO_VALIDO"
         indicators = signal.get("market_indicators") or {}
         atr = _positive_float(indicators.get("atr"))
         if atr is None:
@@ -161,7 +166,7 @@ class PositionTradePlan:
                 indicators.get("swing_low") or signal.get("swing_low")
             ),
             timeframe=str(signal.get("timeframe") or "M1"),
-            status=str(signal.get("plan_status") or "PLANO_VALIDO").upper(),
+            status=plan_status,
             candle_time=str(signal.get("last_candle_time") or "N/D"),
             source=str(signal.get("lab_configuration_source") or "RESEARCH_LAB"),
         )

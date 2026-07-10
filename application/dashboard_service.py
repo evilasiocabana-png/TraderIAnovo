@@ -7074,8 +7074,8 @@ class DashboardService:
             {
                 "beta_id": "BETA002",
                 "beta_version": "M1_EMA14_MOMENTUM_VOLATILITY",
-                "beta_mode": "PROTECT_ONLY",
-                "beta_reason": "Pesquisa pesada: gestao M1 por EMA14, momentum e volatilidade.",
+                "beta_mode": "ADAPTIVE_FULL_EXIT",
+                "beta_reason": "Pesquisa pesada: gestao M1 por EMA14, momentum, volatilidade e saida total confirmada.",
             },
         )
 

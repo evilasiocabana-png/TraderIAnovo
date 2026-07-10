@@ -107,6 +107,39 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertEqual(results[0].status, "TRADE_PLAN_ABSENT")
         self.assertEqual(provider.modify_calls, 0)
 
+    def test_posicao_aberta_nao_depende_de_novo_gatilho_teorico(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
+            price=1.1040,
+            candles=_trend_candles(1.1000, step=0.0002),
+        )
+        manager = self._manager(provider, enabled=True)
+
+        results = manager.manage_signals(
+            [
+                {
+                    "symbol": "EURUSD",
+                    "decision": "BUY",
+                    "entry": 1.1000,
+                    "stop": 1.0980,
+                    "target": 1.1060,
+                    "plan_status": "SEM_GATILHO_VALIDO",
+                    "robot_status": "POSICAO_ABERTA_MT5",
+                    "is_positioned": True,
+                    "stop_management": "ATR_TRAILING_STOP",
+                    "beta_id": "BETA002",
+                    "beta_mode": "PROTECT_ONLY",
+                    "market_indicators": {"atr": 0.001},
+                }
+            ]
+        )
+
+        self.assertNotEqual(results[0].status, "TRADE_PLAN_ABSENT")
+        self.assertIn(
+            results[0].status,
+            {"POSITION_HELD", "STOP_MOVED", "EXECUTION_DISABLED"},
+        )
+
     def test_sem_posicao_nao_move(self) -> None:
         provider = _FakePositionProvider(position=None, price=1.1040)
         manager = self._manager(provider, enabled=True)
