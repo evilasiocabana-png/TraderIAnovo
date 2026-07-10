@@ -2084,9 +2084,22 @@ def _demo_robot_monitor_row(row: dict[str, object]) -> dict[str, object]:
 def _demo_robot_exit_manager_label(row: dict[str, object]) -> str:
     beta = str(row.get("Beta Lab", "BETA001") or "BETA001").upper()
     mode = str(row.get("Modo Beta", "") or "").upper()
+    if beta == "BETA002":
+        return f"BETA002 ({_demo_robot_beta2_current_action(row)})"
     if mode and mode != "N/D":
         return f"{beta} ({mode})"
     return beta
+
+
+def _demo_robot_beta2_current_action(row: dict[str, object]) -> str:
+    action = str(row.get("Recomendacao Saida", "") or "").upper()
+    pm_action = str(row.get("Acao PM atual", "") or "").upper()
+    status_text = " ".join((action, pm_action))
+    if "FULL_EXIT" in status_text or "EARLY_EXIT" in status_text:
+        return "FULL_EXIT"
+    if "PROTECT" in status_text or "STOP_MOVED" in status_text:
+        return "PROTECT"
+    return "HOLD"
 
 
 def _demo_robot_initial_risk_plan_label(row: dict[str, object]) -> str:
