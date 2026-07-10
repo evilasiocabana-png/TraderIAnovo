@@ -528,6 +528,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             list(dashboard_app._mt5_setup_suggestion_empty_row()),
             [
                 "Alpha",
+                "Beta",
                 "Par",
                 "TF",
                 "Direcao",

@@ -483,15 +483,204 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertEqual(provider.close_reason, "")
         self.assertEqual(provider.submit_order_calls, 0)
 
+    def test_beta002_compra_saudavel_mantem_posicao(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1100),
+            price=1.1060,
+            candles=_trend_candles(1.1000, step=0.0002),
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan("EURUSD", "BUY", beta_id="BETA002", stop_management="FIXED_STOP")
+        )
+
+        self.assertEqual(result.beta_id, "BETA002")
+        self.assertEqual(result.beta_version, "M1_EMA14_MOMENTUM_VOLATILITY")
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertEqual(result.position_state, "HEALTHY")
+        self.assertEqual(provider.modify_calls, 0)
+        self.assertEqual(provider.close_calls, 0)
+
+    def test_beta002_venda_saudavel_mantem_posicao(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("USDCHF", "SELL", 0.8060, 0.8070, 0.8000),
+            price=0.8030,
+            candles=_trend_candles(0.8060, step=-0.00015),
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan(
+                "USDCHF",
+                "SELL",
+                entry=0.8060,
+                stop=0.8070,
+                target=0.8000,
+                beta_id="BETA002",
+                stop_management="FIXED_STOP",
+            )
+        )
+
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertEqual(result.position_state, "HEALTHY")
+        self.assertEqual(provider.close_calls, 0)
+
+    def test_beta002_ema_sozinha_nao_fecha(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1100),
+            price=1.1030,
+            candles=_weakening_candles(1.1000, groups=("ema",)),
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan("EURUSD", "BUY", beta_id="BETA002", stop_management="FIXED_STOP")
+        )
+
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertNotEqual(result.position_state, "EXIT_CANDIDATE")
+        self.assertEqual(provider.close_calls, 0)
+
+    def test_beta002_dados_ausentes_hold(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1100),
+            price=1.1030,
+            candles=[],
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan("EURUSD", "BUY", beta_id="BETA002", stop_management="FIXED_STOP")
+        )
+
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertIn("m1_candles", result.missing_data)
+        self.assertEqual(provider.modify_calls, 0)
+        self.assertEqual(provider.close_calls, 0)
+
+    def test_beta002_protecao_persistente_move_stop(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = _FakePositionProvider(
+                position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1100),
+                price=1.1040,
+                candles=_weakening_candles(1.1060, groups=("ema", "momentum", "advance")),
+            )
+            manager = self._manager(
+                provider,
+                enabled=True,
+                state_path=Path(temp_dir) / "state.json",
+            )
+            plan = self._plan(
+                "EURUSD",
+                "BUY",
+                beta_id="BETA002",
+                stop_management="FIXED_STOP",
+            )
+
+            for _ in range(3):
+                result = manager.manage_plan(plan)
+
+        self.assertEqual(result.beta_id, "BETA002")
+        self.assertIn(result.action, {"STOP_MOVED", "HOLD_POSITION"})
+        self.assertGreaterEqual(result.beta_confirmation_count, 3)
+        self.assertGreaterEqual(provider.modify_calls, 1)
+        self.assertGreater(provider.modified_stop or 0.0, 1.0980)
+        self.assertEqual(provider.close_calls, 0)
+
+    def test_beta002_exit_persistente_fecha_posicao(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = _FakePositionProvider(
+                position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1100),
+                price=1.1010,
+                candles=_weakening_candles(
+                    1.1080,
+                    groups=("ema", "momentum", "advance", "structure"),
+                    strong=True,
+                ),
+            )
+            manager = self._manager(
+                provider,
+                enabled=True,
+                state_path=Path(temp_dir) / "state.json",
+            )
+            plan = self._plan(
+                "EURUSD",
+                "BUY",
+                beta_id="BETA002",
+                stop_management="FIXED_STOP",
+            )
+
+            for _ in range(4):
+                result = manager.manage_plan(plan)
+
+        self.assertEqual(result.status, "POSITION_CLOSED")
+        self.assertEqual(result.action, "FULL_EXIT")
+        self.assertEqual(result.final_exit_reason, "BETA002_EXIT_CANDIDATE")
+        self.assertEqual(provider.close_calls, 1)
+
+    def test_beta002_bloqueia_fechamento_duplicado(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = _FakePositionProvider(
+                position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1100),
+                price=1.1010,
+                candles=_weakening_candles(
+                    1.1080,
+                    groups=("ema", "momentum", "advance", "structure"),
+                    strong=True,
+                ),
+            )
+            manager = self._manager(
+                provider,
+                enabled=True,
+                state_path=Path(temp_dir) / "state.json",
+            )
+            plan = self._plan(
+                "EURUSD",
+                "BUY",
+                beta_id="BETA002",
+                stop_management="FIXED_STOP",
+            )
+
+            for _ in range(4):
+                manager.manage_plan(plan)
+            result = manager.manage_plan(plan)
+
+        self.assertEqual(result.status, "DUPLICATE_DECISION_BLOCKED")
+        self.assertEqual(provider.close_calls, 1)
+
+    def test_plano_antigo_sem_beta_continua_beta001(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
+            price=1.1040,
+            candles=_weakening_candles(
+                1.1080,
+                groups=("ema", "momentum", "advance", "structure"),
+                strong=True,
+            ),
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan("EURUSD", "BUY", stop_management="FIXED_STOP")
+        )
+
+        self.assertEqual(result.beta_id, "BETA001")
+        self.assertNotEqual(result.action, "FULL_EXIT")
+        self.assertEqual(provider.close_calls, 0)
+
     def _manager(
         self,
         provider: "_FakePositionProvider",
         enabled: bool = False,
+        state_path: Path | None = None,
     ) -> PositionManagerService:
         return PositionManagerService(
             provider=provider,
             assisted_execution_enabled=enabled,
             log_path=Path(tempfile.gettempdir()) / "traderia-position-manager-test.jsonl",
+            state_path=state_path
+            or Path(tempfile.gettempdir()) / "traderia-position-manager-state-test.json",
         )
 
     def _plan(
@@ -511,6 +700,7 @@ class PositionManagerServiceTest(unittest.TestCase):
         resistance: float | None = None,
         swing_high: float | None = None,
         swing_low: float | None = None,
+        beta_id: str = "BETA001",
     ) -> PositionTradePlan:
         return PositionTradePlan(
             symbol=symbol,
@@ -527,6 +717,7 @@ class PositionManagerServiceTest(unittest.TestCase):
             resistance=resistance,
             swing_high=swing_high,
             swing_low=swing_low,
+            beta_id=beta_id,
         )
 
 
@@ -551,9 +742,15 @@ def _position(
 
 
 class _FakePositionProvider:
-    def __init__(self, position: object | None, price: float | None) -> None:
+    def __init__(
+        self,
+        position: object | None,
+        price: float | None,
+        candles: list[dict[str, float]] | None = None,
+    ) -> None:
         self.position = position
         self.price = price
+        self.candles = candles or []
         self.modified_stop: float | None = None
         self.modify_calls = 0
         self.close_calls = 0
@@ -577,7 +774,7 @@ class _FakePositionProvider:
         timeframe: str,
         limit: int,
     ) -> list[object]:
-        return []
+        return self.candles[-limit:]
 
     def get_atr(
         self,
@@ -609,6 +806,54 @@ class _FakePositionProvider:
         self.close_calls += 1
         self.close_reason = reason
         return SimpleNamespace(accepted=True, status="ACCEPTED", message="Posicao fechada.")
+
+
+def _trend_candles(start: float, step: float, count: int = 45) -> list[dict[str, float]]:
+    candles: list[dict[str, float]] = []
+    price = start
+    for index in range(count):
+        close = price + step
+        high = max(price, close) + abs(step) * 0.4
+        low = min(price, close) - abs(step) * 0.4
+        candles.append(
+            {"time": float(index), "open": price, "high": high, "low": low, "close": close}
+        )
+        price = close
+    return candles
+
+
+def _weakening_candles(
+    start: float,
+    groups: tuple[str, ...],
+    strong: bool = False,
+    count: int = 45,
+) -> list[dict[str, float]]:
+    candles = _trend_candles(start, step=0.00012, count=20)
+    price = candles[-1]["close"]
+    step = -0.00035 if strong else -0.00012
+    for index in range(20, count):
+        local_step = step
+        if "ema" not in groups:
+            local_step = 0.00002
+        if "momentum" not in groups and index % 2 == 0:
+            local_step = 0.00008
+        open_price = price
+        close = price + local_step
+        high = max(open_price, close) + (0.00006 if "structure" not in groups else 0.00002)
+        low = min(open_price, close) - (0.00006 if "structure" in groups else 0.00002)
+        if "advance" in groups:
+            close = min(close, open_price - abs(local_step) * 0.5)
+        candles.append(
+            {
+                "time": float(index),
+                "open": open_price,
+                "high": high,
+                "low": low,
+                "close": close,
+            }
+        )
+        price = close
+    return candles
 
 
 if __name__ == "__main__":

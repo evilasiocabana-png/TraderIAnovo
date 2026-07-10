@@ -8,7 +8,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from application.beta_strategies import BETA002_ID, Beta002Strategy
 from application.demo_execution_service import DisabledDemoExecutionProvider
+from domain.contracts.beta_strategy import BetaDecision, BetaStrategyContext
 
 DEFAULT_BETA_ID = "BETA001"
 DEFAULT_BETA_VERSION = "BETA v1"
@@ -207,6 +209,17 @@ class PositionManagerDecision:
     requested_close_volume: float | None = None
     final_exit_reason: str = "N/D"
     evidence: tuple[str, ...] = ()
+    strength_score: float = 0.0
+    confirmation_count: int = 0
+    state_duration: int = 0
+    ema14_value: float | None = None
+    ema14_slope: float | None = None
+    momentum_14: float | None = None
+    atr_14: float | None = None
+    atr_relative_change: float | None = None
+    structure_signal: str = "N/D"
+    evaluated_at: str = "N/D"
+    missing_data: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -244,6 +257,16 @@ class PositionManagerResult:
     beta_id: str = DEFAULT_BETA_ID
     beta_version: str = DEFAULT_BETA_VERSION
     beta_mode: str = "PROTECT_ONLY"
+    beta_strength_score: float = 0.0
+    beta_confirmation_count: int = 0
+    beta_state_duration: int = 0
+    beta_ema14_value: float | None = None
+    beta_ema14_slope: float | None = None
+    beta_momentum_14: float | None = None
+    beta_atr_14: float | None = None
+    beta_atr_relative_change: float | None = None
+    beta_structure_signal: str = "N/D"
+    beta_evaluated_at: str = "N/D"
 
 
 @dataclass
@@ -258,6 +281,10 @@ class PositionManagerService:
     log_path: Path = field(
         default_factory=lambda: Path(".traderia") / "position_manager.jsonl"
     )
+    state_path: Path = field(
+        default_factory=lambda: Path(".traderia") / "position_manager_state.json"
+    )
+    beta002_strategy: Beta002Strategy = field(default_factory=Beta002Strategy)
 
     def manage_signals(
         self,
@@ -394,6 +421,35 @@ class PositionManagerService:
             current_price=float(current_price),
         )
         decision = self._decide(plan, snapshot)
+        if self._is_duplicate_beta_execution(plan, decision):
+            return self._record(
+                PositionManagerResult(
+                    symbol=plan.symbol,
+                    ticket=ticket,
+                    status="DUPLICATE_DECISION_BLOCKED",
+                    action="STOP_MAINTAINED",
+                    message="Decisao Beta ja executada para este candle/estado; acao duplicada bloqueada.",
+                    policy=plan.stop_management,
+                    side=side,
+                    old_stop=current_stop,
+                    new_stop=decision.requested_stop,
+                    current_price=float(current_price),
+                    entry=entry,
+                    atr=plan.atr,
+                    r_multiple=snapshot.r_multiple,
+                    position_state=decision.state,
+                    confidence=decision.confidence,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=decision.beta_id,
+                    beta_version=decision.beta_version,
+                    beta_mode=decision.beta_mode,
+                    evidence=decision.evidence,
+                    candle_time=plan.candle_time,
+                    audit_tags=("DUPLICATE_DECISION_BLOCKED",),
+                    **self._beta_result_fields(decision),
+                )
+            )
         if decision.action in {"EARLY_EXIT", "FULL_EXIT"}:
             return self._execute_close_decision(plan, snapshot, decision)
         if decision.action == "HOLD_POSITION":
@@ -420,7 +476,9 @@ class PositionManagerService:
                     beta_mode=decision.beta_mode,
                     evidence=decision.evidence,
                     candle_time=plan.candle_time,
+                    missing_data=decision.missing_data,
                     audit_tags=("HOLD_POSITION", decision.state),
+                    **self._beta_result_fields(decision),
                 )
             )
 
@@ -452,6 +510,7 @@ class PositionManagerService:
                     candle_time=plan.candle_time,
                     missing_data=missing,
                     audit_tags=(status,),
+                    **self._beta_result_fields(decision),
                 )
             )
         if not self._is_better_stop(side, candidate, current_stop):
@@ -480,6 +539,7 @@ class PositionManagerService:
                     evidence=decision.evidence,
                     candle_time=plan.candle_time,
                     audit_tags=("STOP_MOVE_BLOCKED_NOT_PROTECTIVE",),
+                    **self._beta_result_fields(decision),
                 )
             )
         if not self._is_stop_before_market(side, candidate, float(current_price)):
@@ -508,6 +568,7 @@ class PositionManagerService:
                     evidence=decision.evidence,
                     candle_time=plan.candle_time,
                     audit_tags=("STOP_MOVE_BLOCKED_INVALID_MARKET_SIDE",),
+                    **self._beta_result_fields(decision),
                 )
             )
         if not self.assisted_execution_enabled:
@@ -540,43 +601,48 @@ class PositionManagerService:
                     candle_time=plan.candle_time,
                     execution_status="BLOCKED_BY_CONFIG",
                     audit_tags=("STOP_MOVE_CANDIDATE", "STOP_MOVE_BLOCKED_BY_CONFIG"),
+                    **self._beta_result_fields(decision),
                 )
             )
 
         response = self.provider.modify_position_sl(plan.symbol, ticket, candidate)
         success = bool(getattr(response, "success", False) or getattr(response, "accepted", False))
         provider_message = str(getattr(response, "message", "") or "SL enviado ao MT5.")
+        result = PositionManagerResult(
+            symbol=plan.symbol,
+            ticket=ticket,
+            status="STOP_MOVED" if success else "MODIFY_REJECTED",
+            action="STOP_MOVED" if success else "STOP_MAINTAINED",
+            message=provider_message,
+            policy=plan.stop_management,
+            side=side,
+            old_stop=current_stop,
+            new_stop=candidate,
+            current_price=float(current_price),
+            entry=entry,
+            atr=plan.atr,
+            r_multiple=snapshot.r_multiple,
+            position_state=decision.state,
+            confidence=decision.confidence,
+            alpha_id=plan.alpha_id,
+            alpha_version=plan.alpha_version,
+            beta_id=decision.beta_id,
+            beta_version=decision.beta_version,
+            beta_mode=decision.beta_mode,
+            evidence=decision.evidence,
+            candle_time=plan.candle_time,
+            execution_mode="AUTOMATIC_DEMO",
+            execution_status="EXECUTED" if success else "BLOCKED",
+            audit_tags=("STOP_MOVED" if success else "STOP_MOVE_FAILED",),
+            provider_result=provider_message,
+            submitted=True,
+            success=success,
+            **self._beta_result_fields(decision),
+        )
+        if success:
+            self._mark_beta_execution(plan, decision)
         return self._record(
-            PositionManagerResult(
-                symbol=plan.symbol,
-                ticket=ticket,
-                status="STOP_MOVED" if success else "MODIFY_REJECTED",
-                action="STOP_MOVED" if success else "STOP_MAINTAINED",
-                message=provider_message,
-                policy=plan.stop_management,
-                side=side,
-                old_stop=current_stop,
-                new_stop=candidate,
-                current_price=float(current_price),
-                entry=entry,
-                atr=plan.atr,
-                r_multiple=snapshot.r_multiple,
-                position_state=decision.state,
-                confidence=decision.confidence,
-                alpha_id=plan.alpha_id,
-                alpha_version=plan.alpha_version,
-                beta_id=decision.beta_id,
-                beta_version=decision.beta_version,
-                beta_mode=decision.beta_mode,
-                evidence=decision.evidence,
-                candle_time=plan.candle_time,
-                execution_mode="AUTOMATIC_DEMO",
-                execution_status="EXECUTED" if success else "BLOCKED",
-                audit_tags=("STOP_MOVED" if success else "STOP_MOVE_FAILED",),
-                provider_result=provider_message,
-                submitted=True,
-                success=success,
-            )
+            result
         )
 
     def _position_snapshot(
@@ -635,6 +701,8 @@ class PositionManagerService:
         plan: PositionTradePlan,
         snapshot: PositionStateSnapshot,
     ) -> PositionManagerDecision:
+        if _normalize_beta_id(plan.beta_id) == BETA002_ID:
+            return self._decide_beta002(plan, snapshot)
         policy = self._runtime_policy(plan)
         if snapshot.state == "BAD_EXECUTION_CONTEXT":
             return PositionManagerDecision(
@@ -766,6 +834,92 @@ class PositionManagerService:
             evidence=snapshot.evidence,
         )
 
+    def _decide_beta002(
+        self,
+        plan: PositionTradePlan,
+        snapshot: PositionStateSnapshot,
+    ) -> PositionManagerDecision:
+        """Avalia BETA002 somente para planos explicitamente selecionados."""
+        state = self._load_beta_state()
+        key = self._beta_state_key(plan, snapshot.ticket)
+        previous = state.get(key, {}) if isinstance(state.get(key), dict) else {}
+        candles = tuple(
+            self.provider.get_recent_candles(
+                plan.symbol,
+                self.beta002_strategy.config.timeframe,
+                max(
+                    self.beta002_strategy.config.minimum_candles
+                    + self.beta002_strategy.config.ema_period
+                    + 5,
+                    40,
+                ),
+            )
+            or ()
+        )
+        context = BetaStrategyContext(
+            symbol=plan.symbol,
+            ticket=snapshot.ticket,
+            side=snapshot.side,
+            volume=snapshot.volume,
+            entry_price=snapshot.entry_price,
+            current_price=snapshot.current_price,
+            current_stop=snapshot.current_stop,
+            current_target=snapshot.current_target,
+            current_r=snapshot.r_multiple,
+            candles=candles,
+            position_open=True,
+            candle_closed=len(candles) >= 2,
+            evaluated_at=datetime.now().astimezone().isoformat(),
+            previous_state=str(previous.get("state") or "N/D"),
+            previous_confirmation_count=int(previous.get("confirmation_count") or 0),
+            previous_state_duration=int(previous.get("state_duration") or 0),
+            previous_action_key=str(previous.get("last_action_key") or "N/D"),
+            stop_management_parameters=plan.stop_management_parameters,
+        )
+        beta_decision = self.beta002_strategy.evaluate(context)
+        self._save_beta_state(
+            key,
+            {
+                **previous,
+                "state": beta_decision.raw_state,
+                "confirmation_count": beta_decision.confirmation_count,
+                "state_duration": beta_decision.state_duration,
+                "last_evaluated_at": beta_decision.evaluated_at,
+                "last_strength_score": beta_decision.strength_score,
+                "last_evidence": list(beta_decision.evidence),
+            },
+        )
+        action = beta_decision.action
+        allowed = self.assisted_execution_enabled
+        return PositionManagerDecision(
+            symbol=plan.symbol,
+            ticket=snapshot.ticket,
+            state=beta_decision.state,
+            action=action,
+            reason=beta_decision.reason,
+            confidence=beta_decision.confidence,
+            beta_id=beta_decision.beta_id,
+            beta_version=beta_decision.beta_version,
+            beta_mode=plan.beta_mode,
+            allowed_to_execute=allowed,
+            execution_mode="AUTOMATIC_DEMO" if allowed else "READ_ONLY",
+            requested_stop=beta_decision.candidate_stop,
+            requested_close_volume=snapshot.volume if action == "FULL_EXIT" else None,
+            final_exit_reason=beta_decision.final_exit_reason,
+            evidence=snapshot.evidence + beta_decision.evidence,
+            strength_score=beta_decision.strength_score,
+            confirmation_count=beta_decision.confirmation_count,
+            state_duration=beta_decision.state_duration,
+            ema14_value=beta_decision.ema14_value,
+            ema14_slope=beta_decision.ema14_slope,
+            momentum_14=beta_decision.momentum_14,
+            atr_14=beta_decision.atr_14,
+            atr_relative_change=beta_decision.atr_relative_change,
+            structure_signal=beta_decision.structure_signal,
+            evaluated_at=beta_decision.evaluated_at,
+            missing_data=beta_decision.missing_data,
+        )
+
     def _runtime_policy(self, plan: PositionTradePlan) -> str:
         """Mantem compatibilidade com campo legado sem predefinir a saida."""
         raw_policy = str(plan.stop_management or "DYNAMIC_POSITION_MANAGER").upper()
@@ -879,6 +1033,7 @@ class PositionManagerService:
                     requested_close_volume=decision.requested_close_volume,
                     candle_time=plan.candle_time,
                     audit_tags=("EARLY_EXIT_CANDIDATE", "BLOCKED_BY_CONFIG"),
+                    **self._beta_result_fields(decision),
                 )
             )
         response = self.provider.close_position(
@@ -890,38 +1045,42 @@ class PositionManagerService:
         )
         success = bool(getattr(response, "accepted", False) or getattr(response, "success", False))
         message = str(getattr(response, "message", "") or "Fechamento enviado ao MT5 Demo.")
+        result = PositionManagerResult(
+            symbol=plan.symbol,
+            ticket=snapshot.ticket,
+            status="POSITION_CLOSED" if success else "CLOSE_REJECTED",
+            action="FULL_EXIT" if success else "EARLY_EXIT",
+            message=message,
+            policy=plan.stop_management,
+            execution_mode="AUTOMATIC_DEMO",
+            execution_status="EXECUTED" if success else "BLOCKED",
+            side=snapshot.side,
+            old_stop=snapshot.current_stop,
+            current_price=snapshot.current_price,
+            entry=snapshot.entry_price,
+            atr=plan.atr,
+            r_multiple=snapshot.r_multiple,
+            position_state=decision.state,
+            confidence=decision.confidence,
+            alpha_id=plan.alpha_id,
+            alpha_version=plan.alpha_version,
+            beta_id=decision.beta_id,
+            beta_version=decision.beta_version,
+            beta_mode=decision.beta_mode,
+            evidence=decision.evidence,
+            final_exit_reason=decision.final_exit_reason,
+            requested_close_volume=decision.requested_close_volume,
+            candle_time=plan.candle_time,
+            audit_tags=("FULL_EXIT_EXECUTED" if success else "FULL_EXIT_REJECTED",),
+            provider_result=message,
+            submitted=True,
+            success=success,
+            **self._beta_result_fields(decision),
+        )
+        if success:
+            self._mark_beta_execution(plan, decision)
         return self._record(
-            PositionManagerResult(
-                symbol=plan.symbol,
-                ticket=snapshot.ticket,
-                status="POSITION_CLOSED" if success else "CLOSE_REJECTED",
-                action="FULL_EXIT" if success else "EARLY_EXIT",
-                message=message,
-                policy=plan.stop_management,
-                execution_mode="AUTOMATIC_DEMO",
-                execution_status="EXECUTED" if success else "BLOCKED",
-                side=snapshot.side,
-                old_stop=snapshot.current_stop,
-                current_price=snapshot.current_price,
-                entry=snapshot.entry_price,
-                atr=plan.atr,
-                r_multiple=snapshot.r_multiple,
-                position_state=decision.state,
-                confidence=decision.confidence,
-                alpha_id=plan.alpha_id,
-                alpha_version=plan.alpha_version,
-                beta_id=decision.beta_id,
-                beta_version=decision.beta_version,
-                beta_mode=decision.beta_mode,
-                evidence=decision.evidence,
-                final_exit_reason=decision.final_exit_reason,
-                requested_close_volume=decision.requested_close_volume,
-                candle_time=plan.candle_time,
-                audit_tags=("FULL_EXIT_EXECUTED" if success else "FULL_EXIT_REJECTED",),
-                provider_result=message,
-                submitted=True,
-                success=success,
-            )
+            result
         )
 
     def _candidate_stop(
@@ -1237,6 +1396,104 @@ class PositionManagerService:
         if side == "BUY":
             return float(plan.momentum) < 0.0
         return float(plan.momentum) > 0.0
+
+    def _beta_result_fields(
+        self,
+        decision: PositionManagerDecision,
+    ) -> dict[str, Any]:
+        return {
+            "beta_strength_score": decision.strength_score,
+            "beta_confirmation_count": decision.confirmation_count,
+            "beta_state_duration": decision.state_duration,
+            "beta_ema14_value": decision.ema14_value,
+            "beta_ema14_slope": decision.ema14_slope,
+            "beta_momentum_14": decision.momentum_14,
+            "beta_atr_14": decision.atr_14,
+            "beta_atr_relative_change": decision.atr_relative_change,
+            "beta_structure_signal": decision.structure_signal,
+            "beta_evaluated_at": decision.evaluated_at,
+        }
+
+    def _beta_state_key(self, plan: PositionTradePlan, ticket: int) -> str:
+        return f"{_normalize_beta_id(plan.beta_id)}:{plan.symbol}:{int(ticket or 0)}"
+
+    def _beta_action_key(
+        self,
+        plan: PositionTradePlan,
+        decision: PositionManagerDecision,
+    ) -> str:
+        candidate = (
+            "NONE"
+            if decision.requested_stop is None
+            else f"{float(decision.requested_stop):.8f}"
+        )
+        return "|".join(
+            [
+                _normalize_beta_id(plan.beta_id),
+                plan.symbol,
+                str(decision.ticket),
+                decision.action,
+                decision.state,
+                candidate,
+                str(plan.candle_time or "N/D"),
+            ]
+        )
+
+    def _is_duplicate_beta_execution(
+        self,
+        plan: PositionTradePlan,
+        decision: PositionManagerDecision,
+    ) -> bool:
+        if _normalize_beta_id(plan.beta_id) != BETA002_ID:
+            return False
+        if decision.action not in {"PROTECT_POSITION", "FULL_EXIT"}:
+            return False
+        state = self._load_beta_state()
+        key = self._beta_state_key(plan, decision.ticket)
+        current = state.get(key, {}) if isinstance(state.get(key), dict) else {}
+        return str(current.get("last_action_key") or "") == self._beta_action_key(
+            plan, decision
+        )
+
+    def _mark_beta_execution(
+        self,
+        plan: PositionTradePlan,
+        decision: PositionManagerDecision,
+    ) -> None:
+        if _normalize_beta_id(plan.beta_id) != BETA002_ID:
+            return
+        state = self._load_beta_state()
+        key = self._beta_state_key(plan, decision.ticket)
+        current = state.get(key, {}) if isinstance(state.get(key), dict) else {}
+        self._save_beta_state(
+            key,
+            {
+                **current,
+                "last_action_key": self._beta_action_key(plan, decision),
+                "last_action": decision.action,
+                "last_action_at": datetime.now().astimezone().isoformat(),
+                "last_candidate_stop": decision.requested_stop,
+                "last_state": decision.state,
+            },
+        )
+
+    def _load_beta_state(self) -> dict[str, Any]:
+        if not self.state_path.exists():
+            return {}
+        try:
+            payload = json.loads(self.state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _save_beta_state(self, key: str, value: dict[str, Any]) -> None:
+        state = self._load_beta_state()
+        state[key] = value
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.state_path.write_text(
+            json.dumps(state, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
 
     def _record(self, result: PositionManagerResult) -> PositionManagerResult:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)

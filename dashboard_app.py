@@ -1665,6 +1665,24 @@ def _mt5_trade_audit_row(
         "Beta saida": str(getattr(row, "beta_id", "BETA001")),
         "Versao Beta": str(getattr(row, "beta_version", "BETA v1")),
         "Modo Beta": str(getattr(row, "beta_mode", "PROTECT_ONLY")),
+        "Score Beta": _optional_number(getattr(row, "beta_strength_score", 0.0)),
+        "Confirmacoes Beta": int(getattr(row, "beta_confirmation_count", 0) or 0),
+        "Duracao Estado Beta": int(getattr(row, "beta_state_duration", 0) or 0),
+        "EMA14 Beta": _optional_price(getattr(row, "beta_ema14_value", None)),
+        "Slope EMA14 Beta": _optional_number(
+            getattr(row, "beta_ema14_slope", None)
+        ),
+        "Momentum14 Beta": _optional_number(
+            getattr(row, "beta_momentum_14", None)
+        ),
+        "ATR14 Beta": _optional_number(getattr(row, "beta_atr_14", None)),
+        "ATR Rel Beta": _optional_percent(
+            getattr(row, "beta_atr_relative_change", None)
+        ),
+        "Estrutura Beta": str(getattr(row, "beta_structure_signal", "N/D")),
+        "Horario Beta": _friendly_candle_time(
+            getattr(row, "beta_evaluated_at", "N/D")
+        ),
         "Stop movel acionado": "SIM"
         if bool(getattr(row, "stop_movel_acionado", False))
         else "NAO",

@@ -3357,6 +3357,15 @@ class DashboardService:
         position_manager_message = self._position_manager_field(
             position_manager_record, "message"
         )
+        beta_strength_score = self._float_or_none(
+            (position_manager_record or {}).get("beta_strength_score")
+        ) or 0.0
+        beta_confirmation_count = int(
+            (position_manager_record or {}).get("beta_confirmation_count") or 0
+        )
+        beta_state_duration = int(
+            (position_manager_record or {}).get("beta_state_duration") or 0
+        )
         stop_movel_acionado = self._position_manager_stop_moved(
             position_manager_record
         )
@@ -3394,6 +3403,32 @@ class DashboardService:
                     record.get("beta_mode")
                     or (position_manager_record or {}).get("beta_mode")
                     or "PROTECT_ONLY"
+                ),
+                beta_strength_score=beta_strength_score,
+                beta_confirmation_count=beta_confirmation_count,
+                beta_state_duration=beta_state_duration,
+                beta_ema14_value=self._float_or_none(
+                    (position_manager_record or {}).get("beta_ema14_value")
+                ),
+                beta_ema14_slope=self._float_or_none(
+                    (position_manager_record or {}).get("beta_ema14_slope")
+                ),
+                beta_momentum_14=self._float_or_none(
+                    (position_manager_record or {}).get("beta_momentum_14")
+                ),
+                beta_atr_14=self._float_or_none(
+                    (position_manager_record or {}).get("beta_atr_14")
+                ),
+                beta_atr_relative_change=self._float_or_none(
+                    (position_manager_record or {}).get("beta_atr_relative_change")
+                ),
+                beta_structure_signal=str(
+                    (position_manager_record or {}).get("beta_structure_signal")
+                    or "N/D"
+                ),
+                beta_evaluated_at=str(
+                    (position_manager_record or {}).get("beta_evaluated_at")
+                    or "N/D"
                 ),
                 dynamic_exit_policy=str(
                     record.get("dynamic_exit_policy") or record.get("stop_management") or "N/D"
@@ -3501,6 +3536,31 @@ class DashboardService:
                 record.get("beta_mode")
                 or (position_manager_record or {}).get("beta_mode")
                 or "PROTECT_ONLY"
+            ),
+            beta_strength_score=beta_strength_score,
+            beta_confirmation_count=beta_confirmation_count,
+            beta_state_duration=beta_state_duration,
+            beta_ema14_value=self._float_or_none(
+                (position_manager_record or {}).get("beta_ema14_value")
+            ),
+            beta_ema14_slope=self._float_or_none(
+                (position_manager_record or {}).get("beta_ema14_slope")
+            ),
+            beta_momentum_14=self._float_or_none(
+                (position_manager_record or {}).get("beta_momentum_14")
+            ),
+            beta_atr_14=self._float_or_none(
+                (position_manager_record or {}).get("beta_atr_14")
+            ),
+            beta_atr_relative_change=self._float_or_none(
+                (position_manager_record or {}).get("beta_atr_relative_change")
+            ),
+            beta_structure_signal=str(
+                (position_manager_record or {}).get("beta_structure_signal")
+                or "N/D"
+            ),
+            beta_evaluated_at=str(
+                (position_manager_record or {}).get("beta_evaluated_at") or "N/D"
             ),
             dynamic_exit_policy=str(
                 record.get("dynamic_exit_policy") or record.get("stop_management") or "N/D"

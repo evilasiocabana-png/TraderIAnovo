@@ -710,6 +710,16 @@ class DashboardMT5TradeAuditRowViewModel:
     beta_id: str = "BETA001"
     beta_version: str = "BETA v1"
     beta_mode: str = "PROTECT_ONLY"
+    beta_strength_score: float = 0.0
+    beta_confirmation_count: int = 0
+    beta_state_duration: int = 0
+    beta_ema14_value: float | None = None
+    beta_ema14_slope: float | None = None
+    beta_momentum_14: float | None = None
+    beta_atr_14: float | None = None
+    beta_atr_relative_change: float | None = None
+    beta_structure_signal: str = "N/D"
+    beta_evaluated_at: str = "N/D"
     trade_plan_version: str = "N/D"
     execution_engine_version: str = "N/D"
     indicator_bundle_version: str = "N/D"
