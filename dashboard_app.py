@@ -1887,11 +1887,8 @@ def _exibir_robo_demo_mt5(
         "em par individual, avalia apenas o ativo selecionado."
     )
     controls = st.columns([0.12, 1, 1.8, 1, 1, 2])
+    status_dot_slot = controls[0].empty()
     timeframe = getattr(forex, "timeframe", "M1")
-    controls[0].markdown(
-        _demo_robot_status_dot_html(_demo_robot_online_status(data)),
-        unsafe_allow_html=True,
-    )
     selected_session_filter = _render_forex_session_filter_checkbox(
         controls[2],
         key="mt5_demo_robot_forex_session_filter_enabled",
@@ -1905,6 +1902,7 @@ def _exibir_robo_demo_mt5(
         online_allowed = _demo_robot_online_allowed(armed_robot)
         st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = online_allowed
         st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = 0.0
+        st.session_state[MT5_DEMO_ROBOT_LAST_VISIBLE_SNAPSHOT_KEY] = armed_robot
         if online_allowed:
             _record_runtime_event("DEMO_ROBOT_ARMED_ONLINE")
             st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY] = (
@@ -1916,24 +1914,30 @@ def _exibir_robo_demo_mt5(
                 "Robo demo bloqueado pelo backend: "
                 f"{getattr(armed_robot, 'message', 'motivo indisponivel')}"
             )
-        data = service.get_dashboard_view_model()
+        data = _with_demo_robot_snapshot(service.get_dashboard_view_model(), armed_robot)
     if controls[3].button("Avaliar gatilho agora", key="mt5_demo_robot_evaluate"):
         _mark_ui_critical_interaction()
         if str(selected_pair or "").upper() in {"TODOS", "ALL"}:
-            service.run_demo_robot_for_all(timeframe=timeframe)
+            evaluated_robot = service.run_demo_robot_for_all(timeframe=timeframe)
         else:
-            service.evaluate_armed_demo_robot_once(
+            evaluated_robot = service.evaluate_armed_demo_robot_once(
                 pair=selected_pair,
                 timeframe=timeframe,
             )
-        data = service.get_dashboard_view_model()
+        data = _with_demo_robot_snapshot(
+            service.get_dashboard_view_model(),
+            evaluated_robot,
+        )
     if controls[4].button("Desarmar robo", key="mt5_demo_robot_disarm"):
         _mark_ui_critical_interaction()
-        service.disarm_demo_robot(pair=selected_pair, timeframe=timeframe)
+        disarmed_robot = service.disarm_demo_robot(pair=selected_pair, timeframe=timeframe)
         st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
         st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = 0.0
         st.session_state.pop(MT5_DEMO_ROBOT_LAST_VISIBLE_SNAPSHOT_KEY, None)
-        data = service.get_dashboard_view_model()
+        data = _with_demo_robot_snapshot(
+            service.get_dashboard_view_model(),
+            disarmed_robot,
+        )
     controls[5].caption(
         "Para operar em demo: conta MT5 DEMO, env habilitado, plano Research "
         "valido e sem posicao aberta no simbolo."
@@ -1961,6 +1965,10 @@ def _exibir_robo_demo_mt5(
             )
     else:
         st.info("Monitoramento online INATIVO. Arme o robo para iniciar.")
+    status_dot_slot.markdown(
+        _demo_robot_status_dot_html(online_enabled),
+        unsafe_allow_html=True,
+    )
     robot = getattr(data, "demo_robot", None)
     if robot is None:
         st.info("Robo demo indisponivel no contrato do dashboard.")
@@ -2107,6 +2115,13 @@ def _demo_robot_status_dot_html(online_enabled: bool) -> str:
     )
 
 
+def _with_demo_robot_snapshot(data: object, robot: object) -> object:
+    try:
+        return replace(data, demo_robot=robot)
+    except TypeError:
+        return data
+
+
 def _demo_robot_has_visible_plan(robot: object) -> bool:
     if robot is None:
         return False
@@ -2140,10 +2155,16 @@ def _stable_demo_robot_snapshot(robot: object) -> object:
 
 
 def _demo_robot_online_status(data: object) -> bool:
-    """Mostra online somente quando a sessao e o backend concordam."""
+    """Mostra o estado online confirmado na sessao.
+
+    A leitura do backend pode chegar atrasada no mesmo rerender do Streamlit apos
+    armar o robo. O ciclo operacional continua sendo quem desliga a sessao se o
+    backend confirmar bloqueio real.
+    """
     session_online = bool(st.session_state.get(MT5_DEMO_ROBOT_ONLINE_KEY, False))
-    backend_online = _demo_robot_online_allowed(getattr(data, "demo_robot", None))
-    return session_online and backend_online
+    if not session_online:
+        return False
+    return True
 
 
 def _arm_all_demo_robot_from_reports(service: DashboardService, data: object) -> object:
@@ -2211,7 +2232,7 @@ def _run_demo_robot_online_cycle_if_due(
         except TypeError:
             pass
         return refreshed_data, False
-    return service.get_dashboard_view_model(), True
+    return _with_demo_robot_snapshot(service.get_dashboard_view_model(), cycle_robot), True
 
 
 def _demo_robot_online_allowed(robot: object) -> bool:
