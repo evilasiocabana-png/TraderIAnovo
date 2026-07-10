@@ -2066,7 +2066,9 @@ def _demo_robot_monitor_row(row: dict[str, object]) -> dict[str, object]:
         "Par": row.get("Par", "N/D"),
         "TF ativo": row.get("Periodo de tempo", row.get("Timeframe", "N/D")),
         "Modelo": row.get("Modelo Ativo", "N/D"),
-        "Modelo saida": _demo_robot_exit_model_label(row),
+        "Gestor saida": _demo_robot_exit_manager_label(row),
+        "Plano inicial": _demo_robot_initial_risk_plan_label(row),
+        "Acao PM atual": _demo_robot_position_manager_action_label(row),
         "Decisao": decision,
         "Entrada": "SIM" if entry_status == "SINAL_TEORICO" else "NAO",
         "Plano": "VALIDO" if plan_status == "PLANO_VALIDO" else "NAO",
@@ -2079,14 +2081,33 @@ def _demo_robot_monitor_row(row: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _demo_robot_exit_model_label(row: dict[str, object]) -> str:
-    beta = str(row.get("Beta Lab", "BETA001") or "BETA001")
+def _demo_robot_exit_manager_label(row: dict[str, object]) -> str:
+    beta = str(row.get("Beta Lab", "BETA001") or "BETA001").upper()
+    mode = str(row.get("Modo Beta", "") or "").upper()
+    if mode and mode != "N/D":
+        return f"{beta} ({mode})"
+    return beta
+
+
+def _demo_robot_initial_risk_plan_label(row: dict[str, object]) -> str:
     exit_model = str(row.get("Modelo Saida", "NONE") or "NONE")
     if exit_model == "NONE":
         exit_model = str(
             row.get("Gestao Stop", "POSITION_MANAGER") or "POSITION_MANAGER"
         )
-    return f"{beta} | {exit_model}"
+    return exit_model
+
+
+def _demo_robot_position_manager_action_label(row: dict[str, object]) -> str:
+    action = str(row.get("Recomendacao Saida", "") or "").upper()
+    market_state = str(row.get("Estado Mercado Saida", "") or "").upper()
+    if action and action not in {"N/D", "KEEP_ORIGINAL_PLAN"}:
+        return action
+    if market_state and market_state not in {"", "N/D", "NO_POSITION"}:
+        return f"HOLD_POSITION ({market_state})"
+    if str(row.get("Plano Research", "") or "").upper() == "PLANO_VALIDO":
+        return "AGUARDANDO_POSICAO"
+    return "SEM_PLANO_ATIVO"
 
 
 def _demo_robot_rejection_step_row(step: object) -> dict[str, object]:
