@@ -52,7 +52,11 @@ MT5_DEMO_ROBOT_INTERVAL_SECONDS = float(
 MT5_FOREX_AUTO_REFRESH_SECONDS = float(
     os.getenv("TRADERIA_MT5_FOREX_AUTO_REFRESH_SECONDS", "10")
 )
+MT5_REPORT_AUTO_REFRESH_SECONDS = float(
+    os.getenv("TRADERIA_MT5_REPORT_REFRESH_SECONDS", "30")
+)
 MT5_FOREX_FRAGMENT_RUN_EVERY = f"{int(MT5_FOREX_AUTO_REFRESH_SECONDS)}s"
+MT5_REPORT_FRAGMENT_RUN_EVERY = f"{int(MT5_REPORT_AUTO_REFRESH_SECONDS)}s"
 MT5_LAB_TARGET_CONFIDENCE = 0.70
 MT5_ALPHA_LIBRARY_SEARCH_SPACE_SIZE = 839
 MT5_FOREX_CYCLE_LOCK = threading.Lock()
@@ -661,7 +665,7 @@ def _maybe_refresh_mt5_trade_audit_report(
         now = time.monotonic()
         decision = guard.should_run_cycle(
             "report_refresh",
-            interval_seconds=MT5_FOREX_AUTO_REFRESH_SECONDS,
+            interval_seconds=MT5_REPORT_AUTO_REFRESH_SECONDS,
             now=now,
             in_grace_period=_ui_in_critical_interaction_grace(),
         )
@@ -1126,6 +1130,13 @@ def exibir_mt5_forex_dashboard(
         robot_online=_demo_robot_online_status(data),
         mt5_status=getattr(forex, "connection_status", "N/D"),
     )
+    report = _maybe_refresh_mt5_trade_audit_report(
+        service,
+        st.session_state.get(MT5_REPORT_AUDIT_CACHE_KEY),
+    )
+    if report is None:
+        report = getattr(data, "mt5_trade_audit", None)
+    _exibir_saidas_teoricas_mt5(service, report, display_rows)
     data = _exibir_robo_demo_mt5(service, data, forex, display_rows)
     colunas = st.columns(4)
     decision_counts = _forex_decision_counts(display_rows)
@@ -1229,7 +1240,7 @@ def _mt5_history_row(row: object) -> dict[str, object]:
     }
 
 
-@st.fragment(run_every=MT5_FOREX_FRAGMENT_RUN_EVERY)
+@st.fragment(run_every=MT5_REPORT_FRAGMENT_RUN_EVERY)
 def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None:
     """Exibe auditoria das negociacoes TraderIA x historico MT5."""
     forex = getattr(data, "mt5_forex_signals", None)
@@ -1363,9 +1374,9 @@ def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None
             color_by_result=True,
         )
         st.markdown("##### Historico completo")
-        _render_mt5_trade_audit_table(
-            [_mt5_trade_audit_row(row, signal_metrics) for row in history_rows],
-            color_by_result=True,
+        _render_mt5_trade_audit_history_table(
+            _sorted_mt5_history_rows_newest_first(history_rows),
+            signal_metrics,
         )
     else:
         st.info("Nenhuma operacao encerrada encontrada no historico MT5.")
@@ -1522,8 +1533,94 @@ def _render_mt5_trade_audit_table(
     )
 
 
+def _render_mt5_trade_audit_history_table(
+    history_rows: list[object],
+    signal_metrics: dict[str, dict[str, object]],
+) -> None:
+    """Renderiza historico fechado em paginas curtas para evitar travar a UI."""
+    if not history_rows:
+        st.info("Nenhum registro disponivel.")
+        return
+    filters = st.columns([1, 1, 1, 1])
+    pairs = sorted(
+        {
+            str(getattr(row, "symbol", "") or "").upper()
+            for row in history_rows
+            if str(getattr(row, "symbol", "") or "").strip()
+        }
+    )
+    selected_pair = filters[0].selectbox(
+        "Par historico",
+        ["TODOS", *pairs],
+        index=0,
+        key="mt5_report_history_pair_filter",
+    )
+    result_filter = filters[1].selectbox(
+        "Resultado",
+        ["TODOS", "LUCRO", "PREJUIZO", "ZERO"],
+        index=0,
+        key="mt5_report_history_result_filter",
+    )
+    page_size = int(
+        filters[2].selectbox(
+            "Linhas por pagina",
+            [10, 25, 50, 100],
+            index=1,
+            key="mt5_report_history_page_size",
+            help="Limite visual para manter a aba Relatorio leve durante a rolagem.",
+        )
+    )
+    filtered = [
+        row
+        for row in history_rows
+        if (
+            selected_pair == "TODOS"
+            or str(getattr(row, "symbol", "") or "").upper() == selected_pair
+        )
+        and _mt5_history_result_matches(row, result_filter)
+    ]
+    total_pages = max(1, (len(filtered) + page_size - 1) // page_size)
+    page = int(
+        filters[3].number_input(
+            "Pagina",
+            min_value=1,
+            max_value=total_pages,
+            value=1,
+            step=1,
+            key="mt5_report_history_page",
+        )
+    )
+    start = (page - 1) * page_size
+    end = start + page_size
+    st.caption(
+        f"Exibindo {start + 1 if filtered else 0}-{min(end, len(filtered))} "
+        f"de {len(filtered)} filtrados; total historico: {len(history_rows)}. "
+        "Historico paginado do mais recente para o mais antigo para preservar "
+        "a leveza da aba Relatorio."
+    )
+    _render_mt5_trade_audit_table(
+        [_mt5_trade_audit_row(row, signal_metrics) for row in filtered[start:end]],
+        color_by_result=True,
+    )
+
+
+def _mt5_history_result_matches(row: object, result_filter: str) -> bool:
+    if result_filter == "TODOS":
+        return True
+    realized_profit = float(getattr(row, "mt5_realized_profit", 0.0) or 0.0)
+    if result_filter == "LUCRO":
+        return realized_profit > 0.0
+    if result_filter == "PREJUIZO":
+        return realized_profit < 0.0
+    return abs(realized_profit) <= 1e-9
+
+
 def _sorted_mt5_rows_like_mt5(rows: list[object]) -> list[object]:
     return sorted(rows, key=_mt5_trade_time_key)
+
+
+def _sorted_mt5_history_rows_newest_first(rows: list[object]) -> list[object]:
+    return sorted(rows, key=_mt5_trade_time_key, reverse=True)
 
 
 def _latest_mt5_history_row(rows: list[object]) -> object:
@@ -2425,6 +2522,284 @@ def _exibir_entradas_teoricas_mt5(
     )
 
 
+def _exibir_saidas_teoricas_mt5(
+    service: DashboardService,
+    report: object | None,
+    forex_rows: list[dict[str, object]],
+) -> None:
+    """Exibe leitura teorica do BETA002 somente para posicoes abertas."""
+    st.subheader("Saida Teorica MT5")
+    st.caption(
+        "Somente leitura: acompanha posicoes abertas e mostra como o BETA002 "
+        "esta lendo HOLD, PROTECT ou FULL_EXIT no ciclo atual."
+    )
+    st.markdown(
+        (
+            "<div class='traderia-status-legend'>"
+            "<span class='traderia-legend-ok'>HOLD saudavel</span>"
+            "<span class='traderia-legend-wait'>PROTECT / atencao</span>"
+            "<span class='traderia-legend-blocked'>Dado ausente/bloqueado</span>"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+    if report is None:
+        report = _load_mt5_trade_audit_report_locked(service)
+        if report is not None:
+            st.session_state[MT5_REPORT_AUDIT_CACHE_KEY] = report
+    if report is None:
+        st.info("Auditoria MT5 ainda nao carregada; aguardando proximo ciclo leve.")
+        return
+    open_rows = [
+        row
+        for row in list(getattr(report, "rows", []) or [])
+        if _is_mt5_open_operation(row) and _is_valid_mt5_theoretical_exit_row(row)
+    ]
+    if not open_rows:
+        refreshed_report = _load_mt5_trade_audit_report_locked(service)
+        if refreshed_report is not None:
+            st.session_state[MT5_REPORT_AUDIT_CACHE_KEY] = refreshed_report
+            open_rows = [
+                row
+                for row in list(getattr(refreshed_report, "rows", []) or [])
+                if _is_mt5_open_operation(row)
+                and _is_valid_mt5_theoretical_exit_row(row)
+            ]
+    if not open_rows:
+        st.info("Nenhuma posicao aberta no MT5 para acompanhar saida teorica.")
+        return
+    signal_by_pair = {
+        str(row.get("Par", "") or "").upper(): row
+        for row in forex_rows
+        if str(row.get("Par", "") or "").strip()
+    }
+    rows = [
+        _mt5_theoretical_exit_row(row, signal_by_pair)
+        for row in _sorted_mt5_rows_like_mt5(open_rows)
+    ]
+    _render_mt5_theoretical_exit_table(rows)
+
+
+def _is_valid_mt5_theoretical_exit_row(row: object) -> bool:
+    """Evita saldo/linhas N/D na leitura teorica de saida."""
+    symbol = str(getattr(row, "symbol", "") or "").upper()
+    mt5_symbol = str(getattr(row, "mt5_symbol", "") or "").upper()
+    if symbol in {"", "N/D", "NONE"} and mt5_symbol in {"", "N/D", "NONE"}:
+        return False
+    return bool(
+        getattr(row, "mt5_ticket", None)
+        or getattr(row, "local_ticket", None)
+        or mt5_symbol not in {"", "N/D", "NONE"}
+    )
+
+
+def _mt5_theoretical_exit_row(
+    row: object,
+    signal_by_pair: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    """Linha compacta da leitura BETA002 para posicao aberta."""
+    pair = str(getattr(row, "symbol", "N/D") or "N/D").upper()
+    signal = signal_by_pair.get(pair, {})
+    scenario = _mt5_theoretical_exit_scenario(row)
+    return {
+        "Par": pair,
+        "Lado": str(getattr(row, "mt5_side", None) or getattr(row, "side", "N/D")),
+        "TF Entrada Lab": signal.get("Periodo de tempo", "N/D"),
+        "TF Saida Beta": _mt5_beta_exit_timeframe(row),
+        "Alpha": str(getattr(row, "alpha_id", signal.get("Alpha Lab", "N/D"))),
+        "Beta": str(getattr(row, "beta_id", signal.get("Beta Lab", "BETA001"))),
+        "Cenario BETA002": scenario,
+        "Gestao stop": _mt5_theoretical_exit_stop_management_label(row),
+        "Movimento SL": _mt5_theoretical_exit_stop_movement_label(row),
+        "Stop inicial": _optional_price(getattr(row, "stop", None)),
+        "Stop atual": _optional_price(getattr(row, "mt5_stop", None)),
+        "Stop candidato": _optional_price(
+            getattr(row, "dynamic_exit_candidate_stop", None)
+        ),
+        "Acao PM": str(getattr(row, "position_manager_action", "N/D")),
+        "Status PM": str(getattr(row, "position_manager_status", "N/D")),
+        "R atual": _optional_number(getattr(row, "dynamic_exit_r_multiple", None)),
+        "Score forca": _optional_number(getattr(row, "beta_strength_score", None)),
+        "Confirmacoes": int(getattr(row, "beta_confirmation_count", 0) or 0),
+        "Duracao": int(getattr(row, "beta_state_duration", 0) or 0),
+        "EMA14": _optional_price(getattr(row, "beta_ema14_value", None)),
+        "Slope EMA14": _optional_number(getattr(row, "beta_ema14_slope", None)),
+        "Momentum14": _optional_number(getattr(row, "beta_momentum_14", None)),
+        "ATR14": _optional_number(getattr(row, "beta_atr_14", None)),
+        "ATR relativo": _optional_percent(
+            getattr(row, "beta_atr_relative_change", None)
+        ),
+        "Estrutura": str(getattr(row, "beta_structure_signal", "N/D")),
+        "Preco atual": _optional_price(getattr(row, "mt5_price", None)),
+        "Entrada": _optional_price(getattr(row, "entry_price", None)),
+        "Alvo": _optional_price(getattr(row, "target", None)),
+        "Execucao": (
+            "AUTORIZADA"
+            if bool(getattr(row, "dynamic_exit_allowed_to_execute_demo", False))
+            else "READ_ONLY"
+        ),
+        "Ultimo candle fechado": _friendly_candle_time(
+            getattr(row, "beta_closed_candle_time", "N/D")
+        ),
+        "Horario leitura": _friendly_candle_time(
+            getattr(row, "beta_evaluated_at", "N/D")
+        ),
+        "Leitura programada": _mt5_theoretical_exit_programming_label(row),
+        "Motivo": _mt5_trade_audit_position_manager_message(row),
+    }
+
+
+def _mt5_theoretical_exit_stop_management_label(row: object) -> str:
+    """Classifica a gestao do stop com linguagem operacional curta."""
+    if _mt5_theoretical_exit_stop_moved(row):
+        return "SL MOVIDO"
+    if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
+        return "CANDIDATO"
+    beta = str(getattr(row, "beta_id", "BETA001") or "BETA001").upper()
+    policy = str(getattr(row, "dynamic_exit_policy", "") or "").upper()
+    if beta == "BETA002" or policy not in {"", "N/D", "NONE", "FIXED_STOP"}:
+        return "MONITORANDO"
+    return "INICIAL"
+
+
+def _mt5_theoretical_exit_stop_movement_label(row: object) -> str:
+    if _mt5_theoretical_exit_stop_moved(row):
+        return "JA_MOVEU"
+    if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
+        return "PODE_MOVER"
+    return "NAO_MOVEU"
+
+
+def _mt5_theoretical_exit_stop_moved(row: object) -> bool:
+    """Detecta movimento real do SL priorizando o stop atual do MT5."""
+    initial_stop = _safe_float_or_none(getattr(row, "stop", None))
+    current_stop = _safe_float_or_none(getattr(row, "mt5_stop", None))
+    if initial_stop is not None and current_stop is not None:
+        return abs(initial_stop - current_stop) > 1e-5
+    return bool(getattr(row, "stop_movel_acionado", False))
+
+
+def _mt5_beta_exit_timeframe(row: object) -> str:
+    """Mostra o timeframe de leitura da saida, separado do TF de entrada."""
+    beta = str(getattr(row, "beta_id", "BETA001") or "BETA001").upper()
+    version = str(getattr(row, "beta_version", "") or "").upper()
+    if beta == "BETA002" or version.startswith("M1_"):
+        return "M1"
+    return "N/D"
+
+
+def _mt5_theoretical_exit_scenario(row: object) -> str:
+    """Resume a acao operacional do BETA002 em tres cenarios."""
+    action = str(getattr(row, "position_manager_action", "") or "").upper()
+    status = str(getattr(row, "position_manager_status", "") or "").upper()
+    final_reason = str(getattr(row, "final_exit_reason", "") or "").upper()
+    if "FULL_EXIT" in action or "EARLY_EXIT" in action or "FULL_EXIT" in final_reason:
+        return "FULL_EXIT"
+    if action in {"STOP_MOVED", "PROTECT_POSITION"} or status in {
+        "STOP_MOVED",
+        "EXECUTION_DISABLED",
+        "STOP_MOVE_CANDIDATE",
+    }:
+        return "PROTECT"
+    if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
+        return "PROTECT"
+    return "HOLD"
+
+
+def _mt5_theoretical_exit_programming_label(row: object) -> str:
+    """Mostra a regra operacional atual de leitura do BETA002."""
+    scenario = _mt5_theoretical_exit_scenario(row)
+    if scenario == "FULL_EXIT":
+        return "FULL_EXIT: score <= -0.50 + confirmacoes + evidencias suficientes."
+    if scenario == "PROTECT":
+        return "PROTECT: trade a favor e stop candidato mais protetivo."
+    return "HOLD: manter enquanto nao houver protecao ou saida confirmada."
+
+
+def _mt5_theoretical_exit_cell_class(row: dict[str, object], column: str) -> str:
+    """Destaca apenas variaveis alinhadas da leitura BETA002."""
+    if column in {"Gestao stop", "Movimento SL"}:
+        return ""
+    scenario = str(row.get("Cenario BETA002", "") or "").upper()
+    if scenario != "FULL_EXIT":
+        return ""
+    if column in {
+        "Cenario BETA002",
+        "Score forca",
+        "Confirmacoes",
+        "Duracao",
+        "Slope EMA14",
+        "Momentum14",
+        "ATR relativo",
+        "Estrutura",
+        "Leitura programada",
+        "Motivo",
+    }:
+        return "traderia-cell-active"
+    return ""
+
+
+def _render_mt5_theoretical_exit_table(rows: list[dict[str, object]]) -> None:
+    """Renderiza tabela da saida teorica com azul para alinhamento FULL_EXIT."""
+    if not rows:
+        st.info("Nenhum registro disponivel.")
+        return
+    columns = list(rows[0].keys())
+    header = "".join(f"<th>{_html_escape(column)}</th>" for column in columns)
+    body = []
+    for row in rows:
+        scenario = str(row.get("Cenario BETA002", "HOLD") or "HOLD").upper()
+        row_class = {
+            "FULL_EXIT": "traderia-row-sell",
+            "PROTECT": "traderia-row-wait",
+            "HOLD": "traderia-row-buy",
+        }.get(scenario, "traderia-row-wait")
+        cells = []
+        for column in columns:
+            cell_class = _mt5_theoretical_exit_cell_class(row, column)
+            cells.append(
+                "<td"
+                f"{f' class={cell_class!r}' if cell_class else ''}"
+                ">"
+                f"{_html_escape(row.get(column, ''))}"
+                "</td>"
+            )
+        body.append(f"<tr class='{row_class}'>" + "".join(cells) + "</tr>")
+    st.markdown(
+        (
+            "<div class='traderia-table-wrap'>"
+            "<table class='traderia-stable-table'>"
+            f"<thead><tr>{header}</tr></thead>"
+            f"<tbody>{''.join(body)}</tbody>"
+            "</table>"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def _parse_number_text(value: object) -> float:
+    try:
+        return float(str(value).replace(",", "."))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _safe_float_or_none(value: object) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_percent_text(value: object) -> float:
+    text = str(value or "").replace("%", "").replace(",", ".").strip()
+    try:
+        return float(text) / 100.0
+    except ValueError:
+        return 0.0
+
+
 def _forex_theoretical_entry_row(
     row: dict[str, object],
     *,
@@ -3159,6 +3534,10 @@ def _inject_dashboard_css() -> None:
         .traderia-legend-wait {
             background: #FEF3C7;
             color: #78350F;
+        }
+        .traderia-legend-active {
+            background: #DBEAFE;
+            color: #0F172A;
         }
         .traderia-legend-blocked {
             background: #FDE0E0;
@@ -5591,17 +5970,108 @@ def exibir_mt5_scenario_runner_research(research: object) -> None:
         "que uma configuracao ganhou de outra, nao para operar diretamente."
     )
     if scenarios:
-        _display_temporal_table([_mt5_scenario_row(scenario) for scenario in scenarios[:50]])
+        _render_mt5_scenario_ranking_table(scenarios)
     else:
         st.info("Nenhum ranking de cenarios disponivel.")
+
+
+def _render_mt5_scenario_ranking_table(scenarios: list[object]) -> None:
+    """Renderiza ranking pesado em paginas curtas para nao travar a rolagem."""
+    pairs = sorted(
+        {
+            str(getattr(scenario, "pair", "") or "").upper()
+            for scenario in scenarios
+            if str(getattr(scenario, "pair", "") or "").strip()
+        }
+    )
+    statuses = sorted(
+        {
+            str(getattr(scenario, "status", "") or "").upper()
+            for scenario in scenarios
+            if str(getattr(scenario, "status", "") or "").strip()
+        }
+    )
+    filters = st.columns([1, 1, 1, 1])
+    selected_pair = filters[0].selectbox(
+        "Par",
+        ["TODOS", *pairs],
+        index=0,
+        key="mt5_scenario_ranking_pair_filter",
+    )
+    selected_status = filters[1].selectbox(
+        "Status",
+        ["TODOS", *statuses],
+        index=0,
+        key="mt5_scenario_ranking_status_filter",
+    )
+    page_size = int(
+        filters[2].selectbox(
+            "Linhas por pagina",
+            [25, 50, 100, 200],
+            index=1,
+            key="mt5_scenario_ranking_page_size",
+            help="Limite visual para manter a aba Lab leve durante a rolagem.",
+        )
+    )
+    filtered = [
+        scenario
+        for scenario in scenarios
+        if (
+            selected_pair == "TODOS"
+            or str(getattr(scenario, "pair", "") or "").upper() == selected_pair
+        )
+        and (
+            selected_status == "TODOS"
+            or str(getattr(scenario, "status", "") or "").upper() == selected_status
+        )
+    ]
+    total_pages = max(1, (len(filtered) + page_size - 1) // page_size)
+    page = int(
+        filters[3].number_input(
+            "Pagina",
+            min_value=1,
+            max_value=total_pages,
+            value=1,
+            step=1,
+            key="mt5_scenario_ranking_page",
+        )
+    )
+    start = (page - 1) * page_size
+    end = start + page_size
+    st.caption(
+        f"Exibindo {start + 1 if filtered else 0}-{min(end, len(filtered))} "
+        f"de {len(filtered)} filtrados; total bruto: {len(scenarios)} cenarios. "
+        "A tabela e paginada para preservar a leveza da aba Lab."
+    )
+    _render_stable_readonly_table(
+        [_mt5_scenario_row(scenario) for scenario in filtered[start:end]],
+        decision_column="Status",
+        color_status_cells=True,
+        empty_columns=["Status", "Alpha", "Beta", "Par", "Timeframe"],
+        empty_message="Nenhum cenario encontrado para o filtro.",
+    )
 
 
 def _mt5_scenario_row(scenario: object) -> dict[str, object]:
     parameters = getattr(scenario, "parameters", {}) or {}
     return {
+        "Status": getattr(scenario, "status", "REJEITADO"),
+        "Score": _optional_percent(getattr(scenario, "score", 0.0)),
         "Alpha": getattr(scenario, "alpha_id", "ALPHA001"),
+        "Beta": getattr(scenario, "beta_id", parameters.get("beta_id", "BETA001")),
+        "Modo Beta": getattr(
+            scenario,
+            "beta_mode",
+            parameters.get("beta_mode", "PROTECT_ONLY"),
+        ),
         "Par": getattr(scenario, "pair", "N/D"),
         "Timeframe": getattr(scenario, "timeframe", "M1"),
+        "Modelo": getattr(scenario, "model", "N/D"),
+        "Decisao": getattr(scenario, "decision", "WAIT"),
+        "Plano inicial": parameters.get(
+            "stop_management",
+            parameters.get("exit_model", "N/D"),
+        ),
         "Sessao": getattr(scenario, "temporal_session_label", "N/D"),
         "Janela BRT": getattr(scenario, "temporal_window_brt", "N/D"),
         "Dia": getattr(scenario, "temporal_weekday", "N/D"),
@@ -5613,7 +6083,6 @@ def _mt5_scenario_row(scenario: object) -> dict[str, object]:
             getattr(scenario, "temporal_financial_centers", ()) or ()
         )
         or "N/D",
-        "Modelo": getattr(scenario, "model", "N/D"),
         "Evento": parameters.get("event_type", "N/D"),
         "Modo Evento": parameters.get("event_mode", "N/D"),
         "Contexto Evento": parameters.get("context", "N/D"),
@@ -5621,7 +6090,6 @@ def _mt5_scenario_row(scenario: object) -> dict[str, object]:
             f"{key}={value}" for key, value in dict(parameters).items()
         )
         or "N/D",
-        "Score Tecnico": _optional_percent(getattr(scenario, "score", 0.0)),
         "Confirmacao Historica": _optional_percent(
             getattr(scenario, "lab_confidence", 0.0)
         ),
@@ -5657,8 +6125,6 @@ def _mt5_scenario_row(scenario: object) -> dict[str, object]:
                 - MT5_LAB_TARGET_CONFIDENCE
             )
         ),
-        "Status": getattr(scenario, "status", "REJEITADO"),
-        "Decisao": getattr(scenario, "decision", "WAIT"),
         "Motivo": getattr(scenario, "reason", "N/D"),
     }
 

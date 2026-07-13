@@ -124,6 +124,22 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertTrue(provider.has_open_position("WDO"))
         self.assertEqual(mt5.positions_symbol, "WDO")
 
+    def test_get_recent_candles_aceita_array_like_do_mt5(self) -> None:
+        """copy_rates_from_pos pode retornar array com bool ambiguo."""
+        candles = _AmbiguousRates(
+            [
+                {"time": 1, "open": 1.0, "high": 1.1, "low": 0.9, "close": 1.0},
+                {"time": 2, "open": 1.0, "high": 1.2, "low": 0.95, "close": 1.1},
+            ]
+        )
+        mt5 = _FakeMT5()
+        mt5.rates = candles
+        provider = self._provider(mt5)
+
+        result = provider.get_recent_candles("EURUSD", "M1", 2)
+
+        self.assertEqual(list(result), list(candles))
+
     def test_registra_log_jsonl(self) -> None:
         mt5 = _FakeMT5()
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -353,6 +369,8 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertEqual(mt5.last_request["type"], mt5.ORDER_TYPE_SELL)
         self.assertEqual(mt5.last_request["volume"], 0.1)
         self.assertAlmostEqual(mt5.last_request["price"], 1.1040)
+        self.assertEqual(mt5.last_request["comment"], "TraderIA PM EXIT")
+        self.assertLessEqual(len(mt5.last_request["comment"]), 31)
 
     def test_close_position_conta_nao_demo_rejeita(self) -> None:
         position = SimpleNamespace(
@@ -379,8 +397,42 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertIn("nao e demo", result.message)
         self.assertIsNone(mt5.last_request)
 
+    def test_close_position_resposta_vazia_informa_last_error_e_order_check(self) -> None:
+        position = SimpleNamespace(
+            ticket=987,
+            symbol="EURUSD",
+            type=_FakeMT5.POSITION_TYPE_BUY,
+            price_open=1.1000,
+            sl=1.0980,
+            tp=1.1060,
+            volume=0.1,
+        )
+        mt5 = _FakeMT5(open_positions=[position])
+        mt5.empty_order_response = True
+        mt5.last_error_value = (10013, "Invalid request")
+        provider = self._provider(mt5)
+
+        result = provider.close_position(
+            symbol="EURUSD",
+            ticket=987,
+            side="BUY",
+            volume=0.1,
+            reason="EARLY_EXIT_MOMENTUM_LOSS",
+        )
+
+        self.assertFalse(result.accepted)
+        self.assertIn("resposta vazia", result.message)
+        self.assertIn("Invalid request", result.message)
+        self.assertIn("order_check=Done", result.message)
+
     def _provider(self, mt5: object) -> MT5DemoExecutionProvider:
-        return MT5DemoExecutionProvider(mt5=mt5, log_path=Path(tempfile.gettempdir()) / "traderia-test-orders.jsonl")
+        return MT5DemoExecutionProvider(
+            mt5=mt5,
+            log_path=Path(tempfile.gettempdir()) / "traderia-test-orders.jsonl",
+            management_log_path=(
+                Path(tempfile.gettempdir()) / "traderia-test-management.jsonl"
+            ),
+        )
 
     def _order(self) -> ExecutionOrder:
         return ExecutionOrder(
@@ -404,6 +456,7 @@ class _FakeMT5:
     TRADE_ACTION_DEAL = 5
     TRADE_ACTION_SLTP = 6
     TRADE_RETCODE_DONE = 10009
+    TIMEFRAME_M1 = 1
 
     def __init__(self, trade_mode: int = 0, open_positions=None) -> None:
         self.trade_mode = trade_mode
@@ -412,6 +465,9 @@ class _FakeMT5:
         self.positions_symbol = None
         self.initialize_calls = 0
         self.tick = SimpleNamespace(ask=101.0, bid=99.0)
+        self.rates = []
+        self.empty_order_response = False
+        self.last_error_value = (1, "Success")
 
     def initialize(self):
         self.initialize_calls += 1
@@ -433,8 +489,25 @@ class _FakeMT5:
         self.positions_symbol = symbol
         return self.open_positions or []
 
+    def copy_rates_from_pos(
+        self,
+        symbol: str,
+        timeframe: int,
+        start_pos: int,
+        count: int,
+    ):
+        return self.rates
+
+    def order_check(self, request: dict[str, object]):
+        return SimpleNamespace(retcode=0, comment="Done")
+
+    def last_error(self):
+        return self.last_error_value
+
     def order_send(self, request: dict[str, object]):
         self.last_request = request
+        if self.empty_order_response:
+            return None
         return SimpleNamespace(
             retcode=self.TRADE_RETCODE_DONE,
             order=777,
@@ -442,6 +515,19 @@ class _FakeMT5:
             price=request.get("price", 0.0),
             comment="done",
         )
+
+
+class _AmbiguousRates:
+    """Array-like que simula bool ambiguo do numpy/MetaTrader5."""
+
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self.rows = rows
+
+    def __iter__(self):
+        return iter(self.rows)
+
+    def __bool__(self) -> bool:
+        raise ValueError("truth value is ambiguous")
 
 
 if __name__ == "__main__":

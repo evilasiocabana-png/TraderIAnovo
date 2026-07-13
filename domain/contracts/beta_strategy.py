@@ -52,6 +52,7 @@ class BetaDecision:
     atr_relative_change: float | None
     structure_signal: str
     evaluated_at: str
+    closed_candle_time: str = "N/D"
     evidence: tuple[str, ...] = ()
     confidence: float = 0.0
     final_exit_reason: str = "N/D"

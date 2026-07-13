@@ -1,5 +1,18 @@
 # Execution Log
 
+## 2026-07-13
+
+### Pendencia De Velocidade Registrada
+
+- Usuario sinalizou que a velocidade do TraderIA Novo deve continuar no radar.
+- Registrado em `docs/NEXT_MISSION.md` como parte da proxima missao de health
+  check operacional e sentinela de velocidade.
+- Pontos criticos a acompanhar: aba Relatorios, Saida Teorica MT5, leitura do
+  Position Manager, historico MT5, paginacao de tabelas grandes e ausencia de
+  leitura pesada do snapshot do Lab no ciclo leve.
+- Guardrail: nao desligar leitura de mercado essencial do BETA002 apenas para
+  ganhar velocidade; primeiro medir, localizar o gargalo e otimizar.
+
 ## 2026-07-07
 
 ### Estado Base Registrado
@@ -39,4 +52,3 @@ Novas entradas devem registrar:
 - validacao executada;
 - commit gerado;
 - pendencias.
-

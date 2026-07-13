@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +13,14 @@ from typing import Any
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
 from domain.contracts.dynamic_exit_demo_sl import DynamicExitDemoSLExecutionResult
+
+
+_MT5_ORDER_SEND_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True)
+class _ExecutionSendException:
+    error: Exception
 
 
 @dataclass
@@ -31,6 +40,7 @@ class MT5DemoExecutionProvider:
     def __post_init__(self) -> None:
         if self.mt5 is None:
             self.mt5 = importlib.import_module("MetaTrader5")
+
 
     def has_open_position(self, symbol: str) -> bool:
         """Consulta posicoes abertas para impedir duplicidade por simbolo."""
@@ -82,7 +92,9 @@ class MT5DemoExecutionProvider:
             rates = copy_rates(symbol, timeframe_value, 0, max(int(limit), 1))
         except Exception:  # noqa: BLE001 - provider externo MT5
             return []
-        return list(rates or [])
+        if rates is None:
+            return []
+        return list(rates)
 
     def get_atr(
         self,
@@ -316,12 +328,35 @@ class MT5DemoExecutionProvider:
             "price": float(price),
             "deviation": self.deviation,
             "magic": self.magic,
-            "comment": f"TraderIA POSITION_MANAGER {reason}"[:31],
+            "comment": "TraderIA PM EXIT",
             "type_time": self.mt5.ORDER_TIME_GTC,
             "type_filling": self.mt5.ORDER_FILLING_IOC,
         }
-        response = self.mt5.order_send(request)
-        result = self._result_from_response(response)
+        order_check = self._order_check(request)
+        if order_check is not None and not self._order_check_passed(order_check):
+            result = ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=self._order_check_message(order_check),
+                error_code=self._order_check_retcode(order_check),
+            )
+            self._write_management_log(
+                self._close_log_payload(
+                    created_at,
+                    normalized_symbol,
+                    ticket,
+                    normalized_side,
+                    close_volume,
+                    reason,
+                    result,
+                    submitted=False,
+                    price=float(price),
+                    order_check=order_check,
+                )
+            )
+            return result
+        response = self._order_send(request)
+        result = self._result_from_response(response, order_check=order_check)
         self._write_management_log(
             self._close_log_payload(
                 created_at,
@@ -333,6 +368,7 @@ class MT5DemoExecutionProvider:
                 result,
                 submitted=True,
                 price=float(price),
+                order_check=order_check,
             )
         )
         return result
@@ -374,7 +410,7 @@ class MT5DemoExecutionProvider:
             self._write_log(order, stop_target_rejection)
             return stop_target_rejection
 
-        response = self.mt5.order_send(self._request(order, tick))
+        response = self._order_send(self._request(order, tick))
         result = self._result_from_response(response)
         self._write_log(order, result)
         return result
@@ -579,9 +615,9 @@ class MT5DemoExecutionProvider:
             "sl": float(requested),
             "tp": float(target),
             "magic": self.magic,
-            "comment": "TraderIA DYNAMIC_EXIT_ASSISTED_SL",
+            "comment": "TraderIA PM SL",
         }
-        response = self.mt5.order_send(request)
+        response = self._order_send(request)
         result = self._result_from_response(response)
         payload = {
             "timestamp": created_at,
@@ -822,6 +858,7 @@ class MT5DemoExecutionProvider:
         *,
         submitted: bool,
         price: float | None = None,
+        order_check: object | None = None,
     ) -> dict[str, Any]:
         return {
             "timestamp": timestamp,
@@ -837,6 +874,9 @@ class MT5DemoExecutionProvider:
             "message": result.message,
             "price": price,
             "error_code": result.error_code,
+            "order_check_retcode": self._order_check_retcode(order_check),
+            "order_check_comment": self._order_check_comment(order_check),
+            "mt5_last_error": self._last_error_payload(),
         }
 
     def _positive_float(self, value: object) -> float | None:
@@ -1086,16 +1126,118 @@ class MT5DemoExecutionProvider:
             round(float(target), 6),
         )
 
-    def _result_from_response(self, response: object) -> ExecutionResult:
-        if response is None:
+    def _order_send(self, request: dict[str, object]) -> object | None:
+        try:
+            with _MT5_ORDER_SEND_LOCK:
+                return self.mt5.order_send(request)
+        except Exception as exc:  # noqa: BLE001 - ponte externa MT5
+            return _ExecutionSendException(exc)
+
+    def _order_check(self, request: dict[str, object]) -> object | None:
+        order_check = getattr(self.mt5, "order_check", None)
+        if not callable(order_check):
+            return None
+        try:
+            return order_check(request)
+        except Exception:  # noqa: BLE001 - ponte externa MT5
+            return None
+
+    def _order_check_passed(self, check: object) -> bool:
+        retcode = self._order_check_retcode(check)
+        if retcode is None:
+            return False
+        return int(retcode) == 0 or int(retcode) in self._success_retcodes()
+
+    def _order_check_message(self, check: object) -> str:
+        comment = self._order_check_comment(check)
+        retcode = self._order_check_retcode(check)
+        if comment:
+            return f"MT5 order_check rejeitou fechamento: {comment} (retcode={retcode})."
+        return f"MT5 order_check rejeitou fechamento (retcode={retcode})."
+
+    def _order_check_retcode(self, check: object | None) -> int | None:
+        if check is None:
+            return None
+        value = getattr(check, "retcode", None)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _order_check_comment(self, check: object | None) -> str | None:
+        if check is None:
+            return None
+        comment = str(getattr(check, "comment", "") or "").strip()
+        return comment or None
+
+    def _last_error_payload(self) -> object:
+        last_error = getattr(self.mt5, "last_error", None)
+        if not callable(last_error):
+            return None
+        try:
+            return last_error()
+        except Exception:  # noqa: BLE001 - ponte externa MT5
+            return None
+
+    def _last_error_message(self) -> str:
+        error = self._last_error_payload()
+        if error in (None, ""):
+            return "last_error indisponivel"
+        return str(error)
+
+    def _last_error_code(self) -> int | None:
+        error = self._last_error_payload()
+        if isinstance(error, (tuple, list)) and error:
+            try:
+                return int(error[0])
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def _success_retcodes(self) -> set[int]:
+        codes: set[int] = set()
+        for name in ("TRADE_RETCODE_DONE", "TRADE_RETCODE_DONE_PARTIAL"):
+            value = getattr(self.mt5, name, None)
+            if value is None:
+                continue
+            try:
+                codes.add(int(value))
+            except (TypeError, ValueError):
+                continue
+        return codes
+
+    def _result_from_response(
+        self,
+        response: object,
+        *,
+        order_check: object | None = None,
+    ) -> ExecutionResult:
+        if isinstance(response, _ExecutionSendException):
             return ExecutionResult(
                 accepted=False,
                 status="ERROR",
-                message="MT5 retornou resposta vazia ao enviar ordem.",
+                message=f"Falha ao chamar MT5 order_send: {response.error}",
+                error_code=self._last_error_code(),
+            )
+        if response is None:
+            check_comment = self._order_check_comment(order_check)
+            check_retcode = self._order_check_retcode(order_check)
+            check_detail = (
+                f"; order_check={check_comment} retcode={check_retcode}"
+                if order_check is not None
+                else ""
+            )
+            return ExecutionResult(
+                accepted=False,
+                status="ERROR",
+                message=(
+                    "MT5 retornou resposta vazia ao enviar ordem "
+                    f"({self._last_error_message()}{check_detail})."
+                ),
+                error_code=self._last_error_code(),
             )
         retcode = int(getattr(response, "retcode", -1))
-        success_code = getattr(self.mt5, "TRADE_RETCODE_DONE", None)
-        done = success_code is not None and retcode == int(success_code)
+        done = retcode in self._success_retcodes()
         return ExecutionResult(
             accepted=done,
             status="ACCEPTED" if done else "REJECTED",

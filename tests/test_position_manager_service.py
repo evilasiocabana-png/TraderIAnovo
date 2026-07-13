@@ -107,6 +107,41 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertEqual(results[0].status, "TRADE_PLAN_ABSENT")
         self.assertEqual(provider.modify_calls, 0)
 
+    def test_estado_atual_eh_atualizado_sem_repetir_historico_inutil(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            provider = _FakePositionProvider(
+                position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
+                price=1.1040,
+            )
+            manager = self._manager(
+                provider,
+                enabled=True,
+                log_path=temp_path / "position_manager.jsonl",
+                current_state_path=temp_path / "position_manager_current.json",
+                state_path=temp_path / "position_manager_state.json",
+            )
+            signal = {
+                "symbol": "EURUSD",
+                "decision": "BUY",
+                "stop_management": "ATR_TRAILING_STOP",
+            }
+
+            manager.manage_signals([signal])
+            manager.manage_signals([signal])
+
+            current = json.loads(
+                (temp_path / "position_manager_current.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            records = current["records"]
+            self.assertEqual(records["symbol:EURUSD"]["status"], "TRADE_PLAN_ABSENT")
+            history_lines = (
+                temp_path / "position_manager.jsonl"
+            ).read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(history_lines), 1)
+
     def test_posicao_aberta_nao_depende_de_novo_gatilho_teorico(self) -> None:
         provider = _FakePositionProvider(
             position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
@@ -707,13 +742,19 @@ class PositionManagerServiceTest(unittest.TestCase):
         provider: "_FakePositionProvider",
         enabled: bool = False,
         state_path: Path | None = None,
+        log_path: Path | None = None,
+        current_state_path: Path | None = None,
     ) -> PositionManagerService:
         return PositionManagerService(
             provider=provider,
             assisted_execution_enabled=enabled,
-            log_path=Path(tempfile.gettempdir()) / "traderia-position-manager-test.jsonl",
+            log_path=log_path
+            or Path(tempfile.gettempdir()) / "traderia-position-manager-test.jsonl",
             state_path=state_path
             or Path(tempfile.gettempdir()) / "traderia-position-manager-state-test.json",
+            current_state_path=current_state_path
+            or Path(tempfile.gettempdir())
+            / "traderia-position-manager-current-test.json",
         )
 
     def _plan(

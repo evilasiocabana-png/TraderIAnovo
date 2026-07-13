@@ -729,6 +729,7 @@ class DashboardMT5TradeAuditRowViewModel:
     beta_atr_relative_change: float | None = None
     beta_structure_signal: str = "N/D"
     beta_evaluated_at: str = "N/D"
+    beta_closed_candle_time: str = "N/D"
     trade_plan_version: str = "N/D"
     execution_engine_version: str = "N/D"
     indicator_bundle_version: str = "N/D"

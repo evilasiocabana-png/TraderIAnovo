@@ -1000,6 +1000,233 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertNotIn("Motivo", monitor_row)
         self.assertNotIn("Timeframe", monitor_row)
 
+    def test_saida_teorica_mt5_mostra_beta002_para_posicao_aberta(self) -> None:
+        """Saida teorica deve resumir BETA002 sem depender de historico fechado."""
+        row = SimpleNamespace(
+            symbol="EURUSD",
+            side="BUY",
+            mt5_side="BUY",
+            position_manager_action="FULL_EXIT",
+            position_manager_status="POSITION_HELD",
+            position_manager_message="BETA002 EXIT_CANDIDATE: acao FULL_EXIT.",
+            final_exit_reason="BETA002_EXIT_CANDIDATE",
+            dynamic_exit_r_multiple=-0.35,
+            dynamic_exit_candidate_stop=None,
+            dynamic_exit_allowed_to_execute_demo=False,
+            beta_strength_score=-0.72,
+            beta_confirmation_count=4,
+            beta_state_duration=4,
+            beta_ema14_value=1.10123,
+            beta_ema14_slope=-0.25,
+            beta_momentum_14=-0.31,
+            beta_atr_14=0.0012,
+            beta_atr_relative_change=-0.12,
+            beta_structure_signal="AGAINST",
+            beta_evaluated_at="2026-07-13T10:00:00",
+            beta_closed_candle_time="2026-07-13T09:59:00",
+            mt5_price=1.1001,
+            entry_price=1.1020,
+            stop=1.0990,
+            mt5_stop=1.0990,
+            target=1.1060,
+            beta_id="BETA002",
+            alpha_id="ALPHA006",
+        )
+        signal_by_pair = {
+            "EURUSD": {
+                "Periodo de tempo": "M1",
+                "Alpha Lab": "ALPHA006",
+                "Beta Lab": "BETA002",
+            }
+        }
+
+        output = dashboard_app._mt5_theoretical_exit_row(row, signal_by_pair)
+
+        self.assertEqual(output["Cenario BETA002"], "FULL_EXIT")
+        self.assertEqual(output["TF Entrada Lab"], "M1")
+        self.assertEqual(output["TF Saida Beta"], "M1")
+        self.assertEqual(output["Beta"], "BETA002")
+        self.assertNotEqual(output["Ultimo candle fechado"], "N/D")
+        self.assertEqual(output["Gestao stop"], "MONITORANDO")
+        self.assertEqual(output["Movimento SL"], "NAO_MOVEU")
+        self.assertIn("FULL_EXIT", output["Leitura programada"])
+        self.assertEqual(
+            dashboard_app._mt5_theoretical_exit_cell_class(output, "Momentum14"),
+            "traderia-cell-active",
+        )
+        self.assertEqual(
+            dashboard_app._mt5_theoretical_exit_cell_class(output, "Estrutura"),
+            "traderia-cell-active",
+        )
+
+    def test_saida_teorica_mt5_diferencia_hold_e_protect(self) -> None:
+        """Cenarios operacionais devem ficar limitados a HOLD, PROTECT e FULL_EXIT."""
+        hold = SimpleNamespace(
+            position_manager_action="HOLD_POSITION",
+            position_manager_status="POSITION_HELD",
+            final_exit_reason="N/D",
+            dynamic_exit_candidate_stop=None,
+        )
+        protect = SimpleNamespace(
+            position_manager_action="STOP_MOVED",
+            position_manager_status="STOP_MOVED",
+            final_exit_reason="N/D",
+            dynamic_exit_candidate_stop=1.2345,
+        )
+
+        self.assertEqual(dashboard_app._mt5_theoretical_exit_scenario(hold), "HOLD")
+        self.assertEqual(
+            dashboard_app._mt5_theoretical_exit_scenario(protect),
+            "PROTECT",
+        )
+
+    def test_saida_teorica_mt5_ignora_linha_sem_simbolo_real(self) -> None:
+        """Saida teorica nao deve exibir saldo/linhas N/D apos reiniciar navegador."""
+        invalid = SimpleNamespace(
+            symbol="N/D",
+            mt5_symbol="N/D",
+            local_ticket=None,
+            mt5_ticket=None,
+        )
+        valid = SimpleNamespace(
+            symbol="EURUSD",
+            mt5_symbol="EURUSD",
+            local_ticket=123,
+            mt5_ticket=123,
+        )
+
+        self.assertFalse(dashboard_app._is_valid_mt5_theoretical_exit_row(invalid))
+        self.assertTrue(dashboard_app._is_valid_mt5_theoretical_exit_row(valid))
+
+    def test_saida_teorica_mt5_separa_tf_entrada_do_tf_saida_beta2(self) -> None:
+        """Entrada pode ser H1, mas BETA002 deve declarar saida em M1."""
+        row = SimpleNamespace(
+            symbol="EURUSD",
+            side="SELL",
+            mt5_side="SELL",
+            position_manager_action="HOLD_POSITION",
+            position_manager_status="POSITION_HELD",
+            position_manager_message="BETA002 HEALTHY: acao HOLD_POSITION.",
+            final_exit_reason="N/D",
+            dynamic_exit_r_multiple=0.10,
+            dynamic_exit_candidate_stop=None,
+            dynamic_exit_allowed_to_execute_demo=False,
+            beta_strength_score=0.55,
+            beta_confirmation_count=1,
+            beta_state_duration=1,
+            beta_ema14_value=1.10123,
+            beta_ema14_slope=0.25,
+            beta_momentum_14=0.31,
+            beta_atr_14=0.0012,
+            beta_atr_relative_change=0.02,
+            beta_structure_signal="FAVORABLE",
+            beta_evaluated_at="2026-07-13T10:00:00",
+            mt5_price=1.1001,
+            entry_price=1.1020,
+            stop=1.1030,
+            mt5_stop=1.1030,
+            target=1.0960,
+            beta_id="BETA002",
+            beta_version="M1_EMA14_MOMENTUM_VOLATILITY",
+            alpha_id="ALPHA006",
+        )
+
+        output = dashboard_app._mt5_theoretical_exit_row(
+            row,
+            {"EURUSD": {"Periodo de tempo": "H1"}},
+        )
+
+        self.assertEqual(output["TF Entrada Lab"], "H1")
+        self.assertEqual(output["TF Saida Beta"], "M1")
+
+    def test_saida_teorica_mt5_detecta_stop_movel_real(self) -> None:
+        """Stop atual diferente do inicial deve aparecer como movel."""
+        row = SimpleNamespace(
+            symbol="EURUSD",
+            side="BUY",
+            mt5_side="BUY",
+            position_manager_action="STOP_MOVED",
+            position_manager_status="STOP_MOVED",
+            position_manager_message="SL movido para ponto mais protetivo.",
+            final_exit_reason="N/D",
+            dynamic_exit_r_multiple=1.20,
+            dynamic_exit_candidate_stop=1.1010,
+            dynamic_exit_allowed_to_execute_demo=True,
+            stop_movel_acionado=True,
+            beta_strength_score=-0.20,
+            beta_confirmation_count=3,
+            beta_state_duration=3,
+            beta_ema14_value=1.10200,
+            beta_ema14_slope=-0.12,
+            beta_momentum_14=-0.08,
+            beta_atr_14=0.0010,
+            beta_atr_relative_change=-0.02,
+            beta_structure_signal="NEUTRAL",
+            beta_evaluated_at="2026-07-13T10:00:00",
+            mt5_price=1.1040,
+            entry_price=1.1000,
+            stop=1.0980,
+            mt5_stop=1.1010,
+            target=1.1060,
+            beta_id="BETA002",
+            beta_version="M1_EMA14_MOMENTUM_VOLATILITY",
+            alpha_id="ALPHA006",
+        )
+
+        output = dashboard_app._mt5_theoretical_exit_row(
+            row,
+            {"EURUSD": {"Periodo de tempo": "M1"}},
+        )
+
+        self.assertEqual(output["Gestao stop"], "SL MOVIDO")
+        self.assertEqual(output["Movimento SL"], "JA_MOVEU")
+        self.assertEqual(
+            dashboard_app._mt5_theoretical_exit_cell_class(output, "Gestao stop"),
+            "",
+        )
+
+    def test_saida_teorica_mt5_nao_marca_movido_quando_sl_mt5_igual_inicial(self) -> None:
+        """Flag historico nao deve sobrepor a leitura real do SL no MT5."""
+        row = SimpleNamespace(
+            symbol="EURUSD",
+            side="SELL",
+            mt5_side="SELL",
+            position_manager_action="STOP_MAINTAINED",
+            position_manager_status="MODIFY_REJECTED",
+            position_manager_message="MT5 retornou resposta vazia.",
+            final_exit_reason="N/D",
+            dynamic_exit_r_multiple=0.10,
+            dynamic_exit_candidate_stop=None,
+            dynamic_exit_allowed_to_execute_demo=True,
+            stop_movel_acionado=True,
+            beta_strength_score=-0.20,
+            beta_confirmation_count=3,
+            beta_state_duration=3,
+            beta_ema14_value=1.10200,
+            beta_ema14_slope=-0.12,
+            beta_momentum_14=-0.08,
+            beta_atr_14=0.0010,
+            beta_atr_relative_change=-0.02,
+            beta_structure_signal="NEUTRAL",
+            beta_evaluated_at="2026-07-13T10:00:00",
+            mt5_price=1.1010,
+            entry_price=1.1000,
+            stop=1.14220375,
+            mt5_stop=1.14220,
+            target=1.0900,
+            beta_id="BETA002",
+            beta_version="M1_EMA14_MOMENTUM_VOLATILITY",
+            alpha_id="ALPHA006",
+        )
+
+        output = dashboard_app._mt5_theoretical_exit_row(
+            row,
+            {"EURUSD": {"Periodo de tempo": "M1"}},
+        )
+
+        self.assertEqual(output["Gestao stop"], "MONITORANDO")
+        self.assertEqual(output["Movimento SL"], "NAO_MOVEU")
+
     def test_robo_demo_rejection_step_row_mostra_etapa_e_motivo(self) -> None:
         """Arvore de rejeicao deve mostrar exatamente onde o candidato parou."""
         step = SimpleNamespace(

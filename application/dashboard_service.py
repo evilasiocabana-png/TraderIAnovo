@@ -1846,6 +1846,11 @@ class DashboardService:
     def _mt5_research_snapshot_path(self) -> Path:
         return Path(".traderia") / "mt5_research_snapshot.json"
 
+    def _mt5_research_runtime_index_path(self) -> Path:
+        return self._mt5_research_snapshot_path().with_name(
+            "mt5_research_runtime_index.json"
+        )
+
     def _mt5_research_history_snapshot_path(self) -> Path:
         return Path(".traderia") / "mt5_research_history_snapshot.json"
 
@@ -2530,6 +2535,7 @@ class DashboardService:
             json.dumps(asdict(research), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        self._save_mt5_research_runtime_index(research)
 
     def _load_mt5_research_snapshot(
         self,
@@ -2623,6 +2629,9 @@ class DashboardService:
         self,
     ) -> DashboardMT5HeuristicResearchViewModel | None:
         """Carrega somente rows do snapshot grande do Research Lab."""
+        indexed = self._load_mt5_research_runtime_index()
+        if indexed is not None:
+            return indexed
         if (
             self.mt5_research_snapshot_cache is not None
             and list(getattr(self.mt5_research_snapshot_cache, "rows", []) or [])
@@ -2634,6 +2643,14 @@ class DashboardService:
             return self.mt5_research_snapshot_cache
         target = self._mt5_research_snapshot_path()
         if not target.exists():
+            return None
+        try:
+            max_bytes = int(
+                os.getenv("TRADERIA_MT5_RESEARCH_ROWS_FALLBACK_MAX_BYTES", "5242880")
+            )
+            if target.stat().st_size > max_bytes:
+                return None
+        except (OSError, ValueError):
             return None
         try:
             rows_payload = self._read_json_top_level_array(target, "rows")
@@ -2653,6 +2670,61 @@ class DashboardService:
             message="Constantes do Lab carregadas de forma leve pelo bloco rows.",
         )
         return research
+
+    def _save_mt5_research_runtime_index(
+        self,
+        research: DashboardMT5HeuristicResearchViewModel,
+    ) -> None:
+        """Persiste indice pequeno usado pelo ciclo Forex leve."""
+        target = self._mt5_research_runtime_index_path()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "status": getattr(research, "status", "N/D"),
+            "source": getattr(research, "source", "MT5_RESEARCH_SNAPSHOT"),
+            "message": getattr(research, "message", "Indice leve do Research Lab."),
+            "last_update": getattr(research, "last_update", "N/D"),
+            "candles_loaded": getattr(research, "candles_loaded", 0),
+            "timeframe": getattr(research, "timeframe", "M1"),
+            "rows": [
+                asdict(row) if hasattr(row, "__dataclass_fields__") else dict(row)
+                for row in list(getattr(research, "rows", []) or [])
+            ],
+        }
+        target.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _load_mt5_research_runtime_index(
+        self,
+    ) -> DashboardMT5HeuristicResearchViewModel | None:
+        """Carrega indice pequeno de rows sem tocar no snapshot completo."""
+        target = self._mt5_research_runtime_index_path()
+        if not target.exists():
+            return None
+        try:
+            payload = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        rows = [
+            self._view_model_from_payload(DashboardMT5HeuristicResearchRowViewModel, row)
+            for row in list(payload.get("rows", []) or [])
+            if isinstance(row, dict)
+        ]
+        if not rows:
+            return None
+        return DashboardMT5HeuristicResearchViewModel(
+            rows=rows,
+            status="SNAPSHOT_ROWS_ONLY",
+            source="MT5_RESEARCH_RUNTIME_INDEX",
+            message=str(
+                payload.get("message")
+                or "Constantes do Lab carregadas pelo indice leve runtime."
+            ),
+            last_update=str(payload.get("last_update") or "N/D"),
+            candles_loaded=int(payload.get("candles_loaded") or 0),
+            timeframe=str(payload.get("timeframe") or "M1"),
+        )
 
     def _read_json_top_level_array(self, path: Path, key: str) -> list[object]:
         """Le um array top-level sem carregar o JSON inteiro em memoria."""
@@ -3498,6 +3570,10 @@ class DashboardService:
                     (position_manager_record or {}).get("beta_evaluated_at")
                     or "N/D"
                 ),
+                beta_closed_candle_time=str(
+                    (position_manager_record or {}).get("beta_closed_candle_time")
+                    or "N/D"
+                ),
                 dynamic_exit_policy=str(
                     record.get("dynamic_exit_policy") or record.get("stop_management") or "N/D"
                 ),
@@ -3629,6 +3705,10 @@ class DashboardService:
             ),
             beta_evaluated_at=str(
                 (position_manager_record or {}).get("beta_evaluated_at") or "N/D"
+            ),
+            beta_closed_candle_time=str(
+                (position_manager_record or {}).get("beta_closed_candle_time")
+                or "N/D"
             ),
             dynamic_exit_policy=str(
                 record.get("dynamic_exit_policy") or record.get("stop_management") or "N/D"
@@ -3817,15 +3897,18 @@ class DashboardService:
 
     def _read_position_manager_audit_index(self) -> dict[str, dict[str, Any]]:
         """Indexa ultimo motivo auditavel do Position Manager por ticket e simbolo."""
+        current_index = self._read_position_manager_current_index()
+        if current_index:
+            return current_index
         path = Path(".traderia") / "position_manager.jsonl"
         if not path.exists():
             return {}
         index: dict[str, dict[str, Any]] = {}
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            lines = self._read_recent_position_manager_lines(path, limit=2000)
         except OSError:
             return {}
-        for line in lines[-2000:]:
+        for line in lines:
             if not line.strip():
                 continue
             try:
@@ -3841,6 +3924,45 @@ class DashboardService:
             if symbol:
                 index[f"symbol:{symbol}"] = record
         return index
+
+    def _read_position_manager_current_index(self) -> dict[str, dict[str, Any]]:
+        """Le snapshot leve do Position Manager sem varrer o historico pesado."""
+        path = Path(".traderia") / "position_manager_current.json"
+        if not path.exists():
+            return {}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        records = payload.get("records") if isinstance(payload, dict) else None
+        if not isinstance(records, dict):
+            return {}
+        index: dict[str, dict[str, Any]] = {}
+        for key, record in records.items():
+            if not isinstance(key, str) or not isinstance(record, dict):
+                continue
+            if not self._position_manager_record_is_exit_relevant(record):
+                continue
+            if key.startswith(("ticket:", "symbol:")):
+                index[key] = record
+            ticket = self._int_or_none(record.get("ticket"))
+            symbol = str(record.get("symbol") or "").upper()
+            if ticket is not None:
+                index[f"ticket:{ticket}"] = record
+            if symbol:
+                index[f"symbol:{symbol}"] = record
+        return index
+
+    def _read_recent_position_manager_lines(
+        self,
+        path: Path,
+        *,
+        limit: int,
+    ) -> list[str]:
+        from collections import deque
+
+        with path.open("r", encoding="utf-8") as file:
+            return list(deque(file, maxlen=limit))
 
     def _position_manager_record_is_exit_relevant(
         self,

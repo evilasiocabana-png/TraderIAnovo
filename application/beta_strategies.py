@@ -81,12 +81,14 @@ class Beta002Strategy:
                 missing=("position",),
             )
         candles = self._closed_candles(context.candles)
+        closed_candle_time = self._closed_candle_time(candles)
         if len(candles) < self.config.minimum_candles:
             return self._hold(
                 context,
                 state="HEALTHY",
                 reason="Candles M1 insuficientes; decisao obrigatoria HOLD_POSITION.",
                 evaluated_at=evaluated_at,
+                closed_candle_time=closed_candle_time,
                 missing=("m1_candles",),
             )
         metrics = self._metrics(candles, context.side)
@@ -103,6 +105,7 @@ class Beta002Strategy:
                 state="HEALTHY",
                 reason="Dados M1 incompletos; BETA002 preserva posicao.",
                 evaluated_at=evaluated_at,
+                closed_candle_time=closed_candle_time,
                 missing=extra,
                 metrics=metrics,
             )
@@ -151,6 +154,7 @@ class Beta002Strategy:
             atr_relative_change=metrics.get("atr_relative_change"),
             structure_signal=str(metrics.get("structure_signal") or "NEUTRAL"),
             evaluated_at=evaluated_at,
+            closed_candle_time=closed_candle_time,
             evidence=evidence,
             confidence=min(0.95, max(0.10, abs(score) + confirmation * 0.05)),
             final_exit_reason=final_exit_reason,
@@ -161,6 +165,17 @@ class Beta002Strategy:
         if self.config.use_closed_candle_for_execution and len(ordered) > 1:
             return ordered[:-1]
         return ordered
+
+    def _closed_candle_time(self, candles: list[object]) -> str:
+        if not candles:
+            return "N/D"
+        value = self._value(candles[-1], "time")
+        if value is None:
+            return "N/D"
+        try:
+            return datetime.fromtimestamp(float(value)).astimezone().isoformat()
+        except (OSError, OverflowError, ValueError):
+            return str(value)
 
     def _metrics(self, candles: list[object], side: str) -> dict[str, Any]:
         closes = [self._value(candle, "close") for candle in candles]
@@ -387,6 +402,7 @@ class Beta002Strategy:
         state: str,
         reason: str,
         evaluated_at: str,
+        closed_candle_time: str = "N/D",
         missing: tuple[str, ...] = (),
         metrics: dict[str, Any] | None = None,
     ) -> BetaDecision:
@@ -410,6 +426,7 @@ class Beta002Strategy:
             atr_relative_change=metrics.get("atr_relative_change"),
             structure_signal=str(metrics.get("structure_signal") or "N/D"),
             evaluated_at=evaluated_at,
+            closed_candle_time=closed_candle_time,
             missing_data=missing,
             confidence=0.0,
         )

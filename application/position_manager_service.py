@@ -224,6 +224,7 @@ class PositionManagerDecision:
     atr_relative_change: float | None = None
     structure_signal: str = "N/D"
     evaluated_at: str = "N/D"
+    beta_closed_candle_time: str = "N/D"
     missing_data: tuple[str, ...] = ()
 
 
@@ -272,6 +273,7 @@ class PositionManagerResult:
     beta_atr_relative_change: float | None = None
     beta_structure_signal: str = "N/D"
     beta_evaluated_at: str = "N/D"
+    beta_closed_candle_time: str = "N/D"
 
 
 @dataclass
@@ -288,6 +290,9 @@ class PositionManagerService:
     )
     state_path: Path = field(
         default_factory=lambda: Path(".traderia") / "position_manager_state.json"
+    )
+    current_state_path: Path = field(
+        default_factory=lambda: Path(".traderia") / "position_manager_current.json"
     )
     beta002_strategy: Beta002Strategy = field(default_factory=Beta002Strategy)
 
@@ -922,6 +927,7 @@ class PositionManagerService:
             atr_relative_change=beta_decision.atr_relative_change,
             structure_signal=beta_decision.structure_signal,
             evaluated_at=beta_decision.evaluated_at,
+            beta_closed_candle_time=beta_decision.closed_candle_time,
             missing_data=beta_decision.missing_data,
         )
 
@@ -1417,6 +1423,7 @@ class PositionManagerService:
             "beta_atr_relative_change": decision.atr_relative_change,
             "beta_structure_signal": decision.structure_signal,
             "beta_evaluated_at": decision.evaluated_at,
+            "beta_closed_candle_time": decision.beta_closed_candle_time,
         }
 
     def _beta_state_key(self, plan: PositionTradePlan, ticket: int) -> str:
@@ -1501,15 +1508,129 @@ class PositionManagerService:
         )
 
     def _record(self, result: PositionManagerResult) -> PositionManagerResult:
-        self.log_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "timestamp": datetime.now().astimezone().isoformat(),
             "type": "POSITION_MANAGER",
             **result.__dict__,
         }
-        with self.log_path.open("a", encoding="utf-8") as file:
-            file.write(json.dumps(payload, ensure_ascii=True) + "\n")
+        previous = self._current_state_record(payload)
+        self._write_current_state(payload)
+        if self._should_append_history(payload, previous):
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.log_path.open("a", encoding="utf-8") as file:
+                file.write(json.dumps(payload, ensure_ascii=True) + "\n")
         return result
+
+    def _current_state_record(
+        self,
+        payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        state = self._load_current_state()
+        records = state.get("records")
+        if not isinstance(records, dict):
+            return None
+        for key in self._current_state_keys(payload):
+            record = records.get(key)
+            if isinstance(record, dict):
+                return record
+        return None
+
+    def _load_current_state(self) -> dict[str, Any]:
+        if not self.current_state_path.exists():
+            return {}
+        try:
+            payload = json.loads(self.current_state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _write_current_state(self, payload: dict[str, Any]) -> None:
+        state = self._load_current_state()
+        records = state.get("records")
+        if not isinstance(records, dict):
+            records = {}
+        for key in self._current_state_keys(payload):
+            records[key] = payload
+        state = {
+            "updated_at": payload.get("timestamp"),
+            "type": "POSITION_MANAGER_CURRENT",
+            "records": records,
+        }
+        self.current_state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.current_state_path.write_text(
+            json.dumps(state, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+
+    def _current_state_keys(self, payload: dict[str, Any]) -> list[str]:
+        keys: list[str] = []
+        ticket = payload.get("ticket")
+        if ticket is not None:
+            keys.append(f"ticket:{ticket}")
+        symbol = str(payload.get("symbol") or "").upper()
+        if symbol:
+            keys.append(f"symbol:{symbol}")
+        return keys
+
+    def _should_append_history(
+        self,
+        payload: dict[str, Any],
+        previous: dict[str, Any] | None,
+    ) -> bool:
+        status = str(payload.get("status") or "").upper()
+        action = str(payload.get("action") or "").upper()
+        execution_status = str(payload.get("execution_status") or "").upper()
+        final_reason = str(payload.get("final_exit_reason") or "").upper()
+        tags = {str(tag).upper() for tag in payload.get("audit_tags", []) or []}
+        high_signal = (
+            bool(payload.get("submitted"))
+            or bool(payload.get("success"))
+            or payload.get("new_stop") is not None
+            or execution_status in {"EXECUTED", "REJECTED", "FAILED"}
+            or action in {"STOP_MOVED", "EARLY_EXIT", "FULL_EXIT"}
+            or status in {
+                "STOP_MOVED",
+                "POSITION_CLOSED",
+                "CLOSE_REJECTED",
+                "EXECUTION_DISABLED",
+                "STOP_MOVE_BLOCKED_NOT_PROTECTIVE",
+                "STOP_MOVE_BLOCKED_BY_MARKET",
+                "DUPLICATE_DECISION_BLOCKED",
+            }
+            or final_reason not in {"", "N/D", "NONE"}
+            or bool(
+                tags
+                & {
+                    "EARLY_EXIT_CANDIDATE",
+                    "FULL_EXIT_EXECUTED",
+                    "FULL_EXIT_REJECTED",
+                    "STOP_MOVED",
+                    "STOP_MOVE_CANDIDATE",
+                    "STOP_MOVE_BLOCKED_BY_CONFIG",
+                }
+            )
+        )
+        if high_signal:
+            return True
+        if previous is None:
+            return True
+        return self._history_signature(payload) != self._history_signature(previous)
+
+    def _history_signature(self, record: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            str(record.get("symbol") or "").upper(),
+            record.get("ticket"),
+            str(record.get("status") or "").upper(),
+            str(record.get("action") or "").upper(),
+            str(record.get("position_state") or "").upper(),
+            str(record.get("side") or "").upper(),
+            str(record.get("policy") or "").upper(),
+            str(record.get("beta_id") or "").upper(),
+            str(record.get("beta_mode") or "").upper(),
+            str(record.get("final_exit_reason") or "").upper(),
+            tuple(record.get("missing_data") or ()),
+            tuple(record.get("audit_tags") or ()),
+        )
 
     def _position_side(self, position: object, fallback: str) -> str:
         position_type = getattr(position, "type", None)

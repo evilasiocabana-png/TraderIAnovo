@@ -1635,7 +1635,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
             lightweight = reader.get_mt5_research_constants()
             ranking = reader.get_mt5_alpha_research_ranking()
 
-            self.assertEqual(lightweight.source, "MT5_RESEARCH_SNAPSHOT_ROWS")
+            self.assertEqual(lightweight.source, "MT5_RESEARCH_RUNTIME_INDEX")
             self.assertEqual(lightweight.rows[0].pair, "EURUSD")
             self.assertEqual(ranking[0].alpha_id, "ALPHA002")
             self.assertEqual(ranking[0].best_confidence, 0.77)
