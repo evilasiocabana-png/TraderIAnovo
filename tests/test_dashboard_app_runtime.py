@@ -1,5 +1,7 @@
 import inspect
 import os
+from pathlib import Path
+import tempfile
 import unittest
 from types import SimpleNamespace
 
@@ -10,13 +12,277 @@ from streamlit.testing.v1 import AppTest
 class DashboardAppRuntimeTest(unittest.TestCase):
     """Valida renderizacao real do workbench via Streamlit AppTest."""
 
+    def test_modelo2_visual_inverte_direcao_e_usa_stop_original_como_alvo(
+        self,
+    ) -> None:
+        row = {
+            "Par": "EURUSD",
+            "Periodo de tempo": "M1",
+            "Entrada Teorica": "SINAL_TEORICO",
+            "Direcao Teorica": "BUY",
+            "Preco Teorico": "1.10000",
+            "Stop Research": "1.09500",
+            "Alvo Research": "1.11500",
+            "Plano Research": "PLANO_VALIDO",
+            "Modelo Ativo": "TREND_MOMENTUM",
+            "Filtro entrada": "BLOQUEADO",
+            "ADX": "25.00",
+        }
+
+        model2 = dashboard_app._model2_inverse_entry_row(row)
+
+        self.assertEqual(model2["Direcao Teorica"], "SELL")
+        self.assertEqual(model2["Direcao"], "VENDER")
+        self.assertEqual(model2["Alvo Research"], "1.095")
+        self.assertEqual(model2["Stop Research"], "1.105")
+        self.assertEqual(model2["RR Research"], "1.00")
+        self.assertIn("MODELO2_ESPELHO_BETA2", model2["Modelo Ativo"])
+
+    def test_modelo2_visual_aguarda_quando_filtro_ruim_ausente(self) -> None:
+        row = {
+            "Par": "EURUSD",
+            "Periodo de tempo": "M1",
+            "Entrada Teorica": "SINAL_TEORICO",
+            "Direcao Teorica": "BUY",
+            "Preco Teorico": "1.10000",
+            "Stop Research": "1.09500",
+            "Alvo Research": "1.11500",
+            "Plano Research": "PLANO_VALIDO",
+            "Modelo Ativo": "TREND_MOMENTUM",
+            "Filtro entrada": "OK",
+            "ADX": "19.50",
+            "Zona Operacional": "SUPORTE",
+        }
+
+        model2 = dashboard_app._model2_inverse_entry_row(row)
+
+        self.assertEqual(model2["Direcao Teorica"], "WAIT")
+        self.assertEqual(model2["Plano Research"], "PLANO_VALIDO")
+        self.assertEqual(model2["Codigo Rejeicao"], "N/D")
+        self.assertIn("MODELO2_AGUARDA_ADX_FORTE", model2["Modelo Ativo"])
+
+    def test_modelo2_resumo_trata_filtro_ruim_como_gatilho_de_inversao(self) -> None:
+        row = {
+            "Par": "EURUSD",
+            "Periodo de tempo": "M1",
+            "Entrada Teorica": "SINAL_TEORICO",
+            "Direcao Teorica": "BUY",
+            "Preco Teorico": "1.10000",
+            "Ultimo preco": "1.10000",
+            "Stop Research": "1.09500",
+            "Alvo Research": "1.11500",
+            "Plano Research": "PLANO_VALIDO",
+            "Modelo Ativo": "TREND_MOMENTUM",
+            "Zona Operacional": "SUPORTE",
+            "Tendencia": "ALTA",
+            "Momentum": "1.00%",
+            "RSI": "55.00",
+            "Media curta": "1.10100",
+            "Media longa": "1.10000",
+            "Filtro entrada": "BLOQUEADO",
+            "Filtro motivo": "ADX > 20",
+            "ADX": "25.00",
+        }
+
+        model2 = dashboard_app._model2_inverse_entry_row(row)
+        output = dashboard_app._forex_theoretical_entry_row(
+            model2,
+            robot_online=True,
+            mt5_online=True,
+            model2_filter_trigger=True,
+        )
+
+        self.assertNotIn("BLOQ: Filtro", output["Envio resumo"])
+        self.assertIn("gatilho inversao", output["Filtro"])
+        self.assertIn("ADX", output["Filtro"])
+
+    def test_entrada_teorica_nao_bloqueia_duplicidade_por_tentativa_rejeitada(
+        self,
+    ) -> None:
+        original_path = dashboard_app.MT5_DEMO_EXECUTION_LOG_PATH
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dashboard_app.MT5_DEMO_EXECUTION_LOG_PATH = (
+                Path(temp_dir) / "mt5_demo_execution.jsonl"
+            )
+            dashboard_app.MT5_DEMO_EXECUTION_LOG_PATH.write_text(
+                (
+                    '{"symbol":"EURUSD","side":"BUY","entry_price":1.13837,'
+                    '"stop":1.13723163,"target":1.13950837,'
+                    '"accepted":false,'
+                    '"status":"REJECTED","message":"Plano operacional duplicado",'
+                    '"operational_model":"MODELO_2_ESPELHO_BETA2_RR1",'
+                    '"plan_identity":"EURUSD|M1|2026-07-14T01:48:00+00:00|'
+                    'MODELO2_ESPELHO_BETA2 | PIVOT_REJECTION|TP V5|'
+                    'RESEARCH_LAB|PLANO_VALIDO|BETA002|BETA2_ESPELHO_RR1|'
+                    'MODELO_2_ESPELHO_BETA2_RR1"}\n'
+                ),
+                encoding="utf-8",
+            )
+            try:
+                row = {
+                    "Par": "EURUSD",
+                    "Periodo de tempo": "M1",
+                    "Entrada Teorica": "SINAL_TEORICO",
+                    "Direcao Teorica": "BUY",
+                    "Preco Teorico": "1.13837",
+                    "Ultimo preco": "1.13837",
+                    "Stop Research": "1.13723163",
+                    "Alvo Research": "1.13950837",
+                    "Plano Research": "PLANO_VALIDO",
+                    "Modelo Ativo": "MODELO2_ESPELHO_BETA2 | PIVOT_REJECTION",
+                    "Candle do Sinal": "2026-07-14T01:48:00+00:00",
+                    "Zona Operacional": "SUPORTE",
+                    "Tendencia": "ALTA",
+                    "Momentum": "1.00%",
+                    "RSI": "55.00",
+                    "Media curta": "1.10100",
+                    "Media longa": "1.10000",
+                    "ADX": "25.00",
+                }
+
+                output = dashboard_app._forex_theoretical_entry_row(
+                    row,
+                    robot_online=True,
+                    mt5_online=True,
+                    model2_filter_trigger=True,
+                    operational_model=dashboard_app.MT5_OPERATIONAL_MODEL_2,
+                )
+
+                self.assertEqual(output["Duplicidade"], "OK")
+                self.assertNotEqual(output["Envio resumo"], "BLOQ: Duplicidade")
+            finally:
+                dashboard_app.MT5_DEMO_EXECUTION_LOG_PATH = original_path
+
+    def test_entrada_teorica_bloqueia_duplicidade_de_ordem_aceita(self) -> None:
+        original_path = dashboard_app.MT5_DEMO_EXECUTION_LOG_PATH
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dashboard_app.MT5_DEMO_EXECUTION_LOG_PATH = (
+                Path(temp_dir) / "mt5_demo_execution.jsonl"
+            )
+            dashboard_app.MT5_DEMO_EXECUTION_LOG_PATH.write_text(
+                (
+                    '{"symbol":"EURUSD","side":"BUY","entry_price":1.13837,'
+                    '"stop":1.13723163,"target":1.13950837,'
+                    '"accepted":true,'
+                    '"status":"ACCEPTED","message":"Request executed",'
+                    '"operational_model":"MODELO_2_ESPELHO_BETA2_RR1",'
+                    '"plan_identity":"EURUSD|M1|2026-07-14T01:48:00+00:00|'
+                    'MODELO2_ESPELHO_BETA2 | PIVOT_REJECTION|TP V5|'
+                    'RESEARCH_LAB|PLANO_VALIDO|BETA002|BETA2_ESPELHO_RR1|'
+                    'MODELO_2_ESPELHO_BETA2_RR1"}\n'
+                ),
+                encoding="utf-8",
+            )
+            try:
+                row = {
+                    "Par": "EURUSD",
+                    "Periodo de tempo": "M1",
+                    "Entrada Teorica": "SINAL_TEORICO",
+                    "Direcao Teorica": "BUY",
+                    "Preco Teorico": "1.13837",
+                    "Ultimo preco": "1.13837",
+                    "Stop Research": "1.13723163",
+                    "Alvo Research": "1.13950837",
+                    "Plano Research": "PLANO_VALIDO",
+                    "Modelo Ativo": "MODELO2_ESPELHO_BETA2 | PIVOT_REJECTION",
+                    "Candle do Sinal": "2026-07-14T01:48:00+00:00",
+                    "Zona Operacional": "SUPORTE",
+                    "Tendencia": "ALTA",
+                    "Momentum": "1.00%",
+                    "RSI": "55.00",
+                    "Media curta": "1.10100",
+                    "Media longa": "1.10000",
+                    "ADX": "25.00",
+                }
+
+                output = dashboard_app._forex_theoretical_entry_row(
+                    row,
+                    robot_online=True,
+                    mt5_online=True,
+                    model2_filter_trigger=True,
+                    operational_model=dashboard_app.MT5_OPERATIONAL_MODEL_2,
+                )
+
+                self.assertEqual(output["Duplicidade"], "BLOQ: plano ja avaliado")
+                self.assertEqual(output["Envio resumo"], "BLOQ: Duplicidade")
+            finally:
+                dashboard_app.MT5_DEMO_EXECUTION_LOG_PATH = original_path
+
+    def test_modelo2_nao_inverte_com_filtro_bloqueado_sem_adx_forte(self) -> None:
+        row = {
+            "Par": "EURUSD",
+            "Periodo de tempo": "M1",
+            "Entrada Teorica": "SINAL_TEORICO",
+            "Direcao Teorica": "BUY",
+            "Preco Teorico": "1.10000",
+            "Stop Research": "1.09500",
+            "Alvo Research": "1.11500",
+            "Plano Research": "PLANO_VALIDO",
+            "Modelo Ativo": "TREND_MOMENTUM",
+            "Filtro entrada": "BLOQUEADO",
+            "Filtro motivo": "Momentum contra NV-V +11%",
+            "ADX": "19.50",
+        }
+
+        model2 = dashboard_app._model2_inverse_entry_row(row)
+
+        self.assertEqual(model2["Direcao Teorica"], "WAIT")
+        self.assertEqual(model2["Plano Research"], "PLANO_VALIDO")
+        self.assertEqual(model2["Codigo Rejeicao"], "N/D")
+        self.assertIn("ADX atual: 19.50", model2["Motivo Entrada"])
+
+    def test_modelo2_resumo_aguarda_filtro_ruim_ausente(self) -> None:
+        row = {
+            "Par": "EURUSD",
+            "Periodo de tempo": "M1",
+            "Entrada Teorica": "SINAL_TEORICO",
+            "Direcao Teorica": "BUY",
+            "Preco Teorico": "1.10000",
+            "Stop Research": "1.09500",
+            "Alvo Research": "1.11500",
+            "Plano Research": "PLANO_VALIDO",
+            "Modelo Ativo": "TREND_MOMENTUM",
+            "Filtro entrada": "OK",
+            "ADX": "19.50",
+            "Zona Operacional": "SUPORTE",
+        }
+
+        model2 = dashboard_app._model2_inverse_entry_row(row)
+        output = dashboard_app._forex_theoretical_entry_row(
+            model2,
+            robot_online=True,
+            mt5_online=True,
+            model2_filter_trigger=True,
+        )
+
+        self.assertEqual(output["Envio resumo"], "AGUARDA: Filtro")
+        self.assertEqual(output["Plano"], "OK")
+        self.assertEqual(output["Filtro"], "AGUARDA: ADX 19.50 <= 20")
+
+    def test_chaveamento_operacional_persiste_ultima_escolha(self) -> None:
+        original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = (
+                Path(temp_dir) / "mt5_operational_model.json"
+            )
+            try:
+                dashboard_app._persist_mt5_operational_model(
+                    dashboard_app.MT5_OPERATIONAL_MODEL_ALL,
+                )
+
+                loaded = dashboard_app._load_persisted_mt5_operational_model()
+
+                self.assertEqual(loaded, dashboard_app.MT5_OPERATIONAL_MODEL_ALL)
+            finally:
+                dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
+
     def test_workbench_renderiza_layout_profissional_sem_excecoes(self) -> None:
         """Dashboard deve abrir a plataforma de pesquisa quantitativa."""
         app = self._run_app()
 
         self.assertFalse(app.exception)
         self.assertEqual(
-            [tab.label for tab in app.tabs],
+            self._navigation_labels(app),
             [
                 "MT5 Forex",
                 "Laboratorio de Pesquisa",
@@ -27,18 +293,13 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             ],
         )
         self.assertIn("MT5 Forex", self._subheaders(app))
-        self.assertIn("Robo Demo MT5", self._subheaders(app))
-        self.assertIn("Historico MT5 Forex", self._subheaders(app))
-        self.assertIn("Relatorios", self._subheaders(app))
-        self.assertIn("Sistema Forex MT5", self._subheaders(app))
-        self.assertIn("Laboratorio de Pesquisa Forex", self._subheaders(app))
-        self.assertIn("Sugestoes de Setup do Lab", self._subheaders(app))
-        self.assertIn("Calibracao Forex MT5", self._subheaders(app))
-        self.assertIn("Replay", [tab.label for tab in app.tabs])
+        self.assertIn("Reiniciar", self._buttons(app))
+        self.assertIn("MT5 Safe Mode", self._subheaders(app))
+        self.assertIn("Replay", self._navigation_labels(app))
 
     def test_research_lab_exibe_ativos_mt5_e_melhor_heuristica(self) -> None:
         """Research Lab deve focar MT5 e manter Replay legado fora do fluxo."""
-        app = self._run_app()
+        app = self._run_app("Laboratorio de Pesquisa")
         metrics = self._metrics(app)
 
         self.assertIn("Calibracao Forex MT5", self._subheaders(app))
@@ -49,14 +310,9 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         )
         self.assertIn("Candles historicos", metrics)
         self.assertIn("Melhor constante/modelo", metrics)
-        self.assertIn("Pares MT5", metrics)
+        self.assertIn("Pares avaliados", metrics)
         self.assertNotIn("Timeframe Forex", self._selectboxes(app))
-        self.assertIn("Pares monitorados pelo robo demo", self._selectboxes(app))
-        self.assertIn("Armar robo demo", self._buttons(app))
-        self.assertIn("Avaliar gatilho agora", self._buttons(app))
-        self.assertIn("Desarmar robo", self._buttons(app))
         self.assertNotIn("Exportar visual MT5", self._buttons(app))
-        self.assertIn("Monitoramento online INATIVO", self._infos(app))
         self.assertNotIn(
             "Habilitar todos os ativos disponiveis",
             self._checkboxes(app),
@@ -70,16 +326,15 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertIn("NZDUSD", rendered_table)
         self.assertIn("EURJPY", rendered_table)
         self.assertIn("USDCAD", rendered_table)
-        self.assertEqual(self._metrics(app).get("Envio MT5"), "DESLIGADO")
         self.assertIn(self._metrics(app).get("Decisao"), {"BUY", "SELL", "WAIT"})
-        self.assertIn("Replay", [tab.label for tab in app.tabs])
+        self.assertIn("Replay", self._navigation_labels(app))
 
     def test_workbench_replay_disponivel_na_navegacao_principal(self) -> None:
         """Replay deve estar disponivel para analise Forex par-a-par."""
-        app = self._run_app()
+        app = self._run_app("Replay")
 
         self.assertFalse(app.exception)
-        self.assertIn("Replay", [tab.label for tab in app.tabs])
+        self.assertIn("Replay", self._navigation_labels(app))
         self.assertIn("Replay Forex", self._subheaders(app))
         self.assertIn("Par Forex do Replay", self._selectboxes(app))
         self.assertIn("Timeframe Forex do Replay", self._selectboxes(app))
@@ -88,7 +343,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
     def test_sistema_forex_nao_exibe_dataset_legado(self) -> None:
         """Sistema principal deve focar Forex e ocultar PETR4/WDO/Replay."""
-        app = self._run_app()
+        app = self._run_app("Sistema Forex")
 
         self.assertFalse(app.exception)
         self.assertNotIn("Candles Dataset", self._metrics(app))
@@ -109,11 +364,53 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
     def test_mt5_forex_heuristico_exibe_valores_reais(self) -> None:
         """Painel MT5 deve exibir leitura heuristica, sem Research pesado."""
-        app = self._run_app()
-        rendered_table = self._markdown(app) + self._dataframe_text(app)
-        metrics_text = "\n".join(
-            f"{label}: {value}" for label, value in self._metrics(app).items()
+        row = SimpleNamespace(
+            pair="EURUSD",
+            status="OK",
+            lab_timeframe="M15",
+            timeframe="M1",
+            last_price=1.12345,
+            last_candle_time="2026-07-01T12:00:00+00:00",
+            trend="ALTA",
+            lab_alpha_id="ALPHA006",
+            active_model="ADX_TREND_STRENGTH",
+            lab_parameters={
+                "ema_curta": 20,
+                "ema_longa": 50,
+                "rsi_sobrevenda": 30,
+                "rsi_sobrecompra": 70,
+                "atr_stop_factor": 1.5,
+                "rr": 2.0,
+            },
+            active_model_indicators=("EMA", "ADX", "ATR"),
+            momentum=0.01,
+            volatility=0.002,
+            rsi=55.0,
+            short_average=1.12,
+            long_average=1.11,
+            ema_fast=1.121,
+            ema_mid=1.120,
+            ema_slow=1.118,
+            adx=24.5,
+            macd=0.0002,
+            macd_signal=0.0001,
+            atr=0.0011,
+            atr_average=0.0010,
+            bollinger_upper=1.13,
+            bollinger_lower=1.11,
+            tick_volume=1000,
+            tick_volume_average=900,
+            day_high=1.125,
+            day_low=1.119,
+            decision="BUY",
+            theoretical_entry_status="SINAL_TEORICO",
+            theoretical_entry_candle="2026-07-01T12:00:00+00:00",
+            theoretical_entry_price=1.1234,
+            theoretical_entry_direction="BUY",
+            theoretical_entry_reason="Regime autorizado.",
         )
+        view_row = dashboard_app._forex_signal_row(row)
+        rendered_table = "\n".join([*view_row.keys(), *map(str, view_row.values())])
 
         for expected in (
             "Ultimo preco",
@@ -158,13 +455,9 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, rendered_table)
         self.assertNotIn("Confidence calculada", rendered_table)
-        for expected in ("MT5 Safe Mode", "1000"):
+        for expected in ("EURUSD", "1.12345", "1000"):
             with self.subTest(expected=expected):
-                self.assertIn(
-                    expected,
-                    rendered_table + metrics_text + "\n".join(self._subheaders(app)),
-                )
-        self.assertIn("traderia-stable-table", rendered_table)
+                self.assertIn(expected, rendered_table)
 
     def test_timeframe_optimizer_exibe_none_e_motivo_por_candidato(self) -> None:
         """Tabela deve explicar rejeicoes sem recalcular ranking."""
@@ -285,6 +578,9 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(view_row["Horario"], "29/06/2026 07:00")
         self.assertEqual(view_row["Decisao"], "BUY")
         self.assertEqual(view_row["Modelo Ativo"], "TREND_MOMENTUM")
+        self.assertEqual(view_row["Filtro entrada"], "OK_SEM_FILTRO")
+        self.assertEqual(view_row["Filtro parametro"], "SEM_FILTRO_ROBUSTO")
+        self.assertEqual(view_row["Filtro leitura"], "N/D")
         self.assertIn("Tendencia=ALTA", view_row["Indicadores do modelo"])
         self.assertEqual(view_row["ADX"], "26.00")
         self.assertEqual(view_row["Tick volume"], "123")
@@ -325,12 +621,41 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertEqual(entry_row["Par"], "EURUSD")
         self.assertEqual(entry_row["Sinal"], "OK")
+        self.assertEqual(entry_row["Envio resumo"], "PRONTO")
         self.assertEqual(entry_row["Plano"], "OK")
         self.assertEqual(entry_row["Zona gate"], "OK")
         self.assertEqual(entry_row["Robo"], "OK")
         self.assertEqual(entry_row["MT5"], "OK")
+        self.assertEqual(entry_row["Filtro"], "OK")
+        self.assertEqual(entry_row["Regime"], "OK")
         self.assertEqual(entry_row["Plano vigente"], "OK")
         self.assertEqual(entry_row["Posicao"], "OK")
+        columns = list(entry_row)
+        self.assertEqual(
+            columns[:3],
+            ["Par", "Timeframe", "Envio resumo"],
+        )
+        self.assertEqual(
+            columns[
+                columns.index("Sinal") : columns.index("Envio") + 1
+            ],
+            [
+                "Sinal",
+                "Plano",
+                "Zona gate",
+                "Robo",
+                "MT5",
+                "Filtro",
+                "Regime",
+                "Plano vigente",
+                "Posicao",
+                "Envio",
+            ],
+        )
+        self.assertEqual(entry_row["Posicao aberta"], "NAO")
+        self.assertEqual(entry_row["Direcao posicao"], "N/D")
+        self.assertEqual(entry_row["Sinal teorico atual"], "BUY")
+        self.assertEqual(entry_row["Confere posicao"], "SEM_POSICAO")
         self.assertEqual(entry_row["Envio"], "PRONTO")
         self.assertEqual(entry_row["Modelo ativo"], "TREND_MOMENTUM")
         self.assertEqual(entry_row["Entrada Teorica"], "SINAL_TEORICO")
@@ -354,6 +679,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "Plano Research": "PLANO_VALIDO",
             "Stop Research": "1.33967",
             "Alvo Research": "1.33565",
+            "ADX": "25.00",
             "Motivo Entrada": "Gatilho teorico.",
         }
 
@@ -371,6 +697,131 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "BLOQ: preco saiu do plano SELL",
         )
         self.assertEqual(entry_row["Envio"], "BLOQ: Plano vigente")
+
+    def test_entrada_teorica_mostra_filtro_de_liberacao_apos_mt5(self) -> None:
+        row = {
+            "Par": "AUDUSD",
+            "Periodo de tempo": "M1",
+            "Modelo Ativo": "ATR_VOLATILITY_REGIME",
+            "Zona Operacional": "SUPORTE",
+            "Entrada Teorica": "SINAL_TEORICO",
+            "Ultimo preco": "0.69570",
+            "Direcao Teorica": "BUY",
+            "Plano Research": "PLANO_VALIDO",
+            "Stop Research": "0.69400",
+            "Alvo Research": "0.69900",
+            "Filtro entrada": "BLOQUEADO",
+            "Filtro motivo": "Filtro NV-V presente: ADX baixo V 10.19% x NV 20.73% | NV-V +10.54% | liberar se ausente",
+            "Motivo Entrada": "Gatilho teorico.",
+        }
+
+        entry_row = dashboard_app._forex_theoretical_entry_row(
+            row,
+            robot_online=True,
+            mt5_online=True,
+        )
+
+        self.assertEqual(entry_row["MT5"], "OK")
+        self.assertIn("BLOQ: Filtro NV-V presente", entry_row["Filtro"])
+        self.assertEqual(entry_row["Envio"], "BLOQ: Filtro")
+
+    def test_filtro_entrada_usa_nv_menos_v_como_regra_invertida(self) -> None:
+        scenario = SimpleNamespace(
+            lab_confidence_sample_size=350,
+            lab_discrimination_metrics={
+                "ADX baixo": {
+                    "winner_rate": 0.1019,
+                    "loser_rate": 0.2073,
+                }
+            },
+        )
+
+        rules = dashboard_app._mt5_entry_filter_rules_from_scenario(scenario)
+
+        self.assertEqual(len(rules), 1)
+        self.assertEqual(rules[0]["source"], "NV-V")
+        self.assertFalse(rules[0]["required_present"])
+        self.assertEqual(rules[0]["action"], "EXIGIR_AUSENTE")
+
+    def test_filtro_entrada_ignora_diferenca_nv_menos_v_nao_positiva(self) -> None:
+        scenario = SimpleNamespace(
+            lab_confidence_sample_size=350,
+            lab_discrimination_metrics={
+                "ATR subindo": {
+                    "winner_rate": 0.5158,
+                    "loser_rate": 0.4932,
+                },
+                "Momentum contra": {
+                    "winner_rate": 0.4388,
+                    "loser_rate": 0.4388,
+                },
+            },
+        )
+
+        rules = dashboard_app._mt5_entry_filter_rules_from_scenario(scenario)
+
+        self.assertEqual(rules, [])
+
+    def test_entrada_teorica_confere_posicao_aberta_com_sinal_atual(self) -> None:
+        row = {
+            "Par": "NZDUSD",
+            "Periodo de tempo": "M1",
+            "Modelo Ativo": "ADX_TREND_STRENGTH",
+            "Zona Operacional": "RESISTENCIA",
+            "Entrada Teorica": "SINAL_TEORICO",
+            "Ultimo preco": "0.57681",
+            "Direcao Teorica": "SELL",
+            "Plano Research": "PLANO_VALIDO",
+            "Stop Research": "0.57760",
+            "Alvo Research": "0.57587",
+            "ADX": "28.00",
+            "Posicao MT5": "SELL",
+            "Alpha Lab": "ALPHA006",
+            "Motivo Entrada": "Posicao aberta no MT5: SELL",
+        }
+
+        entry_row = dashboard_app._forex_theoretical_entry_row(
+            row,
+            robot_online=True,
+            mt5_online=True,
+        )
+
+        self.assertEqual(entry_row["Posicao aberta"], "SIM")
+        self.assertEqual(entry_row["Direcao posicao"], "SELL")
+        self.assertEqual(entry_row["Alpha posicao"], "ALPHA006")
+        self.assertEqual(entry_row["Sinal teorico atual"], "SELL")
+        self.assertEqual(entry_row["Confere posicao"], "BATE")
+
+    def test_entrada_teorica_mostra_divergencia_da_posicao_aberta(self) -> None:
+        row = {
+            "Par": "USDJPY",
+            "Periodo de tempo": "M1",
+            "Modelo Ativo": "MACD_MOMENTUM_SHIFT",
+            "Zona Operacional": "SUPORTE",
+            "Entrada Teorica": "SINAL_TEORICO",
+            "Ultimo preco": "162.365",
+            "Direcao Teorica": "BUY",
+            "Plano Research": "PLANO_VALIDO",
+            "Stop Research": "162.100",
+            "Alvo Research": "162.700",
+            "ADX": "30.00",
+            "Posicao MT5": "SELL",
+            "Alpha Lab": "ALPHA007",
+            "Motivo Entrada": "Posicao aberta no MT5: SELL",
+        }
+
+        entry_row = dashboard_app._forex_theoretical_entry_row(
+            row,
+            robot_online=True,
+            mt5_online=True,
+        )
+
+        self.assertEqual(entry_row["Direcao posicao"], "SELL")
+        self.assertEqual(entry_row["Sinal teorico atual"], "BUY")
+        self.assertEqual(
+            entry_row["Confere posicao"],
+            "DIVERGIU: posicao SELL x sinal BUY",
+        )
 
     def test_auditoria_mt5_exibe_projecoes_do_app_ao_lado_do_realizado(self) -> None:
         """Lucro/prejuizo projetados devem ficar juntos do lucro realizado MT5."""
@@ -397,6 +848,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             session_policy_version="v2.1",
             execution_pipeline_version="v3.4",
             lab_configuration_version="v8",
+            alpha_id="ALPHA001",
             alpha_version="v1.6",
             trade_plan_version="TP v5",
             execution_engine_version="ExecutionEngine v1",
@@ -418,6 +870,13 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             forex_session_open=True,
             session_filter_result="ALLOWED",
             session_reason="Sessao Londres/NY aberta.",
+            operational_model="MODELO_2_ESPELHO_BETA2_RR1",
+            entry_setup="PIVOT_REJECTION",
+            beta_id="BETA002",
+            beta_version="BETA2_ESPELHO_RR1",
+            beta_mode="INVERSE_QUICK_TRADE",
+            timeframe="M1",
+            risk_reward=1.0,
         )
 
         view_row = dashboard_app._mt5_trade_audit_row(row)
@@ -425,24 +884,33 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         realized_index = columns.index("Lucro realizado MT5")
         self.assertEqual(
-            columns[:6],
+            columns[:7],
             [
                 "Confere",
                 "Par",
                 "Lucro projetado app",
                 "Lucro realizado MT5",
                 "Prejuizo projetado app",
-                "Mercado aberto",
+                "Modelo envio",
+                "Parametros",
             ],
         )
         self.assertNotIn("Pontuacao atual", columns)
         self.assertNotIn("Confianca atual", columns)
         self.assertEqual(columns[realized_index - 1], "Lucro projetado app")
         self.assertEqual(columns[realized_index + 1], "Prejuizo projetado app")
+        self.assertLess(columns.index("Modelo envio"), columns.index("Mercado aberto"))
+        self.assertLess(columns.index("Parametros"), columns.index("Mercado aberto"))
         self.assertLess(realized_index, columns.index("Ticket TraderIA"))
         self.assertEqual(view_row["Lucro realizado MT5"], "12.34")
         self.assertEqual(view_row["Lucro projetado app"], "10.00")
         self.assertEqual(view_row["Prejuizo projetado app"], "-5.00")
+        self.assertEqual(view_row["Modelo envio"], "MODELO 2")
+        self.assertIn("Alpha ALPHA001 v1.6", view_row["Parametros"])
+        self.assertIn("Entrada PIVOT_REJECTION", view_row["Parametros"])
+        self.assertIn("Beta BETA002 BETA2_ESPELHO_RR1", view_row["Parametros"])
+        self.assertIn("TF M1", view_row["Parametros"])
+        self.assertIn("RR 1.00", view_row["Parametros"])
         self.assertEqual(
             view_row["Mercado aberto"],
             "ABERTO | Sessao: LONDON_NEW_YORK_OVERLAP | ALLOWED | Sessao Londres/NY aberta.",
@@ -538,6 +1006,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 "Resumo parametros",
                 "Encaixe Tecnico",
                 "Confirmacao Historica",
+                "Janela que confirmou",
                 "Status",
             ],
         )
@@ -1031,6 +1500,9 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             target=1.1060,
             beta_id="BETA002",
             alpha_id="ALPHA006",
+            entry_setup="ADX_TREND_STRENGTH",
+            exit_setup="ATR_TRAILING_STOP",
+            operational_model="MODELO_2_ESPELHO_BETA2_RR1",
         )
         signal_by_pair = {
             "EURUSD": {
@@ -1042,22 +1514,94 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         output = dashboard_app._mt5_theoretical_exit_row(row, signal_by_pair)
 
-        self.assertEqual(output["Cenario BETA002"], "FULL_EXIT")
+        self.assertEqual(output["Lado"], "COMPRAR")
+        self.assertEqual(output["Cenario BETA002"], "RR1_FIXO")
         self.assertEqual(output["TF Entrada Lab"], "M1")
         self.assertEqual(output["TF Saida Beta"], "M1")
+        self.assertEqual(output["Modelo entrada"], "ADX_TREND_STRENGTH")
+        self.assertEqual(output["Modelo saida"], "BETA2_ESPELHO_RR1")
         self.assertEqual(output["Beta"], "BETA002")
         self.assertNotEqual(output["Ultimo candle fechado"], "N/D")
-        self.assertEqual(output["Gestao stop"], "MONITORANDO")
-        self.assertEqual(output["Movimento SL"], "NAO_MOVEU")
+        self.assertEqual(output["Gestao stop"], "FIXO_RR1")
+        self.assertEqual(output["Movimento SL"], "FIXO")
+        self.assertEqual(output["Modelo envio"], "MODELO 2")
         self.assertIn("FULL_EXIT", output["Leitura programada"])
         self.assertEqual(
             dashboard_app._mt5_theoretical_exit_cell_class(output, "Momentum14"),
-            "traderia-cell-active",
+            "",
         )
         self.assertEqual(
             dashboard_app._mt5_theoretical_exit_cell_class(output, "Estrutura"),
-            "traderia-cell-active",
+            "",
         )
+
+    def test_saida_teorica_modelo2_nao_herda_beta_do_modelo1(self) -> None:
+        row = SimpleNamespace(
+            symbol="EURUSD",
+            side="BUY",
+            mt5_side="BUY",
+            stop=1.0900,
+            mt5_stop=1.0900,
+            target=1.1300,
+            beta_id="BETA004",
+            alpha_id="ALPHA011",
+            entry_setup="PIVOT_REJECTION",
+            exit_setup="BREAK_EVEN",
+            operational_model="MODELO_1_ALPHA_ATUAL",
+        )
+        signal_by_pair = {
+            "EURUSD": {
+                "Periodo de tempo": "M1",
+                "Alpha Lab": "ALPHA011",
+                "Beta Lab": "BETA004",
+                "Modelo Ativo": "PIVOT_REJECTION",
+                "Direcao Teorica": "BUY",
+                "Direcao": "COMPRAR",
+                "Preco Teorico": "1.10000",
+                "Stop Research": "1.09000",
+                "Alvo Research": "1.12000",
+                "Plano Research": "PLANO_VALIDO",
+            }
+        }
+
+        output = dashboard_app._mt5_theoretical_exit_row(
+            row,
+            signal_by_pair,
+            display_model=dashboard_app.MT5_OPERATIONAL_MODEL_2,
+        )
+
+        self.assertEqual(output["Lado"], "COMPRAR")
+        self.assertEqual(output["Beta"], "BETA002")
+        self.assertEqual(output["Modelo saida"], "BETA2_ESPELHO_RR1")
+        self.assertEqual(output["Cenario BETA002"], "RR1_FIXO")
+        self.assertEqual(output["Gestao stop"], "FIXO_RR1")
+        self.assertEqual(output["Movimento SL"], "FIXO")
+        self.assertEqual(output["Modelo envio"], "MODELO 2")
+        self.assertEqual(output["Stop inicial"], "1.11000")
+        self.assertEqual(output["Alvo"], "1.09000")
+
+    def test_saida_teorica_usa_modelo_gravado_na_ordem_antes_do_chaveamento(self) -> None:
+        row = SimpleNamespace(
+            symbol="EURUSD",
+            operational_model="MODELO_1_ALPHA_ATUAL",
+        )
+
+        effective_model = dashboard_app._mt5_theoretical_exit_effective_model(
+            row,
+            dashboard_app.MT5_OPERATIONAL_MODEL_2,
+        )
+
+        self.assertEqual(effective_model, dashboard_app.MT5_OPERATIONAL_MODEL_1)
+
+    def test_saida_teorica_legada_usa_chaveamento_como_fallback(self) -> None:
+        row = SimpleNamespace(symbol="EURUSD", operational_model="N/D")
+
+        effective_model = dashboard_app._mt5_theoretical_exit_effective_model(
+            row,
+            dashboard_app.MT5_OPERATIONAL_MODEL_2,
+        )
+
+        self.assertEqual(effective_model, dashboard_app.MT5_OPERATIONAL_MODEL_2)
 
     def test_saida_teorica_mt5_diferencia_hold_e_protect(self) -> None:
         """Cenarios operacionais devem ficar limitados a HOLD, PROTECT e FULL_EXIT."""
@@ -1129,6 +1673,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             beta_id="BETA002",
             beta_version="M1_EMA14_MOMENTUM_VOLATILITY",
             alpha_id="ALPHA006",
+            operational_model="MODELO_1_ALPHA_ATUAL",
         )
 
         output = dashboard_app._mt5_theoretical_exit_row(
@@ -1138,6 +1683,48 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertEqual(output["TF Entrada Lab"], "H1")
         self.assertEqual(output["TF Saida Beta"], "M1")
+        self.assertEqual(output["Modelo envio"], "MODELO 1")
+
+    def test_saida_teorica_modelo1_usa_tf_do_lab_quando_beta_nao_tem_tf_proprio(self) -> None:
+        row = SimpleNamespace(
+            symbol="EURUSD",
+            side="BUY",
+            mt5_side="BUY",
+            entry_price=1.1000,
+            stop=1.0980,
+            mt5_stop=1.0980,
+            target=1.1060,
+            beta_id="BETA004",
+            beta_version="BREAK_EVEN",
+            alpha_id="ALPHA011",
+            entry_setup="PIVOT_REJECTION",
+            operational_model="MODELO_1_ALPHA_ATUAL",
+        )
+
+        output = dashboard_app._mt5_theoretical_exit_row(
+            row,
+            {"EURUSD": {"Periodo de tempo": "H1"}},
+        )
+
+        self.assertEqual(output["TF Entrada Lab"], "H1")
+        self.assertEqual(output["TF Saida Beta"], "H1")
+        self.assertEqual(output["Modelo envio"], "MODELO 1")
+
+    def test_saida_teorica_colore_modelo_envio_por_modelo(self) -> None:
+        self.assertEqual(
+            dashboard_app._mt5_theoretical_exit_cell_class(
+                {"Modelo envio": "MODELO 1"},
+                "Modelo envio",
+            ),
+            "traderia-cell-model1",
+        )
+        self.assertEqual(
+            dashboard_app._mt5_theoretical_exit_cell_class(
+                {"Modelo envio": "MODELO 2"},
+                "Modelo envio",
+            ),
+            "traderia-cell-model2",
+        )
 
     def test_saida_teorica_mt5_detecta_stop_movel_real(self) -> None:
         """Stop atual diferente do inicial deve aparecer como movel."""
@@ -1448,6 +2035,469 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             dashboard_app.st.cache_data = previous_cache_data
             dashboard_app.st.cache_resource = previous_cache_resource
 
+    def test_runtime_repair_scanner_mapeia_sintomas_conhecidos(self) -> None:
+        snapshot = {
+            "auto_cycle_enabled": True,
+            "cycle_lock_busy": True,
+            "dashboard_service_cached": True,
+            "initial_load_error": True,
+            "manual_diagnostic_message": False,
+            "legacy_guard_pending": False,
+            "slow_tabs": ["MT5 Forex"],
+            "temporary_key_count": 2,
+        }
+
+        plan = dashboard_app._runtime_repair_plan_from_snapshot(snapshot)
+
+        self.assertIn("ciclo automatico MT5 Forex ativo", plan["symptoms"])
+        self.assertIn("pause_auto_cycle", plan["actions"])
+        self.assertIn("clear_cycle_timestamps", plan["actions"])
+        self.assertIn("recreate_dashboard_service", plan["actions"])
+        self.assertIn("clear_runtime_errors", plan["actions"])
+        self.assertIn("clear_temporary_caches", plan["actions"])
+        self.assertIn("clear_render_metrics", plan["actions"])
+        self.assertNotIn("maintenance_required", plan["actions"])
+
+    def test_runtime_repair_scanner_indica_manutencao_para_caso_novo(self) -> None:
+        snapshot = {
+            "auto_cycle_enabled": False,
+            "cycle_lock_busy": False,
+            "dashboard_service_cached": False,
+            "initial_load_error": False,
+            "manual_diagnostic_message": False,
+            "legacy_guard_pending": False,
+            "slow_tabs": [],
+            "temporary_key_count": 0,
+        }
+
+        plan = dashboard_app._runtime_repair_plan_from_snapshot(snapshot)
+
+        self.assertEqual(
+            plan["symptoms"],
+            ["nenhum sintoma conhecido detectado pelo scanner"],
+        )
+        self.assertEqual(plan["actions"], ["maintenance_required"])
+
+    def test_runtime_repair_aplica_remedios_sem_apagar_estado_operacional(self) -> None:
+        class FakeSessionState(dict):
+            pass
+
+        class FakeCache:
+            def __init__(self) -> None:
+                self.cleared = False
+
+            def clear(self) -> None:
+                self.cleared = True
+
+        previous_session_state = dashboard_app.st.session_state
+        previous_cache_data = dashboard_app.st.cache_data
+        previous_cache_resource = dashboard_app.st.cache_resource
+        cache_data = FakeCache()
+        cache_resource = FakeCache()
+        try:
+            dashboard_app.st.session_state = FakeSessionState(
+                {
+                    "dashboard_service": object(),
+                    dashboard_app.MT5_FOREX_AUTO_CYCLE_UI_KEY: True,
+                    dashboard_app.MT5_FOREX_INITIAL_LOAD_ERROR_KEY: "erro",
+                    dashboard_app.MT5_FOREX_LAST_AUTO_LOAD_KEY: 123.0,
+                    dashboard_app.RUNTIME_RENDER_DURATIONS_KEY: {"MT5 Forex": 4000},
+                    "runtime_temp_probe": object(),
+                    dashboard_app.MT5_FOREX_LAST_VALID_SNAPSHOT_KEY: object(),
+                    "lab_parameter_profile": "PERSISTE",
+                }
+            )
+            dashboard_app.st.cache_data = cache_data
+            dashboard_app.st.cache_resource = cache_resource
+            plan = {
+                "actions": [
+                    "clear_temporary_caches",
+                    "clear_cycle_timestamps",
+                    "clear_runtime_errors",
+                    "clear_render_metrics",
+                    "recreate_dashboard_service",
+                    "pause_auto_cycle",
+                ]
+            }
+
+            removed = dashboard_app._apply_runtime_repair_plan(plan)
+
+            self.assertIn("dashboard_service", removed)
+            self.assertIn(dashboard_app.MT5_FOREX_INITIAL_LOAD_ERROR_KEY, removed)
+            self.assertIn(dashboard_app.MT5_FOREX_LAST_AUTO_LOAD_KEY, removed)
+            self.assertIn("runtime_temp_probe", removed)
+            self.assertFalse(
+                dashboard_app.st.session_state[
+                    dashboard_app.MT5_FOREX_AUTO_CYCLE_UI_KEY
+                ]
+            )
+            self.assertNotIn("dashboard_service", dashboard_app.st.session_state)
+            self.assertIn(
+                dashboard_app.MT5_FOREX_LAST_VALID_SNAPSHOT_KEY,
+                dashboard_app.st.session_state,
+            )
+            self.assertEqual(
+                dashboard_app.st.session_state["lab_parameter_profile"],
+                "PERSISTE",
+            )
+            self.assertTrue(cache_data.cleared)
+            self.assertTrue(cache_resource.cleared)
+        finally:
+            dashboard_app.st.session_state = previous_session_state
+            dashboard_app.st.cache_data = previous_cache_data
+            dashboard_app.st.cache_resource = previous_cache_resource
+
+    def test_lab_confirmation_audit_agrupa_alpha_por_par_e_ordena(self) -> None:
+        scenarios = [
+            SimpleNamespace(
+                pair="EURUSD",
+                alpha_id="ALPHA001",
+                lab_confidence=0.55,
+                lab_confidence_sample_size=80,
+                score=0.9,
+                timeframe="M1",
+                decision="BUY",
+                model="A1_OLD",
+                parameters={
+                    "ema_curta": "9",
+                    "ema_longa": "21",
+                    "atr_stop_factor": "1.5",
+                    "rr": "2.0",
+                },
+                lab_discrimination_summary="RSI divergente: V 10% x NV 40% (mais nos nao vencedores)",
+                status="REJEITADO",
+            ),
+            SimpleNamespace(
+                pair="EURUSD",
+                alpha_id="ALPHA001",
+                lab_confidence=0.61,
+                lab_confidence_sample_size=120,
+                score=0.7,
+                timeframe="M15",
+                decision="SELL",
+                model="A1_BEST",
+                parameters={
+                    "ema_curta": "20",
+                    "ema_longa": "50",
+                    "atr_stop_factor": "2.0",
+                    "rr": "3.0",
+                },
+                lab_discrimination_summary="MACD hist divergente: V 15% x NV 45% (mais nos nao vencedores)",
+                lab_discrimination_metrics={
+                    "RSI divergente": {
+                        "winner_rate": 0.10,
+                        "loser_rate": 0.40,
+                        "difference": 0.30,
+                    },
+                    "MACD hist divergente": {
+                        "winner_rate": 0.15,
+                        "loser_rate": 0.45,
+                        "difference": 0.30,
+                    },
+                    "ADX baixo": {
+                        "winner_rate": 0.20,
+                        "loser_rate": 0.50,
+                        "difference": 0.30,
+                    },
+                    "ADX caindo": {
+                        "winner_rate": 0.12,
+                        "loser_rate": 0.42,
+                        "difference": 0.30,
+                    },
+                    "ADX indisponivel": {
+                        "winner_rate": 0.00,
+                        "loser_rate": 0.00,
+                        "difference": 0.00,
+                    },
+                    "ATR em queda": {
+                        "winner_rate": 0.25,
+                        "loser_rate": 0.55,
+                        "difference": 0.30,
+                    },
+                    "ATR subindo": {
+                        "winner_rate": 0.75,
+                        "loser_rate": 0.45,
+                        "difference": -0.30,
+                    },
+                    "Momentum contra": {
+                        "winner_rate": 0.05,
+                        "loser_rate": 0.35,
+                        "difference": 0.30,
+                    },
+                    "Momentum enfraquecendo": {
+                        "winner_rate": 0.18,
+                        "loser_rate": 0.48,
+                        "difference": 0.30,
+                    },
+                },
+                status="APROVADO",
+            ),
+            SimpleNamespace(
+                pair="EURUSD",
+                alpha_id="ALPHA002",
+                lab_confidence=0.72,
+                lab_confidence_sample_size=50,
+                score=0.8,
+                timeframe="M5",
+                decision="BUY",
+                model="A2_BEST",
+                parameters={
+                    "ema_curta": "20",
+                    "ema_longa": "50",
+                    "atr_stop_factor": "2.0",
+                    "rr": "3.0",
+                },
+                status="APROVADO",
+            ),
+            SimpleNamespace(
+                pair="GBPUSD",
+                alpha_id="ALPHA001",
+                lab_confidence=0.44,
+                lab_confidence_sample_size=200,
+                score=0.6,
+                timeframe="H1",
+                decision="WAIT",
+                model="GBP_A1",
+                status="REJEITADO",
+            ),
+            SimpleNamespace(
+                pair="GBPUSD",
+                alpha_id="ALPHA002",
+                lab_confidence=0.66,
+                lab_confidence_sample_size=180,
+                score=0.7,
+                timeframe="M15",
+                decision="BUY",
+                model="GBP_A2_BETA3",
+                parameters={
+                    "atr_stop_factor": "2.5",
+                    "rr": "3.0",
+                    "stop_management": "ATR_TRAILING_STOP",
+                    "atr_trailing_factor": "2.5",
+                    "atr_trailing_activation_rr": "1.0",
+                    "beta_id": "BETA005",
+                    "beta_version": "ATR_TRAILING_STOP_MANAGER",
+                    "beta_mode": "ATR_TRAILING_ONLY",
+                },
+                status="APROVADO",
+            ),
+        ]
+
+        rows = dashboard_app._lab_historical_confirmation_audit_rows(scenarios)
+
+        eurusd_rows = [row for row in rows if row["Par"] == "EURUSD"]
+        gbpusd_rows = [row for row in rows if row["Par"] == "GBPUSD"]
+
+        self.assertEqual(len(eurusd_rows), 16)
+        self.assertEqual(len(gbpusd_rows), 16)
+        self.assertEqual(
+            [
+                (row["Alpha de entrada"], row["Confirmacao Historica"])
+                for row in eurusd_rows[:3]
+            ],
+            [
+                ("ALPHA002", "72.00%"),
+                ("ALPHA001", "61.00%"),
+                ("ALPHA003", "0.00%"),
+            ],
+        )
+        self.assertEqual(eurusd_rows[1]["Trades observados"], 120)
+        self.assertEqual(eurusd_rows[1]["Confirmados"], 73)
+        self.assertEqual(eurusd_rows[1]["Nao confirmados"], 47)
+        self.assertEqual(eurusd_rows[1]["% Nao confirmado"], "39.00%")
+        self.assertEqual(eurusd_rows[1]["Setup de entrada"], "A1_BEST")
+        self.assertIn("ema_curta=20", eurusd_rows[1]["Parametros da entrada"])
+        self.assertIn("rr=3.0", eurusd_rows[1]["Iguais ao melhor do par"])
+        self.assertIn("Direcao: SELL != BUY", eurusd_rows[1]["Diferentes do melhor do par"])
+        self.assertIn("Confirmacao equilibrada", eurusd_rows[1]["Padrao observado"])
+        self.assertEqual(
+            eurusd_rows[0]["Filtro de liberacao"],
+            "RSI divergente | NV 40.00% x V 10.00% | Dif +30%",
+        )
+        self.assertEqual(
+            eurusd_rows[1]["Filtro de liberacao"],
+            "RSI divergente | NV 40.00% x V 10.00% | Dif +30%",
+        )
+        self.assertIn("Entrada da Alpha so deve ser liberada", eurusd_rows[1]["Regra de liberacao"])
+        self.assertIn("Ainda nao altera execucao", eurusd_rows[1]["Regra de liberacao"])
+        self.assertIn(
+            "MACD hist divergente",
+            eurusd_rows[1]["Indicadores que diferenciam"],
+        )
+        self.assertEqual(eurusd_rows[1]["RSI divergente"], "V 10.00% | NV 40.00% | Dif +30%")
+        self.assertEqual(
+            eurusd_rows[1]["MACD hist divergente"],
+            "V 15.00% | NV 45.00% | Dif +30%",
+        )
+        self.assertEqual(eurusd_rows[1]["ADX baixo"], "V 20.00% | NV 50.00% | Dif +30%")
+        self.assertEqual(eurusd_rows[1]["ADX caindo"], "V 12.00% | NV 42.00% | Dif +30%")
+        self.assertEqual(eurusd_rows[1]["ADX indisponivel"], "V 0.00% | NV 0.00% | Dif +0%")
+        self.assertEqual(eurusd_rows[1]["ATR em queda"], "V 25.00% | NV 55.00% | Dif +30%")
+        self.assertEqual(eurusd_rows[1]["ATR subindo"], "V 75.00% | NV 45.00% | Dif -30%")
+        self.assertEqual(eurusd_rows[1]["Momentum contra"], "V 5.00% | NV 35.00% | Dif +30%")
+        self.assertEqual(
+            eurusd_rows[1]["Momentum enfraquecendo"],
+            "V 18.00% | NV 48.00% | Dif +30%",
+        )
+        self.assertEqual(eurusd_rows[-1]["Alpha de entrada"], "ALPHA016")
+        self.assertEqual(eurusd_rows[-1]["Trades observados"], 0)
+        self.assertEqual(eurusd_rows[-1]["RSI divergente"], "N/D")
+        self.assertEqual(gbpusd_rows[0]["Beta Stop"], "BETA005 | ATR_TRAILING_ONLY | ATR_TRAILING_STOP_MANAGER")
+        self.assertEqual(
+            gbpusd_rows[0]["Stop inicial em R"],
+            "1R = stop inicial 2.5 ATR | alvo planejado 3R",
+        )
+        self.assertIn("sem FULL_EXIT", gbpusd_rows[0]["Plano Position Manager"])
+        self.assertIn("trailing por ATR x2.5", gbpusd_rows[0]["Plano Position Manager"])
+
+    def test_lab_audit_deriva_beta_stop_da_politica_mesmo_em_snapshot_beta2(
+        self,
+    ) -> None:
+        scenario = SimpleNamespace(
+            pair="GBPUSD",
+            alpha_id="ALPHA002",
+            lab_confidence=0.66,
+            lab_confidence_sample_size=180,
+            score=0.7,
+            timeframe="M15",
+            decision="BUY",
+            model="GBP_A2_BETA2_COMPAT",
+            parameters={
+                "atr_stop_factor": "2.5",
+                "rr": "3.0",
+                "stop_management": "ATR_TRAILING_STOP",
+                "atr_trailing_factor": "2.5",
+                "atr_trailing_activation_rr": "1.0",
+                "beta_id": "BETA002",
+                "beta_version": "M1_EMA14_MOMENTUM_VOLATILITY",
+                "beta_mode": "ADAPTIVE_FULL_EXIT",
+            },
+            status="APROVADO",
+        )
+
+        row = dashboard_app._lab_historical_confirmation_audit_row(
+            scenario,
+            reference=scenario,
+        )
+
+        self.assertEqual(
+            row["Beta Stop"],
+            "BETA005 | ATR_TRAILING_ONLY | ATR_TRAILING_STOP_MANAGER",
+        )
+        self.assertIn("BETA005 sem FULL_EXIT", row["Plano Position Manager"])
+        self.assertIn("trailing por ATR x2.5", row["Plano Position Manager"])
+
+    def test_research_lab_display_usa_snapshot_calculado_para_planilha(self) -> None:
+        class FakeSessionState(dict):
+            pass
+
+        class FakeService:
+            def __init__(self) -> None:
+                self.constants_called = False
+
+            def get_mt5_research_constants(self) -> object:
+                self.constants_called = True
+                return SimpleNamespace(source="DISK")
+
+            def get_mt5_research_report_snapshot(self) -> object:
+                return SimpleNamespace(source="REPORT")
+
+        previous_session_state = dashboard_app.st.session_state
+        calculated = SimpleNamespace(source="CALCULATED")
+        service = FakeService()
+        try:
+            dashboard_app.st.session_state = FakeSessionState(
+                {dashboard_app.MT5_LAB_CALCULATION_SNAPSHOT_KEY: calculated}
+            )
+
+            selected = dashboard_app._research_lab_snapshot_for_display(service)
+
+            self.assertIs(selected, calculated)
+            self.assertFalse(service.constants_called)
+        finally:
+            dashboard_app.st.session_state = previous_session_state
+
+    def test_research_lab_display_descarta_snapshot_calculado_sem_evidencia(
+        self,
+    ) -> None:
+        class FakeSessionState(dict):
+            pass
+
+        persisted = SimpleNamespace(
+            source="PERSISTED",
+            scenario_ranking=[
+                SimpleNamespace(lab_confidence_sample_size=564),
+            ],
+        )
+        stale_calculated = SimpleNamespace(
+            source="STALE",
+            scenario_ranking=[
+                SimpleNamespace(lab_confidence_sample_size=0),
+            ],
+        )
+
+        class FakeService:
+            def get_mt5_research_constants(self) -> object:
+                return SimpleNamespace(source="CONSTANTS")
+
+            def get_mt5_research_report_snapshot(self) -> object:
+                return persisted
+
+        previous_session_state = dashboard_app.st.session_state
+        try:
+            dashboard_app.st.session_state = FakeSessionState(
+                {dashboard_app.MT5_LAB_CALCULATION_SNAPSHOT_KEY: stale_calculated}
+            )
+
+            selected = dashboard_app._research_lab_snapshot_for_display(
+                FakeService(),
+                include_full_audit=True,
+            )
+
+            self.assertIs(selected, persisted)
+            self.assertIs(
+                dashboard_app.st.session_state[
+                    dashboard_app.MT5_LAB_CALCULATION_SNAPSHOT_KEY
+                ],
+                persisted,
+            )
+        finally:
+            dashboard_app.st.session_state = previous_session_state
+
+    def test_research_lab_display_prefere_snapshot_persistido_ao_runtime_index(
+        self,
+    ) -> None:
+        class FakeSessionState(dict):
+            pass
+
+        runtime_index = SimpleNamespace(
+            source="MT5_RESEARCH_RUNTIME_INDEX",
+            scenario_ranking=[],
+            rows=[SimpleNamespace(sample_size=0)],
+        )
+        persisted = SimpleNamespace(
+            source="MT5_RESEARCH_CALCULATED_FROM_HISTORY_SNAPSHOT",
+            scenario_ranking=[SimpleNamespace(lab_confidence_sample_size=564)],
+            rows=[],
+        )
+
+        class FakeService:
+            def get_mt5_research_constants(self) -> object:
+                return runtime_index
+
+            def get_mt5_research_report_snapshot(self) -> object:
+                return persisted
+
+        previous_session_state = dashboard_app.st.session_state
+        try:
+            dashboard_app.st.session_state = FakeSessionState()
+
+            selected = dashboard_app._research_lab_snapshot_for_display(FakeService())
+
+            self.assertIs(selected, persisted)
+        finally:
+            dashboard_app.st.session_state = previous_session_state
+
     def test_robo_demo_nao_exibe_entrada_parcial_sem_plano_executavel(self) -> None:
         """Card do robo nao pode mostrar preco se stop/alvo ainda sao invalidos."""
         robot = SimpleNamespace(
@@ -1572,23 +2622,33 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
     def test_mt5_forex_ignora_session_state_antigo_de_candles(self) -> None:
         """Session state antigo nao pode sobrescrever ConfigurationManager."""
+        previous_fast_boot = os.environ.get("TRADERIA_FAST_BOOT_ENABLED")
+        os.environ["TRADERIA_FAST_BOOT_ENABLED"] = "0"
         app = AppTest.from_file("dashboard_app.py")
         app.session_state["mt5_forex_candles"] = 5000
-        app.run(timeout=30)
+        try:
+            app.run(timeout=30)
+            app.segmented_control[0].set_value("Sistema Forex")
+            app.run(timeout=30)
+        finally:
+            if previous_fast_boot is None:
+                os.environ.pop("TRADERIA_FAST_BOOT_ENABLED", None)
+            else:
+                os.environ["TRADERIA_FAST_BOOT_ENABLED"] = previous_fast_boot
 
         rendered_table = self._markdown(app) + self._dataframe_text(app)
         metrics = self._metrics(app)
         self.assertFalse(app.exception)
-        self.assertEqual(metrics.get("Candles por par"), "1000")
-        self.assertIn("Candles recebidos", rendered_table)
-        self.assertNotEqual(metrics.get("Candles por par"), "5000")
+        self.assertEqual(metrics.get("Candles online por par"), "1000")
+        self.assertIn("Candles recebidos", metrics)
+        self.assertNotEqual(metrics.get("Candles online por par"), "5000")
 
     def test_replay_foca_pares_forex_sem_dataset_legado(self) -> None:
         """Replay usa pares Forex, sem seletor de dataset legado."""
-        app = self._run_app()
+        app = self._run_app("Replay")
 
         self.assertFalse(app.exception)
-        self.assertIn("Replay", [tab.label for tab in app.tabs])
+        self.assertIn("Replay", self._navigation_labels(app))
         self.assertIn("Par Forex do Replay", "\n".join(self._selectboxes(app)))
         self.assertNotIn("Carregar Dataset Selecionado", self._buttons(app))
 
@@ -1641,6 +2701,31 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertEqual(row["Gestao runtime"], "POSITION_MANAGER_DINAMICO")
         self.assertEqual(row["Plano de risco"], "INITIAL_RISK_PLAN")
+
+    def test_lab_sugestoes_derivam_beta_stop_da_politica(self) -> None:
+        suggestion = SimpleNamespace(
+            pair="AUDUSD",
+            timeframe="M1",
+            decision="BUY",
+            model="ATR_VOLATILITY_REGIME",
+            beta_id="BETA002",
+            beta_mode="SAIDA_COMPLETA_ADAPTAVEL",
+            parameters={
+                "atr_stop_factor": "1.5",
+                "rr": "2.0",
+            },
+            exit_model="INITIAL_RISK_PLAN",
+            stop_management="ATR_TRAILING_STOP",
+            score=0.82,
+            lab_confidence=0.70,
+            status="SUGERIDO_70",
+        )
+
+        compact = dashboard_app._mt5_setup_suggestion_compact_row(suggestion)
+        detail = dashboard_app._mt5_setup_suggestion_row(suggestion)
+
+        self.assertEqual(compact["Beta"], "BETA005")
+        self.assertEqual(detail["Beta"], "BETA005")
 
     def test_lab_research_report_resume_status_da_alpha(self) -> None:
         row = dashboard_app._mt5_alpha_research_report_row(
@@ -1752,6 +2837,9 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                     mt5_order_send_enabled=True,
                 )
 
+            def arm_demo_robot(self, pair: str, timeframe: str):
+                return self.get_demo_robot_status()
+
             def run_online_demo_robot_cycle(self, pair: str, timeframe: str):
                 self.cycles += 1
                 return self.get_demo_robot_status()
@@ -1783,6 +2871,64 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             self.assertTrue(second_online)
             self.assertIs(second_data, first_data)
             self.assertEqual(service.cycles, 1)
+        finally:
+            dashboard_app.st.session_state = previous_session_state
+
+    def test_robo_demo_online_rearma_backend_transitorio_antes_do_ciclo(self) -> None:
+        class FakeSessionState(dict):
+            pass
+
+        class FakeService:
+            def __init__(self) -> None:
+                self.arm_calls = 0
+                self.cycles = 0
+
+            def get_demo_robot_status(self):
+                return SimpleNamespace(
+                    status="DISARMED",
+                    result_status="DISARMED",
+                    provider="MT5_DEMO_DISABLED",
+                    mt5_order_send_enabled=False,
+                )
+
+            def arm_demo_robot(self, pair: str, timeframe: str):
+                self.arm_calls += 1
+                return SimpleNamespace(
+                    status="ARMED",
+                    result_status="ARMED_WAITING",
+                    provider="MT5_DEMO",
+                    mt5_order_send_enabled=True,
+                )
+
+            def run_online_demo_robot_cycle(self, pair: str, timeframe: str):
+                self.cycles += 1
+                return self.arm_demo_robot(pair, timeframe)
+
+            def get_dashboard_view_model(self):
+                return SimpleNamespace(demo_robot=self.arm_demo_robot("TODOS", "M1"))
+
+        previous_session_state = dashboard_app.st.session_state
+        try:
+            dashboard_app.st.session_state = FakeSessionState(
+                {dashboard_app.MT5_DEMO_ROBOT_ONLINE_KEY: True}
+            )
+            service = FakeService()
+
+            _, online = dashboard_app._run_demo_robot_online_cycle_if_due(
+                service,
+                SimpleNamespace(),
+                selected_pair="TODOS",
+                timeframe="M1",
+            )
+
+            self.assertTrue(online)
+            self.assertEqual(service.cycles, 1)
+            self.assertGreaterEqual(service.arm_calls, 1)
+            self.assertTrue(
+                dashboard_app.st.session_state[
+                    dashboard_app.MT5_DEMO_ROBOT_ONLINE_KEY
+                ]
+            )
         finally:
             dashboard_app.st.session_state = previous_session_state
 
@@ -1963,9 +3109,20 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertIs(first, second)
         self.assertEqual(len(calls), 1)
 
-    def _run_app(self) -> AppTest:
-        app = AppTest.from_file("dashboard_app.py")
-        app.run(timeout=30)
+    def _run_app(self, selected_tab: str | None = None) -> AppTest:
+        previous_fast_boot = os.environ.get("TRADERIA_FAST_BOOT_ENABLED")
+        os.environ["TRADERIA_FAST_BOOT_ENABLED"] = "0"
+        try:
+            app = AppTest.from_file("dashboard_app.py")
+            app.run(timeout=30)
+            if selected_tab is not None:
+                app.segmented_control[0].set_value(selected_tab)
+                app.run(timeout=30)
+        finally:
+            if previous_fast_boot is None:
+                os.environ.pop("TRADERIA_FAST_BOOT_ENABLED", None)
+            else:
+                os.environ["TRADERIA_FAST_BOOT_ENABLED"] = previous_fast_boot
         return app
 
     def _fake_streamlit(self, *, button_clicked: bool):
@@ -2012,6 +3169,13 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
     def _buttons(self, app: AppTest) -> list[str]:
         return [button.label for button in app.button]
+
+    def _navigation_labels(self, app: AppTest) -> list[str]:
+        if app.tabs:
+            return [tab.label for tab in app.tabs]
+        if app.segmented_control:
+            return list(getattr(app.segmented_control[0], "options", []) or [])
+        return []
 
     def _subheaders(self, app: AppTest) -> list[str]:
         return [subheader.value for subheader in app.subheader]

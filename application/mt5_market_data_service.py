@@ -1010,6 +1010,7 @@ class MT5MarketDataService:
                 read_started = perf_counter()
                 candles = self.provider.get_candles(pair, timeframe_value, safe_count)
                 provider_read_ms += self._elapsed_ms(read_started)
+                self.latest_forex_candles[(pair, normalized_timeframe)] = list(candles)
             except TimeoutError as exc:
                 unavailable_pairs.append(pair)
                 read_errors.append(f"{pair}: timeout: {exc}")

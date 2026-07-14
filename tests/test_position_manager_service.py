@@ -656,7 +656,7 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertGreater(provider.modified_stop or 0.0, 1.0980)
         self.assertEqual(provider.close_calls, 0)
 
-    def test_beta002_exit_persistente_fecha_posicao(self) -> None:
+    def test_beta002_exit_persistente_nao_fecha_posicao(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             provider = _FakePositionProvider(
                 position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1100),
@@ -679,19 +679,21 @@ class PositionManagerServiceTest(unittest.TestCase):
                 stop_management="FIXED_STOP",
             )
 
-            for _ in range(4):
+            for _ in range(6):
                 result = manager.manage_plan(plan)
 
-        self.assertEqual(result.status, "POSITION_CLOSED")
-        self.assertEqual(result.action, "FULL_EXIT")
-        self.assertEqual(result.final_exit_reason, "BETA002_EXIT_CANDIDATE")
-        self.assertEqual(provider.close_calls, 1)
+        self.assertEqual(result.status, "POSITION_HELD")
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertEqual(result.position_state, "EXIT_CANDIDATE")
+        self.assertEqual(result.final_exit_reason, "N/D")
+        self.assertEqual(provider.modify_calls, 0)
+        self.assertEqual(provider.close_calls, 0)
 
-    def test_beta002_bloqueia_fechamento_duplicado(self) -> None:
+    def test_beta002_exit_persistente_protege_depois_de_1r(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             provider = _FakePositionProvider(
                 position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1100),
-                price=1.1010,
+                price=1.1040,
                 candles=_weakening_candles(
                     1.1080,
                     groups=("ema", "momentum", "advance", "structure"),
@@ -710,12 +712,15 @@ class PositionManagerServiceTest(unittest.TestCase):
                 stop_management="FIXED_STOP",
             )
 
-            for _ in range(4):
-                manager.manage_plan(plan)
-            result = manager.manage_plan(plan)
+            for _ in range(6):
+                result = manager.manage_plan(plan)
 
-        self.assertEqual(result.status, "DUPLICATE_DECISION_BLOCKED")
-        self.assertEqual(provider.close_calls, 1)
+        self.assertIn(result.status, {"STOP_MOVED", "POSITION_HELD"})
+        self.assertIn(result.action, {"STOP_MOVED", "HOLD_POSITION"})
+        self.assertEqual(result.final_exit_reason, "N/D")
+        self.assertGreaterEqual(provider.modify_calls, 1)
+        self.assertGreater(provider.modified_stop or 0.0, 1.0980)
+        self.assertEqual(provider.close_calls, 0)
 
     def test_plano_antigo_sem_beta_continua_beta001(self) -> None:
         provider = _FakePositionProvider(

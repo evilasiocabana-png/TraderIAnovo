@@ -22,3 +22,4 @@ class ExecutionOrder:
     beta_id: str = "BETA001"
     beta_version: str = "BETA v1"
     beta_mode: str = "PROTECT_ONLY"
+    operational_model: str = "MODELO_1_ALPHA_ATUAL"

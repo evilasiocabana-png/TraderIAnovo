@@ -88,6 +88,7 @@ class MT5ResearchTradePlanInput:
     alpha_version: str = "v1"
     beta_id: str = DEFAULT_BETA_ID
     beta_version: str = DEFAULT_BETA_VERSION
+    beta_mode: str = "PROTECT_ONLY"
     certification_demo_allowed: bool = True
     certification_score: float = 100.0
     certification_grade: str = "A+"
@@ -237,6 +238,7 @@ class MT5ResearchTradePlanEngine:
         )
         beta_id = self._normalize_beta_id(payload.beta_id)
         beta_version = str(payload.beta_version or DEFAULT_BETA_VERSION)
+        beta_mode = self._normalize_beta_mode(payload.beta_mode)
         beta_reason = (
             f"Beta {beta_id}: gestao pos-entrada executada pelo Position Manager. "
             "O Lab define entrada, stop inicial e alvo; o Beta protege/gerencia "
@@ -275,7 +277,7 @@ class MT5ResearchTradePlanEngine:
             alpha_version=str(payload.alpha_version or "v1"),
             beta_id=beta_id,
             beta_version=beta_version,
-            beta_mode="PROTECT_ONLY",
+            beta_mode=beta_mode,
             beta_reason=beta_reason,
             status="PLANO_VALIDO",
             reason=(
@@ -350,6 +352,14 @@ class MT5ResearchTradePlanEngine:
         if normalized == "LEGACY_CURRENT_EXIT":
             return DEFAULT_BETA_ID
         return normalized or DEFAULT_BETA_ID
+
+    def _normalize_beta_mode(self, value: str | None) -> str:
+        normalized = str(value or "PROTECT_ONLY").strip().upper()
+        if normalized in {"ADAPTIVE_FULL_EXIT", "FULL_EXIT_ADAPTATIVO"}:
+            return "ADAPTIVE_FULL_EXIT"
+        if normalized in {"PROTECT_ONLY", "PROTEGER_SOMENTE"}:
+            return "PROTECT_ONLY"
+        return normalized or "PROTECT_ONLY"
 
     def _stop_management_parameters(
         self,
@@ -439,7 +449,7 @@ class MT5ResearchTradePlanEngine:
             alpha_version=str(payload.alpha_version or "v1"),
             beta_id=self._normalize_beta_id(payload.beta_id),
             beta_version=str(payload.beta_version or DEFAULT_BETA_VERSION),
-            beta_mode="PROTECT_ONLY",
+            beta_mode=self._normalize_beta_mode(payload.beta_mode),
             beta_reason=(
                 "Beta registrado por compatibilidade; sem execucao porque o plano "
                 "nao esta valido."

@@ -3,9 +3,13 @@
 from dataclasses import replace
 from datetime import date, datetime, timezone
 import inspect
+import json
 import os
+from pathlib import Path
 import threading
 import time
+import unicodedata
+from types import SimpleNamespace
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -16,6 +20,7 @@ from application.dashboard_view_model import (
     DashboardMT5ForexSignalRowViewModel,
     DashboardMT5ForexSignalViewModel,
 )
+from application.market_regime_pipeline import MarketRegimePipeline
 from application.runtime_guard_service import RuntimeGuardService
 from core.legacy_traderia_process_guard import cleanup_legacy_traderia_processes
 from core.runtime_lock_service import RuntimeLockService
@@ -58,10 +63,31 @@ MT5_REPORT_AUTO_REFRESH_SECONDS = float(
 MT5_FOREX_FRAGMENT_RUN_EVERY = f"{int(MT5_FOREX_AUTO_REFRESH_SECONDS)}s"
 MT5_REPORT_FRAGMENT_RUN_EVERY = f"{int(MT5_REPORT_AUTO_REFRESH_SECONDS)}s"
 MT5_LAB_TARGET_CONFIDENCE = 0.70
+MT5_ENTRY_FILTER_ADX_LOW_THRESHOLD = 20.0
+MT5_ENTRY_FILTER_MIN_EDGE = 0.05
+MT5_ENTRY_FILTER_MIN_SAMPLE_SIZE = 300
+MT5_ENTRY_FILTER_MODE_KEY = "mt5_entry_filter_mode"
+MT5_ENTRY_FILTER_RULES_CACHE_KEY = "mt5_entry_filter_rules_cache"
+MT5_OPERATIONAL_MODEL_KEY = "mt5_operational_model"
+MT5_OPERATIONAL_MODEL_1 = "MODELO_1_ALPHA_ATUAL"
+MT5_OPERATIONAL_MODEL_2 = "MODELO_2_ESPELHO_BETA2_RR1"
+MT5_OPERATIONAL_MODEL_ALL = "TODOS_MODELOS"
+MT5_OPERATIONAL_MODEL_STATE_PATH = Path(".traderia") / "mt5_operational_model.json"
+MT5_DEMO_EXECUTION_LOG_PATH = Path(".traderia") / "mt5_demo_execution.jsonl"
+MT5_ENTRY_FILTER_SUPPORTED_INDICATORS = {
+    "ADX baixo",
+    "ATR em queda",
+    "ATR subindo",
+    "Momentum contra",
+    "MACD hist divergente",
+}
+MT5_LAB_ALPHA_IDS = tuple(f"ALPHA{index:03d}" for index in range(1, 17))
+MT5_LAB_CALCULATION_SNAPSHOT_KEY = "mt5_lab_calculation_snapshot"
 MT5_ALPHA_LIBRARY_SEARCH_SPACE_SIZE = 839
 MT5_FOREX_CYCLE_LOCK = threading.Lock()
 MT5_FOREX_BACKGROUND_THREAD_STARTED = False
 MT5_RUNTIME_LOCK = RuntimeLockService()
+MT5_ENTRY_REGIME_PIPELINE = MarketRegimePipeline()
 
 
 def get_dashboard_service() -> DashboardService:
@@ -387,6 +413,15 @@ def _clear_runtime_queues_and_temporary_caches() -> list[str]:
     """Limpa somente estado temporario de UI/runtime."""
     result = get_runtime_guard_service().cleanup_temporary(st.session_state)
     removed = list(result.removed_keys)
+    temporary_prefixes = (
+        "mt5_trade_audit_report_",
+        "runtime_temp_",
+    )
+    for key in list(getattr(st.session_state, "keys", lambda: [])()):
+        key_text = str(key)
+        if key_text.startswith(temporary_prefixes) and key_text in st.session_state:
+            st.session_state.pop(key_text, None)
+            removed.append(key_text)
     for cache_name in ("cache_data", "cache_resource"):
         cache = getattr(st, cache_name, None)
         clear = getattr(cache, "clear", None)
@@ -394,6 +429,156 @@ def _clear_runtime_queues_and_temporary_caches() -> list[str]:
             clear()
             removed.append(f"st.{cache_name}.clear")
     return removed
+
+
+def _runtime_repair_scanner_snapshot() -> dict[str, object]:
+    """Identifica sintomas conhecidos de lentidao/travamento no runtime atual."""
+    render_durations = dict(st.session_state.get(RUNTIME_RENDER_DURATIONS_KEY, {}) or {})
+    slow_tabs = [
+        str(tab)
+        for tab, duration in render_durations.items()
+        if float(duration or 0.0) >= 3000.0
+    ]
+    temporary_keys = [
+        str(key)
+        for key in getattr(st.session_state, "keys", lambda: [])()
+        if str(key).startswith(("runtime_temp_", "replay_pending_"))
+        or str(key).startswith("mt5_trade_audit_report_")
+    ]
+    return {
+        "auto_cycle_enabled": bool(
+            st.session_state.get(MT5_FOREX_AUTO_CYCLE_UI_KEY, False)
+        ),
+        "cycle_lock_busy": _mt5_forex_cycle_lock_busy(),
+        "dashboard_service_cached": "dashboard_service" in st.session_state,
+        "initial_load_error": bool(
+            st.session_state.get(MT5_FOREX_INITIAL_LOAD_ERROR_KEY)
+        ),
+        "manual_diagnostic_message": bool(
+            st.session_state.get(MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY)
+        ),
+        "legacy_guard_pending": not bool(
+            st.session_state.get(LEGACY_PROCESS_GUARD_RAN_KEY, False)
+        ),
+        "slow_tabs": slow_tabs,
+        "temporary_key_count": len(temporary_keys),
+    }
+
+
+def _runtime_repair_plan_from_snapshot(
+    snapshot: dict[str, object],
+) -> dict[str, list[str]]:
+    """Converte sintomas conhecidos em remedios seguros e auditaveis."""
+    symptoms: list[str] = []
+    actions: list[str] = []
+
+    if snapshot.get("auto_cycle_enabled"):
+        symptoms.append("ciclo automatico MT5 Forex ativo")
+        actions.append("pause_auto_cycle")
+    if snapshot.get("cycle_lock_busy"):
+        symptoms.append("ciclo MT5 Forex ocupado ou preso")
+        actions.append("clear_cycle_timestamps")
+        actions.append("pause_auto_cycle")
+    if snapshot.get("dashboard_service_cached"):
+        symptoms.append("DashboardService em cache de sessao")
+        actions.append("recreate_dashboard_service")
+    if snapshot.get("initial_load_error") or snapshot.get("manual_diagnostic_message"):
+        symptoms.append("erro temporario de leitura/diagnostico MT5 registrado")
+        actions.append("clear_runtime_errors")
+    if snapshot.get("legacy_guard_pending"):
+        symptoms.append("varredura de processos legados ainda nao executada")
+        actions.append("run_legacy_guard")
+    if int(snapshot.get("temporary_key_count", 0) or 0) > 0:
+        symptoms.append("filas, caches ou relatorios temporarios acumulados")
+        actions.append("clear_temporary_caches")
+    slow_tabs = list(snapshot.get("slow_tabs", []) or [])
+    if slow_tabs:
+        symptoms.append("abas lentas detectadas: " + ", ".join(slow_tabs[:3]))
+        actions.append("clear_render_metrics")
+
+    unique_actions = list(dict.fromkeys(actions))
+    if not symptoms:
+        symptoms.append("nenhum sintoma conhecido detectado pelo scanner")
+        unique_actions.append("maintenance_required")
+    return {"symptoms": symptoms, "actions": unique_actions}
+
+
+def _apply_runtime_repair_plan(plan: dict[str, list[str]]) -> list[str]:
+    """Executa somente remedios conhecidos de runtime, sem alterar operacao."""
+    removed: list[str] = []
+    actions = set(plan.get("actions", []))
+
+    if "clear_temporary_caches" in actions:
+        removed.extend(_clear_runtime_queues_and_temporary_caches())
+    if "clear_cycle_timestamps" in actions:
+        for key in (
+            MT5_FOREX_LAST_AUTO_LOAD_KEY,
+            MT5_REPORT_LAST_AUTO_LOAD_KEY,
+            MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY,
+        ):
+            if key in st.session_state:
+                st.session_state.pop(key, None)
+                removed.append(key)
+    if "clear_runtime_errors" in actions:
+        for key in (
+            MT5_FOREX_INITIAL_LOAD_ERROR_KEY,
+            MT5_FOREX_MANUAL_DIAGNOSTIC_KEY,
+            MT5_FOREX_MANUAL_DIAGNOSTIC_MESSAGE_KEY,
+        ):
+            if key in st.session_state:
+                st.session_state.pop(key, None)
+                removed.append(key)
+    if "clear_render_metrics" in actions and RUNTIME_RENDER_DURATIONS_KEY in st.session_state:
+        st.session_state.pop(RUNTIME_RENDER_DURATIONS_KEY, None)
+        removed.append(RUNTIME_RENDER_DURATIONS_KEY)
+    if "recreate_dashboard_service" in actions and "dashboard_service" in st.session_state:
+        st.session_state.pop("dashboard_service", None)
+        removed.append("dashboard_service")
+    if "pause_auto_cycle" in actions:
+        st.session_state[MT5_FOREX_AUTO_CYCLE_UI_KEY] = False
+        removed.append(MT5_FOREX_AUTO_CYCLE_UI_KEY)
+    if "run_legacy_guard" in actions:
+        _cleanup_legacy_traderia_processes_once()
+        removed.append("legacy_process_guard")
+
+    return list(dict.fromkeys(removed))
+
+
+def _reset_dashboard_runtime_from_top() -> None:
+    """Escaneia o runtime e aplica remedios conhecidos de lentidao/travamento."""
+    snapshot = _runtime_repair_scanner_snapshot()
+    plan = _runtime_repair_plan_from_snapshot(snapshot)
+    removed = _apply_runtime_repair_plan(plan)
+    if "maintenance_required" in set(plan.get("actions", [])):
+        message = (
+            "Scanner executado: nenhum problema conhecido foi identificado. "
+            "Se o TraderIA continuar lento ou travado, precisa de manutencao."
+        )
+    else:
+        message = (
+            "Scanner executado: "
+            + "; ".join(plan.get("symptoms", []))
+            + ". Remedios aplicados: "
+            + ", ".join(plan.get("actions", []))
+            + "."
+        )
+    st.session_state[RUNTIME_CLEANUP_MESSAGE_KEY] = message
+    st.session_state["runtime_top_reset_scan"] = " | ".join(plan.get("symptoms", []))
+    st.session_state["runtime_top_reset_actions"] = ", ".join(plan.get("actions", []))
+    st.session_state["runtime_top_reset_removed_count"] = len(set(removed))
+    st.rerun()
+
+
+def _render_top_runtime_reset() -> None:
+    """Exibe reset rapido logo abaixo do nome do TraderIA Novo."""
+    cols = st.columns([1, 5])
+    if cols[0].button("Reiniciar", key="traderia_top_runtime_reset"):
+        _mark_ui_critical_interaction()
+        _reset_dashboard_runtime_from_top()
+    message = st.session_state.get(RUNTIME_CLEANUP_MESSAGE_KEY)
+    removed_count = st.session_state.get("runtime_top_reset_removed_count")
+    if message and removed_count is not None:
+        cols[1].caption(f"{message} Itens limpos: {removed_count}.")
 
 
 def _record_runtime_render_duration(tab_name: str, started_at: float) -> None:
@@ -1123,12 +1308,29 @@ def exibir_mt5_forex_dashboard(
         return data
 
     st.caption(getattr(forex, "message", "N/D"))
-    display_rows = [_forex_signal_row(row) for row in pares]
+    filter_mode = str(st.session_state.get(MT5_ENTRY_FILTER_MODE_KEY, "Top 2"))
+    _sync_mt5_entry_filter_mode_with_service(service, filter_mode)
+    filter_rules_by_pair = _mt5_entry_filter_rules_by_pair(service, filter_mode)
+    display_rows = [
+        _forex_signal_row(
+            row,
+            filter_rules=filter_rules_by_pair.get(
+                str(getattr(row, "pair", "") or "").upper(),
+                [],
+            ),
+        )
+        for row in pares
+    ]
     _render_stable_forex_table(display_rows)
+    _render_mt5_entry_filter_mode_selector()
+    operational_model = _render_mt5_operational_model_selector()
+    _sync_mt5_operational_model_with_service(service)
+    data = _exibir_robo_demo_mt5(service, data, forex, display_rows)
     _exibir_entradas_teoricas_mt5(
         display_rows,
         robot_online=_demo_robot_online_status(data),
         mt5_status=getattr(forex, "connection_status", "N/D"),
+        operational_model=operational_model,
     )
     report = _maybe_refresh_mt5_trade_audit_report(
         service,
@@ -1137,7 +1339,6 @@ def exibir_mt5_forex_dashboard(
     if report is None:
         report = getattr(data, "mt5_trade_audit", None)
     _exibir_saidas_teoricas_mt5(service, report, display_rows)
-    data = _exibir_robo_demo_mt5(service, data, forex, display_rows)
     colunas = st.columns(4)
     decision_counts = _forex_decision_counts(display_rows)
     colunas[0].metric("BUY", decision_counts["BUY"])
@@ -1172,6 +1373,269 @@ def exibir_mt5_forex_dashboard(
                 )
             )
     return data
+
+
+def _render_mt5_entry_filter_mode_selector() -> str:
+    """Escolhe quantos filtros positivos NV-V entram no gate visual."""
+    with st.container(border=True):
+        st.markdown("#### Filtro de liberacao da entrada")
+        colunas = st.columns([1.3, 1.0, 3.0])
+        mode = colunas[0].selectbox(
+            "Quantidade de filtros",
+            ["Top 1", "Top 2", "Top 3", "Todos positivos"],
+            index=1,
+            key=MT5_ENTRY_FILTER_MODE_KEY,
+            help=(
+                "Escolhe quantos filtros discriminativos do Lab entram no gate "
+                "da Entrada Teorica."
+            ),
+        )
+        if colunas[1].button("Atualizar filtros", key="mt5_entry_filter_refresh"):
+            st.session_state.pop(MT5_ENTRY_FILTER_RULES_CACHE_KEY, None)
+        colunas[2].caption(
+            "Usa somente NV-V positivo: se algo aparece mais nos nao vencedores, "
+            "a entrada so libera quando esse indicador estiver ausente. "
+            "Isso so filtra entrada; nao altera Alpha, "
+            "score, confirmacao historica ou calculos do Lab."
+        )
+    return str(mode)
+
+
+def _render_mt5_operational_model_selector() -> str:
+    labels = {
+        MT5_OPERATIONAL_MODEL_1: "Modelo 1 - Lab vencedor",
+        MT5_OPERATIONAL_MODEL_2: "Modelo 2 - espelho definido por voce",
+        MT5_OPERATIONAL_MODEL_ALL: "Todos - Modelo 1 e Modelo 2",
+    }
+    current = str(
+        st.session_state.get(
+            MT5_OPERATIONAL_MODEL_KEY,
+            _load_persisted_mt5_operational_model(),
+        )
+        or MT5_OPERATIONAL_MODEL_1
+    ).upper()
+    if current not in labels:
+        current = MT5_OPERATIONAL_MODEL_1
+    st.session_state[MT5_OPERATIONAL_MODEL_KEY] = current
+    with st.container(border=True):
+        st.markdown("#### Chaveamento operacional")
+        columns = st.columns([1.4, 1.2, 2.4])
+        selected_label = columns[0].selectbox(
+            "Modelo ativo para envio",
+            list(labels.values()),
+            index=list(labels).index(current),
+            key="mt5_operational_model_selector",
+            on_change=_mark_ui_critical_interaction,
+            help=(
+                "Somente o modelo selecionado pode enviar ordem. O outro fica "
+                "apenas como conferencia visual."
+            ),
+        )
+        selected = next(key for key, value in labels.items() if value == selected_label)
+        columns[1].metric(
+            "Modelo operacional",
+            _mt5_operational_model_short_label(selected),
+        )
+        columns[2].caption(
+            "MODELO 1 executa o plano vencedor vindo do Lab. MODELO 2 e a regra "
+            "manual definida por voce: inverte BUY/SELL, usa o stop original "
+            "como alvo e calcula stop simetrico com RR 1. "
+            "Em TODOS, os dois modelos podem enviar ordem, mas cada modelo so "
+            "pode ter uma posicao aberta por par."
+        )
+    st.session_state[MT5_OPERATIONAL_MODEL_KEY] = selected
+    _persist_mt5_operational_model(selected)
+    if selected == MT5_OPERATIONAL_MODEL_2:
+        st.warning(
+            "Modelo 2 experimental ativo: BUY vira SELL, SELL vira BUY, alvo usa "
+            "o stop original da Alpha/BETA2 e stop fica em RR 1."
+        )
+    if selected == MT5_OPERATIONAL_MODEL_ALL:
+        st.warning(
+            "Todos os modelos ativo: Modelo 1 e Modelo 2 podem enviar ordem. "
+            "O mesmo par pode ter ate duas posicoes, uma por modelo."
+        )
+    return selected
+
+
+def _valid_mt5_operational_model(model: object) -> str:
+    normalized = str(model or MT5_OPERATIONAL_MODEL_1).upper()
+    if normalized in {
+        MT5_OPERATIONAL_MODEL_1,
+        MT5_OPERATIONAL_MODEL_2,
+        MT5_OPERATIONAL_MODEL_ALL,
+    }:
+        return normalized
+    return MT5_OPERATIONAL_MODEL_1
+
+
+def _load_persisted_mt5_operational_model() -> str:
+    try:
+        data = json.loads(MT5_OPERATIONAL_MODEL_STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return MT5_OPERATIONAL_MODEL_1
+    return _valid_mt5_operational_model(data.get("model"))
+
+
+def _persist_mt5_operational_model(model: object) -> None:
+    normalized = _valid_mt5_operational_model(model)
+    try:
+        MT5_OPERATIONAL_MODEL_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        MT5_OPERATIONAL_MODEL_STATE_PATH.write_text(
+            json.dumps(
+                {
+                    "model": normalized,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except OSError:
+        return
+
+
+def _sync_mt5_operational_model_with_service(service: DashboardService) -> str:
+    model = str(
+        st.session_state.get(
+            MT5_OPERATIONAL_MODEL_KEY,
+            _load_persisted_mt5_operational_model(),
+        )
+        or MT5_OPERATIONAL_MODEL_1
+    ).upper()
+    model = _valid_mt5_operational_model(model)
+    st.session_state[MT5_OPERATIONAL_MODEL_KEY] = model
+    setter = getattr(service, "set_mt5_operational_model", None)
+    if callable(setter):
+        setter(model)
+    return model
+
+
+def _mt5_operational_model_short_label(model: str) -> str:
+    normalized = str(model or "").upper()
+    if normalized == MT5_OPERATIONAL_MODEL_2:
+        return "MODELO 2"
+    if normalized == MT5_OPERATIONAL_MODEL_ALL:
+        return "TODOS"
+    return "MODELO 1"
+
+
+def _mt5_operational_model_enabled(selected: str, model: str) -> bool:
+    normalized = str(selected or MT5_OPERATIONAL_MODEL_1).upper()
+    return normalized == MT5_OPERATIONAL_MODEL_ALL or normalized == model
+
+
+def _sync_mt5_entry_filter_mode_with_service(
+    service: DashboardService,
+    mode: str,
+) -> None:
+    limit = _mt5_entry_filter_mode_limit(mode)
+    setter = getattr(service, "_set_entry_filter_max_rules", None)
+    if callable(setter):
+        setter(limit)
+
+
+def _sync_current_mt5_entry_filter_mode_with_service(
+    service: DashboardService,
+) -> None:
+    _sync_mt5_entry_filter_mode_with_service(
+        service,
+        str(st.session_state.get(MT5_ENTRY_FILTER_MODE_KEY, "Top 2")),
+    )
+
+
+def _mt5_entry_filter_rules_by_pair(
+    service: DashboardService,
+    mode: str,
+) -> dict[str, list[dict[str, object]]]:
+    """Carrega filtros positivos NV-V ja calculados pelo Lab."""
+    cache = st.session_state.get(MT5_ENTRY_FILTER_RULES_CACHE_KEY)
+    if isinstance(cache, dict):
+        all_rules = dict(cache)
+    else:
+        research = service.get_mt5_research_report_snapshot()
+        all_rules = _mt5_entry_filter_rules_from_research(research)
+        st.session_state[MT5_ENTRY_FILTER_RULES_CACHE_KEY] = all_rules
+    limit = _mt5_entry_filter_mode_limit(mode)
+    if limit is None:
+        return {pair: list(rules) for pair, rules in all_rules.items()}
+    return {pair: list(rules)[:limit] for pair, rules in all_rules.items()}
+
+
+def _mt5_entry_filter_mode_limit(mode: str) -> int | None:
+    normalized = str(mode or "").upper()
+    if "TODOS" in normalized:
+        return None
+    if "3" in normalized:
+        return 3
+    if "2" in normalized:
+        return 2
+    return 1
+
+
+def _mt5_entry_filter_rules_from_research(
+    research: object,
+) -> dict[str, list[dict[str, object]]]:
+    """Seleciona filtros pela melhor Alpha do par, usando NV-V positivo."""
+    scenarios = list(getattr(research, "scenario_ranking", []) or [])
+    best_by_pair: dict[str, object] = {}
+    for scenario in scenarios:
+        pair = str(getattr(scenario, "pair", "") or "").upper()
+        if not pair:
+            continue
+        current = best_by_pair.get(pair)
+        if current is None or _historical_confirmation_rank(
+            scenario
+        ) > _historical_confirmation_rank(current):
+            best_by_pair[pair] = scenario
+    return {
+        pair: _mt5_entry_filter_rules_from_scenario(scenario)
+        for pair, scenario in best_by_pair.items()
+    }
+
+
+def _mt5_entry_filter_rules_from_scenario(
+    scenario: object,
+) -> list[dict[str, object]]:
+    metrics = dict(getattr(scenario, "lab_discrimination_metrics", {}) or {})
+    sample_size = int(getattr(scenario, "lab_confidence_sample_size", 0) or 0)
+    if sample_size < MT5_ENTRY_FILTER_MIN_SAMPLE_SIZE:
+        return []
+    rules: list[dict[str, object]] = []
+    for indicator, metric in metrics.items():
+        if indicator not in MT5_ENTRY_FILTER_SUPPORTED_INDICATORS:
+            continue
+        if not isinstance(metric, dict):
+            continue
+        try:
+            winner_rate = float(metric.get("winner_rate", 0.0) or 0.0)
+            loser_rate = float(metric.get("loser_rate", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        loser_edge = loser_rate - winner_rate
+        if loser_edge < MT5_ENTRY_FILTER_MIN_EDGE:
+            continue
+        rules.append(
+            {
+                "indicator": str(indicator),
+                "entry_edge": loser_edge,
+                "source": "NV-V",
+                "required_present": False,
+                "action": "EXIGIR_AUSENTE",
+                "winner_rate": winner_rate,
+                "loser_rate": loser_rate,
+                "sample_size": sample_size,
+            }
+        )
+    return sorted(
+        rules,
+        key=lambda rule: (
+            float(rule.get("entry_edge", 0.0) or 0.0),
+            int(rule.get("sample_size", 0) or 0),
+        ),
+        reverse=True,
+    )
 
 
 def exibir_mt5_history_comparison_dashboard(
@@ -1741,6 +2205,11 @@ def _mt5_trade_audit_row(
         "Lucro projetado app": f"{float(getattr(row, 'projected_profit', 0.0) or 0.0):.2f}",
         "Lucro realizado MT5": f"{float(getattr(row, 'mt5_realized_profit', 0.0) or 0.0):.2f}",
         "Prejuizo projetado app": f"{float(getattr(row, 'projected_loss', 0.0) or 0.0):.2f}",
+        "Modelo envio": _mt5_sender_model_label(row),
+        "Parametros": _mt5_trade_audit_parameters_label(row),
+        "Protecao/Saida usada": _mt5_trade_audit_exit_management_label(row),
+        "Modo dentro grupo": _mt5_trade_audit_exit_management_mode(row),
+        "Modo saida": _mt5_trade_audit_beta_mode_label(row),
         "Mercado aberto": _forex_market_session_status(row),
         "Lucro projetado aberto": _mt5_open_trade_money(row, "projected_profit"),
         "Custo aberto projetado": _mt5_open_trade_money(row, "mt5_projected_open_cost"),
@@ -1921,6 +2390,85 @@ def _mt5_trade_audit_stop_mode_label(row: object) -> str:
     return "READ_ONLY"
 
 
+def _mt5_trade_audit_exit_management_label(row: object) -> str:
+    """Resume se a gestao foi HOLD, protecao de stop ou saida completa."""
+    action = str(getattr(row, "position_manager_action", "") or "").upper()
+    status = str(getattr(row, "position_manager_status", "") or "").upper()
+    final_reason = str(getattr(row, "final_exit_reason", "") or "").upper()
+    executed_action = str(
+        getattr(row, "dynamic_exit_executed_action", "") or ""
+    ).upper()
+    candidate_stop = getattr(row, "dynamic_exit_candidate_stop", None)
+    stop_moved = bool(getattr(row, "stop_movel_acionado", False))
+
+    if (
+        action in {"FULL_EXIT", "EARLY_EXIT", "CLOSE_POSITION"}
+        or executed_action in {"FULL_EXIT", "EARLY_EXIT", "CLOSE_POSITION"}
+        or status in {"POSITION_CLOSED", "CLOSE_EXECUTED"}
+        or final_reason.startswith("EARLY_EXIT")
+        or final_reason.startswith("FULL_EXIT")
+    ):
+        return "FULL_EXIT"
+    if (
+        action in {"STOP_MOVED", "MOVE_TO_BREAK_EVEN", "ATR_TRAILING", "PROTECT_POSITION"}
+        or status in {"STOP_MOVED", "PROTECTED_POSITION"}
+        or candidate_stop is not None
+        or stop_moved
+    ):
+        return "PROTECT"
+    return "STOP_HOLD"
+
+
+def _mt5_trade_audit_exit_management_mode(row: object) -> str:
+    """Detalha o modo usado dentro de FULL_EXIT, PROTECT ou STOP_HOLD."""
+    group = _mt5_trade_audit_exit_management_label(row)
+    action = str(getattr(row, "position_manager_action", "") or "").upper()
+    final_reason = str(getattr(row, "final_exit_reason", "") or "").upper()
+    executed_action = str(
+        getattr(row, "dynamic_exit_executed_action", "") or ""
+    ).upper()
+    policy = str(getattr(row, "dynamic_exit_policy", "") or "").upper()
+    recommendation = str(getattr(row, "dynamic_exit_action", "") or "").upper()
+
+    if group == "FULL_EXIT":
+        for value in (final_reason, executed_action, action, recommendation):
+            if value and value not in {"N/D", "NONE", "HOLD_POSITION"}:
+                return value
+        return "FULL_EXIT_CANDIDATE"
+
+    if group == "PROTECT":
+        for value in (action, recommendation, policy):
+            if value in {
+                "BREAK_EVEN",
+                "MOVE_TO_BREAK_EVEN",
+                "ATR_TRAILING",
+                "ATR_TRAILING_STOP",
+                "TRAIL_BY_ATR",
+                "STOP_MOVED",
+                "PROTECT_POSITION",
+                "PROTECT_TO_BREAK_EVEN",
+            }:
+                return value
+        if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
+            return "STOP_CANDIDATO"
+        return "PROTECAO_ATIVA"
+
+    for value in (action, recommendation, policy):
+        if value and value not in {"N/D", "NONE"}:
+            return value
+    return "HOLD_POSITION"
+
+
+def _mt5_trade_audit_beta_mode_label(row: object) -> str:
+    """Mostra o modo Beta em portugues operacional curto."""
+    mode = str(getattr(row, "beta_mode", "PROTECT_ONLY") or "PROTECT_ONLY").upper()
+    if mode in {"PROTECT_ONLY", "PROTEGER_SOMENTE"}:
+        return "PROTEGER_SOMENTE"
+    if mode in {"ADAPTIVE_FULL_EXIT", "FULL_EXIT", "SAIDA_COMPLETA"}:
+        return "FULL_EXIT_ADAPTATIVO"
+    return mode
+
+
 def _mt5_trade_audit_position_manager_message(row: object) -> str:
     """Usa a mensagem auditavel do Position Manager quando ela existe."""
     message = str(getattr(row, "position_manager_message", "") or "").strip()
@@ -1938,6 +2486,58 @@ def _mt5_trade_audit_stop_message(row: object) -> str:
     if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
         return "Stop candidato calculado; execucao demo nao autorizada neste registro."
     return "Position Manager acompanha sem alterar SL neste registro."
+
+
+def _mt5_trade_audit_parameters_label(row: object) -> str:
+    """Resume os parametros gravados na ordem para conferencia no historico."""
+    pieces: list[str] = []
+    alpha = str(getattr(row, "alpha_id", "") or "").strip()
+    alpha_version = str(getattr(row, "alpha_version", "") or "").strip()
+    if alpha and alpha.upper() not in {"N/D", "NONE"}:
+        label = f"Alpha {alpha}"
+        if alpha_version and alpha_version.upper() not in {"N/D", "NONE"}:
+            label = f"{label} {alpha_version}"
+        pieces.append(label)
+
+    entry_setup = str(getattr(row, "entry_setup", "") or "").strip()
+    if entry_setup and entry_setup.upper() not in {"N/D", "NONE"}:
+        pieces.append(f"Entrada {entry_setup}")
+
+    beta = str(getattr(row, "beta_id", "") or "").strip()
+    beta_version = str(getattr(row, "beta_version", "") or "").strip()
+    beta_mode = str(getattr(row, "beta_mode", "") or "").strip()
+    if beta and beta.upper() not in {"N/D", "NONE"}:
+        beta_label = f"Beta {beta}"
+        if beta_version and beta_version.upper() not in {"N/D", "NONE"}:
+            beta_label = f"{beta_label} {beta_version}"
+        if beta_mode and beta_mode.upper() not in {"N/D", "NONE"}:
+            beta_label = f"{beta_label} ({beta_mode})"
+        pieces.append(beta_label)
+
+    timeframe = str(getattr(row, "session_timeframe", "") or "").strip()
+    if not timeframe or timeframe.upper() in {"N/D", "NONE"}:
+        timeframe = str(getattr(row, "timeframe", "") or "").strip()
+    if timeframe and timeframe.upper() not in {"N/D", "NONE"}:
+        pieces.append(f"TF {timeframe}")
+
+    risk_reward = _safe_float_or_none(getattr(row, "risk_reward", None))
+    if risk_reward is not None and risk_reward > 0:
+        pieces.append(f"RR {risk_reward:.2f}")
+
+    entry_price = _safe_float_or_none(getattr(row, "entry_price", None))
+    if entry_price is not None and entry_price > 0:
+        pieces.append(f"Entrada {_price_label(entry_price)}")
+    stop = _safe_float_or_none(getattr(row, "stop", None))
+    if stop is not None:
+        pieces.append(f"Stop {_price_label(stop)}")
+    target = _safe_float_or_none(getattr(row, "target", None))
+    if target is not None:
+        pieces.append(f"Alvo {_price_label(target)}")
+
+    trade_plan = str(getattr(row, "trade_plan_version", "") or "").strip()
+    if trade_plan and trade_plan.upper() not in {"N/D", "NONE"}:
+        pieces.append(trade_plan)
+    return " | ".join(pieces) if pieces else "N/D"
 
 
 def _mt5_signal_metrics_for_row(
@@ -1994,6 +2594,7 @@ def _exibir_robo_demo_mt5(
         _mark_ui_critical_interaction()
         _record_runtime_event("DEMO_ROBOT_ARM_REQUESTED")
         _apply_forex_session_filter_preference(service, selected_session_filter)
+        _sync_mt5_operational_model_with_service(service)
         _enable_mt5_demo_execution_for_session()
         armed_robot = service.arm_demo_robot(pair=selected_pair, timeframe=timeframe)
         online_allowed = _demo_robot_online_allowed(armed_robot)
@@ -2014,6 +2615,8 @@ def _exibir_robo_demo_mt5(
         data = _with_demo_robot_snapshot(service.get_dashboard_view_model(), armed_robot)
     if controls[3].button("Avaliar gatilho agora", key="mt5_demo_robot_evaluate"):
         _mark_ui_critical_interaction()
+        _sync_current_mt5_entry_filter_mode_with_service(service)
+        _sync_mt5_operational_model_with_service(service)
         if str(selected_pair or "").upper() in {"TODOS", "ALL"}:
             evaluated_robot = service.run_demo_robot_for_all(timeframe=timeframe)
         else:
@@ -2131,7 +2734,15 @@ def _exibir_robo_demo_mt5(
         )
     monitor_rows = [_demo_robot_monitor_row(row) for row in rows]
     if monitor_rows:
+        st.markdown("#### Monitor do Robo - Modelo 1 atual")
         _render_stable_readonly_table(monitor_rows)
+    model2_monitor_rows = [
+        _demo_robot_monitor_row(_model2_inverse_entry_row(row))
+        for row in rows
+    ]
+    if model2_monitor_rows:
+        st.markdown("#### Monitor do Robo - Modelo 2 espelho BETA2 RR1")
+        _render_stable_readonly_table(model2_monitor_rows)
     audit = list(getattr(robot, "audit_log", []) or [])
     if audit:
         _render_stable_readonly_table([_demo_robot_audit_row(row) for row in audit[-5:]])
@@ -2332,6 +2943,8 @@ def _run_demo_robot_online_cycle_if_due(
 
     current_robot = service.get_demo_robot_status()
     if not _demo_robot_online_allowed(current_robot):
+        current_robot = service.arm_demo_robot(pair=selected_pair, timeframe=timeframe)
+    if not _demo_robot_online_allowed(current_robot):
         st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
         st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = 0.0
         st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY] = (
@@ -2342,6 +2955,8 @@ def _run_demo_robot_online_cycle_if_due(
 
     _record_runtime_event("DEMO_ROBOT_ONLINE_CYCLE_STARTED")
     st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = now
+    _sync_current_mt5_entry_filter_mode_with_service(service)
+    _sync_mt5_operational_model_with_service(service)
     cycle_robot = service.run_online_demo_robot_cycle(
         pair=selected_pair,
         timeframe=timeframe,
@@ -2490,12 +3105,9 @@ def _exibir_entradas_teoricas_mt5(
     *,
     robot_online: bool = False,
     mt5_status: object = "N/D",
+    operational_model: str = MT5_OPERATIONAL_MODEL_1,
 ) -> None:
     """Exibe radar read-only de entrada teorica fora da grade virtualizada."""
-    st.subheader("Entrada Teorica MT5")
-    st.caption(
-        "Radar somente leitura: marca apenas entrada autorizada por regime de mercado."
-    )
     st.markdown(
         (
             "<div class='traderia-status-legend'>"
@@ -2507,12 +3119,48 @@ def _exibir_entradas_teoricas_mt5(
         unsafe_allow_html=True,
     )
     mt5_online = _mt5_connection_online(mt5_status)
+    st.subheader("Entrada Teorica MT5 - Modelo 1 atual")
+    st.caption(
+        "Alpha segue o proprio sinal. Tabela sempre visivel para conferencia; "
+        "envia ordem somente quando Modelo 1 ou Todos estiver selecionado."
+    )
     _render_stable_readonly_table(
         [
             _forex_theoretical_entry_row(
                 row,
                 robot_online=robot_online,
                 mt5_online=mt5_online,
+                execution_enabled=_mt5_operational_model_enabled(
+                    operational_model,
+                    MT5_OPERATIONAL_MODEL_1,
+                ),
+                operational_model=MT5_OPERATIONAL_MODEL_1,
+            )
+            for row in rows
+        ],
+        model_column="Modelo ativo",
+        decision_column="Direcao",
+        color_status_cells=True,
+    )
+    st.subheader("Entrada Teorica MT5 - Modelo 2 espelho BETA2")
+    st.caption(
+        "Modelo experimental: inverte BUY/SELL da Alpha, usa o stop original "
+        "como alvo e calcula stop simetrico com RR 1. Tabela sempre visivel "
+        "para conferencia; envia ordem somente quando Modelo 2 ou Todos estiver "
+        "selecionado."
+    )
+    _render_stable_readonly_table(
+        [
+            _forex_theoretical_entry_row(
+                _model2_inverse_entry_row(row),
+                robot_online=robot_online,
+                mt5_online=mt5_online,
+                execution_enabled=_mt5_operational_model_enabled(
+                    operational_model,
+                    MT5_OPERATIONAL_MODEL_2,
+                ),
+                model2_filter_trigger=True,
+                operational_model=MT5_OPERATIONAL_MODEL_2,
             )
             for row in rows
         ],
@@ -2530,8 +3178,9 @@ def _exibir_saidas_teoricas_mt5(
     """Exibe leitura teorica do BETA002 somente para posicoes abertas."""
     st.subheader("Saida Teorica MT5")
     st.caption(
-        "Somente leitura: acompanha posicoes abertas e mostra como o BETA002 "
-        "esta lendo HOLD, PROTECT ou FULL_EXIT no ciclo atual."
+        "Somente leitura: acompanha posicoes abertas usando o modelo registrado "
+        "na ordem. Modelo 1 mostra a saida do Lab; Modelo 2 mostra o espelho "
+        "BETA2 RR1 fixo definido por voce."
     )
     st.markdown(
         (
@@ -2573,8 +3222,16 @@ def _exibir_saidas_teoricas_mt5(
         for row in forex_rows
         if str(row.get("Par", "") or "").strip()
     }
+    fallback_operational_model = _sync_mt5_operational_model_with_service(service)
     rows = [
-        _mt5_theoretical_exit_row(row, signal_by_pair)
+        _mt5_theoretical_exit_row(
+            row,
+            signal_by_pair,
+            display_model=_mt5_theoretical_exit_effective_model(
+                row,
+                fallback_operational_model,
+            ),
+        )
         for row in _sorted_mt5_rows_like_mt5(open_rows)
     ]
     _render_mt5_theoretical_exit_table(rows)
@@ -2596,25 +3253,45 @@ def _is_valid_mt5_theoretical_exit_row(row: object) -> bool:
 def _mt5_theoretical_exit_row(
     row: object,
     signal_by_pair: dict[str, dict[str, object]],
+    *,
+    display_model: str | None = None,
 ) -> dict[str, object]:
     """Linha compacta da leitura BETA002 para posicao aberta."""
     pair = str(getattr(row, "symbol", "N/D") or "N/D").upper()
     signal = signal_by_pair.get(pair, {})
     scenario = _mt5_theoretical_exit_scenario(row)
+    effective_model = str(
+        display_model
+        or getattr(row, "operational_model", MT5_OPERATIONAL_MODEL_1)
+        or MT5_OPERATIONAL_MODEL_1
+    ).upper()
+    display_signal = _mt5_theoretical_exit_display_signal(signal, effective_model)
     return {
         "Par": pair,
-        "Lado": str(getattr(row, "mt5_side", None) or getattr(row, "side", "N/D")),
+        "Lado": _mt5_theoretical_exit_side_label(row, display_signal, effective_model),
         "TF Entrada Lab": signal.get("Periodo de tempo", "N/D"),
-        "TF Saida Beta": _mt5_beta_exit_timeframe(row),
+        "TF Saida Beta": _mt5_beta_exit_timeframe(
+            row,
+            signal.get("Periodo de tempo", "N/D"),
+        ),
         "Alpha": str(getattr(row, "alpha_id", signal.get("Alpha Lab", "N/D"))),
-        "Beta": str(getattr(row, "beta_id", signal.get("Beta Lab", "BETA001"))),
-        "Cenario BETA002": scenario,
-        "Gestao stop": _mt5_theoretical_exit_stop_management_label(row),
-        "Movimento SL": _mt5_theoretical_exit_stop_movement_label(row),
-        "Stop inicial": _optional_price(getattr(row, "stop", None)),
+        "Modelo entrada": _mt5_theoretical_exit_entry_model_label(row, display_signal),
+        "Beta": _mt5_theoretical_exit_beta_label(row, signal, effective_model),
+        "Modelo saida": _mt5_theoretical_exit_model_label(
+            row,
+            display_signal,
+            effective_model,
+        ),
+        "Cenario BETA002": _mt5_theoretical_exit_scenario_label(scenario, effective_model),
+        "Gestao stop": _mt5_theoretical_exit_stop_management_label(row, effective_model),
+        "Movimento SL": _mt5_theoretical_exit_stop_movement_label(row, effective_model),
+        "Modelo envio": _mt5_sender_model_label(row, effective_model),
+        "Stop inicial": _optional_price(
+            _mt5_theoretical_exit_stop_value(row, display_signal, effective_model)
+        ),
         "Stop atual": _optional_price(getattr(row, "mt5_stop", None)),
         "Stop candidato": _optional_price(
-            getattr(row, "dynamic_exit_candidate_stop", None)
+            _mt5_theoretical_exit_candidate_stop(row, effective_model)
         ),
         "Acao PM": str(getattr(row, "position_manager_action", "N/D")),
         "Status PM": str(getattr(row, "position_manager_status", "N/D")),
@@ -2632,7 +3309,9 @@ def _mt5_theoretical_exit_row(
         "Estrutura": str(getattr(row, "beta_structure_signal", "N/D")),
         "Preco atual": _optional_price(getattr(row, "mt5_price", None)),
         "Entrada": _optional_price(getattr(row, "entry_price", None)),
-        "Alvo": _optional_price(getattr(row, "target", None)),
+        "Alvo": _optional_price(
+            _mt5_theoretical_exit_target_value(row, display_signal, effective_model)
+        ),
         "Execucao": (
             "AUTORIZADA"
             if bool(getattr(row, "dynamic_exit_allowed_to_execute_demo", False))
@@ -2649,8 +3328,88 @@ def _mt5_theoretical_exit_row(
     }
 
 
-def _mt5_theoretical_exit_stop_management_label(row: object) -> str:
+def _mt5_theoretical_exit_effective_model(
+    row: object,
+    fallback_model: str = MT5_OPERATIONAL_MODEL_1,
+) -> str:
+    """Usa o modelo gravado na ordem; fallback apenas para posicao legada."""
+    row_model = str(getattr(row, "operational_model", "") or "").upper()
+    if row_model in {MT5_OPERATIONAL_MODEL_1, MT5_OPERATIONAL_MODEL_2}:
+        return row_model
+    fallback = str(fallback_model or MT5_OPERATIONAL_MODEL_1).upper()
+    if fallback in {MT5_OPERATIONAL_MODEL_1, MT5_OPERATIONAL_MODEL_2}:
+        return fallback
+    return MT5_OPERATIONAL_MODEL_1
+
+
+def _mt5_theoretical_exit_display_signal(
+    signal: dict[str, object],
+    display_model: str,
+) -> dict[str, object]:
+    if display_model == MT5_OPERATIONAL_MODEL_2 and signal:
+        return _model2_inverse_entry_row(signal, require_filter_trigger=False)
+    return signal
+
+
+def _mt5_theoretical_exit_side_label(
+    row: object,
+    display_signal: dict[str, object],
+    display_model: str,
+) -> str:
+    del display_signal, display_model
+    side = str(getattr(row, "mt5_side", None) or getattr(row, "side", "N/D")).upper()
+    if side in {"BUY", "COMPRAR", "COMPRA"}:
+        return "COMPRAR"
+    if side in {"SELL", "VENDER", "VENDA"}:
+        return "VENDER"
+    return side if side not in {"", "NONE"} else "N/D"
+
+
+def _mt5_theoretical_exit_stop_value(
+    row: object,
+    display_signal: dict[str, object],
+    display_model: str,
+) -> float | None:
+    if display_model == MT5_OPERATIONAL_MODEL_2 and display_signal:
+        return _price_from_display(display_signal.get("Stop Research"))
+    return _safe_float_or_none(getattr(row, "stop", None))
+
+
+def _mt5_theoretical_exit_target_value(
+    row: object,
+    display_signal: dict[str, object],
+    display_model: str,
+) -> float | None:
+    if display_model == MT5_OPERATIONAL_MODEL_2 and display_signal:
+        return _price_from_display(display_signal.get("Alvo Research"))
+    return _safe_float_or_none(getattr(row, "target", None))
+
+
+def _mt5_theoretical_exit_candidate_stop(
+    row: object,
+    display_model: str,
+) -> float | None:
+    if display_model == MT5_OPERATIONAL_MODEL_2:
+        return None
+    return _safe_float_or_none(getattr(row, "dynamic_exit_candidate_stop", None))
+
+
+def _mt5_theoretical_exit_scenario_label(
+    scenario: str,
+    display_model: str,
+) -> str:
+    if display_model == MT5_OPERATIONAL_MODEL_2:
+        return "RR1_FIXO"
+    return scenario
+
+
+def _mt5_theoretical_exit_stop_management_label(
+    row: object,
+    display_model: str = MT5_OPERATIONAL_MODEL_1,
+) -> str:
     """Classifica a gestao do stop com linguagem operacional curta."""
+    if display_model == MT5_OPERATIONAL_MODEL_2:
+        return "FIXO_RR1"
     if _mt5_theoretical_exit_stop_moved(row):
         return "SL MOVIDO"
     if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
@@ -2662,12 +3421,81 @@ def _mt5_theoretical_exit_stop_management_label(row: object) -> str:
     return "INICIAL"
 
 
-def _mt5_theoretical_exit_stop_movement_label(row: object) -> str:
+def _mt5_theoretical_exit_stop_movement_label(
+    row: object,
+    display_model: str = MT5_OPERATIONAL_MODEL_1,
+) -> str:
+    if display_model == MT5_OPERATIONAL_MODEL_2:
+        return "FIXO"
     if _mt5_theoretical_exit_stop_moved(row):
         return "JA_MOVEU"
     if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
         return "PODE_MOVER"
     return "NAO_MOVEU"
+
+
+def _mt5_theoretical_exit_beta_label(
+    row: object,
+    signal: dict[str, object],
+    display_model: str = MT5_OPERATIONAL_MODEL_1,
+) -> str:
+    if display_model == MT5_OPERATIONAL_MODEL_2:
+        return "BETA002"
+    row_beta = str(getattr(row, "beta_id", "") or "").upper()
+    signal_beta = str(signal.get("Beta Lab", "") or "").upper()
+    return signal_beta or row_beta or "BETA001"
+
+
+def _mt5_theoretical_exit_entry_model_label(
+    row: object,
+    signal: dict[str, object],
+) -> str:
+    for value in (
+        getattr(row, "entry_setup", None),
+        getattr(row, "active_model", None),
+        signal.get("Modelo Ativo"),
+        signal.get("Setup entrada"),
+    ):
+        text = str(value or "").strip()
+        if text and text.upper() not in {"N/D", "NONE"}:
+            return text
+    return "N/D"
+
+
+def _mt5_theoretical_exit_model_label(
+    row: object,
+    signal: dict[str, object],
+    display_model: str = MT5_OPERATIONAL_MODEL_1,
+) -> str:
+    if display_model == MT5_OPERATIONAL_MODEL_2:
+        return "BETA2_ESPELHO_RR1"
+    for value in (
+        getattr(row, "exit_setup", None),
+        getattr(row, "dynamic_exit_policy", None),
+        getattr(row, "stop_management", None),
+        signal.get("Modelo Saida"),
+        signal.get("Plano inicial"),
+    ):
+        text = str(value or "").strip()
+        if text and text.upper() not in {"N/D", "NONE"}:
+            return text
+    return "N/D"
+
+
+def _mt5_sender_model_label(
+    row: object,
+    display_model: str | None = None,
+) -> str:
+    model = str(
+        display_model
+        or getattr(row, "operational_model", "N/D")
+        or "N/D"
+    ).upper()
+    if model == MT5_OPERATIONAL_MODEL_1:
+        return "MODELO 1"
+    if model == MT5_OPERATIONAL_MODEL_2:
+        return "MODELO 2"
+    return model if model not in {"", "NONE"} else "N/D"
 
 
 def _mt5_theoretical_exit_stop_moved(row: object) -> bool:
@@ -2679,13 +3507,14 @@ def _mt5_theoretical_exit_stop_moved(row: object) -> bool:
     return bool(getattr(row, "stop_movel_acionado", False))
 
 
-def _mt5_beta_exit_timeframe(row: object) -> str:
+def _mt5_beta_exit_timeframe(row: object, lab_timeframe: object = "N/D") -> str:
     """Mostra o timeframe de leitura da saida, separado do TF de entrada."""
     beta = str(getattr(row, "beta_id", "BETA001") or "BETA001").upper()
     version = str(getattr(row, "beta_version", "") or "").upper()
     if beta == "BETA002" or version.startswith("M1_"):
         return "M1"
-    return "N/D"
+    fallback = str(lab_timeframe or "N/D").strip().upper()
+    return fallback if fallback and fallback not in {"N/D", "NONE"} else "N/D"
 
 
 def _mt5_theoretical_exit_scenario(row: object) -> str:
@@ -2718,6 +3547,12 @@ def _mt5_theoretical_exit_programming_label(row: object) -> str:
 
 def _mt5_theoretical_exit_cell_class(row: dict[str, object], column: str) -> str:
     """Destaca apenas variaveis alinhadas da leitura BETA002."""
+    if column == "Modelo envio":
+        model = str(row.get(column, "") or "").upper()
+        if model == "MODELO 2":
+            return "traderia-cell-model2"
+        if model == "MODELO 1":
+            return "traderia-cell-model1"
     if column in {"Gestao stop", "Movimento SL"}:
         return ""
     scenario = str(row.get("Cenario BETA002", "") or "").upper()
@@ -2785,11 +3620,37 @@ def _parse_number_text(value: object) -> float:
         return 0.0
 
 
+def _parse_optional_number_text(value: object) -> float | None:
+    text = str(value or "").strip()
+    if not text or text.upper() in {"N/D", "NA", "NONE", "NULL", "-"}:
+        return None
+    try:
+        return float(text.replace("%", "").replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+
+
 def _safe_float_or_none(value: object) -> float | None:
     try:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _model2_adx_value(row: dict[str, object]) -> float | None:
+    return _parse_optional_number_text(row.get("ADX"))
+
+
+def _model2_adx_low_present(row: dict[str, object]) -> bool:
+    adx = _model2_adx_value(row)
+    return adx is not None and adx > MT5_ENTRY_FILTER_ADX_LOW_THRESHOLD
+
+
+def _model2_adx_wait_reason(row: dict[str, object]) -> str:
+    adx = _model2_adx_value(row)
+    if adx is None:
+        return "Modelo 2 aguardando leitura ADX para validar ADX > 20."
+    return f"Modelo 2 aguardando ADX > 20. ADX atual: {adx:.2f}."
 
 
 def _parse_percent_text(value: object) -> float:
@@ -2800,39 +3661,136 @@ def _parse_percent_text(value: object) -> float:
         return 0.0
 
 
+def _model2_inverse_entry_row(
+    row: dict[str, object],
+    *,
+    require_filter_trigger: bool = True,
+) -> dict[str, object]:
+    """Cria leitura visual do Modelo 2 sem alterar a linha original do Lab."""
+    direction = str(row.get("Direcao Teorica", "WAIT") or "WAIT").upper()
+    if require_filter_trigger and not _model2_adx_low_present(row):
+        cloned = dict(row)
+        cloned["Modelo Ativo"] = f"MODELO2_AGUARDA_ADX_FORTE | {row.get('Modelo Ativo', 'N/D')}"
+        cloned["Direcao Teorica"] = "WAIT"
+        cloned["Direcao"] = "WAIT"
+        cloned["Plano Research"] = row.get("Plano Research", "SEM_PLANO")
+        cloned["Codigo Rejeicao"] = row.get("Codigo Rejeicao", "N/D")
+        cloned["Modelo Saida"] = "BETA2_ESPELHO_RR1"
+        cloned["Motivo Entrada"] = _model2_adx_wait_reason(row)
+        return cloned
+    if direction not in {"BUY", "SELL"}:
+        cloned = dict(row)
+        cloned["Modelo Ativo"] = f"MODELO2_ESPELHO_BETA2 | {row.get('Modelo Ativo', 'N/D')}"
+        cloned["Direcao Teorica"] = "WAIT"
+        cloned["Direcao"] = "WAIT"
+        cloned["Plano Research"] = row.get("Plano Research", "SEM_PLANO")
+        cloned["Codigo Rejeicao"] = row.get("Codigo Rejeicao", "SEM_DIRECAO_ALPHA")
+        cloned["Modelo Saida"] = "BETA2_ESPELHO_RR1"
+        cloned["Motivo Entrada"] = "Modelo 2 aguardando BUY/SELL da Alpha."
+        return cloned
+    entry = _price_from_display(row.get("Preco Teorico"))
+    original_stop = _price_from_display(row.get("Stop Research"))
+    cloned = dict(row)
+    inverse = "SELL" if direction == "BUY" else "BUY"
+    cloned["Modelo Ativo"] = f"MODELO2_ESPELHO_BETA2 | {row.get('Modelo Ativo', 'N/D')}"
+    cloned["Direcao Teorica"] = inverse
+    cloned["Direcao"] = "VENDER" if inverse == "SELL" else "COMPRAR"
+    cloned["Modelo Saida"] = "BETA2_ESPELHO_RR1"
+    cloned["RR Research"] = "1.00"
+    cloned["RR Minimo"] = "1.00"
+    cloned["Motivo Entrada"] = (
+        f"Modelo 2: Alpha {direction}; entrada espelhada {inverse}. "
+        "Alvo no stop original e risco RR 1."
+    )
+    if entry is None or original_stop is None:
+        cloned["Plano Research"] = "SEM_PLANO"
+        cloned["Codigo Rejeicao"] = "MODELO2_PRECO_OU_STOP_AUSENTE"
+        return cloned
+    distance = abs(entry - original_stop)
+    if distance <= 0:
+        cloned["Plano Research"] = "SEM_PLANO"
+        cloned["Codigo Rejeicao"] = "MODELO2_DISTANCIA_ZERO"
+        return cloned
+    inverse_stop = entry + distance if inverse == "SELL" else entry - distance
+    inverse_target = original_stop
+    cloned["Stop Research"] = _format_model2_price(inverse_stop)
+    cloned["Alvo Research"] = _format_model2_price(inverse_target)
+    cloned["Plano Research"] = row.get("Plano Research", "PLANO_VALIDO")
+    cloned["Codigo Rejeicao"] = row.get("Codigo Rejeicao", "N/D")
+    return cloned
+
+
+def _format_model2_price(value: float) -> str:
+    return f"{float(value):.5f}".rstrip("0").rstrip(".")
+
+
 def _forex_theoretical_entry_row(
     row: dict[str, object],
     *,
     robot_online: bool = False,
     mt5_online: bool = False,
+    execution_enabled: bool = True,
+    model2_filter_trigger: bool = False,
+    operational_model: str = MT5_OPERATIONAL_MODEL_1,
 ) -> dict[str, object]:
     entry_gate = _entry_signal_gate(row)
     plan_gate = _entry_plan_gate(row)
     zone_gate = _entry_zone_gate(row)
     robot_gate = _entry_robot_gate(robot_online)
     mt5_gate = _entry_mt5_gate(mt5_online)
+    filter_gate = (
+        _entry_filter_gate_for_model2(row)
+        if model2_filter_trigger
+        else _entry_filter_gate(row)
+    )
+    regime_gate = _entry_regime_gate(row)
     price_gate = _entry_price_gate(row)
     position_gate = _entry_position_gate(row)
+    duplicate_gate = _entry_duplicate_gate(
+        row,
+        operational_model=operational_model,
+    )
+    position_side = _entry_open_position_side(row)
+    theoretical_direction = str(row.get("Direcao Teorica", "WAIT") or "WAIT").upper()
+    position_alpha = _entry_open_position_alpha(row)
+    position_match = _entry_position_theoretical_match(
+        position_side,
+        theoretical_direction,
+    )
     send_gate = _entry_send_gate(
         entry_gate=entry_gate,
         plan_gate=plan_gate,
         zone_gate=zone_gate,
         robot_gate=robot_gate,
         mt5_gate=mt5_gate,
+        filter_gate=filter_gate,
+        duplicate_gate=duplicate_gate,
+        regime_gate=regime_gate,
         price_gate=price_gate,
         position_gate=position_gate,
     )
+    if not execution_enabled:
+        send_gate = "MONITOR: outro modelo"
     return {
         "Par": row.get("Par", "N/D"),
         "Timeframe": row.get("Periodo de tempo", row.get("Timeframe", "N/D")),
+        "Envio resumo": send_gate,
+        "Duplicidade": duplicate_gate,
         "Sinal": entry_gate,
         "Plano": plan_gate,
         "Zona gate": zone_gate,
         "Robo": robot_gate,
         "MT5": mt5_gate,
+        "Filtro": filter_gate,
+        "Regime": regime_gate,
         "Plano vigente": price_gate,
         "Posicao": position_gate,
         "Envio": send_gate,
+        "Posicao aberta": "SIM" if position_side != "N/D" else "NAO",
+        "Direcao posicao": position_side,
+        "Alpha posicao": position_alpha,
+        "Sinal teorico atual": theoretical_direction,
+        "Confere posicao": position_match,
         "Modelo ativo": row.get("Modelo Ativo", "N/D"),
         "Zona": row.get("Zona Operacional", "N/D"),
         "Suporte": row.get("Suporte", "N/D"),
@@ -2856,6 +3814,50 @@ def _forex_theoretical_entry_row(
     }
 
 
+def _entry_open_position_side(row: dict[str, object]) -> str:
+    """Extrai o lado da posicao aberta quando a linha ja trouxe esse contexto."""
+    for key in ("Direcao Posicao", "Posicao Direcao", "Lado MT5", "Posicao MT5"):
+        value = str(row.get(key, "") or "").strip().upper()
+        if value in {"BUY", "SELL", "COMPRAR", "VENDER"}:
+            return "BUY" if value == "COMPRAR" else "SELL" if value == "VENDER" else value
+    reason = str(row.get("Motivo Entrada", "") or "").upper()
+    if "POSICAO ABERTA" not in reason and "POSI" not in reason:
+        return "N/D"
+    if "BUY" in reason or "COMPR" in reason:
+        return "BUY"
+    if "SELL" in reason or "VEND" in reason:
+        return "SELL"
+    return "N/D"
+
+
+def _entry_open_position_alpha(row: dict[str, object]) -> str:
+    """Mostra a Alpha da posicao quando conhecida; senao usa a Alpha vigente."""
+    for key in ("Alpha Posicao", "Alpha MT5", "Alpha Ordem", "Alpha Lab"):
+        value = str(row.get(key, "") or "").strip().upper()
+        if value and value not in {"N/D", "NONE"}:
+            return value
+    if _entry_open_position_side(row) != "N/D":
+        value = str(row.get("Alpha Lab", "") or "").strip().upper()
+        return value if value else "N/D"
+    return "N/D"
+
+
+def _entry_position_theoretical_match(
+    position_side: str,
+    theoretical_direction: str,
+) -> str:
+    """Compara a posicao aberta com a leitura teorica atual."""
+    position = str(position_side or "N/D").upper()
+    theoretical = str(theoretical_direction or "WAIT").upper()
+    if position not in {"BUY", "SELL"}:
+        return "SEM_POSICAO"
+    if theoretical not in {"BUY", "SELL"}:
+        return "DIVERGIU: sinal atual WAIT"
+    if position == theoretical:
+        return "BATE"
+    return f"DIVERGIU: posicao {position} x sinal {theoretical}"
+
+
 def _mt5_connection_online(value: object) -> bool:
     status = str(value or "").strip().upper()
     return status in {"ONLINE", "CONECTADO", "CONNECTED", "OK"}
@@ -2873,6 +3875,8 @@ def _entry_plan_gate(row: dict[str, object]) -> str:
     if status == "PLANO_VALIDO":
         return "OK"
     reason = str(row.get("Codigo Rejeicao", "") or "").strip()
+    if reason.upper() in {"MODELO2_AGUARDA_ADX_BAIXO", "MODELO2_AGUARDA_ADX_FORTE"}:
+        return "AGUARDA: ADX <= 20"
     if reason and reason.upper() != "N/D":
         return f"BLOQ: {reason}"
     return f"BLOQ: {status or 'SEM_PLANO'}"
@@ -2893,6 +3897,59 @@ def _entry_robot_gate(robot_online: bool) -> str:
 
 def _entry_mt5_gate(mt5_online: bool) -> str:
     return "OK" if mt5_online else "AGUARDA: MT5 offline"
+
+
+def _entry_filter_gate(row: dict[str, object]) -> str:
+    """Gate visual leve para filtros de entrada NV-V vindos do Lab."""
+    status = str(row.get("Filtro entrada", "") or "").strip().upper()
+    reason = str(row.get("Filtro motivo", "") or "").strip()
+    if not status:
+        return "OK"
+    if status == "OK":
+        return "OK"
+    if status in {"BLOQUEADO", "REJEITADO"}:
+        return f"BLOQ: {reason or 'filtro NV-V'}"
+    if status in {"AGUARDA", "N/D", "INDISPONIVEL"}:
+        return f"AGUARDA: {reason or 'filtro NV-V'}"
+    return "OK"
+
+
+def _entry_filter_gate_for_model2(row: dict[str, object]) -> str:
+    """No Modelo 2, somente ADX > 20 vira gatilho de inversao."""
+    adx = _model2_adx_value(row)
+    if adx is None:
+        return "AGUARDA: leitura ADX indisponivel"
+    if adx > MT5_ENTRY_FILTER_ADX_LOW_THRESHOLD:
+        return f"OK: gatilho inversao (ADX {adx:.2f} > 20)"
+    return f"AGUARDA: ADX {adx:.2f} <= 20"
+
+
+def _entry_regime_gate(row: dict[str, object]) -> str:
+    """Mostra o mesmo gate de regime usado pelo robo antes do envio."""
+    if str(row.get("Direcao Teorica", "WAIT") or "WAIT").upper() not in {
+        "BUY",
+        "SELL",
+    }:
+        return "AGUARDA: sem direcao"
+    signal = SimpleNamespace(
+        decision=str(row.get("Direcao Teorica", "WAIT") or "WAIT").upper(),
+        trend=row.get("Tendencia"),
+        last_price=_price_from_display(row.get("Ultimo preco")),
+        entry_price=_price_from_display(row.get("Preco Teorico")),
+        momentum=_parse_percent_text(row.get("Momentum")),
+        rsi=_parse_number_text(row.get("RSI")),
+        short_average=_price_from_display(row.get("Media curta")),
+        long_average=_price_from_display(row.get("Media longa")),
+        ema_fast=_price_from_display(row.get("EMA rapida")),
+        ema_mid=_price_from_display(row.get("EMA principal")),
+        atr=_parse_number_text(row.get("ATR")),
+        support=_price_from_display(row.get("Suporte")),
+        resistance=_price_from_display(row.get("Resistencia")),
+    )
+    result = MT5_ENTRY_REGIME_PIPELINE.evaluate(signal)
+    if result.authorized:
+        return "OK"
+    return f"BLOQ: {result.block_reason or result.message or 'REGIME'}"
 
 
 def _entry_price_gate(row: dict[str, object]) -> str:
@@ -2918,6 +3975,135 @@ def _entry_position_gate(row: dict[str, object]) -> str:
     if "POSICAO ABERTA" in reason or "POSIÇÃO ABERTA" in reason:
         return "BLOQUEADO"
     return "OK"
+
+
+def _entry_duplicate_gate(
+    row: dict[str, object],
+    *,
+    operational_model: str,
+) -> str:
+    """Mostra na entrada teorica o bloqueio de plano ja avaliado."""
+    if _mt5_entry_plan_already_evaluated(row, operational_model):
+        return "BLOQ: plano ja avaliado"
+    return "OK"
+
+
+def _mt5_entry_plan_already_evaluated(
+    row: dict[str, object],
+    operational_model: str,
+) -> bool:
+    current_key = _mt5_entry_execution_key(row)
+    if current_key is None:
+        return False
+    current_identity_tokens = _mt5_entry_plan_identity_tokens(row, operational_model)
+    for record in _read_mt5_demo_execution_records():
+        if not _mt5_demo_record_counts_as_plan_evaluation(record):
+            continue
+        if str(record.get("operational_model") or "").upper() != operational_model:
+            continue
+        if _mt5_demo_record_execution_key(record) != current_key:
+            continue
+        plan_identity = str(record.get("plan_identity") or "").upper()
+        if current_identity_tokens and not all(
+            token in plan_identity for token in current_identity_tokens
+        ):
+            continue
+        return True
+    return False
+
+
+def _mt5_entry_execution_key(
+    row: dict[str, object],
+) -> tuple[str, str, float, float, float] | None:
+    symbol = str(row.get("Par", "") or "").upper()
+    side = str(row.get("Direcao Teorica", "") or "").upper()
+    entry = _price_from_display(row.get("Preco Teorico"))
+    stop = _price_from_display(row.get("Stop Research"))
+    target = _price_from_display(row.get("Alvo Research"))
+    if (
+        not symbol
+        or side not in {"BUY", "SELL"}
+        or entry is None
+        or stop is None
+        or target is None
+    ):
+        return None
+    return (
+        symbol,
+        side,
+        round(float(entry), 5),
+        round(float(stop), 5),
+        round(float(target), 5),
+    )
+
+
+def _mt5_demo_record_execution_key(
+    record: dict[str, object],
+) -> tuple[str, str, float, float, float] | None:
+    symbol = str(record.get("symbol", "") or "").upper()
+    side = str(record.get("side", "") or "").upper()
+    entry = _safe_float_or_none(record.get("entry_price"))
+    stop = _safe_float_or_none(record.get("stop"))
+    target = _safe_float_or_none(record.get("target"))
+    if (
+        not symbol
+        or side not in {"BUY", "SELL"}
+        or entry is None
+        or stop is None
+        or target is None
+    ):
+        return None
+    return (
+        symbol,
+        side,
+        round(float(entry), 5),
+        round(float(stop), 5),
+        round(float(target), 5),
+    )
+
+
+def _mt5_entry_plan_identity_tokens(
+    row: dict[str, object],
+    operational_model: str,
+) -> list[str]:
+    parts = [
+        row.get("Par"),
+        row.get("Periodo de tempo", row.get("Timeframe")),
+        row.get("Modelo Ativo"),
+        row.get("Plano Research"),
+        operational_model,
+    ]
+    return [
+        str(part or "").upper()
+        for part in parts
+        if str(part or "").strip()
+        and str(part or "").upper() not in {"N/D", "NONE", "SEM_PLANO"}
+    ]
+
+
+def _mt5_demo_record_counts_as_plan_evaluation(record: dict[str, object]) -> bool:
+    return bool(record.get("accepted", False))
+
+
+def _read_mt5_demo_execution_records() -> list[dict[str, object]]:
+    try:
+        lines = MT5_DEMO_EXECUTION_LOG_PATH.read_text(
+            encoding="utf-8",
+            errors="ignore",
+        ).splitlines()
+    except OSError:
+        return []
+    records: list[dict[str, object]] = []
+    for line in lines[-2000:]:
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            records.append(payload)
+    return records
 
 
 def _entry_send_gate(
@@ -2958,6 +4144,9 @@ def _entry_send_gate(
     zone_gate: str,
     robot_gate: str,
     mt5_gate: str,
+    filter_gate: str,
+    duplicate_gate: str,
+    regime_gate: str,
     price_gate: str,
     position_gate: str,
 ) -> str:
@@ -2967,7 +4156,10 @@ def _entry_send_gate(
         ("Zona", zone_gate),
         ("Robo", robot_gate),
         ("MT5", mt5_gate),
+        ("Filtro", filter_gate),
+        ("Duplicidade", duplicate_gate),
         ("Plano vigente", price_gate),
+        ("Regime", regime_gate),
         ("Posicao", position_gate),
     ]
     for name, gate in gates:
@@ -2983,7 +4175,7 @@ def _entry_send_gate(
 
 def _gate_status(value: object) -> str:
     text = str(value or "").strip().upper()
-    if text in {"OK", "PRONTO", "SIM", "APROVADO"}:
+    if text.startswith("OK") or text in {"PRONTO", "SIM", "APROVADO"}:
         return "ok"
     if text.startswith("BLOQ") or text in {"BLOQUEADO", "REJEITADO"}:
         return "blocked"
@@ -3224,9 +4416,14 @@ def _forex_main_table_columns() -> list[str]:
         "TF vencedor Lab",
         "Alpha Lab",
         "Beta Lab",
+        "Modo Beta",
         "Modelo Ativo",
         "Fonte Config",
         "Timeframe MT5 lido",
+        "Filtro entrada",
+        "Filtro parametro",
+        "Filtro leitura",
+        "Filtro motivo",
         "Ultimo preco",
         "Horario",
         "Tendencia",
@@ -3239,7 +4436,13 @@ def _forex_main_table_columns() -> list[str]:
         "Momentum min Lab",
         "Volatilidade min Lab",
         "ADX min Lab",
+        "Regime ATR Lab",
+        "Largura Bollinger Lab",
+        "Z-Score min Lab",
+        "Volume factor Lab",
+        "Pullback tol Lab",
         "Donchian periodo Lab",
+        "Breakout buffer Lab",
         "Indicadores do modelo",
         "Momentum",
         "Volatilidade",
@@ -3267,6 +4470,12 @@ def _forex_main_table_columns() -> list[str]:
         "Z-Score",
         "Suporte",
         "Resistencia",
+        "Swing high",
+        "Swing low",
+        "Spread",
+        "Spread media",
+        "Slippage estimado",
+        "Velocidade preco",
         "Decisao",
         "Entrada Teorica",
         "Candle do Sinal",
@@ -3503,6 +4712,16 @@ def _inject_dashboard_css() -> None:
             background: #DDF7E3 !important;
             color: #0F3D24 !important;
             font-weight: 800;
+        }
+        .traderia-stable-table td.traderia-cell-model1 {
+            background: #DDF7E3 !important;
+            color: #0F3D24 !important;
+            font-weight: 850;
+        }
+        .traderia-stable-table td.traderia-cell-model2 {
+            background: #CCFF00 !important;
+            color: #163300 !important;
+            font-weight: 900;
         }
         .traderia-stable-table td.traderia-cell-wait {
             background: #FEF3C7 !important;
@@ -3998,8 +5217,26 @@ def _latest_research_execution_row(forex: object) -> dict[str, object]:
 def _forex_signal_row(
     row: object,
     timeframe_result: object | None = None,
+    filter_rules: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     lab_parameters = dict(getattr(row, "lab_parameters", {}) or {})
+    if filter_rules is not None:
+        filter_gate = _forex_entry_filter_summary(row, filter_rules)
+    elif hasattr(row, "entry_filter_status"):
+        filter_gate = {
+            "status": str(getattr(row, "entry_filter_status", "OK") or "OK"),
+            "parameter": str(
+                getattr(row, "entry_filter_parameter", "SEM_FILTRO_ROBUSTO")
+                or "SEM_FILTRO_ROBUSTO"
+            ),
+            "reading": str(getattr(row, "entry_filter_reading", "N/D") or "N/D"),
+            "reason": str(
+                getattr(row, "entry_filter_reason", "Sem filtro NV-V robusto aplicado.")
+                or "Sem filtro NV-V robusto aplicado."
+            ),
+        }
+    else:
+        filter_gate = _forex_entry_filter_summary(row, [])
     return {
         "Par": getattr(row, "pair", "N/D"),
         "Status": getattr(row, "status", "N/D"),
@@ -4023,6 +5260,10 @@ def _forex_signal_row(
         "Modo Beta": getattr(row, "beta_mode", "PROTECT_ONLY"),
         "Modelo Ativo": getattr(row, "active_model", "TREND_MOMENTUM"),
         "Fonte Config": getattr(row, "lab_configuration_source", "DEFAULT"),
+        "Filtro entrada": filter_gate["status"],
+        "Filtro parametro": filter_gate["parameter"],
+        "Filtro leitura": filter_gate["reading"],
+        "Filtro motivo": filter_gate["reason"],
         "ICT": f"{float(getattr(row, 'lab_ict_score', 0.0) or 0.0):.2f}",
         "Classe ICT": getattr(row, "lab_ict_grade", "E"),
         "Status ICT": getattr(row, "lab_ict_status", "REJEITADA"),
@@ -4211,6 +5452,143 @@ def _forex_signal_row(
     }
 
 
+def _forex_entry_filter_summary(
+    row: object,
+    filter_rules: list[dict[str, object]],
+) -> dict[str, str]:
+    """Resume filtros positivos NV-V sem recalcular historico."""
+    if not filter_rules:
+        return {
+            "status": "OK_SEM_FILTRO",
+            "parameter": "SEM_FILTRO_ROBUSTO",
+            "reading": "N/D",
+            "reason": (
+                "Sem filtro NV-V robusto para o par "
+                f"(min {MT5_ENTRY_FILTER_MIN_EDGE:.0%}, "
+                f"amostra {MT5_ENTRY_FILTER_MIN_SAMPLE_SIZE})."
+            ),
+        }
+    blocked: list[str] = []
+    waiting: list[str] = []
+    passed: list[str] = []
+    for rule in filter_rules:
+        indicator = str(rule.get("indicator", "N/D") or "N/D")
+        present = _forex_entry_filter_indicator_present(row, indicator)
+        required_present = bool(rule.get("required_present", True))
+        label = _forex_entry_filter_rule_label(rule)
+        if present is None:
+            waiting.append(label)
+        elif present == required_present:
+            passed.append(label)
+        else:
+            blocked.append(label)
+    if blocked:
+        return {
+            "status": "BLOQUEADO",
+            "parameter": _forex_entry_filter_parameter_text(filter_rules),
+            "reading": " | ".join(passed + waiting + blocked),
+            "reason": "Filtro NV-V presente: " + " | ".join(blocked),
+        }
+    if waiting:
+        return {
+            "status": "AGUARDA",
+            "parameter": _forex_entry_filter_parameter_text(filter_rules),
+            "reading": " | ".join(passed + waiting),
+            "reason": "Leitura indisponivel para: " + " | ".join(waiting),
+        }
+    return {
+        "status": "OK",
+        "parameter": _forex_entry_filter_parameter_text(filter_rules),
+        "reading": " | ".join(passed),
+        "reason": "Todos os filtros positivos NV-V estao ausentes.",
+    }
+
+
+def _forex_entry_filter_parameter_text(
+    filter_rules: list[dict[str, object]],
+) -> str:
+    if not filter_rules:
+        return "SEM_FILTRO_NV_V"
+    return " | ".join(
+        (
+            f"{rule.get('indicator', 'N/D')} "
+            f"{rule.get('source', 'NV-V')} "
+            f"{_optional_signed_percent(rule.get('entry_edge', 0.0))} "
+            f"{_entry_filter_action_text(rule)}"
+        )
+        for rule in filter_rules
+    )
+
+
+def _forex_entry_filter_rule_label(rule: dict[str, object]) -> str:
+    return (
+        f"{rule.get('indicator', 'N/D')} "
+        f"V {_optional_percent(rule.get('winner_rate', 0.0))} x "
+        f"NV {_optional_percent(rule.get('loser_rate', 0.0))} | "
+        f"{rule.get('source', 'NV-V')} "
+        f"{_optional_signed_percent(rule.get('entry_edge', 0.0))} | "
+        f"{_entry_filter_action_text(rule)}"
+    )
+
+
+def _entry_filter_action_text(rule: dict[str, object]) -> str:
+    if bool(rule.get("required_present", True)):
+        return "liberar se presente"
+    return "liberar se ausente"
+
+
+def _forex_entry_filter_indicator_present(
+    row: object,
+    indicator: str,
+) -> bool | None:
+    """Avalia somente filtros que existem na leitura leve atual do Forex."""
+    normalized = _normalize_filter_indicator_name(indicator)
+    direction = str(
+        getattr(row, "theoretical_entry_direction", getattr(row, "decision", "WAIT"))
+        or "WAIT"
+    ).upper()
+    if normalized == "ADX BAIXO":
+        adx = _optional_float(getattr(row, "adx", None))
+        return None if adx is None else adx < MT5_ENTRY_FILTER_ADX_LOW_THRESHOLD
+    if normalized == "ATR EM QUEDA":
+        atr = _optional_float(getattr(row, "atr", None))
+        atr_average = _optional_float(getattr(row, "atr_average", None))
+        if atr is None or atr_average is None:
+            return None
+        return atr < atr_average
+    if normalized == "ATR SUBINDO":
+        atr = _optional_float(getattr(row, "atr", None))
+        atr_average = _optional_float(getattr(row, "atr_average", None))
+        if atr is None or atr_average is None:
+            return None
+        return atr > atr_average
+    if normalized == "MOMENTUM CONTRA":
+        momentum = _optional_float(getattr(row, "momentum", None))
+        if momentum is None or direction not in {"BUY", "SELL"}:
+            return None
+        return momentum < 0.0 if direction == "BUY" else momentum > 0.0
+    if normalized == "MACD HIST DIVERGENTE":
+        macd = _optional_float(getattr(row, "macd", None))
+        macd_signal = _optional_float(getattr(row, "macd_signal", None))
+        if macd is None or macd_signal is None or direction not in {"BUY", "SELL"}:
+            return None
+        return macd < macd_signal if direction == "BUY" else macd > macd_signal
+    return None
+
+
+def _normalize_filter_indicator_name(value: object) -> str:
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    ascii_text = "".join(char for char in text if not unicodedata.combining(char))
+    return " ".join(ascii_text.upper().replace("_", " ").split())
+
+
+def _optional_signed_percent(value: object) -> str:
+    numeric = _optional_float(value)
+    if numeric is None:
+        return "N/D"
+    return f"{numeric:+.2%}"
+
+
 def _styled_forex_signal_rows(rows: list[object]) -> object:
     """Aplica cor institucional por decisao sem alterar os dados."""
     pd = __import__("pandas")
@@ -4250,8 +5628,13 @@ def _forex_active_indicator_columns(model: object) -> set[str]:
         "Periodo de tempo",
         "Alpha Lab",
         "Beta Lab",
+        "Modo Beta",
         "Modelo Ativo",
         "Fonte Config",
+        "Filtro entrada",
+        "Filtro parametro",
+        "Filtro leitura",
+        "Filtro motivo",
         "ICT",
         "Classe ICT",
         "Status ICT",
@@ -4902,11 +6285,22 @@ def exibir_research_dashboard(service: DashboardService, data: object) -> None:
     with st.container(border=True):
         st.subheader("Laboratorio de Pesquisa Forex")
         exibir_research_lab_actions(service)
+        show_full_lab_audit = bool(
+            st.session_state.get("research_show_full_lab_audit", False)
+        )
+        research_snapshot = _research_lab_snapshot_for_display(
+            service,
+            include_full_audit=show_full_lab_audit,
+        )
         data = replace(
             service.get_light_dashboard_view_model(),
-            mt5_heuristic_research=service.get_mt5_research_constants(),
+            mt5_heuristic_research=research_snapshot,
         )
-        exibir_research_lab_data(service, data)
+        exibir_research_lab_data(
+            service,
+            data,
+            include_full_audit=show_full_lab_audit,
+        )
 
 
 def exibir_dataset_ativo(data: object) -> None:
@@ -5256,16 +6650,55 @@ def exibir_research_lab(service: DashboardService) -> None:
         value=False,
         key="research_show_full_lab_audit",
     )
-    research_snapshot = (
-        service.get_mt5_research_report_snapshot()
-        if show_full_lab_audit
-        else service.get_mt5_research_constants()
+    research_snapshot = _research_lab_snapshot_for_display(
+        service,
+        include_full_audit=show_full_lab_audit,
     )
     data = replace(
         service.get_light_dashboard_view_model(),
         mt5_heuristic_research=research_snapshot,
     )
     exibir_research_lab_data(service, data, include_full_audit=show_full_lab_audit)
+
+
+def _research_lab_snapshot_for_display(
+    service: DashboardService,
+    *,
+    include_full_audit: bool = False,
+) -> object:
+    """Prioriza o ultimo calculo valido da sessao para alimentar a planilha visual."""
+    calculated = st.session_state.get(MT5_LAB_CALCULATION_SNAPSHOT_KEY)
+    if calculated is not None:
+        persisted = service.get_mt5_research_report_snapshot()
+        if _research_snapshot_evidence_count(
+            persisted
+        ) > _research_snapshot_evidence_count(calculated):
+            st.session_state[MT5_LAB_CALCULATION_SNAPSHOT_KEY] = persisted
+            return persisted
+        return calculated
+    persisted = service.get_mt5_research_report_snapshot()
+    constants = service.get_mt5_research_constants()
+    if _research_snapshot_evidence_count(persisted) > _research_snapshot_evidence_count(
+        constants
+    ):
+        return persisted
+    if include_full_audit:
+        return persisted
+    return constants
+
+
+def _research_snapshot_evidence_count(research: object | None) -> int:
+    """Conta amostras historicas para detectar snapshot visual antigo."""
+    if research is None:
+        return 0
+    scenarios = list(getattr(research, "scenario_ranking", []) or [])
+    if scenarios:
+        return sum(
+            int(getattr(scenario, "lab_confidence_sample_size", 0) or 0)
+            for scenario in scenarios
+        )
+    rows = list(getattr(research, "rows", []) or [])
+    return sum(int(getattr(row, "sample_size", 0) or 0) for row in rows)
 
 
 def exibir_research_lab_actions(service: DashboardService) -> None:
@@ -5406,6 +6839,7 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
             timeframe="MULTI",
             progress_callback=on_calculation_progress,
         )
+        st.session_state[MT5_LAB_CALCULATION_SNAPSHOT_KEY] = research
         candles_loaded = int(getattr(research, "candles_loaded", 0) or 0)
         rows_count = len(list(getattr(research, "rows", []) or []))
         scenarios_count = len(list(getattr(research, "scenario_ranking", []) or []))
@@ -5431,6 +6865,8 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
             f"{candles_loaded} candles em {rows_count} pares e "
             f"{scenarios_count} cenarios Alpha+Beta multi-TF."
         )
+    if st.session_state.get(MT5_LAB_CALCULATION_SNAPSHOT_KEY) is not None:
+        colunas[1].caption("Planilha de auditoria visual alimentada pelo ultimo calculo.")
     colunas[3].caption(
         "Use o primeiro botão para baixar/salvar candles do MT5. Use o segundo "
         "para recalcular Alphas, Betas e timeframes sobre o histórico salvo. Nenhuma "
@@ -5446,7 +6882,10 @@ def exibir_research_lab_data(
 ) -> None:
     """Exibe os dados consolidados do Research Lab."""
     exibir_research_lab_layers(service)
-    exibir_mt5_setup_suggestions(service)
+    exibir_mt5_setup_suggestions(
+        service,
+        getattr(data, "mt5_heuristic_research", None),
+    )
     if include_full_audit:
         exibir_mt5_alpha_research_report(service)
     else:
@@ -5454,7 +6893,7 @@ def exibir_research_lab_data(
             "Auditoria completa do Lab ocultada para manter a tela leve. "
             "Marque a opcao acima para carregar ranking detalhado e evidencias."
         )
-    exibir_mt5_heuristic_research_lab(data)
+    exibir_mt5_heuristic_research_lab(data, include_full_audit=include_full_audit)
 
 
 def exibir_research_lab_layers(service: DashboardService) -> None:
@@ -5477,7 +6916,10 @@ def _research_layer_row(layer: dict[str, object]) -> dict[str, object]:
     }
 
 
-def exibir_mt5_setup_suggestions(service: DashboardService) -> None:
+def exibir_mt5_setup_suggestions(
+    service: DashboardService,
+    research: object | None = None,
+) -> None:
     """Exibe sugestoes de setup geradas pelo snapshot persistido do Lab."""
     suggestions = _stable_mt5_lab_setup_suggestions(
         service.suggest_mt5_lab_setups()
@@ -5498,18 +6940,11 @@ def exibir_mt5_setup_suggestions(service: DashboardService) -> None:
         }
     else:
         summary = _mt5_setup_suggestions_summary(suggestions)
-    _stable_metric_grid(
-        [
-            ("Pares sugeridos", summary["total"]),
-            ("Confirmaram 70%", summary["approved"]),
-            ("Melhor confirmacao", _optional_percent(summary["best_confidence"])),
-            ("Melhor par", summary["best_pair"]),
-        ]
-    )
+    _render_lab_setup_summary_metrics(summary)
 
     st.caption(_mt5_setup_suggestions_status_message(suggestions, summary))
     st.markdown("#### Setups sugeridos")
-    _render_stable_readonly_table(
+    _render_plain_markdown_table(
         [_mt5_setup_suggestion_compact_row(item) for item in suggestions],
         empty_columns=list(_mt5_setup_suggestion_empty_row().keys()),
         empty_message="Nenhuma sugestao carregada.",
@@ -5520,11 +6955,677 @@ def exibir_mt5_setup_suggestions(service: DashboardService) -> None:
         value=False,
         key="mt5_lab_show_full_setup_details",
     ):
-        _render_stable_readonly_table(
+        _render_plain_markdown_table(
             [_mt5_setup_suggestion_row(item) for item in suggestions],
             empty_columns=list(_mt5_setup_suggestion_detail_empty_row().keys()),
             empty_message="Nenhum detalhe carregado.",
         )
+
+
+def _render_lab_historical_confirmation_audit(
+    service: DashboardService,
+    research: object | None = None,
+) -> None:
+    """Mostra confirmacao historica por par/Alpha, do maior para o menor."""
+    if research is None:
+        research = service.get_mt5_research_constants()
+    st.subheader("Auditoria visual da Confirmação Histórica")
+    st.caption(
+        "Para cada par, esta tabela ordena as Alphas pela maior Confirmacao "
+        "Historica encontrada no Lab. A coluna Trades observados e a amostra "
+        "historica usada para calcular esse percentual."
+    )
+    rows = _lab_historical_confirmation_audit_rows_from_research(research)
+    if not rows:
+        rows = _lab_historical_confirmation_audit_rows_from_suggestions(
+            service.suggest_mt5_lab_setups()
+        )
+    _render_plain_markdown_table(
+        rows,
+        empty_columns=[
+            "Par",
+            "Alpha de entrada",
+            "Confirmacao Historica",
+            "% Nao confirmado",
+            "Trades observados",
+            "Confirmados",
+            "Nao confirmados",
+            "TF",
+            "Direcao",
+            "Setup de entrada",
+            "Parametros da entrada",
+            "Beta Stop",
+            "Stop inicial em R",
+            "Plano Position Manager",
+            "Iguais ao melhor do par",
+            "Diferentes do melhor do par",
+            "Padrao observado",
+            "Filtro de liberacao",
+            "Regra de liberacao",
+            "RSI divergente",
+            "MACD hist divergente",
+            "ADX baixo",
+            "ADX caindo",
+            "ADX indisponivel",
+            "ATR em queda",
+            "ATR subindo",
+            "Momentum contra",
+            "Momentum enfraquecendo",
+            "Indicadores que diferenciam",
+            "Status",
+        ],
+        empty_message="Nenhum ranking historico carregado. Execute Pesquisa no Lab.",
+    )
+
+
+def _render_scenario_runner_confirmation_audit(research: object) -> None:
+    """Exibe auditoria no bloco do corredor mesmo sem ranking completo."""
+    st.markdown("### Auditoria visual da Confirmação Histórica")
+    st.caption(
+        "Visao de conferencia: para cada par, lista as 16 Alphas da maior "
+        "confirmacao historica para a menor. Mostra confirmados, nao "
+        "confirmados e compara cada setup contra o melhor setup do mesmo par."
+    )
+    _render_plain_markdown_table(
+        _lab_historical_confirmation_audit_rows_from_research(research),
+        empty_columns=[
+            "Par",
+            "Alpha de entrada",
+            "Confirmacao Historica",
+            "% Nao confirmado",
+            "Trades observados",
+            "Confirmados",
+            "Nao confirmados",
+            "TF",
+            "Direcao",
+            "Setup de entrada",
+            "Parametros da entrada",
+            "Beta Stop",
+            "Stop inicial em R",
+            "Plano Position Manager",
+            "Iguais ao melhor do par",
+            "Diferentes do melhor do par",
+            "Padrao observado",
+            "Filtro de liberacao",
+            "Regra de liberacao",
+            "RSI divergente",
+            "MACD hist divergente",
+            "ADX baixo",
+            "ADX caindo",
+            "ADX indisponivel",
+            "ATR em queda",
+            "ATR subindo",
+            "Momentum contra",
+            "Momentum enfraquecendo",
+            "Indicadores que diferenciam",
+            "Status",
+        ],
+        empty_message=(
+            "Snapshot atual nao trouxe ranking nem amostra historica. "
+            "Execute Pesquisa para gerar a auditoria."
+        ),
+    )
+
+
+def _lab_historical_confirmation_audit_rows_from_research(
+    research: object,
+) -> list[dict[str, object]]:
+    scenarios = list(getattr(research, "scenario_ranking", []) or [])
+    if scenarios:
+        return _lab_historical_confirmation_audit_rows(scenarios)
+    return _lab_historical_confirmation_audit_rows_from_rows(
+        list(getattr(research, "rows", []) or [])
+    )
+
+
+def _lab_historical_confirmation_audit_rows_from_suggestions(
+    suggestions: list[object],
+) -> list[dict[str, object]]:
+    return _lab_historical_confirmation_audit_rows(list(suggestions or []))
+
+
+def _lab_historical_confirmation_audit_rows_from_rows(
+    rows: list[object],
+) -> list[dict[str, object]]:
+    scenario_like_rows = []
+    for row in rows:
+        final_configuration = dict(getattr(row, "final_configuration", {}) or {})
+        scenario_like_rows.append(
+            SimpleNamespace(
+                pair=getattr(row, "pair", "N/D"),
+                alpha_id=final_configuration.get("alpha", "ALPHA001"),
+                lab_confidence=getattr(row, "confidence", 0.0),
+                lab_confidence_sample_size=getattr(row, "sample_size", 0),
+                score=getattr(row, "score", 0.0),
+                timeframe=getattr(
+                    row,
+                    "ideal_timeframe",
+                    getattr(row, "timeframe", "M1"),
+                ),
+                decision=getattr(row, "decision", "WAIT"),
+                model=final_configuration.get(
+                    "modelo",
+                    getattr(row, "recommended_heuristic", "N/D"),
+                ),
+                parameters=final_configuration,
+                status=getattr(row, "status", "N/D"),
+            )
+        )
+    return _lab_historical_confirmation_audit_rows(scenario_like_rows)
+
+
+def _lab_historical_confirmation_audit_rows(
+    scenarios: list[object],
+) -> list[dict[str, object]]:
+    """Seleciona a melhor evidencia e completa as 16 Alphas por par."""
+    best_by_pair_alpha: dict[tuple[str, str], object] = {}
+    pairs: set[str] = set()
+    for scenario in scenarios:
+        pair = str(getattr(scenario, "pair", "") or "").upper().strip()
+        alpha = str(getattr(scenario, "alpha_id", "ALPHA001") or "ALPHA001").upper()
+        if not pair:
+            continue
+        pairs.add(pair)
+        key = (pair, alpha)
+        current = best_by_pair_alpha.get(key)
+        if current is None or _historical_confirmation_rank(scenario) > (
+            _historical_confirmation_rank(current)
+        ):
+            best_by_pair_alpha[key] = scenario
+
+    completed: list[object] = []
+    for pair in sorted(pairs):
+        for alpha_id in MT5_LAB_ALPHA_IDS:
+            completed.append(
+                best_by_pair_alpha.get(
+                    (pair, alpha_id),
+                    _empty_lab_alpha_audit_scenario(pair, alpha_id),
+                )
+            )
+
+    ordered = sorted(
+        completed,
+        key=lambda scenario: (
+            str(getattr(scenario, "pair", "") or "").upper(),
+            -float(getattr(scenario, "lab_confidence", 0.0) or 0.0),
+            -int(getattr(scenario, "lab_confidence_sample_size", 0) or 0),
+            str(getattr(scenario, "alpha_id", "ALPHA001") or "ALPHA001").upper(),
+        ),
+    )
+    reference_by_pair: dict[str, object] = {}
+    for item in ordered:
+        pair = str(getattr(item, "pair", "") or "").upper()
+        if pair and pair not in reference_by_pair:
+            reference_by_pair[pair] = item
+    winning_filter_by_pair = {
+        pair: _lab_pair_winning_filter(pair, ordered)
+        for pair in reference_by_pair
+    }
+    return [
+        _lab_historical_confirmation_audit_row(
+            item,
+            reference_by_pair.get(str(getattr(item, "pair", "") or "").upper()),
+            winning_filter_by_pair.get(
+                str(getattr(item, "pair", "") or "").upper(),
+                ("N/D", "Sem filtro vencedor do par com diferenca suficiente."),
+            ),
+        )
+        for item in ordered
+    ]
+
+
+def _empty_lab_alpha_audit_scenario(pair: str, alpha_id: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        pair=pair,
+        alpha_id=alpha_id,
+        lab_confidence=0.0,
+        lab_confidence_sample_size=0,
+        score=0.0,
+        timeframe="N/D",
+        decision="WAIT",
+        model="SEM_EVIDENCIA",
+        parameters={},
+        lab_discrimination_summary="Sem evidencia historica para diferenciar.",
+        status="SEM_DADOS",
+    )
+
+
+def _historical_confirmation_rank(scenario: object) -> tuple[float, int, float]:
+    return (
+        float(getattr(scenario, "lab_confidence", 0.0) or 0.0),
+        int(getattr(scenario, "lab_confidence_sample_size", 0) or 0),
+        float(getattr(scenario, "score", 0.0) or 0.0),
+    )
+
+
+def _lab_historical_confirmation_audit_row(
+    scenario: object,
+    reference: object | None = None,
+    pair_winning_filter: tuple[str, str] | None = None,
+) -> dict[str, object]:
+    confidence = float(getattr(scenario, "lab_confidence", 0.0) or 0.0)
+    sample_size = int(getattr(scenario, "lab_confidence_sample_size", 0) or 0)
+    confirmed = int(round(sample_size * confidence))
+    not_confirmed = max(sample_size - confirmed, 0)
+    not_confirmed_percent = (1.0 - confidence) if sample_size > 0 else 0.0
+    equal_parameters, different_parameters = _lab_setup_parameter_comparison(
+        scenario,
+        reference,
+    )
+    row = {
+        "Par": str(getattr(scenario, "pair", "N/D") or "N/D").upper(),
+        "Alpha de entrada": str(getattr(scenario, "alpha_id", "ALPHA001") or "ALPHA001").upper(),
+        "Confirmacao Historica": _optional_percent(confidence),
+        "% Nao confirmado": _optional_percent(not_confirmed_percent),
+        "Trades observados": sample_size,
+        "Confirmados": confirmed,
+        "Nao confirmados": not_confirmed,
+        "TF": getattr(scenario, "timeframe", "N/D"),
+        "Direcao": getattr(scenario, "decision", "WAIT"),
+        "Setup de entrada": getattr(scenario, "model", "N/D"),
+        "Parametros da entrada": _lab_setup_parameter_summary(scenario),
+        "Beta Stop": _lab_beta_stop_label(scenario),
+        "Stop inicial em R": _lab_initial_stop_r_summary(scenario),
+        "Plano Position Manager": _lab_position_manager_plan_summary(scenario),
+        "Iguais ao melhor do par": equal_parameters,
+        "Diferentes do melhor do par": different_parameters,
+        "Padrao observado": _lab_setup_pattern_summary(
+            scenario,
+            reference,
+            sample_size,
+            confidence,
+            different_parameters,
+        ),
+        "Filtro de liberacao": (
+            pair_winning_filter[0] if pair_winning_filter else "N/D"
+        ),
+        "Regra de liberacao": (
+            pair_winning_filter[1]
+            if pair_winning_filter
+            else "Entrada liberada sem filtro adicional validado para o par."
+        ),
+    }
+    row.update(_lab_discrimination_indicator_columns(scenario))
+    row.update(
+        {
+            "Indicadores que diferenciam": getattr(
+                scenario,
+                "lab_discrimination_summary",
+                "N/D",
+            ),
+            "Status": getattr(scenario, "status", "N/D"),
+        }
+    )
+    return row
+
+
+def _lab_discrimination_indicator_columns(scenario: object) -> dict[str, str]:
+    metrics = dict(getattr(scenario, "lab_discrimination_metrics", {}) or {})
+    return {
+        indicator: _lab_discrimination_metric_text(metrics.get(indicator))
+        for indicator in (
+            "RSI divergente",
+            "MACD hist divergente",
+            "ADX baixo",
+            "ADX caindo",
+            "ADX indisponivel",
+            "ATR em queda",
+            "ATR subindo",
+            "Momentum contra",
+            "Momentum enfraquecendo",
+        )
+    }
+
+
+def _lab_beta_stop_label(scenario: object) -> str:
+    beta_id, beta_mode, beta_version = _lab_beta_stop_descriptor(scenario)
+    return f"{beta_id} | {beta_mode} | {beta_version}"
+
+
+def _lab_initial_stop_r_summary(scenario: object) -> str:
+    parameters = _lab_setup_parameters(scenario)
+    atr_factor = _safe_float_or_none(parameters.get("atr_stop_factor"))
+    rr = _safe_float_or_none(parameters.get("rr"))
+    if atr_factor is None and rr is None:
+        return "N/D"
+    atr_text = f"{atr_factor:g} ATR" if atr_factor is not None else "N/D"
+    rr_text = f"{rr:g}R" if rr is not None else "N/D"
+    return f"1R = stop inicial {atr_text} | alvo planejado {rr_text}"
+
+
+def _lab_position_manager_plan_summary(scenario: object) -> str:
+    parameters = _lab_setup_parameters(scenario)
+    policy = str(parameters.get("stop_management", "FIXED_STOP") or "FIXED_STOP").upper()
+    beta_id, _, _ = _lab_beta_stop_descriptor(scenario)
+    beta_id = beta_id.upper()
+    beta_number = _lab_beta_number(beta_id)
+    if beta_number is not None and beta_number >= 3:
+        prefix = f"{beta_id} sem FULL_EXIT"
+    else:
+        prefix = f"{beta_id}"
+    if policy == "FIXED_STOP":
+        return f"{prefix}: manter stop inicial; Position Manager apenas monitora."
+    if policy == "BREAK_EVEN":
+        trigger = parameters.get("break_even_trigger_rr", "1.0")
+        offset = parameters.get("break_even_offset_pips", "0.0")
+        return (
+            f"{prefix}: mover para break-even ao atingir {trigger}R; "
+            f"offset {offset} pip(s)."
+        )
+    if policy == "ATR_TRAILING_STOP":
+        factor = parameters.get("atr_trailing_factor", parameters.get("atr_stop_factor", "N/D"))
+        activation = parameters.get("atr_trailing_activation_rr", "1.0")
+        return (
+            f"{prefix}: trailing por ATR x{factor}; ativa a partir de "
+            f"{activation}R."
+        )
+    if policy == "CHANDELIER_EXIT":
+        period = parameters.get("chandelier_period", "22")
+        factor = parameters.get("chandelier_atr_factor", parameters.get("atr_stop_factor", "N/D"))
+        return f"{prefix}: Chandelier {period} candles com ATR x{factor}."
+    if policy == "DONCHIAN_CHANNEL_STOP":
+        period = parameters.get("donchian_stop_period", "20")
+        return f"{prefix}: stop pelo canal Donchian de {period} candles."
+    if policy == "MOVING_AVERAGE_EXIT":
+        period = parameters.get("exit_ma_period", "N/D")
+        ma_type = parameters.get("exit_ma_type", "EMA")
+        return f"{prefix}: stop/saida acompanhado por {ma_type}{period}."
+    if policy == "TIME_STOP":
+        bars = parameters.get("max_bars_in_trade", "N/D")
+        minutes = parameters.get("max_minutes_in_trade", "N/D")
+        return f"{prefix}: time stop em {bars} barras ou {minutes} minutos."
+    if policy == "VOLATILITY_STOP":
+        factor = parameters.get("volatility_multiplier", parameters.get("atr_stop_factor", "N/D"))
+        return f"{prefix}: stop adaptado por volatilidade x{factor}."
+    return f"{prefix}: politica {policy}; parametros auditaveis no cenario."
+
+
+def _lab_beta_stop_descriptor(scenario: object) -> tuple[str, str, str]:
+    """Deriva a Beta de saida pela politica de stop avaliada no cenario."""
+    parameters = _lab_setup_parameters(scenario)
+    beta_id = str(
+        parameters.get("beta_id", getattr(scenario, "beta_id", "BETA001"))
+        or "BETA001"
+    ).upper()
+    beta_version = str(
+        parameters.get("beta_version", getattr(scenario, "beta_version", "N/D"))
+        or "N/D"
+    )
+    beta_mode = str(
+        parameters.get("beta_mode", getattr(scenario, "beta_mode", "N/D"))
+        or "N/D"
+    )
+    beta_number = _lab_beta_number(beta_id)
+    if beta_number is not None and beta_number >= 3:
+        return beta_id, beta_mode, beta_version
+    policy = str(
+        parameters.get(
+            "stop_management",
+            getattr(scenario, "stop_management", ""),
+        )
+        or ""
+    ).upper()
+    by_policy = {
+        "FIXED_STOP": ("BETA003", "FIXED_STOP_ONLY", "FIXED_STOP_MANAGER"),
+        "BREAK_EVEN": ("BETA004", "BREAK_EVEN_ONLY", "BREAK_EVEN_MANAGER"),
+        "ATR_TRAILING_STOP": (
+            "BETA005",
+            "ATR_TRAILING_ONLY",
+            "ATR_TRAILING_STOP_MANAGER",
+        ),
+        "CHANDELIER_EXIT": ("BETA006", "CHANDELIER_ONLY", "CHANDELIER_STOP_MANAGER"),
+        "PARABOLIC_SAR": ("BETA007", "PARABOLIC_SAR_ONLY", "PARABOLIC_SAR_MANAGER"),
+        "DONCHIAN_CHANNEL_STOP": (
+            "BETA008",
+            "DONCHIAN_STOP_ONLY",
+            "DONCHIAN_STOP_MANAGER",
+        ),
+        "MOVING_AVERAGE_EXIT": (
+            "BETA009",
+            "MA_STOP_ONLY",
+            "MOVING_AVERAGE_STOP_MANAGER",
+        ),
+        "TIME_STOP": ("BETA010", "TIME_STOP_ONLY", "TIME_STOP_MANAGER"),
+        "VOLATILITY_STOP": (
+            "BETA011",
+            "VOLATILITY_STOP_ONLY",
+            "VOLATILITY_STOP_MANAGER",
+        ),
+    }
+    return by_policy.get(policy, (beta_id, beta_mode, beta_version))
+
+
+def _lab_beta_number(beta_id: str) -> int | None:
+    raw = str(beta_id or "").upper().replace("BETA", "", 1)
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _lab_discrimination_metric_text(metric: object) -> str:
+    if not isinstance(metric, dict):
+        return "N/D"
+    try:
+        winner_rate = float(metric.get("winner_rate", 0.0) or 0.0)
+        loser_rate = float(metric.get("loser_rate", 0.0) or 0.0)
+        difference = float(metric.get("difference", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return "N/D"
+    return (
+        f"V {_optional_percent(winner_rate)} | "
+        f"NV {_optional_percent(loser_rate)} | "
+        f"Dif {difference:+.0%}"
+    )
+
+
+def _lab_pair_winning_filter(
+    pair: str,
+    scenarios: list[object],
+) -> tuple[str, str]:
+    """Escolhe o melhor filtro candidato para reduzir entradas ruins no par."""
+    best: tuple[float, int, float, str, dict[str, float]] | None = None
+    normalized_pair = str(pair or "").upper()
+    for scenario in scenarios:
+        if str(getattr(scenario, "pair", "") or "").upper() != normalized_pair:
+            continue
+        sample_size = int(getattr(scenario, "lab_confidence_sample_size", 0) or 0)
+        confidence = float(getattr(scenario, "lab_confidence", 0.0) or 0.0)
+        metrics = dict(getattr(scenario, "lab_discrimination_metrics", {}) or {})
+        for indicator, metric in metrics.items():
+            if indicator in {"_sample", "ADX indisponivel"}:
+                continue
+            if not isinstance(metric, dict):
+                continue
+            try:
+                difference = float(metric.get("difference", 0.0) or 0.0)
+                winner_rate = float(metric.get("winner_rate", 0.0) or 0.0)
+                loser_rate = float(metric.get("loser_rate", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if difference < 0.10:
+                continue
+            candidate = (
+                difference,
+                sample_size,
+                confidence,
+                str(indicator),
+                {
+                    "winner_rate": winner_rate,
+                    "loser_rate": loser_rate,
+                    "difference": difference,
+                },
+            )
+            if best is None or candidate[:3] > best[:3]:
+                best = candidate
+    if best is None:
+        return ("N/D", "Entrada liberada sem filtro adicional validado para o par.")
+    _, sample_size, _, indicator, metric = best
+    filter_label = (
+        f"{indicator} | NV {_optional_percent(metric['loser_rate'])} "
+        f"x V {_optional_percent(metric['winner_rate'])} | "
+        f"Dif {metric['difference']:+.0%}"
+    )
+    usage = (
+        f"Entrada da Alpha so deve ser liberada no {normalized_pair} quando "
+        f"{indicator} nao estiver presente; base={sample_size} trades observados. "
+        "Ainda nao altera execucao."
+    )
+    return (filter_label, usage)
+
+
+def _lab_setup_parameters(scenario: object) -> dict[str, object]:
+    parameters = dict(getattr(scenario, "parameters", {}) or {})
+    if not parameters:
+        parameters = dict(getattr(scenario, "final_configuration", {}) or {})
+    if not parameters:
+        parameters = dict(getattr(scenario, "lab_parameters", {}) or {})
+    return {str(key): value for key, value in parameters.items()}
+
+
+def _lab_setup_comparable_parameters(scenario: object) -> dict[str, str]:
+    parameters = _lab_setup_parameters(scenario)
+    comparable: dict[str, str] = {
+        "TF": str(getattr(scenario, "timeframe", "N/D") or "N/D"),
+        "Direcao": str(getattr(scenario, "decision", "WAIT") or "WAIT"),
+        "Modelo": str(getattr(scenario, "model", "N/D") or "N/D"),
+    }
+    for key in (
+        "ema_curta",
+        "ema_longa",
+        "rsi_sobrevenda",
+        "rsi_sobrecompra",
+        "atr_stop_factor",
+        "rr",
+        "momentum_threshold",
+        "volatility_threshold",
+        "donchian_period",
+        "stop_management",
+        "beta_id",
+        "reversal_strength",
+    ):
+        if key in parameters:
+            comparable[key] = str(parameters[key])
+    return comparable
+
+
+def _lab_setup_parameter_summary(scenario: object) -> str:
+    comparable = _lab_setup_comparable_parameters(scenario)
+    if str(getattr(scenario, "model", "") or "") == "SEM_EVIDENCIA":
+        return "Sem evidencia historica para esta Alpha no par."
+    ordered = [
+        key
+        for key in (
+            "TF",
+            "Direcao",
+            "Modelo",
+            "ema_curta",
+            "ema_longa",
+            "rsi_sobrevenda",
+            "rsi_sobrecompra",
+            "atr_stop_factor",
+            "rr",
+            "momentum_threshold",
+            "volatility_threshold",
+            "donchian_period",
+            "stop_management",
+            "beta_id",
+            "reversal_strength",
+        )
+        if key in comparable
+    ]
+    return " | ".join(f"{key}={comparable[key]}" for key in ordered) or "N/D"
+
+
+def _lab_setup_parameter_comparison(
+    scenario: object,
+    reference: object | None,
+) -> tuple[str, str]:
+    if reference is None:
+        return "N/D", "N/D"
+    current = _lab_setup_comparable_parameters(scenario)
+    baseline = _lab_setup_comparable_parameters(reference)
+    if not current or not baseline:
+        return "N/D", "N/D"
+    equal = [
+        f"{key}={current[key]}"
+        for key in current
+        if key in baseline and current[key] == baseline[key]
+    ]
+    different = [
+        f"{key}: {current[key]} != {baseline[key]}"
+        for key in current
+        if key in baseline and current[key] != baseline[key]
+    ]
+    return (
+        " | ".join(equal) if equal else "Nenhum parametro igual",
+        " | ".join(different) if different else "Nenhuma diferenca",
+    )
+
+
+def _lab_setup_pattern_summary(
+    scenario: object,
+    reference: object | None,
+    sample_size: int,
+    confidence: float,
+    different_parameters: str,
+) -> str:
+    if sample_size <= 0:
+        return "Sem amostra: Alpha nao gerou trades observados neste par."
+    if reference is not None and scenario is reference:
+        return "Melhor padrao do par: usado como referencia de comparacao."
+    if confidence >= 0.70:
+        base = "Confirmados predominam historicamente."
+    elif confidence >= 0.50:
+        base = "Confirmacao equilibrada; vantagem historica moderada."
+    else:
+        base = "Nao confirmados predominam; setup inferior ao padrao do par."
+    if different_parameters and different_parameters != "Nenhuma diferenca":
+        return f"{base} Diferenca-chave: {different_parameters}"
+    return base
+
+
+def _render_lab_setup_summary_metrics(summary: dict[str, object]) -> None:
+    """Usa componentes nativos para evitar instabilidade de DOM no Lab."""
+    columns = st.columns(4)
+    columns[0].metric("Pares sugeridos", summary["total"])
+    columns[1].metric("Confirmaram 70%", summary["approved"])
+    columns[2].metric(
+        "Melhor confirmacao",
+        _optional_percent(summary["best_confidence"]),
+    )
+    columns[3].metric("Melhor par", summary["best_pair"])
+
+
+def _render_plain_markdown_table(
+    rows: list[dict[str, object]],
+    *,
+    empty_columns: list[str] | None = None,
+    empty_message: str = "Nenhum registro disponivel.",
+) -> None:
+    """Renderiza tabela Markdown simples para evitar falhas do front-end."""
+    columns = list(rows[0].keys()) if rows else list(empty_columns or ["Status"])
+    display_rows = rows or [{columns[0]: empty_message}]
+    header = "| " + " | ".join(_markdown_cell(column) for column in columns) + " |"
+    separator = "| " + " | ".join("---" for _ in columns) + " |"
+    body = []
+    for row in display_rows:
+        body.append(
+            "| "
+            + " | ".join(_markdown_cell(row.get(column, "")) for column in columns)
+            + " |"
+        )
+    st.markdown("\n".join([header, separator] + body))
+
+
+def _markdown_cell(value: object) -> str:
+    text = str(value)
+    return (
+        text.replace("\n", " ")
+        .replace("\r", " ")
+        .replace("|", "\\|")
+        .strip()
+    )
 
 
 def _stable_mt5_lab_setup_suggestions(suggestions: list[object]) -> list[object]:
@@ -5597,21 +7698,17 @@ def _mt5_setup_suggestion_empty_row() -> dict[str, object]:
         "Resumo parametros": "N/D",
         "Encaixe Tecnico": "N/D",
         "Confirmacao Historica": "N/D",
+        "Janela que confirmou": "N/D",
         "Status": "AGUARDANDO_SNAPSHOT",
     }
 
 
 def _mt5_setup_suggestion_compact_row(suggestion: object) -> dict[str, object]:
     parameters = getattr(suggestion, "parameters", {}) or {}
+    beta_id, _, _ = _lab_beta_stop_descriptor(suggestion)
     return {
         "Alpha": getattr(suggestion, "alpha_id", "ALPHA001"),
-        "Beta": getattr(
-            suggestion,
-            "beta_id",
-            parameters.get("beta_id", "BETA001")
-            if isinstance(parameters, dict)
-            else "BETA001",
-        ),
+        "Beta": beta_id,
         "Par": getattr(suggestion, "pair", "N/D"),
         "TF": getattr(suggestion, "timeframe", "M1"),
         "Direcao": getattr(suggestion, "decision", "WAIT"),
@@ -5627,6 +7724,7 @@ def _mt5_setup_suggestion_compact_row(suggestion: object) -> dict[str, object]:
         "Confirmacao Historica": _optional_percent(
             getattr(suggestion, "lab_confidence", 0.0)
         ),
+        "Janela que confirmou": _historical_confirmation_context(suggestion),
         "Status": _setup_status_label(getattr(suggestion, "status", "SEM_SUGESTAO")),
     }
 
@@ -5645,6 +7743,44 @@ def _setup_parameters_summary(parameters: object) -> str:
     atr = f"ATR {parameters.get('atr_stop_factor', 'N/D')}"
     rr = f"RR {parameters.get('rr', 'N/D')}"
     return " | ".join((ema, rsi, atr, rr))
+
+
+def _historical_confirmation_context(suggestion: object) -> str:
+    parameters = getattr(suggestion, "parameters", {}) or {}
+    if not isinstance(parameters, dict):
+        parameters = {}
+    sample = int(getattr(suggestion, "lab_confidence_sample_size", 0) or 0)
+    profit_factor = float(
+        getattr(suggestion, "lab_confidence_profit_factor", 0.0) or 0.0
+    )
+    expectancy = float(
+        getattr(suggestion, "lab_confidence_expectancy", 0.0) or 0.0
+    )
+    drawdown = float(
+        getattr(suggestion, "lab_confidence_max_drawdown", 0.0) or 0.0
+    )
+    source = str(getattr(suggestion, "lab_confidence_source", "N/D") or "N/D")
+    context_parts = [
+        f"{getattr(suggestion, 'pair', 'N/D')} {getattr(suggestion, 'timeframe', 'N/D')}",
+        str(getattr(suggestion, "model", "N/D")),
+        f"RR {parameters.get('rr', 'N/D')}",
+        f"ATR {parameters.get('atr_stop_factor', 'N/D')}",
+        f"EMA {parameters.get('ema_curta', 'N/D')}x{parameters.get('ema_longa', 'N/D')}",
+    ]
+    metric_parts = []
+    if sample > 0:
+        metric_parts.append(f"amostra {sample}")
+    if profit_factor > 0.0:
+        metric_parts.append(f"PF {profit_factor:.2f}")
+    if expectancy != 0.0:
+        metric_parts.append(f"Exp {expectancy:.4f}")
+    if drawdown > 0.0:
+        metric_parts.append(f"DD {drawdown:.4f}")
+    if source and source != "N/D":
+        metric_parts.append(source)
+    if metric_parts:
+        return " | ".join(context_parts + metric_parts)
+    return " | ".join(context_parts + ["sem amostra detalhada"])
 
 
 def _setup_status_label(status: object) -> str:
@@ -5670,6 +7806,7 @@ def _mt5_setup_suggestion_detail_empty_row() -> dict[str, object]:
         "Parametros": "N/D",
         "Encaixe Tecnico": "N/D",
         "Confirmacao Historica": "N/D",
+        "Janela que confirmou": "N/D",
         "Alvo de confirmacao": _optional_percent(MT5_LAB_TARGET_CONFIDENCE),
         "Status": "AGUARDANDO_SNAPSHOT",
         "Fonte": "N/D",
@@ -5679,15 +7816,10 @@ def _mt5_setup_suggestion_detail_empty_row() -> dict[str, object]:
 
 def _mt5_setup_suggestion_row(suggestion: object) -> dict[str, object]:
     parameters = getattr(suggestion, "parameters", {}) or {}
+    beta_id, _, _ = _lab_beta_stop_descriptor(suggestion)
     return {
         "Alpha": getattr(suggestion, "alpha_id", "ALPHA001"),
-        "Beta": getattr(
-            suggestion,
-            "beta_id",
-            parameters.get("beta_id", "BETA001")
-            if isinstance(parameters, dict)
-            else "BETA001",
-        ),
+        "Beta": beta_id,
         "Par": getattr(suggestion, "pair", "N/D"),
         "Timeframe": getattr(suggestion, "timeframe", "M1"),
         "Setup sugerido": getattr(suggestion, "model", "WAIT_NO_EDGE"),
@@ -5704,6 +7836,7 @@ def _mt5_setup_suggestion_row(suggestion: object) -> dict[str, object]:
         "Confirmacao Historica": _optional_percent(
             getattr(suggestion, "lab_confidence", 0.0)
         ),
+        "Janela que confirmou": _historical_confirmation_context(suggestion),
         "Alvo de confirmacao": _optional_percent(
             getattr(suggestion, "target_confidence", MT5_LAB_TARGET_CONFIDENCE)
         ),
@@ -5807,7 +7940,11 @@ def _mt5_alpha_research_report_row(report: object) -> dict[str, object]:
     }
 
 
-def exibir_mt5_heuristic_research_lab(data: object) -> None:
+def exibir_mt5_heuristic_research_lab(
+    data: object,
+    *,
+    include_full_audit: bool = False,
+) -> None:
     """Exibe calibracao MT5 independente do refresh online."""
     research = getattr(data, "mt5_heuristic_research", None)
     forex = getattr(data, "mt5_forex_signals", None)
@@ -5855,7 +7992,10 @@ def exibir_mt5_heuristic_research_lab(data: object) -> None:
     )
     st.caption(getattr(research, "message", "N/D"))
     exibir_modelo_vencedor_mt5_research(research)
-    exibir_mt5_scenario_runner_research(research)
+    exibir_mt5_scenario_runner_research(
+        research,
+        include_full_audit=include_full_audit,
+    )
 
     rows = list(getattr(research, "rows", []) or [])
     if not rows:
@@ -5914,7 +8054,11 @@ def exibir_modelo_vencedor_mt5_research(research: object) -> None:
     )
 
 
-def exibir_mt5_scenario_runner_research(research: object) -> None:
+def exibir_mt5_scenario_runner_research(
+    research: object,
+    *,
+    include_full_audit: bool = False,
+) -> None:
     """Exibe ranking e vencedores do Scenario Runner MT5."""
     scenarios = list(getattr(research, "scenario_ranking", []) or [])
     best_by_market = _mt5_best_directional_scenario_rows(scenarios)
@@ -5964,15 +8108,24 @@ def exibir_mt5_scenario_runner_research(research: object) -> None:
     else:
         st.info("Nenhum cenario vencedor por par disponivel.")
 
-    st.markdown("### Ranking de cenarios testados")
-    st.caption(
-        "Auditoria completa dos cenarios avaliados. Serve para investigar por "
-        "que uma configuracao ganhou de outra, nao para operar diretamente."
-    )
-    if scenarios:
-        _render_mt5_scenario_ranking_table(scenarios)
+    if include_full_audit:
+        _render_scenario_runner_confirmation_audit(research)
+
+        st.markdown("### Ranking de cenarios testados")
+        st.caption(
+            "Auditoria completa dos cenarios avaliados. Serve para investigar por "
+            "que uma configuracao ganhou de outra, nao para operar diretamente."
+        )
+        if scenarios:
+            _render_mt5_scenario_ranking_table(scenarios)
+        else:
+            st.info("Nenhum ranking de cenarios disponivel.")
     else:
-        st.info("Nenhum ranking de cenarios disponivel.")
+        st.caption(
+            "Ranking completo e auditoria visual das 16 Alphas ocultados para "
+            "manter a aba Lab leve. Marque 'Mostrar auditoria completa do Lab' "
+            "para carregar essas tabelas."
+        )
 
 
 def _render_mt5_scenario_ranking_table(scenarios: list[object]) -> None:
@@ -6054,16 +8207,13 @@ def _render_mt5_scenario_ranking_table(scenarios: list[object]) -> None:
 
 def _mt5_scenario_row(scenario: object) -> dict[str, object]:
     parameters = getattr(scenario, "parameters", {}) or {}
+    beta_id, beta_mode, _ = _lab_beta_stop_descriptor(scenario)
     return {
         "Status": getattr(scenario, "status", "REJEITADO"),
         "Score": _optional_percent(getattr(scenario, "score", 0.0)),
         "Alpha": getattr(scenario, "alpha_id", "ALPHA001"),
-        "Beta": getattr(scenario, "beta_id", parameters.get("beta_id", "BETA001")),
-        "Modo Beta": getattr(
-            scenario,
-            "beta_mode",
-            parameters.get("beta_mode", "PROTECT_ONLY"),
-        ),
+        "Beta": beta_id,
+        "Modo Beta": beta_mode,
         "Par": getattr(scenario, "pair", "N/D"),
         "Timeframe": getattr(scenario, "timeframe", "M1"),
         "Modelo": getattr(scenario, "model", "N/D"),
@@ -8910,6 +11060,7 @@ def main() -> None:
     data = _apply_fast_mt5_snapshot_if_available(service, data)
 
     st.title("TraderIA Novo")
+    _render_top_runtime_reset()
     initial_mt5_error = st.session_state.get(MT5_FOREX_INITIAL_LOAD_ERROR_KEY)
     if initial_mt5_error:
         st.caption(f"Erro MT5 na carga inicial: {initial_mt5_error}")

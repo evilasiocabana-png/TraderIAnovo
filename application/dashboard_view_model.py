@@ -291,6 +291,10 @@ class DashboardMT5ForexSignalRowViewModel:
     theoretical_entry_price: float | None = None
     theoretical_entry_direction: str = "WAIT"
     theoretical_entry_reason: str = "Nenhum gatilho teorico detectado."
+    entry_filter_status: str = "OK"
+    entry_filter_parameter: str = "SEM_FILTRO_ROBUSTO"
+    entry_filter_reading: str = "N/D"
+    entry_filter_reason: str = "Sem filtro NV-V robusto aplicado."
     research_plan_status: str = "SEM_PLANO"
     research_plan_source: str = "RESEARCH_LAB"
     research_plan_entry_price: float | None = None
@@ -486,6 +490,8 @@ class DashboardMT5ScenarioViewModel:
     lab_confidence_expectancy: float = 0.0
     lab_confidence_max_drawdown: float = 0.0
     lab_confidence_source: str = "SCENARIO_HISTORICAL_EVIDENCE"
+    lab_discrimination_summary: str = "N/D"
+    lab_discrimination_metrics: dict[str, dict[str, float]] = field(default_factory=dict)
     ict_score: float = 0.0
     ict_grade: str = "E"
     ict_status: str = "REJEITADA"
@@ -518,6 +524,11 @@ class DashboardMT5SetupSuggestionViewModel:
     stop_management_reason: str = "Saida nao informada pelo snapshot."
     score: float = 0.0
     lab_confidence: float = 0.0
+    lab_confidence_sample_size: int = 0
+    lab_confidence_profit_factor: float = 0.0
+    lab_confidence_expectancy: float = 0.0
+    lab_confidence_max_drawdown: float = 0.0
+    lab_confidence_source: str = "N/D"
     target_confidence: float = 0.70
     status: str = "SEM_SUGESTAO"
     reason: str = "Nenhum cenario pesquisado."
@@ -716,9 +727,12 @@ class DashboardMT5TradeAuditRowViewModel:
     lab_configuration_version: str = "N/D"
     alpha_id: str = "ALPHA001"
     alpha_version: str = "N/D"
+    timeframe: str = "N/D"
+    risk_reward: float = 0.0
     beta_id: str = "BETA001"
     beta_version: str = "BETA v1"
     beta_mode: str = "PROTECT_ONLY"
+    operational_model: str = "N/D"
     beta_strength_score: float = 0.0
     beta_confirmation_count: int = 0
     beta_state_duration: int = 0

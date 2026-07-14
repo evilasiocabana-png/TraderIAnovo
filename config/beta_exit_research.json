@@ -1,0 +1,151 @@
+{
+  "schema_version": "1.0",
+  "status": "research_only",
+  "runtime_activation": false,
+  "timeframe_mapping": {
+    "M1": "M1",
+    "M5": "M1",
+    "M15": "M1",
+    "M30": "M5",
+    "H1": "M5"
+  },
+  "catalog": {
+    "BETA003": {
+      "name": "FIXED_RISK_TARGET",
+      "mode": "HOLD",
+      "description": "Mantem stop inicial e alvo RR; base de comparacao."
+    },
+    "BETA004": {
+      "name": "BREAK_EVEN_AFTER_1R",
+      "mode": "PROTECT",
+      "description": "Move para break-even somente depois de 1R."
+    },
+    "BETA005": {
+      "name": "ATR_TRAILING_AFTER_1R",
+      "mode": "PROTECT",
+      "description": "Aciona trailing por ATR depois de 1R; nunca afasta stop."
+    },
+    "BETA006": {
+      "name": "STRUCTURE_TRAILING_AFTER_1R",
+      "mode": "PROTECT",
+      "description": "Protege por estrutura/swing depois de 1R."
+    },
+    "BETA007": {
+      "name": "MOMENTUM_DECAY_FULL_EXIT",
+      "mode": "FULL_EXIT",
+      "description": "Fecha quando momentum curto vira contra a posicao."
+    },
+    "BETA008": {
+      "name": "CHANDELIER_ATR_EXIT",
+      "mode": "PROTECT",
+      "description": "Trailing tipo chandelier baseado em maxima/minima e ATR."
+    },
+    "BETA009": {
+      "name": "DONCHIAN_CHANNEL_STOP",
+      "mode": "PROTECT",
+      "description": "Protege pela estrutura de canal Donchian."
+    },
+    "BETA010": {
+      "name": "MOVING_AVERAGE_EXIT",
+      "mode": "PROTECT",
+      "description": "Protege usando media movel como referencia de perda de tendencia."
+    },
+    "BETA011": {
+      "name": "PARABOLIC_SAR_EXIT",
+      "mode": "PROTECT",
+      "description": "Protege por reversao sensivel via Parabolic SAR."
+    },
+    "BETA012": {
+      "name": "TIME_DECAY_EXIT",
+      "mode": "FULL_EXIT",
+      "description": "Saida por deterioracao temporal sem progresso."
+    },
+    "BETA013": {
+      "name": "VOLATILITY_STOP",
+      "mode": "PROTECT",
+      "description": "Protege por mudanca de regime de volatilidade."
+    }
+  },
+  "recommendation_summary": {
+    "ALPHA001": {
+      "simulation": "BETA003",
+      "lab_fallback": "BETA005",
+      "recommended_next_step": "Validar BETA003 contra BETA005 no Lab oficial."
+    },
+    "ALPHA002": {
+      "simulation": null,
+      "lab_fallback": "BETA005",
+      "recommended_next_step": "Nova amostragem antes de promover."
+    },
+    "ALPHA003": {
+      "simulation": null,
+      "lab_fallback": null,
+      "recommended_next_step": "Nao promover sem aprovado no snapshot."
+    },
+    "ALPHA004": {
+      "simulation": null,
+      "lab_fallback": null,
+      "recommended_next_step": "Nao promover sem aprovado no snapshot."
+    },
+    "ALPHA005": {
+      "simulation": null,
+      "lab_fallback": "BETA005",
+      "recommended_next_step": "Validar ATR trailing como saida de rompimento."
+    },
+    "ALPHA006": {
+      "simulation": "BETA003",
+      "lab_fallback": "BETA004",
+      "recommended_next_step": "Comparar plano fixo contra break-even."
+    },
+    "ALPHA007": {
+      "simulation": null,
+      "lab_fallback": "BETA005",
+      "recommended_next_step": "Nova amostragem antes de promover."
+    },
+    "ALPHA008": {
+      "simulation": "BETA003",
+      "lab_fallback": null,
+      "recommended_next_step": "Confirmar no Lab oficial."
+    },
+    "ALPHA009": {
+      "simulation": null,
+      "lab_fallback": "BETA005",
+      "recommended_next_step": "Validar ATR trailing como saida por volatilidade."
+    },
+    "ALPHA010": {
+      "simulation": null,
+      "lab_fallback": null,
+      "recommended_next_step": "Nao promover sem aprovado no snapshot."
+    },
+    "ALPHA011": {
+      "simulation": null,
+      "lab_fallback": "BETA005",
+      "recommended_next_step": "Validar com cautela."
+    },
+    "ALPHA012": {
+      "simulation": null,
+      "lab_fallback": "BETA005",
+      "recommended_next_step": "Validar com cautela."
+    },
+    "ALPHA013": {
+      "simulation": null,
+      "lab_fallback": "BETA004",
+      "recommended_next_step": "Testar protecao rapida por break-even."
+    },
+    "ALPHA014": {
+      "simulation": "BETA007",
+      "lab_fallback": "BETA004",
+      "recommended_next_step": "Manter full exit apenas em pesquisa ate nova validacao."
+    },
+    "ALPHA015": {
+      "simulation": "BETA003",
+      "lab_fallback": null,
+      "recommended_next_step": "Confirmar no Lab oficial."
+    },
+    "ALPHA016": {
+      "simulation": "BETA003",
+      "lab_fallback": "BETA005",
+      "recommended_next_step": "Nao promover; resultado simulado negativo."
+    }
+  }
+}

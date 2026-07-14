@@ -50,6 +50,25 @@ class MT5DemoExecutionProvider:
         positions = self.mt5.positions_get(symbol=symbol)
         return bool(positions)
 
+    def has_open_position_for_model(
+        self,
+        symbol: str,
+        operational_model: str,
+    ) -> bool:
+        """Consulta posicao aberta do mesmo simbolo e modelo operacional."""
+        initialize_check = self._initialize_check()
+        if initialize_check is not None:
+            return True
+        positions = self.mt5.positions_get(symbol=symbol) or []
+        expected = self._model_comment(operational_model)
+        for position in positions:
+            comment = str(getattr(position, "comment", "") or "").upper()
+            if expected in comment:
+                return True
+            if "TRADERIA" in comment and " M1" not in comment and " M2" not in comment:
+                return True
+        return False
+
     def get_open_position(self, symbol: str) -> object | None:
         """Retorna a primeira posicao aberta do simbolo em conta demo."""
         initialize_check = self._initialize_check()
@@ -968,7 +987,7 @@ class MT5DemoExecutionProvider:
             "tp": float(order.target),
             "deviation": self.deviation,
             "magic": self.magic,
-            "comment": "TraderIA DEMO",
+            "comment": self._order_comment(order),
             "type_time": self.mt5.ORDER_TIME_GTC,
             "type_filling": self.mt5.ORDER_FILLING_IOC,
         }
@@ -1058,17 +1077,8 @@ class MT5DemoExecutionProvider:
         return None
 
     def _record_counts_as_plan_evaluation(self, record: dict[str, Any]) -> bool:
-        message = str(record.get("message") or "").lower()
-        transient_markers = (
-            "tick indisponivel",
-            "preco executavel indisponivel",
-            "mt5 retornou resposta vazia",
-            "initialize() falhou",
-            "simbolo",
-            "nao pode ser selecionado",
-            "provider de execucao demo nao configurado",
-        )
-        return not any(marker in message for marker in transient_markers)
+        """Duplicidade de plano so nasce de ordem aceita pelo MT5."""
+        return bool(record.get("accepted", False))
 
     def _read_execution_log_records(self) -> list[dict[str, Any]]:
         if not self.log_path.exists():
@@ -1294,9 +1304,23 @@ class MT5DemoExecutionProvider:
             "beta_id": getattr(order, "beta_id", "BETA001"),
             "beta_version": getattr(order, "beta_version", "BETA v1"),
             "beta_mode": getattr(order, "beta_mode", "PROTECT_ONLY"),
+            "operational_model": getattr(
+                order,
+                "operational_model",
+                "MODELO_1_ALPHA_ATUAL",
+            ),
         }
         with self.log_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(payload, ensure_ascii=True) + "\n")
+
+    def _order_comment(self, order: ExecutionOrder) -> str:
+        return f"TraderIA {self._model_comment(getattr(order, 'operational_model', ''))}"
+
+    def _model_comment(self, operational_model: object) -> str:
+        model = str(operational_model or "").upper()
+        if model == "MODELO_2_ESPELHO_BETA2_RR1":
+            return "M2"
+        return "M1"
 
     def _write_management_log(self, payload: dict[str, Any]) -> None:
         self.management_log_path.parent.mkdir(parents=True, exist_ok=True)

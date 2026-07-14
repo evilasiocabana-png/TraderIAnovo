@@ -36,7 +36,7 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertEqual(mt5.last_request["volume"], 0.1)
         self.assertEqual(mt5.last_request["sl"], 90.0)
         self.assertEqual(mt5.last_request["tp"], 120.0)
-        self.assertEqual(mt5.last_request["comment"], "TraderIA DEMO")
+        self.assertEqual(mt5.last_request["comment"], "TraderIA M1")
 
     def test_rejeita_preflight_quando_preco_atual_invalida_sl_tp(self) -> None:
         mt5 = _FakeMT5()
@@ -84,6 +84,37 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
             self.assertFalse(second.accepted)
             self.assertIn("duplicado", second.message)
 
+    def test_tentativa_rejeitada_nao_bloqueia_reenvio_do_plano(self) -> None:
+        mt5 = _FakeMT5()
+        mt5.tick = SimpleNamespace(ask=1.33712, bid=1.33710)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_path = Path(temp_dir) / "orders.jsonl"
+            log_path.write_text(
+                (
+                    '{"symbol":"GBPUSD","side":"SELL","entry_price":1.33833,'
+                    '"stop":1.33966833,"target":1.33565334,'
+                    '"accepted":false,"status":"REJECTED",'
+                    '"message":"Plano MT5 Demo stale",'
+                    '"plan_identity":"GBPUSD|M1|2026-07-08 21:18|ADX|TP v5"}\n'
+                ),
+                encoding="utf-8",
+            )
+            provider = MT5DemoExecutionProvider(mt5=mt5, log_path=log_path)
+            order = ExecutionOrder(
+                symbol="GBPUSD",
+                side="SELL",
+                quantity=0.1,
+                entry_price=1.33833,
+                stop=1.33966833,
+                target=1.33565334,
+                plan_identity="GBPUSD|M1|2026-07-08 21:18|ADX|TP v5",
+            )
+
+            result = provider.submit_order(order)
+
+            self.assertTrue(result.accepted)
+            self.assertEqual(mt5.last_request["comment"], "TraderIA M1")
+
     def test_libera_mesmo_plano_quando_candle_do_lab_muda(self) -> None:
         mt5 = _FakeMT5()
         mt5.tick = SimpleNamespace(ask=1.33712, bid=1.33710)
@@ -123,6 +154,21 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
 
         self.assertTrue(provider.has_open_position("WDO"))
         self.assertEqual(mt5.positions_symbol, "WDO")
+
+    def test_has_open_position_for_model_diferencia_modelo_operacional(self) -> None:
+        position = SimpleNamespace(comment="TraderIA M1")
+        mt5 = _FakeMT5(open_positions=[position])
+        provider = self._provider(mt5)
+
+        self.assertTrue(
+            provider.has_open_position_for_model("EURUSD", "MODELO_1_ALPHA_ATUAL")
+        )
+        self.assertFalse(
+            provider.has_open_position_for_model(
+                "EURUSD",
+                "MODELO_2_ESPELHO_BETA2_RR1",
+            )
+        )
 
     def test_get_recent_candles_aceita_array_like_do_mt5(self) -> None:
         """copy_rates_from_pos pode retornar array com bool ambiguo."""

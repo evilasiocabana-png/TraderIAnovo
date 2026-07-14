@@ -21,6 +21,9 @@ class DemoExecutionProvider(Protocol):
     def has_open_position(self, symbol: str) -> bool:
         """Retorna se ja existe posicao aberta para o simbolo."""
 
+    def has_open_position_for_model(self, symbol: str, operational_model: str) -> bool:
+        """Retorna se ja existe posicao aberta para simbolo e modelo operacional."""
+
     def get_open_position(self, symbol: str) -> object | None:
         """Retorna a posicao aberta do simbolo, quando existir."""
 
@@ -93,6 +96,7 @@ class DemoExecutionAuditRecord:
     beta_id: str = "BETA001"
     beta_version: str = "BETA v1"
     beta_mode: str = "PROTECT_ONLY"
+    operational_model: str = "MODELO_1_ALPHA_ATUAL"
     session_policy_version: str = "N/D"
     execution_pipeline_version: str = "N/D"
     lab_configuration_version: str = "N/D"
@@ -129,6 +133,9 @@ class DisabledDemoExecutionProvider:
     """Provider seguro usado enquanto nenhum adaptador externo foi injetado."""
 
     def has_open_position(self, symbol: str) -> bool:
+        return False
+
+    def has_open_position_for_model(self, symbol: str, operational_model: str) -> bool:
         return False
 
     def get_open_position(self, symbol: str) -> object | None:
@@ -359,9 +366,22 @@ class DemoExecutionService:
             return "Stop Loss e Take Profit sao obrigatorios."
         if not self._is_trade_time_allowed(context.market_snapshot.datetime):
             return "Horario fora da janela permitida para operar."
-        if self.provider.has_open_position(order.symbol):
-            return "Ja existe uma posicao aberta para este simbolo."
+        if self._has_open_position_for_same_model(order):
+            return "Ja existe uma posicao aberta para este simbolo neste modelo."
         return None
+
+    def _has_open_position_for_same_model(self, order: ExecutionOrder) -> bool:
+        operational_model = str(
+            getattr(order, "operational_model", "")
+            or self.pending_audit_metadata.get(
+                "operational_model",
+                "MODELO_1_ALPHA_ATUAL",
+            )
+        )
+        model_checker = getattr(self.provider, "has_open_position_for_model", None)
+        if callable(model_checker):
+            return bool(model_checker(order.symbol, operational_model))
+        return bool(self.provider.has_open_position(order.symbol))
 
     def _has_required_stop_and_target(self, order: ExecutionOrder) -> bool:
         if order.side == "BUY":
@@ -427,6 +447,9 @@ class DemoExecutionService:
                 beta_id=str(metadata.get("beta_id", "BETA001")),
                 beta_version=str(metadata.get("beta_version", "BETA v1")),
                 beta_mode=str(metadata.get("beta_mode", "PROTECT_ONLY")),
+                operational_model=str(
+                    metadata.get("operational_model", "MODELO_1_ALPHA_ATUAL")
+                ),
                 session_policy_version=str(
                     metadata.get("session_policy_version", "N/D")
                 ),

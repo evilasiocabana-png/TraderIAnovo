@@ -136,6 +136,51 @@ class MT5ResearchTradePlanEngineTest(unittest.TestCase):
         self.assertEqual(plan.risk_reward, 2.0)
         self.assertEqual(plan.exit_candidates, 0)
 
+    def test_preserva_beta002_adaptive_full_exit_do_lab_no_plano_valido(self) -> None:
+        plan = MT5ResearchTradePlanEngine().build_plan(
+            MT5ResearchTradePlanInput(
+                symbol="EURUSD",
+                timeframe="M1",
+                decision="BUY",
+                entry_signal_status="SINAL_TEORICO",
+                entry_price=1.1000,
+                atr=0.0010,
+                atr_stop_factor=1.5,
+                research_risk_reward=2.0,
+                active_model="ADX_TREND_STRENGTH",
+                reason="snapshot vencedor",
+                beta_id="BETA002",
+                beta_version="M1_EMA14_MOMENTUM_VOLATILITY",
+                beta_mode="ADAPTIVE_FULL_EXIT",
+            )
+        )
+
+        self.assertEqual(plan.status, "PLANO_VALIDO")
+        self.assertEqual(plan.beta_id, "BETA002")
+        self.assertEqual(plan.beta_version, "M1_EMA14_MOMENTUM_VOLATILITY")
+        self.assertEqual(plan.beta_mode, "ADAPTIVE_FULL_EXIT")
+
+    def test_preserva_beta002_adaptive_full_exit_mesmo_sem_gatilho(self) -> None:
+        plan = MT5ResearchTradePlanEngine().build_plan(
+            MT5ResearchTradePlanInput(
+                symbol="EURUSD",
+                timeframe="M1",
+                decision="WAIT",
+                entry_signal_status="FORA_DA_ZONA_DE_INTERESSE",
+                entry_price=None,
+                atr=0.0010,
+                active_model="ADX_TREND_STRENGTH",
+                reason="aguardando encaixe",
+                beta_id="BETA002",
+                beta_version="M1_EMA14_MOMENTUM_VOLATILITY",
+                beta_mode="ADAPTIVE_FULL_EXIT",
+            )
+        )
+
+        self.assertNotEqual(plan.status, "PLANO_VALIDO")
+        self.assertEqual(plan.beta_id, "BETA002")
+        self.assertEqual(plan.beta_mode, "ADAPTIVE_FULL_EXIT")
+
     def test_cria_plano_sell_com_stop_acima_e_alvo_abaixo(self) -> None:
         plan = MT5ResearchTradePlanEngine().build_plan(
             MT5ResearchTradePlanInput(

@@ -111,6 +111,11 @@ Essa pasta e ignorada pelo Git.
 - Abre com ultimo estado local/snapshot.
 - Nao possui ciclo automatico bloqueante.
 - Nao deve prender a UI em leitura MT5 longa.
+- O Robo Demo online deve sobreviver a reruns do Streamlit. Se a sessao visual
+  indica monitoramento online ativo, mas um `DashboardService` recem-criado
+  aparece `DISARMED`, o ciclo pode rearmar o backend em memoria antes da
+  avaliacao. Isso nao autoriza envio extra nem recalculo pesado; apenas preserva
+  o contrato operacional ate que haja bloqueio real ou desarme explicito.
 
 ### Lab
 
@@ -124,6 +129,37 @@ Essa pasta e ignorada pelo Git.
 - Audita `.traderia/mt5_demo_execution.jsonl` contra historico MT5/local.
 - Carrega uma vez, cacheia na sessao e atualiza por botao.
 
+## Politica De Travamentos E Regressao De Velocidade
+
+Todo travamento, congelamento, queda aparente do app, demora incomum ou
+reinicio manual necessario deve ser tratado como evento arquitetural.
+
+Cada evento deve ser registrado antes de seguir com novas mudancas, contendo:
+
+- data e horario aproximado;
+- aba ou fluxo afetado;
+- sintoma observado;
+- porta/processo envolvido quando disponivel;
+- se o backend respondeu ou nao;
+- causa provavel;
+- acao corretiva aplicada;
+- prevencao sugerida para nao repetir.
+
+Guardrails:
+
+- nao aceitar travamento como comportamento normal do Streamlit;
+- nao resolver apenas reiniciando sem registrar;
+- nao desarmar Robo Demo por leitura transitoria de backend recem-instanciado;
+- nao desligar leitura de mercado essencial para mascarar lentidao;
+- medir antes de otimizar quando a causa nao estiver clara;
+- manter tabelas grandes paginadas;
+- impedir leitura pesada do Lab dentro do ciclo leve;
+- manter logs/snapshots leves para Position Manager e Relatorios.
+
+Incidentes recorrentes devem virar missao de arquitetura/performance antes de
+novas funcionalidades que aumentem custo de renderizacao, leitura MT5 ou leitura
+de arquivos `.traderia`.
+
 ## Fronteiras Criticas
 
 - `dashboard_app.py` nao deve importar providers diretamente.
@@ -131,4 +167,3 @@ Essa pasta e ignorada pelo Git.
 - GitHub nao armazena runtime local.
 - Recalculo pesado precisa ser explicito.
 - Execucao real nao e autorizada por padrao.
-

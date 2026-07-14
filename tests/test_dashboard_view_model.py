@@ -27,6 +27,7 @@ from application.system_service import SystemStatus
 from application.mt5_visual_signal_exporter import MT5VisualSignalExporter
 from core.configuration_manager import ConfigurationManager
 from domain.candle import Candle
+from research.mt5_research_trade_plan import MT5ResearchTradePlan
 from tests.architecture_test_utils import read_source
 
 
@@ -250,7 +251,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
             f"{research.best_scenario.lab_confidence:.4f}",
         )
 
-    def test_scenario_runner_prioriza_ranking_composto_score_e_confirmacao(
+    def test_scenario_runner_prioriza_confirmacao_historica_antes_do_encaixe(
         self,
     ) -> None:
         service = DashboardService()
@@ -278,8 +279,8 @@ class DashboardViewModelContractTest(unittest.TestCase):
         best = service._best_mt5_scenarios_by_pair(scenarios)
 
         self.assertEqual(len(best), 1)
-        self.assertEqual(best[0].timeframe, "M1")
-        self.assertEqual(best[0].score, 0.95)
+        self.assertEqual(best[0].timeframe, "M5")
+        self.assertEqual(best[0].lab_confidence, 0.70)
 
     def test_scenario_runner_pesquisa_biblioteca_institucional_de_alphas(self) -> None:
         grid = DashboardService()._mt5_scenario_parameter_grid(None)
@@ -291,6 +292,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
         atr_values = {parameters["atr_stop_factor"] for parameters in grid}
         rr_values = {parameters["rr"] for parameters in grid}
         stop_management_values = {parameters["stop_management"] for parameters in grid}
+        beta_values = {parameters["beta_id"] for parameters in grid}
         models = {parameters["modelo"] for parameters in grid}
         alphas = {parameters["alpha"] for parameters in grid}
 
@@ -331,6 +333,21 @@ class DashboardViewModelContractTest(unittest.TestCase):
                 "ALPHA013",
                 "ALPHA014",
                 "ALPHA015",
+                "ALPHA016",
+            },
+        )
+        self.assertEqual(
+            beta_values,
+            {
+                "BETA003",
+                "BETA004",
+                "BETA005",
+                "BETA006",
+                "BETA007",
+                "BETA008",
+                "BETA009",
+                "BETA010",
+                "BETA011",
             },
         )
         self.assertEqual(
@@ -351,9 +368,168 @@ class DashboardViewModelContractTest(unittest.TestCase):
                 "SUPPORT_RESISTANCE_REACTION",
                 "MULTI_TIMEFRAME_ALIGNMENT",
                 "LIQUIDITY_SPREAD_FILTER",
+                "BETA002_REVERSAL_SIGNAL",
             },
         )
         self.assertGreater(len(grid), 600)
+
+    def test_modelo2_espelho_inverte_plano_valido_com_rr_um(self) -> None:
+        service = DashboardService()
+        plan = MT5ResearchTradePlan(
+            symbol="EURUSD",
+            timeframe="M1",
+            direction="BUY",
+            entry_price=1.1000,
+            stop=1.0950,
+            target=1.1150,
+            risk_reward=3.0,
+            stop_multiplier=2.0,
+            exit_model="INITIAL_RISK_PLAN",
+            exit_score=0.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            alpha_id="ALPHA001",
+            beta_id="BETA005",
+            beta_version="ATR_TRAILING_STOP_MANAGER",
+            beta_mode="ATR_TRAILING_ONLY",
+        )
+
+        transformed = service._mt5_model2_inverse_plan(plan)
+
+        self.assertIsNotNone(transformed)
+        assert transformed is not None
+        self.assertEqual(transformed.direction, "SELL")
+        self.assertAlmostEqual(transformed.target or 0.0, 1.0950)
+        self.assertAlmostEqual(transformed.stop or 0.0, 1.1050)
+        self.assertEqual(transformed.risk_reward, 1.0)
+        self.assertEqual(transformed.beta_id, "BETA002")
+        self.assertEqual(transformed.beta_mode, "INVERSE_QUICK_TRADE")
+
+    def test_modelo2_operacional_so_inverte_com_filtro_ruim_presente(self) -> None:
+        service = DashboardService()
+        service.set_mt5_operational_model("MODELO_2_ESPELHO_BETA2_RR1")
+        row = DashboardMT5ForexSignalRowViewModel(
+            pair="EURUSD",
+            decision="BUY",
+            theoretical_entry_direction="BUY",
+            theoretical_entry_status="SINAL_TEORICO",
+            active_model="TREND_MOMENTUM",
+            entry_filter_status="OK",
+        )
+        plan = MT5ResearchTradePlan(
+            symbol="EURUSD",
+            timeframe="M1",
+            direction="BUY",
+            entry_price=1.1000,
+            stop=1.0950,
+            target=1.1150,
+            risk_reward=3.0,
+            stop_multiplier=2.0,
+            exit_model="INITIAL_RISK_PLAN",
+            exit_score=0.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            alpha_id="ALPHA001",
+            beta_id="BETA005",
+        )
+
+        transformed_row, transformed_plan = service._mt5_apply_operational_model(
+            row,
+            plan,
+        )
+
+        self.assertEqual(transformed_row.decision, "WAIT")
+        self.assertEqual(transformed_row.theoretical_entry_direction, "WAIT")
+        self.assertIn("AGUARDA_ADX_BAIXO", transformed_row.active_model)
+        self.assertIs(transformed_plan, plan)
+
+    def test_modelo2_operacional_inverte_quando_filtro_ruim_presente(self) -> None:
+        service = DashboardService()
+        service.set_mt5_operational_model("MODELO_2_ESPELHO_BETA2_RR1")
+        row = DashboardMT5ForexSignalRowViewModel(
+            pair="EURUSD",
+            decision="BUY",
+            theoretical_entry_direction="BUY",
+            theoretical_entry_status="SINAL_TEORICO",
+            active_model="TREND_MOMENTUM",
+            entry_filter_status="BLOQUEADO",
+            entry_filter_reason="Filtro NV-V presente: ADX baixo.",
+            adx=19.5,
+        )
+        plan = MT5ResearchTradePlan(
+            symbol="EURUSD",
+            timeframe="M1",
+            direction="BUY",
+            entry_price=1.1000,
+            stop=1.0950,
+            target=1.1150,
+            risk_reward=3.0,
+            stop_multiplier=2.0,
+            exit_model="INITIAL_RISK_PLAN",
+            exit_score=0.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            alpha_id="ALPHA001",
+            beta_id="BETA005",
+        )
+
+        transformed_row, transformed_plan = service._mt5_apply_operational_model(
+            row,
+            plan,
+        )
+
+        self.assertEqual(transformed_row.decision, "SELL")
+        self.assertEqual(transformed_plan.direction, "SELL")
+        self.assertEqual(transformed_plan.beta_id, "BETA002")
+        self.assertEqual(transformed_plan.exit_model, "BETA2_ESPELHO_RR1")
+
+    def test_modelo2_operacional_nao_inverte_com_filtro_nao_adx(self) -> None:
+        service = DashboardService()
+        service.set_mt5_operational_model("MODELO_2_ESPELHO_BETA2_RR1")
+        row = DashboardMT5ForexSignalRowViewModel(
+            pair="EURUSD",
+            decision="BUY",
+            theoretical_entry_direction="BUY",
+            theoretical_entry_status="SINAL_TEORICO",
+            active_model="TREND_MOMENTUM",
+            entry_filter_status="BLOQUEADO",
+            entry_filter_reason="Filtro NV-V presente: Momentum contra.",
+            adx=25.0,
+        )
+        plan = MT5ResearchTradePlan(
+            symbol="EURUSD",
+            timeframe="M1",
+            direction="BUY",
+            entry_price=1.1000,
+            stop=1.0950,
+            target=1.1150,
+            risk_reward=3.0,
+            stop_multiplier=2.0,
+            exit_model="INITIAL_RISK_PLAN",
+            exit_score=0.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            alpha_id="ALPHA001",
+            beta_id="BETA005",
+        )
+
+        transformed_row, transformed_plan = service._mt5_apply_operational_model(
+            row,
+            plan,
+        )
+
+        self.assertEqual(transformed_row.decision, "WAIT")
+        self.assertIn("ADX atual: 25.00", transformed_row.reason)
+        self.assertIs(transformed_plan, plan)
+
+    def test_chaveamento_todos_expande_modelo1_e_modelo2(self) -> None:
+        service = DashboardService()
+        service.set_mt5_operational_model("TODOS_MODELOS")
+
+        self.assertEqual(
+            service._mt5_operational_models_to_evaluate(),
+            ("MODELO_1_ALPHA_ATUAL", "MODELO_2_ESPELHO_BETA2_RR1"),
+        )
 
     def test_scenario_runner_novas_alphas_usam_indicadores_especificos(self) -> None:
         service = DashboardService()
@@ -633,6 +809,158 @@ class DashboardViewModelContractTest(unittest.TestCase):
 
         self.assertEqual(scenario.lab_confidence, 0.0)
 
+    def test_confianca_lab_usa_todos_os_pontos_elegiveis_da_amostra(self) -> None:
+        service = DashboardService()
+
+        indexes = service._scenario_evidence_indexes(minimum=21, end_index=5000)
+
+        self.assertEqual(len(indexes), 4980)
+        self.assertEqual(indexes[0], 20)
+        self.assertEqual(indexes[-1], 4999)
+        self.assertGreater(len(indexes), 6)
+
+    def test_confianca_lab_processa_pontos_elegiveis_em_lotes(self) -> None:
+        service = DashboardService()
+
+        batches = service._scenario_evidence_index_batches(
+            minimum=21,
+            end_index=5000,
+            batch_size=500,
+        )
+        flattened = [index for batch in batches for index in batch]
+
+        self.assertEqual(len(batches), 10)
+        self.assertTrue(all(len(batch) <= 500 for batch in batches))
+        self.assertEqual(flattened, service._scenario_evidence_indexes(21, 5000))
+        self.assertEqual(flattened[0], 20)
+        self.assertEqual(flattened[-1], 4999)
+
+    def test_confianca_lab_usa_lote_padrao_equilibrado_para_evitar_trava(self) -> None:
+        service = DashboardService()
+
+        batches = service._scenario_evidence_index_batches(
+            minimum=21,
+            end_index=221,
+        )
+        flattened = [index for batch in batches for index in batch]
+
+        self.assertTrue(all(len(batch) <= 100 for batch in batches))
+        self.assertEqual(flattened, service._scenario_evidence_indexes(21, 221))
+
+    def test_confianca_lab_pula_backtest_pesado_para_cenario_sem_gatilho(self) -> None:
+        service = DashboardService()
+
+        wait_evidence = service._mt5_scenario_evidence_for_candidate(
+            object(),
+            "TREND_MOMENTUM",
+            {},
+            "WAIT",
+            0.90,
+        )
+        low_score_evidence = service._mt5_scenario_evidence_for_candidate(
+            object(),
+            "TREND_MOMENTUM",
+            {},
+            "BUY",
+            0.10,
+        )
+
+        self.assertEqual(wait_evidence.source, "SCENARIO_WAIT_NO_EXPOSURE")
+        self.assertEqual(
+            low_score_evidence.source,
+            "SCENARIO_SCORE_BELOW_RESEARCH_CUT",
+        )
+        self.assertEqual(wait_evidence.sample_size, 0)
+        self.assertEqual(low_score_evidence.sample_size, 0)
+
+    def test_snapshot_historico_reconstroi_indicadores_do_lab_a_partir_dos_candles(
+        self,
+    ) -> None:
+        service = DashboardService()
+        candles = [
+            Candle(
+                data=f"2026-07-01T00:{index:02d}:00+00:00",
+                abertura=1.0000 + index * 0.0001,
+                maxima=1.0004 + index * 0.0001,
+                minima=0.9997 + index * 0.0001,
+                fechamento=1.0002 + index * 0.0001,
+                volume=100 + index,
+            )
+            for index in range(60)
+        ]
+
+        snapshot = service._theoretical_entry_snapshot(
+            MT5ForexSignalRow(
+                pair="EURUSD",
+                status="OK",
+                last_price=1.0060,
+                last_candle_time="2026-07-01T01:00:00+00:00",
+                trend="ALTA",
+                momentum=0.0,
+                volatility=0.0,
+                rsi=50.0,
+                short_average=1.0,
+                long_average=1.0,
+                decision="WAIT",
+                confidence=0.55,
+                reason="Teste",
+                timeframe="M1",
+            ),
+            candles,
+        )
+
+        self.assertNotEqual(snapshot.macd, 0.0)
+        self.assertNotEqual(snapshot.macd_signal, 0.0)
+        self.assertGreater(snapshot.atr_average, 0.0)
+        self.assertGreater(snapshot.tick_volume_average, 0.0)
+        self.assertIsNotNone(snapshot.pivot)
+        self.assertIsNotNone(snapshot.vwap)
+        self.assertIsNotNone(snapshot.support)
+        self.assertIsNotNone(snapshot.resistance)
+
+    def test_auditoria_de_divergencia_nao_usa_adx_aproximado(self) -> None:
+        service = DashboardService()
+        source = read_source(Path("application/dashboard_service.py"))
+
+        self.assertNotIn("adx_proxy", source)
+        self.assertIn("_adx_from_candles", source)
+
+        candles = [
+            Candle(
+                data=f"2026-07-01T00:{index:02d}:00+00:00",
+                abertura=1.0000,
+                maxima=1.0000,
+                minima=1.0000,
+                fechamento=1.0000,
+                volume=100 + index,
+            )
+            for index in range(8)
+        ]
+
+        event = service._scenario_discrimination_event(
+            candles,
+            len(candles) - 1,
+            "BUY",
+            -0.001,
+        )
+
+        self.assertTrue(event["ADX indisponivel"])
+        self.assertFalse(event["ADX baixo"])
+
+    def test_macd_signal_historico_usa_ema_real_da_serie_macd(self) -> None:
+        service = DashboardService()
+        values = [1.0 + index * 0.001 for index in range(80)]
+
+        macd, signal = service._macd_last(values, 12, 26, 9)
+        fast_series = service._ema_series_last_aligned(values, 12)
+        slow_series = service._ema_series_last_aligned(values, 26)
+        expected_macd_series = [
+            fast - slow for fast, slow in zip(fast_series, slow_series)
+        ]
+
+        self.assertAlmostEqual(macd, expected_macd_series[-1])
+        self.assertAlmostEqual(signal, service._ema_last(expected_macd_series, 9))
+
     def test_research_calibration_roda_um_par_por_vez(self) -> None:
         class FakeMT5MarketDataService:
             def load_forex_research_snapshot(self, timeframe, count):
@@ -810,7 +1138,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
 
         ranking = RankingDashboardService().get_mt5_alpha_research_ranking()
 
-        self.assertEqual(len(ranking), 15)
+        self.assertEqual(len(ranking), 16)
         self.assertEqual(ranking[0].alpha_id, "ALPHA002")
         self.assertEqual(ranking[0].status, "APROVADA")
         alpha006 = next(report for report in ranking if report.alpha_id == "ALPHA006")
@@ -833,6 +1161,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
                 "ALPHA013",
                 "ALPHA014",
                 "ALPHA015",
+                "ALPHA016",
             },
         )
 
@@ -948,7 +1277,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertEqual(suggestions[0].status, "MAIS_PROXIMO_DE_70")
         self.assertLess(suggestions[0].lab_confidence, 0.70)
 
-    def test_sugestao_setup_lab_transporta_beta_vencedora(self) -> None:
+    def test_sugestao_setup_lab_deriva_beta_vencedora_pela_saida(self) -> None:
         class SuggestionDashboardService(DashboardService):
             def _load_mt5_research_snapshot(self):
                 return DashboardMT5HeuristicResearchViewModel(
@@ -980,10 +1309,10 @@ class DashboardViewModelContractTest(unittest.TestCase):
 
         self.assertEqual(len(suggestions), 1)
         self.assertEqual(suggestions[0].pair, "EURJPY")
-        self.assertEqual(suggestions[0].beta_id, "BETA002")
+        self.assertEqual(suggestions[0].beta_id, "BETA005")
         self.assertEqual(
             suggestions[0].beta_version,
-            "M1_EMA14_MOMENTUM_VOLATILITY",
+            "ATR_TRAILING_STOP_MANAGER",
         )
 
     def test_lab_pesado_expande_alphas_com_betas(self) -> None:
@@ -1002,7 +1331,17 @@ class DashboardViewModelContractTest(unittest.TestCase):
 
         self.assertEqual(
             {item["beta_id"] for item in expanded},
-            {"BETA001", "BETA002"},
+            {
+                "BETA003",
+                "BETA004",
+                "BETA005",
+                "BETA006",
+                "BETA007",
+                "BETA008",
+                "BETA009",
+                "BETA010",
+                "BETA011",
+            },
         )
 
     def test_research_report_reprova_alpha_sem_confianca_minima(self) -> None:
@@ -2258,6 +2597,38 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertEqual(plan.risk_reward, 3.0)
         self.assertAlmostEqual(plan.stop or 0.0, 1.0975)
         self.assertAlmostEqual(plan.target or 0.0, 1.1075)
+
+    def test_trade_plan_modelo1_deriva_beta_saida_do_lab(self) -> None:
+        service = DashboardService()
+
+        plan = service._mt5_research_trade_plan_for_view_row(
+            DashboardMT5ForexSignalRowViewModel(
+                pair="EURUSD",
+                timeframe="M1",
+                lab_timeframe="M1",
+                active_model="TREND_MOMENTUM",
+                decision="BUY",
+                theoretical_entry_status="SINAL_TEORICO",
+                theoretical_entry_price=1.1000,
+                theoretical_entry_reason="gatilho teorico",
+                atr=0.0010,
+                beta_id="BETA002",
+                beta_version="M1_EMA14_MOMENTUM_VOLATILITY",
+                beta_mode="ADAPTIVE_FULL_EXIT",
+                lab_parameters={
+                    "atr_stop_factor": "2.0",
+                    "rr": "2.0",
+                    "stop_management": "ATR_TRAILING_STOP",
+                    "beta_id": "BETA002",
+                    "beta_version": "M1_EMA14_MOMENTUM_VOLATILITY",
+                    "beta_mode": "ADAPTIVE_FULL_EXIT",
+                },
+            )
+        )
+
+        self.assertEqual(plan.beta_id, "BETA005")
+        self.assertEqual(plan.beta_version, "ATR_TRAILING_STOP_MANAGER")
+        self.assertEqual(plan.beta_mode, "ATR_TRAILING_ONLY")
 
     def test_exportador_visual_mt5_gera_json_read_only(self) -> None:
         exporter = MT5VisualSignalExporter()

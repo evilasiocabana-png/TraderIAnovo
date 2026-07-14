@@ -114,6 +114,7 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                            'application.mt5_market_data_service.MT5ForexSignalDashboard',
                                   'get_mt5_market_data': '(self) -> '
                                                          'application.mt5_market_data_service.MT5DashboardMarketData',
+                                  'get_mt5_operational_model': '(self) -> str',
                                   'get_mt5_research_constants': '(self) -> '
                                                                 'application.dashboard_view_model.DashboardMT5HeuristicResearchViewModel',
                                   'get_mt5_research_history_candle_count': '(self) -> int',
@@ -261,6 +262,7 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'save_configuration_preset': '(self, name: str) -> None',
                                   'select_historical_dataset': '(self, dataset_id: str) -> '
                                                                'market_data.historical_dataset_catalog.HistoricalDatasetMetadata',
+                                  'set_mt5_operational_model': '(self, model: str) -> None',
                                   'select_replay_strategy': '(self, strategy_name: str) -> '
                                                             'application.replay_service.ReplayData',
                                   'start_replay': '(self) -> application.replay_service.ReplayData',

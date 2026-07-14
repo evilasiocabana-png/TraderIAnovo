@@ -75,6 +75,22 @@ from application.mt5_market_data_service import (
     MT5ForexSignalRow,
     MT5MarketDataService,
 )
+
+
+ENTRY_FILTER_MIN_NV_MINUS_V = 0.05
+ENTRY_FILTER_MIN_SAMPLE_SIZE = 300
+ENTRY_FILTER_MAX_RULES = 2
+ENTRY_FILTER_ADX_LOW_THRESHOLD = 20.0
+ENTRY_FILTER_SUPPORTED_INDICATORS = {
+    "ADX baixo",
+    "ATR em queda",
+    "ATR subindo",
+    "Momentum contra",
+    "MACD hist divergente",
+}
+MT5_OPERATIONAL_MODEL_1 = "MODELO_1_ALPHA_ATUAL"
+MT5_OPERATIONAL_MODEL_2 = "MODELO_2_ESPELHO_BETA2_RR1"
+MT5_OPERATIONAL_MODEL_ALL = "TODOS_MODELOS"
 from application.dynamic_exit_market_state_service import (
     DynamicExitMarketStateClassifier,
 )
@@ -281,6 +297,8 @@ class MT5ScenarioHistoricalEvidence:
     profit_factor: float = 0.0
     max_drawdown: float = 0.0
     source: str = "SCENARIO_HISTORICAL_EVIDENCE"
+    discrimination_summary: str = "N/D"
+    discrimination_metrics: dict[str, dict[str, float]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -651,6 +669,8 @@ class DashboardService:
     regime_analysis: RegimeAnalysis | None = None
     market_memory: MarketMemory | None = None
     selected_historical_dataset_id: str | None = None
+    entry_filter_max_rules: int | None = ENTRY_FILTER_MAX_RULES
+    mt5_operational_model: str = MT5_OPERATIONAL_MODEL_1
 
     def __post_init__(self) -> None:
         self.research_lab_service.live_experiment_runner = (
@@ -668,6 +688,42 @@ class DashboardService:
                     "mt5_research_snapshot_cache",
                     stored_research,
                 )
+
+    def _set_entry_filter_max_rules(self, max_rules: int | None) -> None:
+        """Sincroniza o limite operacional do filtro NV-V sem abrir API publica."""
+        if max_rules is None:
+            object.__setattr__(self, "entry_filter_max_rules", None)
+            return
+        object.__setattr__(self, "entry_filter_max_rules", max(1, int(max_rules)))
+
+    def _entry_filter_rule_limit(self) -> int | None:
+        value = getattr(self, "entry_filter_max_rules", ENTRY_FILTER_MAX_RULES)
+        if value is None:
+            return None
+        return max(1, int(value or ENTRY_FILTER_MAX_RULES))
+
+    def set_mt5_operational_model(self, model: str) -> None:
+        """Seleciona qual modelo pode enviar ordem demo MT5 neste ciclo."""
+        normalized = str(model or MT5_OPERATIONAL_MODEL_1).upper()
+        if normalized not in {
+            MT5_OPERATIONAL_MODEL_1,
+            MT5_OPERATIONAL_MODEL_2,
+            MT5_OPERATIONAL_MODEL_ALL,
+        }:
+            normalized = MT5_OPERATIONAL_MODEL_1
+        object.__setattr__(self, "mt5_operational_model", normalized)
+
+    def get_mt5_operational_model(self) -> str:
+        return str(
+            getattr(self, "mt5_operational_model", MT5_OPERATIONAL_MODEL_1)
+            or MT5_OPERATIONAL_MODEL_1
+        ).upper()
+
+    def _mt5_operational_models_to_evaluate(self) -> tuple[str, ...]:
+        selected = self.get_mt5_operational_model()
+        if selected == MT5_OPERATIONAL_MODEL_ALL:
+            return (MT5_OPERATIONAL_MODEL_1, MT5_OPERATIONAL_MODEL_2)
+        return (selected,)
 
     def get_dashboard_data(self) -> DashboardData:
         """Retorna dados legados do dashboard para compatibilidade temporaria."""
@@ -1030,20 +1086,13 @@ class DashboardService:
                 target_confidence,
             )
             if selected is not None:
-                suggestions.append(
-                    DashboardMT5SetupSuggestionViewModel(
-                        alpha_id=str(getattr(selected, "alpha_id", "ALPHA001")),
-                        pair=str(getattr(selected, "pair", pair)),
-                        timeframe=str(getattr(selected, "timeframe", "M1")),
-                        model=str(getattr(selected, "model", "WAIT_NO_EDGE")),
-                        decision=str(getattr(selected, "decision", "WAIT")),
-                        parameters=dict(getattr(selected, "parameters", {}) or {}),
-                        beta_id=str(
-                            getattr(selected, "beta_id", "BETA001") or "BETA001"
-                        ),
+                selected_parameters = dict(getattr(selected, "parameters", {}) or {})
+                beta_id, beta_version, beta_mode, beta_reason = (
+                    self._mt5_beta_descriptor_from_parameters(
+                        selected_parameters,
+                        beta_id=str(getattr(selected, "beta_id", "BETA001") or "BETA001"),
                         beta_version=str(
-                            getattr(selected, "beta_version", "BETA v1")
-                            or "BETA v1"
+                            getattr(selected, "beta_version", "BETA v1") or "BETA v1"
                         ),
                         beta_mode=str(
                             getattr(selected, "beta_mode", "PROTECT_ONLY")
@@ -1057,6 +1106,20 @@ class DashboardService:
                             )
                             or "Position Manager administra a saida apos a entrada."
                         ),
+                    )
+                )
+                suggestions.append(
+                    DashboardMT5SetupSuggestionViewModel(
+                        alpha_id=str(getattr(selected, "alpha_id", "ALPHA001")),
+                        pair=str(getattr(selected, "pair", pair)),
+                        timeframe=str(getattr(selected, "timeframe", "M1")),
+                        model=str(getattr(selected, "model", "WAIT_NO_EDGE")),
+                        decision=str(getattr(selected, "decision", "WAIT")),
+                        parameters=selected_parameters,
+                        beta_id=beta_id,
+                        beta_version=beta_version,
+                        beta_mode=beta_mode,
+                        beta_reason=beta_reason,
                         exit_model=str(
                             getattr(
                                 selected,
@@ -1081,6 +1144,25 @@ class DashboardService:
                         score=float(getattr(selected, "score", 0.0) or 0.0),
                         lab_confidence=float(
                             getattr(selected, "lab_confidence", 0.0) or 0.0
+                        ),
+                        lab_confidence_sample_size=int(
+                            getattr(selected, "lab_confidence_sample_size", 0) or 0
+                        ),
+                        lab_confidence_profit_factor=float(
+                            getattr(selected, "lab_confidence_profit_factor", 0.0)
+                            or 0.0
+                        ),
+                        lab_confidence_expectancy=float(
+                            getattr(selected, "lab_confidence_expectancy", 0.0)
+                            or 0.0
+                        ),
+                        lab_confidence_max_drawdown=float(
+                            getattr(selected, "lab_confidence_max_drawdown", 0.0)
+                            or 0.0
+                        ),
+                        lab_confidence_source=str(
+                            getattr(selected, "lab_confidence_source", "N/D")
+                            or "N/D"
                         ),
                         target_confidence=float(target_confidence),
                         status=self._mt5_setup_suggestion_status(
@@ -1112,19 +1194,9 @@ class DashboardService:
                 )
                 or "M1"
             )
-            suggestions.append(
-                DashboardMT5SetupSuggestionViewModel(
-                    alpha_id=str(configuration.get("alpha", "ALPHA001")),
-                    pair=pair,
-                    timeframe=timeframe,
-                    model=str(
-                        configuration.get(
-                            "modelo",
-                            getattr(row, "recommended_heuristic", "WAIT_NO_EDGE"),
-                        )
-                    ),
-                    decision=str(getattr(row, "decision", "WAIT")),
-                    parameters=configuration,
+            beta_id, beta_version, beta_mode, beta_reason = (
+                self._mt5_beta_descriptor_from_parameters(
+                    configuration,
                     beta_id=str(
                         configuration.get(
                             "beta_id",
@@ -1157,6 +1229,25 @@ class DashboardService:
                         )
                         or "Position Manager administra a saida apos a entrada."
                     ),
+                )
+            )
+            suggestions.append(
+                DashboardMT5SetupSuggestionViewModel(
+                    alpha_id=str(configuration.get("alpha", "ALPHA001")),
+                    pair=pair,
+                    timeframe=timeframe,
+                    model=str(
+                        configuration.get(
+                            "modelo",
+                            getattr(row, "recommended_heuristic", "WAIT_NO_EDGE"),
+                        )
+                    ),
+                    decision=str(getattr(row, "decision", "WAIT")),
+                    parameters=configuration,
+                    beta_id=beta_id,
+                    beta_version=beta_version,
+                    beta_mode=beta_mode,
+                    beta_reason=beta_reason,
                     exit_model=str(
                         configuration.get(
                             "exit_model",
@@ -1171,6 +1262,22 @@ class DashboardService:
                     ),
                     score=float(getattr(row, "score", 0.0) or 0.0),
                     lab_confidence=float(getattr(row, "confidence", 0.0) or 0.0),
+                    lab_confidence_sample_size=int(
+                        getattr(row, "sample_size", 0) or 0
+                    ),
+                    lab_confidence_profit_factor=float(
+                        getattr(row, "profit_factor", 0.0) or 0.0
+                    ),
+                    lab_confidence_expectancy=float(
+                        getattr(row, "avg_return", 0.0) or 0.0
+                    ),
+                    lab_confidence_max_drawdown=float(
+                        getattr(row, "max_drawdown", 0.0) or 0.0
+                    ),
+                    lab_confidence_source=str(
+                        getattr(row, "research_cache_status", "ROW_SUMMARY")
+                        or "ROW_SUMMARY"
+                    ),
                     target_confidence=float(target_confidence),
                     status=(
                         "SUGERIDO_70"
@@ -1214,10 +1321,10 @@ class DashboardService:
         return sorted(
             ranking,
             key=lambda report: (
-                str(getattr(report, "status", "") or "") == "APROVADA",
                 float(getattr(report, "best_confidence", 0.0) or 0.0),
                 float(getattr(report, "best_score", 0.0) or 0.0),
                 int(getattr(report, "tested_scenarios", 0) or 0),
+                str(getattr(report, "status", "") or "") == "APROVADA",
             ),
             reverse=True,
         )
@@ -1240,13 +1347,10 @@ class DashboardService:
         return max(
             valid,
             key=lambda scenario: (
-                float(getattr(scenario, "lab_confidence", 0.0) or 0.0)
-                >= target_confidence,
-                -abs(
-                    float(getattr(scenario, "lab_confidence", 0.0) or 0.0)
-                    - target_confidence
-                ),
+                float(getattr(scenario, "lab_confidence", 0.0) or 0.0),
+                int(getattr(scenario, "lab_confidence_sample_size", 0) or 0),
                 float(getattr(scenario, "score", 0.0) or 0.0),
+                bool(getattr(scenario, "ict_demo_allowed", False)),
             ),
         )
 
@@ -1403,10 +1507,10 @@ class DashboardService:
         return sorted(
             reports,
             key=lambda report: (
-                str(getattr(report, "status", "") or "") == "APROVADA",
                 float(getattr(report, "best_confidence", 0.0) or 0.0),
                 float(getattr(report, "best_score", 0.0) or 0.0),
                 int(getattr(report, "tested_scenarios", 0) or 0),
+                str(getattr(report, "status", "") or "") == "APROVADA",
             ),
             reverse=True,
         )
@@ -1515,12 +1619,10 @@ class DashboardService:
             scenarios,
             key=lambda scenario: (
                 float(getattr(scenario, "lab_confidence", 0.0) or 0.0) > 0.0,
-                float(getattr(scenario, "lab_confidence", 0.0) or 0.0)
-                >= target_confidence,
-                bool(getattr(scenario, "ict_demo_allowed", False)),
                 float(getattr(scenario, "lab_confidence", 0.0) or 0.0),
                 int(getattr(scenario, "lab_confidence_sample_size", 0) or 0),
                 float(getattr(scenario, "score", 0.0) or 0.0),
+                bool(getattr(scenario, "ict_demo_allowed", False)),
             ),
         )
 
@@ -2532,7 +2634,7 @@ class DashboardService:
         target = self._mt5_research_snapshot_path()
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(
-            json.dumps(asdict(research), ensure_ascii=False, indent=2),
+            json.dumps(asdict(research), ensure_ascii=False, separators=(",", ":")),
             encoding="utf-8",
         )
         self._save_mt5_research_runtime_index(research)
@@ -3529,6 +3631,8 @@ class DashboardService:
                 audit_message="Ticket local aceito nao encontrado no historico MT5.",
                 alpha_id=str(record.get("alpha_id") or "ALPHA001"),
                 alpha_version=str(record.get("alpha_version") or "N/D"),
+                timeframe=self._timeframe_from_mt5_execution_record(record),
+                risk_reward=self._risk_reward_from_mt5_execution_record(record),
                 beta_id=str(
                     record.get("beta_id")
                     or (position_manager_record or {}).get("beta_id")
@@ -3544,6 +3648,7 @@ class DashboardService:
                     or (position_manager_record or {}).get("beta_mode")
                     or "PROTECT_ONLY"
                 ),
+                operational_model=str(record.get("operational_model") or "N/D"),
                 beta_strength_score=beta_strength_score,
                 beta_confirmation_count=beta_confirmation_count,
                 beta_state_duration=beta_state_duration,
@@ -3666,6 +3771,8 @@ class DashboardService:
             audit_message=message,
             alpha_id=str(record.get("alpha_id") or "ALPHA001"),
             alpha_version=str(record.get("alpha_version") or "N/D"),
+            timeframe=self._timeframe_from_mt5_execution_record(record),
+            risk_reward=self._risk_reward_from_mt5_execution_record(record),
             beta_id=str(
                 record.get("beta_id")
                 or (position_manager_record or {}).get("beta_id")
@@ -3681,6 +3788,7 @@ class DashboardService:
                 or (position_manager_record or {}).get("beta_mode")
                 or "PROTECT_ONLY"
             ),
+            operational_model=str(record.get("operational_model") or "N/D"),
             beta_strength_score=beta_strength_score,
             beta_confirmation_count=beta_confirmation_count,
             beta_state_duration=beta_state_duration,
@@ -3864,6 +3972,31 @@ class DashboardService:
             return parts[3].strip()
         return str(record.get("setup") or "N/D")
 
+    def _timeframe_from_mt5_execution_record(self, record: dict[str, Any]) -> str:
+        timeframe = str(record.get("timeframe") or "").strip()
+        if timeframe:
+            return timeframe
+        identity = str(record.get("plan_identity") or "")
+        parts = [part.strip() for part in identity.split("|")]
+        if len(parts) >= 2 and parts[1]:
+            return parts[1]
+        return "N/D"
+
+    def _risk_reward_from_mt5_execution_record(self, record: dict[str, Any]) -> float:
+        explicit = self._float_or_none(record.get("risk_reward"))
+        if explicit is not None and explicit > 0:
+            return explicit
+        entry = self._float_or_none(record.get("entry_price"))
+        stop = self._float_or_none(record.get("stop"))
+        target = self._float_or_none(record.get("target"))
+        if entry is None or stop is None or target is None:
+            return 0.0
+        risk = abs(entry - stop)
+        reward = abs(target - entry)
+        if risk <= 0:
+            return 0.0
+        return reward / risk
+
     def _exit_setup_from_record(self, record: dict[str, Any]) -> str:
         return str(
             record.get("exit_setup")
@@ -4014,6 +4147,8 @@ class DashboardService:
         for ticket in ticket_candidates:
             if ticket is not None and f"ticket:{ticket}" in index:
                 return index[f"ticket:{ticket}"]
+        if mt5_record is not None and self._mt5_operation_status(mt5_record) == "FECHADA/HISTORICO":
+            return None
         symbol = str(record.get("symbol") or "").upper()
         if symbol and f"symbol:{symbol}" in index:
             return index[f"symbol:{symbol}"]
@@ -4357,6 +4492,8 @@ class DashboardService:
         )
 
         last_waiting: DashboardDemoRobotViewModel | None = None
+        last_executed: DashboardDemoRobotViewModel | None = None
+        selected_models = self._mt5_operational_models_to_evaluate()
         for source_row in rows:
             active_model = self._active_mt5_research_model_for_row(
                 source_row,
@@ -4395,24 +4532,32 @@ class DashboardService:
                     ),
                 )
                 continue
-            time_context = self.forex_time_layer.classify(
-                row.pair,
-                str(getattr(source_row, "last_candle_time", "")),
-                server_timestamp=self._mt5_server_timestamp(row.pair),
-            )
-            signal = self._mt5_demo_signal_from_view_row(
-                row,
-                candle_time=str(getattr(source_row, "last_candle_time", "")),
-                time_context=time_context,
-            )
-            robot_plan = self._to_mt5_demo_trade_plan(row, plan)
-            result = self.mt5_demo_robot_service.evaluate_once(signal, robot_plan)
-            if result.status in {"EXECUTED", "REJECTED"}:
-                object.__setattr__(
-                    self,
-                    "last_demo_robot_status",
-                    self._demo_robot_view_model(
-                        row=row,
+            for operational_model in selected_models:
+                model_row, model_plan = self._mt5_apply_operational_model(
+                    row,
+                    plan,
+                    operational_model=operational_model,
+                )
+                time_context = self.forex_time_layer.classify(
+                    model_row.pair,
+                    str(getattr(source_row, "last_candle_time", "")),
+                    server_timestamp=self._mt5_server_timestamp(model_row.pair),
+                )
+                signal = self._mt5_demo_signal_from_view_row(
+                    model_row,
+                    candle_time=str(getattr(source_row, "last_candle_time", "")),
+                    time_context=time_context,
+                    operational_model=operational_model,
+                )
+                robot_plan = self._to_mt5_demo_trade_plan(
+                    model_row,
+                    model_plan,
+                    operational_model=operational_model,
+                )
+                result = self.mt5_demo_robot_service.evaluate_once(signal, robot_plan)
+                if result.status in {"EXECUTED", "REJECTED"}:
+                    status_view = self._demo_robot_view_model(
+                        row=model_row,
                         status=result.status,
                         message=result.message,
                         result_status=(
@@ -4425,14 +4570,14 @@ class DashboardService:
                             if result.execution_result is not None
                             else result.message
                         ),
-                        entry_price=plan.entry_price,
-                        stop=plan.stop,
-                        target=plan.target,
+                        entry_price=model_plan.entry_price,
+                        stop=model_plan.stop,
+                        target=model_plan.target,
                         provider="MT5_DEMO",
                         mt5_order_send_enabled=True,
                         rejection_tree=self._demo_robot_rejection_tree(
-                            row,
-                            plan,
+                            model_row,
+                            model_plan,
                             enabled=self.mt5_demo_robot_service.enabled,
                             mt5_order_send_enabled=True,
                             time_context=time_context,
@@ -4447,39 +4592,43 @@ class DashboardService:
                                 else result.message
                             ),
                         ),
+                    )
+                    object.__setattr__(self, "last_demo_robot_status", status_view)
+                    self._append_demo_robot_visual_signal(status_view)
+                    if self.get_mt5_operational_model() != MT5_OPERATIONAL_MODEL_ALL:
+                        return status_view
+                    last_executed = status_view
+                    continue
+                last_waiting = self._demo_robot_view_model(
+                    row=model_row,
+                    status="ARMED_WAITING",
+                    message=(
+                        "Robo demo armado e aguardando novo gatilho valido do "
+                        "Research Lab."
                     ),
-                )
-                self._append_demo_robot_visual_signal(self.last_demo_robot_status)
-                return self.last_demo_robot_status
-            last_waiting = self._demo_robot_view_model(
-                row=row,
-                status="ARMED_WAITING",
-                message=(
-                    "Robo demo armado e aguardando novo gatilho valido do "
-                    "Research Lab."
-                ),
-                result_status=result.status,
-                result_message=result.message,
-                entry_price=plan.entry_price,
-                stop=plan.stop,
-                target=plan.target,
-                provider="MT5_DEMO",
-                mt5_order_send_enabled=True,
-                rejection_tree=self._demo_robot_rejection_tree(
-                    row,
-                    plan,
-                    enabled=self.mt5_demo_robot_service.enabled,
-                    mt5_order_send_enabled=True,
-                    time_context=time_context,
                     result_status=result.status,
                     result_message=result.message,
-                ),
-            )
+                    entry_price=model_plan.entry_price,
+                    stop=model_plan.stop,
+                    target=model_plan.target,
+                    provider="MT5_DEMO",
+                    mt5_order_send_enabled=True,
+                    rejection_tree=self._demo_robot_rejection_tree(
+                        model_row,
+                        model_plan,
+                        enabled=self.mt5_demo_robot_service.enabled,
+                        mt5_order_send_enabled=True,
+                        time_context=time_context,
+                        result_status=result.status,
+                        result_message=result.message,
+                    ),
+                )
 
         object.__setattr__(
             self,
             "last_demo_robot_status",
-            last_waiting
+            last_executed
+            or last_waiting
             or DashboardDemoRobotViewModel(
                 status="ARMED_WAITING",
                 message="Robo demo armado e sem gatilho valido no momento.",
@@ -4502,6 +4651,7 @@ class DashboardService:
         *,
         candle_time: str,
         time_context: object,
+        operational_model: str | None = None,
     ) -> MT5DemoRobotSignal:
         configuration = self.configuration_service.get_configuration_data()
         session_filter_enabled = bool(
@@ -4519,6 +4669,9 @@ class DashboardService:
             confidence=row.confidence,
             active_model=row.active_model,
             reason=row.reason,
+            operational_model=str(
+                operational_model or self.get_mt5_operational_model()
+            ).upper(),
             alpha_id=row.lab_alpha_id,
             alpha_version=row.lab_alpha_version,
             technical_score=row.confidence,
@@ -4546,6 +4699,11 @@ class DashboardService:
             is_friday_late=bool(getattr(time_context, "is_friday_late", False)),
             macro_event_blocked=False,
             macro_event_reason="Calendario macroeconomico nao configurado.",
+            entry_filter_blocked=str(row.entry_filter_status).upper() != "OK",
+            entry_filter_status=row.entry_filter_status,
+            entry_filter_reason=row.entry_filter_reason,
+            entry_filter_parameter=row.entry_filter_parameter,
+            entry_filter_reading=row.entry_filter_reading,
             last_price=row.last_price,
             trend=row.trend,
             momentum=row.momentum,
@@ -4702,6 +4860,7 @@ class DashboardService:
         self,
         row: DashboardMT5ForexSignalRowViewModel,
         plan: MT5ResearchTradePlan,
+        operational_model: str | None = None,
     ) -> MT5DemoTradePlan:
         if (
             plan.status != "PLANO_VALIDO"
@@ -4728,6 +4887,161 @@ class DashboardService:
             beta_id=plan.beta_id,
             beta_version=plan.beta_version,
             beta_mode=plan.beta_mode,
+            operational_model=str(
+                operational_model or self.get_mt5_operational_model()
+            ).upper(),
+        )
+
+    def _mt5_apply_operational_model(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        plan: MT5ResearchTradePlan,
+        operational_model: str | None = None,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        selected_model = str(
+            operational_model or self.get_mt5_operational_model()
+        ).upper()
+        if selected_model != MT5_OPERATIONAL_MODEL_2:
+            return row, plan
+        if not self._mt5_model2_adx_low_present(row):
+            reason = self._mt5_model2_adx_wait_reason(row)
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    active_model=f"MODELO2_AGUARDA_ADX_FORTE | {row.active_model}",
+                    reason=reason,
+                    theoretical_entry_reason=reason,
+                    research_plan_reason=reason,
+                ),
+                plan,
+            )
+        transformed_plan = self._mt5_model2_inverse_plan(plan)
+        if transformed_plan is None:
+            return row, plan
+        inverse_direction = transformed_plan.direction
+        reason = (
+            "Modelo 2 espelho: Alpha indicou "
+            f"{plan.direction}; operacao invertida para {inverse_direction}. "
+            "Filtro ADX > 20 presente; alvo usa o stop original da Alpha/Beta2 "
+            "e stop fica em RR 1."
+        )
+        transformed_row = replace(
+            row,
+            decision=inverse_direction,
+            theoretical_entry_direction=inverse_direction,
+            active_model=f"MODELO2_ESPELHO_BETA2 | {row.active_model}",
+            reason=reason,
+            theoretical_entry_reason=reason,
+            beta_id=transformed_plan.beta_id,
+            beta_version=transformed_plan.beta_version,
+            beta_mode=transformed_plan.beta_mode,
+            beta_reason=transformed_plan.beta_reason,
+            research_plan_stop=transformed_plan.stop,
+            research_plan_target=transformed_plan.target,
+            research_plan_risk_reward=transformed_plan.risk_reward,
+            research_plan_exit_model=transformed_plan.exit_model,
+            research_plan_stop_reason=transformed_plan.stop_reason,
+            research_plan_target_reason=transformed_plan.target_reason,
+            research_plan_stop_management=transformed_plan.stop_management,
+            research_plan_stop_management_parameters=dict(
+                transformed_plan.stop_management_parameters
+            ),
+            research_plan_stop_management_reason=(
+                transformed_plan.stop_management_reason
+            ),
+            research_plan_reason=transformed_plan.reason,
+            research_plan_rr_current=transformed_plan.rr_current,
+            research_plan_rr_minimum=transformed_plan.rr_minimum,
+            research_plan_diagnostics=transformed_plan.diagnostics,
+        )
+        return transformed_row, transformed_plan
+
+    def _mt5_model2_adx_low_present(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+    ) -> bool:
+        adx = self._optional_float(getattr(row, "adx", None))
+        return adx is not None and adx > 20.0
+
+    def _mt5_model2_adx_wait_reason(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+    ) -> str:
+        adx = self._optional_float(getattr(row, "adx", None))
+        if adx is None:
+            return "Modelo 2 aguardando leitura ADX para validar ADX > 20."
+        return f"Modelo 2 aguardando ADX > 20. ADX atual: {adx:.2f}."
+
+    def _mt5_model2_inverse_plan(
+        self,
+        plan: MT5ResearchTradePlan,
+    ) -> MT5ResearchTradePlan | None:
+        direction = str(plan.direction or "WAIT").upper()
+        if (
+            plan.status != "PLANO_VALIDO"
+            or direction not in {"BUY", "SELL"}
+            or plan.entry_price is None
+            or plan.stop is None
+        ):
+            return None
+        entry = float(plan.entry_price)
+        original_stop = float(plan.stop)
+        distance = abs(entry - original_stop)
+        if distance <= 0:
+            return None
+        inverse_direction = "SELL" if direction == "BUY" else "BUY"
+        inverse_target = original_stop
+        inverse_stop = entry + distance if inverse_direction == "SELL" else entry - distance
+        risk_percent = abs(distance / entry) if entry else 0.0
+        diagnostics = tuple(plan.diagnostics) + (
+            f"MODELO2_ESPELHO_ORIGINAL={direction}",
+            "MODELO2_RR_1",
+        )
+        return replace(
+            plan,
+            direction=inverse_direction,
+            stop=inverse_stop,
+            target=inverse_target,
+            risk_reward=1.0,
+            risk_pips=distance,
+            reward_pips=distance,
+            risk_percent=risk_percent,
+            reward_percent=risk_percent,
+            stop_reason=(
+                "Modelo 2: stop simetrico ao alvo espelho para manter RR 1."
+            ),
+            target_reason=(
+                "Modelo 2: alvo no stop original da Alpha/Beta2 para testar "
+                "hipotese contraria."
+            ),
+            stop_management="FIXED_STOP_MODELO2_RR1",
+            stop_management_parameters={
+                "modelo_operacional": MT5_OPERATIONAL_MODEL_2,
+                "direcao_alpha_original": direction,
+                "alvo_modelo2": "STOP_ORIGINAL_ALPHA",
+                "rr": "1.0",
+            },
+            stop_management_reason=(
+                "Modelo 2 experimental: sem trailing; entrada espelhada com RR 1."
+            ),
+            beta_id="BETA002",
+            beta_version="BETA2_ESPELHO_RR1",
+            beta_mode="INVERSE_QUICK_TRADE",
+            beta_reason=(
+                "Teste pratico: inverter sinal da Alpha quando BETA002 historico "
+                "indicar sequencia de loss."
+            ),
+            exit_model="BETA2_ESPELHO_RR1",
+            source="RESEARCH_LAB",
+            reason=(
+                "Modelo 2 espelho executavel: usa plano valido do Lab, inverte "
+                "direcao e aplica RR 1."
+            ),
+            rr_current=1.0,
+            rr_minimum=1.0,
+            diagnostics=diagnostics,
         )
 
     def _mt5_demo_execution_enabled(self) -> bool:
@@ -4924,6 +5238,17 @@ class DashboardService:
             "Evento macro",
             True,
             "Calendario macroeconomico nao configurado; sem bloqueio ativo.",
+        )
+        entry_filter_ok = str(row.entry_filter_status).upper() == "OK"
+        add(
+            "Filtro entrada NV-V",
+            entry_filter_ok,
+            (
+                "Filtro robusto ausente ou aprovado."
+                if entry_filter_ok
+                else row.entry_filter_status
+            ),
+            f"{row.entry_filter_parameter} | {row.entry_filter_reason}",
         )
         if result_status:
             add(
@@ -5309,6 +5634,11 @@ class DashboardService:
             lab_parameters,
             candidate,
         )
+        entry_filter = self._entry_filter_for_view_row(
+            analysis_row,
+            active_research_row,
+            theoretical_entry,
+        )
         research_plan = self._mt5_research_trade_plan_for_data(
             symbol=str(getattr(row, "pair", "N/D")),
             timeframe=execution_timeframe,
@@ -5325,6 +5655,15 @@ class DashboardService:
             certification_status=lab_ict_status,
             certification_usage=lab_ict_usage,
             certification_rejection_reasons=lab_ict_rejection_reasons,
+        )
+        beta_id, beta_version, beta_mode, beta_reason = (
+            self._mt5_beta_descriptor_from_parameters(
+                lab_parameters,
+                beta_id=research_plan.beta_id,
+                beta_version=research_plan.beta_version,
+                beta_mode=research_plan.beta_mode,
+                beta_reason=research_plan.beta_reason,
+            )
         )
         dynamic_exit_reading = self._mt5_dynamic_exit_reading(
             analysis_row,
@@ -5360,12 +5699,10 @@ class DashboardService:
             ),
             lab_alpha_id=str(lab_parameters.get("alpha", "ALPHA001")),
             lab_alpha_version=str(lab_parameters.get("alpha_version", "v1")),
-            beta_id=str(lab_parameters.get("beta_id", research_plan.beta_id)),
-            beta_version=str(
-                lab_parameters.get("beta_version", research_plan.beta_version)
-            ),
-            beta_mode=str(lab_parameters.get("beta_mode", research_plan.beta_mode)),
-            beta_reason=research_plan.beta_reason,
+            beta_id=beta_id,
+            beta_version=beta_version,
+            beta_mode=beta_mode,
+            beta_reason=beta_reason,
             lab_timeframe=lab_timeframe,
             lab_parameters=lab_parameters,
             lab_configuration_source=(
@@ -5440,6 +5777,10 @@ class DashboardService:
             theoretical_entry_price=theoretical_entry["price"],
             theoretical_entry_direction=theoretical_entry["direction"],
             theoretical_entry_reason=theoretical_entry["reason"],
+            entry_filter_status=str(entry_filter["status"]),
+            entry_filter_parameter=str(entry_filter["parameter"]),
+            entry_filter_reading=str(entry_filter["reading"]),
+            entry_filter_reason=str(entry_filter["reason"]),
             research_plan_status=research_plan.status,
             research_plan_source=research_plan.source,
             research_plan_entry_price=research_plan.entry_price,
@@ -5522,6 +5863,161 @@ class DashboardService:
             research_plan_rr_current=research_plan.rr_current,
             research_plan_rr_minimum=research_plan.rr_minimum,
             research_plan_diagnostics=research_plan.diagnostics,
+        )
+
+    def _entry_filter_for_view_row(
+        self,
+        row: object,
+        active_research_row: object | None,
+        theoretical_entry: dict[str, object],
+    ) -> dict[str, str]:
+        """Gate operacional: usa somente filtros NV-V robustos e avaliaveis online."""
+        rules = self._entry_filter_rules_from_research_row(active_research_row)
+        if not rules:
+            return {
+                "status": "OK",
+                "parameter": "SEM_FILTRO_ROBUSTO",
+                "reading": "N/D",
+                "reason": (
+                    "Sem filtro NV-V robusto aplicado "
+                    f"(min {ENTRY_FILTER_MIN_NV_MINUS_V:.0%}, "
+                    f"amostra {ENTRY_FILTER_MIN_SAMPLE_SIZE})."
+                ),
+            }
+        if str(theoretical_entry.get("direction", "WAIT") or "WAIT").upper() not in {
+            "BUY",
+            "SELL",
+        }:
+            return {
+                "status": "OK",
+                "parameter": self._entry_filter_parameter_text(rules),
+                "reading": "N/D",
+                "reason": "Sem direcao executavel; filtro aguardando BUY/SELL.",
+            }
+        blocked: list[str] = []
+        passed: list[str] = []
+        for rule in rules:
+            present = self._entry_filter_indicator_present(
+                row,
+                str(rule["indicator"]),
+                str(theoretical_entry.get("direction", "WAIT") or "WAIT"),
+            )
+            label = self._entry_filter_rule_label(rule)
+            if present is None:
+                # Regra robusta sem leitura online confiavel nao deve ser aplicada.
+                continue
+            if present:
+                blocked.append(label)
+            else:
+                passed.append(label)
+        if blocked:
+            return {
+                "status": "BLOQUEADO",
+                "parameter": self._entry_filter_parameter_text(rules),
+                "reading": " | ".join([*passed, *blocked]),
+                "reason": "Filtro NV-V presente: " + " | ".join(blocked),
+            }
+        return {
+            "status": "OK",
+            "parameter": self._entry_filter_parameter_text(rules),
+            "reading": " | ".join(passed) if passed else "SEM_LEITURA_APLICAVEL",
+            "reason": "Filtros NV-V robustos ausentes na leitura atual.",
+        }
+
+    def _entry_filter_rules_from_research_row(
+        self,
+        active_research_row: object | None,
+    ) -> list[dict[str, object]]:
+        if active_research_row is None:
+            return []
+        sample_size = int(
+            getattr(active_research_row, "lab_confidence_sample_size", 0)
+            or getattr(active_research_row, "sample_size", 0)
+            or 0
+        )
+        if sample_size < ENTRY_FILTER_MIN_SAMPLE_SIZE:
+            return []
+        metrics = dict(getattr(active_research_row, "lab_discrimination_metrics", {}) or {})
+        rules: list[dict[str, object]] = []
+        for indicator, metric in metrics.items():
+            if indicator not in ENTRY_FILTER_SUPPORTED_INDICATORS:
+                continue
+            if not isinstance(metric, dict):
+                continue
+            try:
+                winner_rate = float(metric.get("winner_rate", 0.0) or 0.0)
+                loser_rate = float(metric.get("loser_rate", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                continue
+            edge = loser_rate - winner_rate
+            if edge < ENTRY_FILTER_MIN_NV_MINUS_V:
+                continue
+            rules.append(
+                {
+                    "indicator": str(indicator),
+                    "winner_rate": winner_rate,
+                    "loser_rate": loser_rate,
+                    "entry_edge": edge,
+                    "sample_size": sample_size,
+                }
+            )
+        sorted_rules = sorted(
+            rules,
+            key=lambda rule: (
+                float(rule.get("entry_edge", 0.0) or 0.0),
+                int(rule.get("sample_size", 0) or 0),
+            ),
+            reverse=True,
+        )
+        limit = self._entry_filter_rule_limit()
+        if limit is None:
+            return sorted_rules
+        return sorted_rules[:limit]
+
+    def _entry_filter_indicator_present(
+        self,
+        row: object,
+        indicator: str,
+        direction: str,
+    ) -> bool | None:
+        normalized_direction = str(direction or "WAIT").upper()
+        if indicator == "ADX baixo":
+            adx = self._optional_float(getattr(row, "adx", None))
+            return None if adx is None else adx < ENTRY_FILTER_ADX_LOW_THRESHOLD
+        if indicator == "ATR em queda":
+            atr = self._optional_float(getattr(row, "atr", None))
+            atr_average = self._optional_float(getattr(row, "atr_average", None))
+            return None if atr is None or atr_average is None else atr < atr_average
+        if indicator == "ATR subindo":
+            atr = self._optional_float(getattr(row, "atr", None))
+            atr_average = self._optional_float(getattr(row, "atr_average", None))
+            return None if atr is None or atr_average is None else atr > atr_average
+        if indicator == "Momentum contra":
+            momentum = self._optional_float(getattr(row, "momentum", None))
+            if momentum is None or normalized_direction not in {"BUY", "SELL"}:
+                return None
+            return momentum < 0.0 if normalized_direction == "BUY" else momentum > 0.0
+        if indicator == "MACD hist divergente":
+            macd = self._optional_float(getattr(row, "macd", None))
+            macd_signal = self._optional_float(getattr(row, "macd_signal", None))
+            if macd is None or macd_signal is None or normalized_direction not in {"BUY", "SELL"}:
+                return None
+            return macd < macd_signal if normalized_direction == "BUY" else macd > macd_signal
+        return None
+
+    def _entry_filter_parameter_text(self, rules: list[dict[str, object]]) -> str:
+        if not rules:
+            return "SEM_FILTRO_ROBUSTO"
+        return " | ".join(
+            f"{rule['indicator']} NV-V {float(rule['entry_edge']):+.0%}"
+            for rule in rules
+        )
+
+    def _entry_filter_rule_label(self, rule: dict[str, object]) -> str:
+        return (
+            f"{rule['indicator']} V {float(rule['winner_rate']):.0%} x "
+            f"NV {float(rule['loser_rate']):.0%} | "
+            f"NV-V {float(rule['entry_edge']):+.0%}"
         )
 
     def _mt5_dynamic_exit_reading(
@@ -5722,6 +6218,7 @@ class DashboardService:
             alpha_version=row.lab_alpha_version,
             beta_id=row.beta_id,
             beta_version=row.beta_version,
+            beta_mode=row.beta_mode,
         )
 
     def _mt5_research_trade_plan_for_data(
@@ -5746,8 +6243,17 @@ class DashboardService:
         alpha_version: str = "v1",
         beta_id: str = "BETA001",
         beta_version: str = "BETA v1",
+        beta_mode: str = "PROTECT_ONLY",
     ) -> MT5ResearchTradePlan:
         parameters = lab_parameters or {}
+        beta_id, beta_version, beta_mode, beta_reason = (
+            self._mt5_beta_descriptor_from_parameters(
+                parameters,
+                beta_id=beta_id,
+                beta_version=beta_version,
+                beta_mode=beta_mode,
+            )
+        )
         return self.mt5_research_trade_plan_engine.build_plan(
             MT5ResearchTradePlanInput(
                 symbol=symbol,
@@ -5770,8 +6276,9 @@ class DashboardService:
                 stop_management_parameters=dict(parameters),
                 alpha_id=str(parameters.get("alpha") or alpha_id or "ALPHA001"),
                 alpha_version=str(parameters.get("alpha_version") or alpha_version or "v1"),
-                beta_id=str(parameters.get("beta_id") or beta_id or "BETA001"),
-                beta_version=str(parameters.get("beta_version") or beta_version or "BETA v1"),
+                beta_id=beta_id,
+                beta_version=beta_version,
+                beta_mode=beta_mode,
                 certification_demo_allowed=certification_demo_allowed,
                 certification_score=certification_score,
                 certification_grade=certification_grade,
@@ -5780,6 +6287,107 @@ class DashboardService:
                 certification_rejection_reasons=certification_rejection_reasons,
             )
         )
+
+    def _mt5_beta_descriptor_from_parameters(
+        self,
+        parameters: dict[str, object] | None,
+        *,
+        beta_id: str = "BETA001",
+        beta_version: str = "BETA v1",
+        beta_mode: str = "PROTECT_ONLY",
+        beta_reason: str = "Position Manager administra a saida apos a entrada.",
+    ) -> tuple[str, str, str, str]:
+        """Deriva a Beta operacional pela politica de saida vencedora do Lab."""
+        values = parameters or {}
+        resolved_beta_id = str(values.get("beta_id") or beta_id or "BETA001").upper()
+        resolved_beta_version = str(values.get("beta_version") or beta_version or "BETA v1")
+        resolved_beta_mode = str(values.get("beta_mode") or beta_mode or "PROTECT_ONLY")
+        resolved_beta_reason = str(
+            values.get("beta_reason")
+            or beta_reason
+            or "Position Manager administra a saida apos a entrada."
+        )
+        beta_number = self._mt5_beta_number(resolved_beta_id)
+        if beta_number is not None and beta_number >= 3:
+            return (
+                resolved_beta_id,
+                resolved_beta_version,
+                resolved_beta_mode,
+                resolved_beta_reason,
+            )
+        policy = str(values.get("stop_management", "") or "").upper()
+        by_policy = {
+            "FIXED_STOP": (
+                "BETA003",
+                "FIXED_STOP_MANAGER",
+                "FIXED_STOP_ONLY",
+                "Pesquisa de stop: manter stop inicial em R sem saida FULL.",
+            ),
+            "BREAK_EVEN": (
+                "BETA004",
+                "BREAK_EVEN_MANAGER",
+                "BREAK_EVEN_ONLY",
+                "Pesquisa de stop: proteger capital movendo stop para entrada sem saida FULL.",
+            ),
+            "ATR_TRAILING_STOP": (
+                "BETA005",
+                "ATR_TRAILING_STOP_MANAGER",
+                "ATR_TRAILING_ONLY",
+                "Pesquisa de stop: acompanhar preco com trailing por ATR sem saida FULL.",
+            ),
+            "CHANDELIER_EXIT": (
+                "BETA006",
+                "CHANDELIER_STOP_MANAGER",
+                "CHANDELIER_ONLY",
+                "Pesquisa de stop: seguir maxima/minima por Chandelier sem saida FULL.",
+            ),
+            "PARABOLIC_SAR": (
+                "BETA007",
+                "PARABOLIC_SAR_MANAGER",
+                "PARABOLIC_SAR_ONLY",
+                "Pesquisa de stop: seguir Parabolic SAR sem saida FULL.",
+            ),
+            "DONCHIAN_CHANNEL_STOP": (
+                "BETA008",
+                "DONCHIAN_STOP_MANAGER",
+                "DONCHIAN_STOP_ONLY",
+                "Pesquisa de stop: usar canal Donchian como protecao sem saida FULL.",
+            ),
+            "MOVING_AVERAGE_EXIT": (
+                "BETA009",
+                "MOVING_AVERAGE_STOP_MANAGER",
+                "MA_STOP_ONLY",
+                "Pesquisa de stop: acompanhar media movel sem saida FULL.",
+            ),
+            "TIME_STOP": (
+                "BETA010",
+                "TIME_STOP_MANAGER",
+                "TIME_STOP_ONLY",
+                "Pesquisa de stop: limitar tempo maximo de permanencia sem saida FULL.",
+            ),
+            "VOLATILITY_STOP": (
+                "BETA011",
+                "VOLATILITY_STOP_MANAGER",
+                "VOLATILITY_STOP_ONLY",
+                "Pesquisa de stop: adaptar protecao ao regime de volatilidade sem saida FULL.",
+            ),
+        }
+        return by_policy.get(
+            policy,
+            (
+                resolved_beta_id,
+                resolved_beta_version,
+                resolved_beta_mode,
+                resolved_beta_reason,
+            ),
+        )
+
+    def _mt5_beta_number(self, beta_id: str) -> int | None:
+        raw = str(beta_id or "").upper().replace("BETA", "", 1)
+        try:
+            return int(raw)
+        except ValueError:
+            return None
 
     def _active_mt5_research_model(
         self,
@@ -5960,6 +6568,7 @@ class DashboardService:
             "SUPPORT_RESISTANCE_REACTION",
             "MULTI_TIMEFRAME_ALIGNMENT",
             "LIQUIDITY_SPREAD_FILTER",
+            "BETA002_REVERSAL_SIGNAL",
         }
 
     def _theoretical_entry_for_row(
@@ -6244,6 +6853,16 @@ class DashboardService:
         volatility = self._volatility_last(closes, volatility_period)
         rsi = self._rsi_last(closes, rsi_period)
         market_structure = self._theoretical_entry_market_structure(candles)
+        atr_average = self._atr_average_from_candles(
+            candles,
+            volatility_period,
+            min(50, max(1, len(candles))),
+        )
+        macd, macd_signal = self._macd_last(closes, 12, 26, 9)
+        tick_volume_average = self._volume_average_from_candles(
+            candles,
+            min(50, max(1, len(candles))),
+        )
         return SimpleNamespace(
             pair=getattr(source_row, "pair", "N/D"),
             timeframe=getattr(source_row, "timeframe", "H1"),
@@ -6260,14 +6879,14 @@ class DashboardService:
             ema_mid=getattr(source_row, "ema_mid", None),
             ema_slow=getattr(source_row, "ema_slow", long_average),
             adx=getattr(source_row, "adx", None),
-            macd=getattr(source_row, "macd", None),
-            macd_signal=getattr(source_row, "macd_signal", None),
+            macd=macd,
+            macd_signal=macd_signal,
             atr=market_structure["atr"],
-            atr_average=getattr(source_row, "atr_average", None),
+            atr_average=atr_average,
             bollinger_upper=getattr(source_row, "bollinger_upper", None),
             bollinger_lower=getattr(source_row, "bollinger_lower", None),
             tick_volume=getattr(source_row, "tick_volume", None),
-            tick_volume_average=getattr(source_row, "tick_volume_average", None),
+            tick_volume_average=tick_volume_average,
             day_high=market_structure["day_high"],
             day_low=market_structure["day_low"],
             donchian_high=market_structure["donchian_high"],
@@ -6717,16 +7336,16 @@ class DashboardService:
     def _mt5_lab_target_rank(
         self,
         scenario: DashboardMT5ScenarioViewModel,
-    ) -> tuple[bool, float, float, float, float]:
+    ) -> tuple[bool, float, int, float, bool]:
         lab_confidence = float(getattr(scenario, "lab_confidence", 0.0) or 0.0)
         score = float(getattr(scenario, "score", 0.0) or 0.0)
-        composite = (score * 0.65) + (lab_confidence * 0.35)
+        sample_size = int(getattr(scenario, "lab_confidence_sample_size", 0) or 0)
         meets_target = lab_confidence >= MT5_LAB_TARGET_CONFIDENCE
         return (
             str(getattr(scenario, "status", "")) == "APROVADO",
-            composite,
-            score,
             lab_confidence,
+            sample_size,
+            score,
             meets_target,
         )
 
@@ -6736,12 +7355,11 @@ class DashboardService:
     ) -> tuple[bool, float, float, float, str]:
         score = float(getattr(row, "score", 0.0) or 0.0)
         confidence = float(getattr(row, "confidence", 0.0) or 0.0)
-        composite = (score * 0.65) + (confidence * 0.35)
         return (
             str(getattr(row, "status", "")) == "APROVADO",
-            composite,
-            score,
             confidence,
+            score,
+            float(getattr(row, "sample_size", 0) or 0),
             str(getattr(row, "timeframe", "") or ""),
         )
 
@@ -7144,6 +7762,25 @@ class DashboardService:
                     volume_factor=volume_factor,
                 )
             )
+        for ema_short, ema_long in ((9, 21), (14, 50), (20, 50)):
+            for atr_stop_factor in (1.5, 2.0, 2.5):
+                for rr in (2.0, 2.5, 3.0):
+                    for reversal_strength in (0.0003, 0.0006):
+                        grid.append(
+                            self._mt5_grid_parameters(
+                                "ALPHA016",
+                                "BETA002_REVERSAL_SIGNAL",
+                                ema_short,
+                                ema_long,
+                                30.0,
+                                70.0,
+                                atr_stop_factor,
+                                rr,
+                                reversal_strength,
+                                vol_low,
+                                reversal_strength=reversal_strength,
+                            )
+                        )
         if expand_exits:
             return self._mt5_expand_position_management_grid(grid)
         return grid
@@ -7179,6 +7816,10 @@ class DashboardService:
     ) -> list[dict[str, object]]:
         expanded: list[dict[str, object]] = []
         for parameters in base_grid:
+            beta_id = str(parameters.get("beta_id", "") or "").upper()
+            if beta_id.startswith("BETA") and beta_id not in {"BETA001", "BETA002"}:
+                expanded.append(dict(parameters))
+                continue
             for beta_parameters in self._mt5_beta_strategy_variants():
                 candidate = dict(parameters)
                 candidate.update(beta_parameters)
@@ -7207,45 +7848,83 @@ class DashboardService:
         ema_long: str,
     ) -> tuple[dict[str, object], ...]:
         return (
-            {"stop_management": "FIXED_STOP"},
             {
-                "stop_management": "ATR_TRAILING_STOP",
-                "atr_trailing_factor": atr_factor,
-                "atr_trailing_activation_rr": "1.0",
+                "stop_management": "FIXED_STOP",
+                "beta_id": "BETA003",
+                "beta_version": "FIXED_STOP_MANAGER",
+                "beta_mode": "FIXED_STOP_ONLY",
+                "beta_reason": "Pesquisa de stop: manter stop inicial em R sem saida FULL.",
             },
             {
                 "stop_management": "BREAK_EVEN",
                 "break_even_trigger_rr": "1.0",
                 "break_even_offset_pips": "0.0",
+                "beta_id": "BETA004",
+                "beta_version": "BREAK_EVEN_MANAGER",
+                "beta_mode": "BREAK_EVEN_ONLY",
+                "beta_reason": "Pesquisa de stop: proteger capital movendo stop para entrada sem saida FULL.",
+            },
+            {
+                "stop_management": "ATR_TRAILING_STOP",
+                "atr_trailing_factor": atr_factor,
+                "atr_trailing_activation_rr": "1.0",
+                "beta_id": "BETA005",
+                "beta_version": "ATR_TRAILING_STOP_MANAGER",
+                "beta_mode": "ATR_TRAILING_ONLY",
+                "beta_reason": "Pesquisa de stop: acompanhar preco com trailing por ATR sem saida FULL.",
             },
             {
                 "stop_management": "CHANDELIER_EXIT",
                 "chandelier_period": "22",
                 "chandelier_atr_factor": atr_factor,
+                "beta_id": "BETA006",
+                "beta_version": "CHANDELIER_STOP_MANAGER",
+                "beta_mode": "CHANDELIER_ONLY",
+                "beta_reason": "Pesquisa de stop: seguir maxima/minima por Chandelier sem saida FULL.",
             },
             {
                 "stop_management": "PARABOLIC_SAR",
                 "sar_step": "0.02",
                 "sar_max_step": "0.20",
+                "beta_id": "BETA007",
+                "beta_version": "PARABOLIC_SAR_MANAGER",
+                "beta_mode": "PARABOLIC_SAR_ONLY",
+                "beta_reason": "Pesquisa de stop: seguir Parabolic SAR sem saida FULL.",
             },
             {
                 "stop_management": "DONCHIAN_CHANNEL_STOP",
                 "donchian_stop_period": "20",
+                "beta_id": "BETA008",
+                "beta_version": "DONCHIAN_STOP_MANAGER",
+                "beta_mode": "DONCHIAN_STOP_ONLY",
+                "beta_reason": "Pesquisa de stop: usar canal Donchian como protecao sem saida FULL.",
             },
             {
                 "stop_management": "MOVING_AVERAGE_EXIT",
                 "exit_ma_period": ema_long,
                 "exit_ma_type": "EMA",
+                "beta_id": "BETA009",
+                "beta_version": "MOVING_AVERAGE_STOP_MANAGER",
+                "beta_mode": "MA_STOP_ONLY",
+                "beta_reason": "Pesquisa de stop: acompanhar media movel sem saida FULL.",
             },
             {
                 "stop_management": "TIME_STOP",
                 "max_bars_in_trade": "12",
                 "max_minutes_in_trade": "720",
+                "beta_id": "BETA010",
+                "beta_version": "TIME_STOP_MANAGER",
+                "beta_mode": "TIME_STOP_ONLY",
+                "beta_reason": "Pesquisa de stop: limitar tempo maximo de permanencia sem saida FULL.",
             },
             {
                 "stop_management": "VOLATILITY_STOP",
                 "volatility_window": "20",
                 "volatility_multiplier": atr_factor,
+                "beta_id": "BETA011",
+                "beta_version": "VOLATILITY_STOP_MANAGER",
+                "beta_mode": "VOLATILITY_STOP_ONLY",
+                "beta_reason": "Pesquisa de stop: adaptar protecao ao regime de volatilidade sem saida FULL.",
             },
         )
 
@@ -7296,6 +7975,7 @@ class DashboardService:
             "ALPHA013": "Support Resistance Reaction",
             "ALPHA014": "Multi-Timeframe Alignment",
             "ALPHA015": "Liquidity Spread Filter",
+            "ALPHA016": "BETA002 Reversal Signal",
         }
 
     def _mt5_alpha_definitions(self) -> dict[str, dict[str, object]]:
@@ -7359,6 +8039,10 @@ class DashboardService:
             "ALPHA015": {
                 "hypothesis": "Sinais com spread baixo e tick volume suficiente tem execucao mais confiavel.",
                 "indicators": ("Spread", "Spread medio", "Tick Volume", "Tick Volume medio"),
+            },
+            "ALPHA016": {
+                "hypothesis": "Leitura semelhante ao BETA002 contra o fluxo anterior pode virar entrada de reversao.",
+                "indicators": ("EMA", "Momentum", "Volatilidade", "ATR", "Candle fechado"),
             },
         }
 
@@ -7430,11 +8114,13 @@ class DashboardService:
             getattr(time_context, "temporal_blocked", False)
         ):
             reason = f"{reason} | Filtro de sessao ignorado pela configuracao."
-        evidence = self._mt5_scenario_historical_evidence(
+        evidence = self._mt5_scenario_evidence_for_candidate(
             row,
             model,
             parameters,
             decision,
+            score,
+            temporal_blocking_enabled=temporal_blocking_enabled,
         )
         lab_confidence = evidence.win_rate
         certification = self._mt5_research_certification_from_evidence(evidence)
@@ -7492,6 +8178,8 @@ class DashboardService:
             lab_confidence_expectancy=evidence.avg_return,
             lab_confidence_max_drawdown=evidence.max_drawdown,
             lab_confidence_source=evidence.source,
+            lab_discrimination_summary=evidence.discrimination_summary,
+            lab_discrimination_metrics=evidence.discrimination_metrics,
             ict_score=certification.ict_score,
             ict_grade=certification.grade,
             ict_status=certification.status,
@@ -7503,6 +8191,31 @@ class DashboardService:
             status=status,
             decision=decision,
             reason=reason,
+        )
+
+    def _mt5_scenario_evidence_for_candidate(
+        self,
+        row: object,
+        model: str,
+        parameters: dict[str, object],
+        decision: str,
+        score: float,
+        *,
+        temporal_blocking_enabled: bool = False,
+    ) -> MT5ScenarioHistoricalEvidence:
+        """Executa evidencia pesada apenas para candidatos operacionais."""
+        normalized_decision = str(decision or "WAIT").upper()
+        if temporal_blocking_enabled:
+            return MT5ScenarioHistoricalEvidence(source="SCENARIO_TEMPORAL_BLOCKED")
+        if normalized_decision not in {"BUY", "SELL"}:
+            return MT5ScenarioHistoricalEvidence(source="SCENARIO_WAIT_NO_EXPOSURE")
+        if float(score or 0.0) < 0.55:
+            return MT5ScenarioHistoricalEvidence(source="SCENARIO_SCORE_BELOW_RESEARCH_CUT")
+        return self._mt5_scenario_historical_evidence(
+            row,
+            model,
+            parameters,
+            normalized_decision,
         )
 
     def _mt5_server_timestamp(self, symbol: str = "EURUSD") -> str:
@@ -7617,31 +8330,42 @@ class DashboardService:
         end_index = len(candles) - forward
         if end_index <= minimum:
             return MT5ScenarioHistoricalEvidence(source="SCENARIO_INSUFFICIENT_CANDLES")
-        indexes = self._scenario_evidence_indexes(minimum, end_index)
         returns: list[float] = []
-        for index in indexes:
-            snapshot = self._theoretical_entry_snapshot(row, candles[: index + 1])
-            candidate = self._mt5_parameterized_candidate(snapshot, model, parameters)
-            candidate_decision = str(candidate.get("decision", "WAIT")).upper()
-            if candidate_decision not in {"BUY", "SELL"}:
-                continue
-            current_close = float(getattr(candles[index], "fechamento", 0.0) or 0.0)
-            future_close = float(
-                getattr(candles[index + forward], "fechamento", 0.0) or 0.0
-            )
-            if current_close <= 0.0:
-                continue
-            forward_return = (future_close / current_close) - 1.0
-            directional_return = (
-                forward_return if candidate_decision == "BUY" else -forward_return
-            )
-            returns.append(
-                self._exit_adjusted_scenario_return(
+        discrimination_events: list[dict[str, bool]] = []
+        for batch in self._scenario_evidence_index_batches(minimum, end_index):
+            for index in batch:
+                snapshot = self._theoretical_entry_snapshot(row, candles[: index + 1])
+                candidate = self._mt5_parameterized_candidate(snapshot, model, parameters)
+                candidate_decision = str(candidate.get("decision", "WAIT")).upper()
+                if candidate_decision not in {"BUY", "SELL"}:
+                    continue
+                current_close = float(getattr(candles[index], "fechamento", 0.0) or 0.0)
+                future_close = float(
+                    getattr(candles[index + forward], "fechamento", 0.0) or 0.0
+                )
+                if current_close <= 0.0:
+                    continue
+                forward_return = (future_close / current_close) - 1.0
+                directional_return = (
+                    forward_return if candidate_decision == "BUY" else -forward_return
+                )
+                adjusted_return = self._exit_adjusted_scenario_return(
                     directional_return,
                     parameters,
                 )
-            )
-        return self._mt5_scenario_evidence_from_returns(returns)
+                returns.append(adjusted_return)
+                discrimination_events.append(
+                    self._scenario_discrimination_event(
+                        candles,
+                        index,
+                        candidate_decision,
+                        adjusted_return,
+                    )
+                )
+        return self._mt5_scenario_evidence_from_returns(
+            returns,
+            discrimination_events,
+        )
 
     def _exit_adjusted_scenario_return(
         self,
@@ -7701,18 +8425,35 @@ class DashboardService:
         self,
         minimum: int,
         end_index: int,
-        max_points: int = 6,
     ) -> list[int]:
-        indexes = list(range(max(minimum - 1, 0), max(end_index, 0)))
-        if len(indexes) <= max_points:
-            return indexes
-        stride = max(len(indexes) // max_points, 1)
-        sampled = indexes[::stride]
-        return sampled[-max_points:]
+        """Retorna todos os candles elegiveis para evidencia historica."""
+        return list(range(max(minimum - 1, 0), max(end_index, 0)))
+
+    def _scenario_evidence_index_batches(
+        self,
+        minimum: int,
+        end_index: int,
+        batch_size: int | None = None,
+    ) -> list[list[int]]:
+        """Quebra todos os pontos elegiveis em lotes sem descartar amostra."""
+        indexes = self._scenario_evidence_indexes(minimum, end_index)
+        if batch_size is None:
+            try:
+                batch_size = int(
+                    os.getenv("TRADERIA_MT5_LAB_CALCULATION_BATCH_SIZE", "100")
+                )
+            except ValueError:
+                batch_size = 100
+        safe_batch_size = max(int(batch_size or 1), 1)
+        return [
+            indexes[start : start + safe_batch_size]
+            for start in range(0, len(indexes), safe_batch_size)
+        ]
 
     def _mt5_scenario_evidence_from_returns(
         self,
         returns: list[float],
+        discrimination_events: list[dict[str, bool]] | None = None,
     ) -> MT5ScenarioHistoricalEvidence:
         sample_size = len(returns)
         if sample_size <= 0:
@@ -7734,7 +8475,272 @@ class DashboardService:
             profit_factor=profit_factor,
             max_drawdown=self._scenario_max_drawdown(returns),
             source="SCENARIO_ALPHA_BACKTEST_SAMPLE",
+            discrimination_summary=self._scenario_discrimination_summary(
+                discrimination_events or [],
+            ),
+            discrimination_metrics=self._scenario_discrimination_metrics(
+                discrimination_events or [],
+            ),
         )
+
+    def _scenario_discrimination_event(
+        self,
+        candles: list[object],
+        index: int,
+        decision: str,
+        adjusted_return: float,
+    ) -> dict[str, bool]:
+        closes = [
+            float(getattr(candle, "fechamento", 0.0) or 0.0)
+            for candle in candles[: index + 1]
+        ]
+        if len(closes) < 6:
+            return {"win": adjusted_return > 0.0}
+        direction = 1.0 if str(decision).upper() == "BUY" else -1.0
+        short = closes[-6:]
+        price_delta = short[-1] - short[0]
+        recent_rsi = self._rsi_last(closes, min(14, max(len(closes) - 1, 2)))
+        previous_rsi = self._rsi_last(closes[:-3], min(14, max(len(closes[:-3]) - 1, 2)))
+        rsi_delta = recent_rsi - previous_rsi
+        macd_histogram = self._macd_histogram_last(closes)
+        previous_macd_histogram = self._macd_histogram_last(closes[:-3])
+        atr_recent = self._volatility_last(closes, min(14, len(closes)))
+        atr_previous = self._volatility_last(closes[:-3], min(14, max(len(closes[:-3]), 1)))
+        momentum = self._momentum_last(closes, min(10, max(len(closes) - 1, 1)))
+        previous_momentum = self._momentum_last(
+            closes[:-3],
+            min(10, max(len(closes[:-3]) - 1, 1)),
+        )
+        adx_period = min(14, max(len(candles[: index + 1]) - 1, 2))
+        adx = self._adx_from_candles(candles[: index + 1], adx_period)
+        previous_adx = self._adx_from_candles(candles[: max(index - 2, 0)], adx_period)
+        return {
+            "win": adjusted_return > 0.0,
+            "RSI divergente": (price_delta * direction > 0.0)
+            and (rsi_delta * direction < 0.0),
+            "MACD hist divergente": (price_delta * direction > 0.0)
+            and ((macd_histogram - previous_macd_histogram) * direction < 0.0),
+            "ADX indisponivel": adx is None,
+            "ADX baixo": adx is not None and adx < 20.0,
+            "ADX caindo": adx is not None and previous_adx is not None and adx < previous_adx,
+            "ATR em queda": atr_recent < atr_previous,
+            "ATR subindo": atr_recent > atr_previous,
+            "Momentum contra": momentum * direction < 0.0,
+            "Momentum enfraquecendo": (momentum * direction) < (previous_momentum * direction),
+        }
+
+    def _macd_histogram_last(self, values: list[float]) -> float:
+        if len(values) < 26:
+            return 0.0
+        macd, signal = self._macd_last(values, 12, 26, 9)
+        return macd - signal
+
+    def _macd_last(
+        self,
+        values: list[float],
+        fast_period: int,
+        slow_period: int,
+        signal_period: int,
+    ) -> tuple[float, float]:
+        if len(values) < max(fast_period, slow_period):
+            return 0.0, 0.0
+        fast_series = self._ema_series_last_aligned(values, fast_period)
+        slow_series = self._ema_series_last_aligned(values, slow_period)
+        macd_series = [
+            fast - slow
+            for fast, slow in zip(fast_series, slow_series)
+        ]
+        macd = macd_series[-1]
+        signal = self._ema_last(macd_series, signal_period)
+        return macd, signal
+
+    def _ema_series_last_aligned(
+        self,
+        values: list[float],
+        period: int,
+    ) -> list[float]:
+        if not values:
+            return []
+        safe_period = max(int(period or 1), 1)
+        multiplier = 2.0 / (safe_period + 1.0)
+        seed_window = values[: min(safe_period, len(values))]
+        ema = sum(seed_window) / len(seed_window)
+        series: list[float] = []
+        for value in values:
+            ema = (value * multiplier) + (ema * (1.0 - multiplier))
+            series.append(ema)
+        return series
+
+    def _ema_last(self, values: list[float], period: int) -> float:
+        if not values:
+            return 0.0
+        safe_period = max(int(period or 1), 1)
+        multiplier = 2.0 / (safe_period + 1.0)
+        ema = values[0]
+        for value in values[1:]:
+            ema = (value - ema) * multiplier + ema
+        return ema
+
+    def _atr_average_from_candles(
+        self,
+        candles: list[object],
+        period: int,
+        average_window: int,
+    ) -> float:
+        if len(candles) < 2:
+            return 0.0
+        safe_window = max(int(average_window or period or 1), 1)
+        sample = candles[-(safe_window + 1):]
+        true_ranges = []
+        previous_close = float(getattr(sample[0], "fechamento", 0.0) or 0.0)
+        for candle in sample[1:]:
+            high = float(getattr(candle, "maxima", 0.0) or 0.0)
+            low = float(getattr(candle, "minima", 0.0) or 0.0)
+            true_ranges.append(
+                max(
+                    high - low,
+                    abs(high - previous_close),
+                    abs(low - previous_close),
+                )
+            )
+            previous_close = float(getattr(candle, "fechamento", 0.0) or 0.0)
+        return sum(true_ranges) / len(true_ranges) if true_ranges else 0.0
+
+    def _volume_average_from_candles(
+        self,
+        candles: list[object],
+        period: int,
+    ) -> float:
+        if not candles:
+            return 0.0
+        safe_period = max(int(period or 1), 1)
+        sample = candles[-safe_period:]
+        values = [float(getattr(candle, "volume", 0.0) or 0.0) for candle in sample]
+        return sum(values) / len(values) if values else 0.0
+
+    def _adx_from_candles(
+        self,
+        candles: list[object],
+        period: int,
+    ) -> float | None:
+        safe_period = max(int(period or 1), 1)
+        if len(candles) <= safe_period:
+            return None
+        plus_dm: list[float] = []
+        minus_dm: list[float] = []
+        true_ranges: list[float] = []
+        for previous, current in zip(candles[:-1], candles[1:]):
+            previous_high = float(getattr(previous, "maxima", 0.0) or 0.0)
+            previous_low = float(getattr(previous, "minima", 0.0) or 0.0)
+            previous_close = float(getattr(previous, "fechamento", 0.0) or 0.0)
+            current_high = float(getattr(current, "maxima", 0.0) or 0.0)
+            current_low = float(getattr(current, "minima", 0.0) or 0.0)
+            up_move = current_high - previous_high
+            down_move = previous_low - current_low
+            plus_dm.append(up_move if up_move > down_move and up_move > 0 else 0.0)
+            minus_dm.append(down_move if down_move > up_move and down_move > 0 else 0.0)
+            true_ranges.append(
+                max(
+                    current_high - current_low,
+                    abs(current_high - previous_close),
+                    abs(current_low - previous_close),
+                )
+            )
+        dx_values: list[float] = []
+        for index in range(safe_period, len(true_ranges) + 1):
+            tr_sum = sum(true_ranges[index - safe_period : index])
+            if tr_sum == 0.0:
+                continue
+            plus_di = 100.0 * sum(plus_dm[index - safe_period : index]) / tr_sum
+            minus_di = 100.0 * sum(minus_dm[index - safe_period : index]) / tr_sum
+            denominator = plus_di + minus_di
+            if denominator == 0.0:
+                continue
+            dx_values.append(100.0 * abs(plus_di - minus_di) / denominator)
+        if not dx_values:
+            return None
+        return sum(dx_values[-safe_period:]) / len(dx_values[-safe_period:])
+
+    def _scenario_discrimination_summary(
+        self,
+        events: list[dict[str, bool]],
+    ) -> str:
+        if not events:
+            return "Sem eventos para diferenciar vencedores e nao vencedores."
+        metrics = self._scenario_discrimination_metrics(events)
+        winners_count = int(metrics.get("_sample", {}).get("winners", 0.0))
+        losers_count = int(metrics.get("_sample", {}).get("losers", 0.0))
+        if not winners_count or not losers_count:
+            return (
+                f"Amostra unilateral: {winners_count} vencedores e "
+                f"{losers_count} nao vencedores."
+            )
+        summaries = []
+        for indicator, values in metrics.items():
+            if indicator == "_sample":
+                continue
+            winner_rate = float(values.get("winner_rate", 0.0) or 0.0)
+            loser_rate = float(values.get("loser_rate", 0.0) or 0.0)
+            difference = float(values.get("difference", 0.0) or 0.0)
+            summaries.append((difference, indicator, winner_rate, loser_rate))
+        summaries.sort(reverse=True)
+        parts = []
+        for difference, indicator, winner_rate, loser_rate in summaries:
+            if abs(difference) < 0.10:
+                continue
+            label = (
+                "mais nos nao vencedores"
+                if difference > 0
+                else "mais nos vencedores"
+            )
+            parts.append(
+                f"{indicator}: V {winner_rate:.0%} x NV {loser_rate:.0%} ({label})"
+            )
+        if not parts:
+            return "Nenhum indicador discriminou vencedores e nao vencedores com diferenca relevante."
+        return " | ".join(parts[:3])
+
+    def _scenario_discrimination_metrics(
+        self,
+        events: list[dict[str, bool]],
+    ) -> dict[str, dict[str, float]]:
+        indicators = (
+            "RSI divergente",
+            "MACD hist divergente",
+            "ADX indisponivel",
+            "ADX baixo",
+            "ADX caindo",
+            "ATR em queda",
+            "ATR subindo",
+            "Momentum contra",
+            "Momentum enfraquecendo",
+        )
+        winners = [event for event in events if event.get("win")]
+        losers = [event for event in events if not event.get("win")]
+        metrics: dict[str, dict[str, float]] = {
+            "_sample": {
+                "winners": float(len(winners)),
+                "losers": float(len(losers)),
+                "total": float(len(events)),
+            }
+        }
+        for indicator in indicators:
+            winner_rate = (
+                sum(1 for event in winners if event.get(indicator)) / len(winners)
+                if winners
+                else 0.0
+            )
+            loser_rate = (
+                sum(1 for event in losers if event.get(indicator)) / len(losers)
+                if losers
+                else 0.0
+            )
+            metrics[indicator] = {
+                "winner_rate": winner_rate,
+                "loser_rate": loser_rate,
+                "difference": loser_rate - winner_rate,
+            }
+        return metrics
 
     def _scenario_max_drawdown(self, returns: list[float]) -> float:
         equity = 0.0
@@ -7805,6 +8811,8 @@ class DashboardService:
             return self._multi_timeframe_alignment_parameterized_candidate(row, parameters)
         if alpha_id == "ALPHA015":
             return self._liquidity_spread_filter_parameterized_candidate(row, parameters)
+        if alpha_id == "ALPHA016":
+            return self._beta002_reversal_signal_parameterized_candidate(row, parameters)
         if model == "MA_RSI_FILTER":
             return self._ma_rsi_parameterized_candidate(row, parameters)
         if model == "RSI_REVERSAL":
@@ -8297,6 +9305,48 @@ class DashboardService:
             "decision": "WAIT",
             "score": 0.35 if allowed else 0.0,
             "reason": "Liquidez/spread aceitos como filtro; nao gera direcao sozinho." if allowed else "Spread alto ou tick volume insuficiente.",
+        }
+
+    def _beta002_reversal_signal_parameterized_candidate(
+        self,
+        row: object,
+        parameters: dict[str, object],
+    ) -> dict[str, object]:
+        missing = self._missing_indicators(row, "trend", "momentum", "volatility")
+        if missing:
+            return self._indicator_unavailable_candidate(*missing)
+        trend = str(getattr(row, "trend", "INDEFINIDA") or "INDEFINIDA").upper()
+        momentum = float(getattr(row, "momentum", 0.0) or 0.0)
+        volatility = abs(float(getattr(row, "volatility", 0.0) or 0.0))
+        confidence = float(getattr(row, "confidence", 0.0) or 0.0)
+        reversal_strength = abs(
+            float(parameters.get("reversal_strength", 0.0003) or 0.0003)
+        )
+        volatility_threshold = abs(
+            float(parameters.get("volatility_threshold", 0.0) or 0.0)
+        )
+        rr = float(parameters["rr"])
+        atr_stop_factor = float(parameters["atr_stop_factor"])
+        parameter_fit = self._mt5_parameter_fit(row, parameters)
+        buy = trend == "BAIXA" and momentum > reversal_strength
+        sell = trend == "ALTA" and momentum < -reversal_strength
+        decision = "BUY" if buy else "SELL" if sell else "WAIT"
+        score = 0.0
+        if decision != "WAIT" and volatility >= volatility_threshold:
+            score = confidence + 0.18
+            score += min(abs(momentum) * 35.0, 0.18)
+            score += min(volatility * 25.0, 0.12)
+            score += self._rr_score_adjustment(rr)
+            score += self._atr_score_adjustment(volatility, atr_stop_factor)
+            score += parameter_fit
+        return {
+            "decision": decision,
+            "score": min(score, 1.0),
+            "reason": (
+                "Reversao candidata: tendencia previa perdeu continuidade e momentum virou contra o fluxo."
+                if score > 0
+                else "Sem reversao suficiente por momentum/volatilidade."
+            ),
         }
 
     def _mt5_parameter_fit(

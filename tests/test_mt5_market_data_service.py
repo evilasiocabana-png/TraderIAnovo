@@ -5,7 +5,10 @@ from __future__ import annotations
 import inspect
 import unittest
 
-from application.mt5_market_data_service import MT5MarketDataService
+from application.mt5_market_data_service import (
+    MT5MarketDataService,
+    SUPPORTED_MT5_SYMBOLS,
+)
 from core.configuration_manager import ConfigurationManager
 from core.event_bus import EventBus
 from core.events import NEW_CANDLE
@@ -489,6 +492,16 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         self.assertTrue(provider.requests)
         research_requests = provider.requests[-8:]
         self.assertTrue(all(request[2] == 5000 for request in research_requests))
+        self.assertEqual(
+            len(service.latest_forex_candles),
+            len(SUPPORTED_MT5_SYMBOLS),
+        )
+        self.assertTrue(
+            all(
+                len(service.latest_forex_candles[(pair, "M1")]) == 5000
+                for pair in SUPPORTED_MT5_SYMBOLS
+            )
+        )
         rows = [row for row in snapshot.pairs if row.status == "OK"]
         self.assertTrue(rows)
         self.assertTrue(all(row.configured_candles == 5000 for row in rows))
@@ -499,6 +512,39 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         )
         self.assertTrue(all(row.research_candles_used > 0 for row in rows))
         self.assertTrue(all(row.confidence != 0.55 for row in rows))
+        required_lab_indicators = (
+            "ema_fast",
+            "ema_mid",
+            "ema_slow",
+            "adx",
+            "macd",
+            "macd_signal",
+            "atr",
+            "atr_average",
+            "bollinger_upper",
+            "bollinger_lower",
+            "tick_volume",
+            "tick_volume_average",
+            "donchian_high",
+            "donchian_low",
+            "pivot",
+            "vwap",
+            "z_score",
+            "support",
+            "resistance",
+            "swing_high",
+            "swing_low",
+            "spread",
+            "spread_average",
+            "slippage_estimate",
+            "price_speed",
+        )
+        for row in rows:
+            for indicator in required_lab_indicators:
+                self.assertIsNotNone(
+                    getattr(row, indicator),
+                    f"{row.pair} sem indicador do Lab: {indicator}",
+                )
         self.assertEqual(online.safe_mode_source, "MT5_SAFE_MODE")
         self.assertEqual(online.pairs[0].configured_candles, 1000)
 

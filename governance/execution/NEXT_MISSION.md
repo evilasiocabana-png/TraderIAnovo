@@ -16,6 +16,8 @@ Pendencia registrada em 2026-07-13:
 - preservar leitura de mercado essencial do BETA002;
 - impedir que snapshot pesado do Lab volte ao ciclo leve;
 - manter tabelas grandes paginadas e rastrear qualquer regressao de lentidao.
+- registrar obrigatoriamente todo travamento aparente, congelamento de UI,
+  queda do Streamlit ou reinicio manual como incidente arquitetural.
 
 Qualquer proxima missao nao deve:
 

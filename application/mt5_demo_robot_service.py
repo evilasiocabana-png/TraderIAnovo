@@ -26,6 +26,7 @@ VALIDATION_PIPELINE_VERSION = "VAL v4"
 STRATEGY_DEFINITION_VERSION = "STRAT v3"
 DEFAULT_BETA_ID = "BETA001"
 DEFAULT_BETA_VERSION = "BETA v1"
+DEFAULT_OPERATIONAL_MODEL = "MODELO_1_ALPHA_ATUAL"
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,12 @@ class MT5DemoRobotSignal:
     is_friday_late: bool = False
     macro_event_blocked: bool = False
     macro_event_reason: str = ""
+    entry_filter_blocked: bool = False
+    entry_filter_status: str = "OK"
+    entry_filter_reason: str = "Sem filtro NV-V robusto aplicado."
+    entry_filter_parameter: str = "SEM_FILTRO_ROBUSTO"
+    entry_filter_reading: str = "N/D"
+    operational_model: str = DEFAULT_OPERATIONAL_MODEL
     last_price: float | None = None
     trend: str = "INDEFINIDA"
     momentum: float | None = None
@@ -104,6 +111,7 @@ class MT5DemoTradePlan:
     beta_id: str = DEFAULT_BETA_ID
     beta_version: str = DEFAULT_BETA_VERSION
     beta_mode: str = "PROTECT_ONLY"
+    operational_model: str = DEFAULT_OPERATIONAL_MODEL
     trade_plan_version: str = TRADE_PLAN_VERSION
 
 
@@ -132,8 +140,8 @@ class MT5DemoRobotService:
     )
     enabled: bool = False
     volume: float = 0.1
-    last_candle_by_market: dict[tuple[str, str], str] = field(default_factory=dict)
-    last_decision_by_market: dict[tuple[str, str], str] = field(default_factory=dict)
+    last_candle_by_market: dict[tuple[str, str, str], str] = field(default_factory=dict)
+    last_decision_by_market: dict[tuple[str, str, str], str] = field(default_factory=dict)
 
     def evaluate_once(
         self,
@@ -141,7 +149,7 @@ class MT5DemoRobotService:
         trade_plan: MT5DemoTradePlan,
     ) -> MT5DemoRobotResult:
         """Avalia um candle novo e executa somente regime autorizado."""
-        key = self._market_key(signal.symbol, signal.timeframe)
+        key = self._execution_key(signal)
         if not self.enabled:
             return self._result(
                 "DISABLED",
@@ -205,6 +213,15 @@ class MT5DemoRobotService:
                 signal,
                 trade_plan,
             )
+        if signal.entry_filter_blocked:
+            self._mark_candle_evaluated(key, signal.candle_time, current_decision)
+            return self._result(
+                "ENTRY_FILTER_BLOCKED",
+                signal.entry_filter_reason
+                or "Filtro de entrada NV-V bloqueou a operacao.",
+                signal,
+                trade_plan,
+            )
         validation_message = self._trade_plan_validation(signal, trade_plan)
         if validation_message:
             return self._result(
@@ -253,8 +270,10 @@ class MT5DemoRobotService:
             beta_id=trade_plan.beta_id or DEFAULT_BETA_ID,
             beta_version=trade_plan.beta_version or DEFAULT_BETA_VERSION,
             beta_mode=trade_plan.beta_mode or "PROTECT_ONLY",
+            operational_model=signal.operational_model,
         )
         self.execution_service.pending_audit_metadata = {
+            "operational_model": signal.operational_model,
             "alpha_id": trade_plan.alpha_id or signal.alpha_id,
             "alpha_version": trade_plan.alpha_version or signal.alpha_version,
             "beta_id": trade_plan.beta_id or DEFAULT_BETA_ID,
@@ -271,6 +290,10 @@ class MT5DemoRobotService:
             "strategy_definition_version": signal.strategy_definition_version,
             "technical_score": signal.technical_score,
             "historical_confirmation": signal.historical_confirmation,
+            "entry_filter_status": signal.entry_filter_status,
+            "entry_filter_parameter": signal.entry_filter_parameter,
+            "entry_filter_reading": signal.entry_filter_reading,
+            "entry_filter_reason": signal.entry_filter_reason,
             "risk_reward": trade_plan.risk_reward,
             "candle_time": signal.candle_time,
             "mt5_position": "OPEN" if current_decision in {"BUY", "SELL"} else "N/D",
@@ -350,6 +373,7 @@ class MT5DemoRobotService:
             trade_plan.status,
             trade_plan.beta_id,
             trade_plan.beta_version,
+            trade_plan.operational_model,
         )
         return "|".join(str(part or "N/D").upper() for part in parts)
 
@@ -373,9 +397,16 @@ class MT5DemoRobotService:
     def _market_key(self, symbol: str, timeframe: str) -> tuple[str, str]:
         return (str(symbol).upper(), str(timeframe).upper())
 
+    def _execution_key(self, signal: MT5DemoRobotSignal) -> tuple[str, str, str]:
+        return (
+            str(signal.symbol).upper(),
+            str(signal.timeframe).upper(),
+            str(signal.operational_model or DEFAULT_OPERATIONAL_MODEL).upper(),
+        )
+
     def _mark_candle_evaluated(
         self,
-        key: tuple[str, str],
+        key: tuple[str, str, str],
         candle_time: str,
         decision: str,
     ) -> None:

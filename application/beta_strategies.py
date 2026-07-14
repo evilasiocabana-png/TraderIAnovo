@@ -23,25 +23,26 @@ class Beta002Config:
     momentum_period: int = 14
     atr_period: int = 14
     slope_lookback: int = 3
-    recent_structure_period: int = 5
+    recent_structure_period: int = 8
     attention_confirmations: int = 2
     weakening_confirmations: int = 3
     defensive_confirmations: int = 3
-    exit_confirmations: int = 4
-    minimum_exit_evidence_groups: int = 3
+    exit_confirmations: int = 6
+    minimum_exit_evidence_groups: int = 4
     allow_stop_protection: bool = True
-    allow_full_exit: bool = True
+    allow_full_exit: bool = False
     modify_target: bool = False
     use_closed_candle_for_execution: bool = True
     healthy_min_score: float = 0.50
     attention_min_score: float = 0.15
     weakening_min_score: float = -0.15
     defensive_min_score: float = -0.49
-    exit_candidate_max_score: float = -0.50
+    exit_candidate_max_score: float = -0.65
     minimum_candles: int = 20
     atr_protection_factor: float = 1.5
     ema_protection_atr_buffer: float = 0.5
-    structure_buffer_pips: float = 1.0
+    structure_buffer_pips: float = 2.0
+    protection_activation_r: float = 1.0
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Beta002Config":
@@ -91,7 +92,7 @@ class Beta002Strategy:
                 closed_candle_time=closed_candle_time,
                 missing=("m1_candles",),
             )
-        metrics = self._metrics(candles, context.side)
+        metrics = self._metrics(candles, context.side, context.symbol)
         missing = tuple(
             name for name in ("ema14_value", "ema14_slope", "momentum_14", "atr_14")
             if metrics.get(name) is None
@@ -119,7 +120,7 @@ class Beta002Strategy:
         candidate_stop: float | None = None
         final_exit_reason = "N/D"
 
-        if state in {"WEAKENING", "DEFENSIVE"} and self.config.allow_stop_protection:
+        if state in {"WEAKENING", "DEFENSIVE", "EXIT_CANDIDATE"} and self.config.allow_stop_protection:
             if self._can_protect(context, state):
                 candidate_stop = self._candidate_stop(context, candles, metrics)
                 if candidate_stop is not None:
@@ -129,6 +130,7 @@ class Beta002Strategy:
             and state == "EXIT_CANDIDATE"
             and self.config.allow_full_exit
             and len(evidence) >= self.config.minimum_exit_evidence_groups
+            and action != "PROTECT_POSITION"
         ):
             action = "FULL_EXIT"
             final_exit_reason = "BETA002_EXIT_CANDIDATE"
@@ -177,7 +179,7 @@ class Beta002Strategy:
         except (OSError, OverflowError, ValueError):
             return str(value)
 
-    def _metrics(self, candles: list[object], side: str) -> dict[str, Any]:
+    def _metrics(self, candles: list[object], side: str, symbol: str) -> dict[str, Any]:
         closes = [self._value(candle, "close") for candle in candles]
         highs = [self._value(candle, "high") for candle in candles]
         lows = [self._value(candle, "low") for candle in candles]
@@ -205,6 +207,7 @@ class Beta002Strategy:
         recent = max(int(self.config.recent_structure_period), 2)
         structure_signal = self._structure_signal(
             side=str(side).upper(),
+            symbol=str(symbol).upper(),
             closes=close_values,
             highs=high_values,
             lows=low_values,
@@ -279,15 +282,15 @@ class Beta002Strategy:
         return tuple(evidence)
 
     def _state_from_score(self, score: float) -> str:
+        if score <= self.config.exit_candidate_max_score:
+            return "EXIT_CANDIDATE"
         if score >= self.config.healthy_min_score:
             return "HEALTHY"
         if score >= self.config.attention_min_score:
             return "ATTENTION"
         if score >= self.config.weakening_min_score:
             return "WEAKENING"
-        if score >= self.config.defensive_min_score:
-            return "DEFENSIVE"
-        return "EXIT_CANDIDATE"
+        return "DEFENSIVE"
 
     def _persistence(self, context: BetaStrategyContext, state: str) -> tuple[int, int]:
         if state == context.previous_state:
@@ -312,9 +315,10 @@ class Beta002Strategy:
         return "HEALTHY"
 
     def _can_protect(self, context: BetaStrategyContext, state: str) -> bool:
-        if context.current_r >= 1.0 and state in {"WEAKENING", "DEFENSIVE"}:
-            return True
-        return context.current_r >= 0.5 and state == "DEFENSIVE"
+        return (
+            context.current_r >= float(self.config.protection_activation_r)
+            and state in {"WEAKENING", "DEFENSIVE", "EXIT_CANDIDATE"}
+        )
 
     def _candidate_stop(
         self,
@@ -362,6 +366,7 @@ class Beta002Strategy:
         self,
         *,
         side: str,
+        symbol: str,
         closes: list[float],
         highs: list[float],
         lows: list[float],
@@ -370,15 +375,17 @@ class Beta002Strategy:
         previous_high = max(highs[-recent - 1 : -1])
         previous_low = min(lows[-recent - 1 : -1])
         last_close = closes[-1]
+        pip = 0.01 if symbol.endswith("JPY") else 0.0001
+        buffer = pip * float(self.config.structure_buffer_pips)
         if side == "BUY":
-            if last_close < previous_low:
+            if last_close < previous_low - buffer:
                 return "AGAINST"
-            if last_close > previous_high:
+            if last_close > previous_high + buffer:
                 return "FAVORABLE"
             return "NEUTRAL"
-        if last_close > previous_high:
+        if last_close > previous_high + buffer:
             return "AGAINST"
-        if last_close < previous_low:
+        if last_close < previous_low - buffer:
             return "FAVORABLE"
         return "NEUTRAL"
 

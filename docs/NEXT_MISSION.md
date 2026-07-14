@@ -39,6 +39,8 @@ mas exige medir e proteger:
 - custo de leitura do historico MT5;
 - ausencia de varredura do snapshot pesado do Lab no ciclo leve;
 - paginacao das tabelas grandes.
+- registro obrigatorio de todo travamento aparente, mesmo quando o backend
+  continua respondendo.
 
 ## Criterios De Aceite
 
@@ -48,6 +50,8 @@ mas exige medir e proteger:
 - Documenta resultado em `docs/EXECUTION_LOG.md`.
 - Aponta claramente qual etapa ficou lenta quando passar do limite.
 - Mantem a leitura de indicadores necessaria para BETA002 sem bloquear a UI.
+- Gera ou atualiza um registro de incidente quando houver travamento, queda
+  aparente ou reinicio manual.
 
 ## Arquivos Provaveis
 

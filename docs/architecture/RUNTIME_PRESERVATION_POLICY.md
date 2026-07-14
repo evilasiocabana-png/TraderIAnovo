@@ -154,10 +154,18 @@ O Robo Demo pode ter estado visual preservado durante polling. Uma leitura trans
 - ultimo resultado;
 - auditoria recente.
 
+Quando a sessao Streamlit indica `monitoramento online ativo`, mas o
+`DashboardService` recem-instanciado retorna `DISARMED`, o ciclo online deve
+tratar isso como reidratacao de backend, nao como desarme operacional. A acao
+permitida e rearmar o backend em memoria antes da avaliacao normal, mantendo o
+mesmo intervalo de ciclo e sem iniciar leitura pesada do Lab.
+
 Somente estas acoes podem limpar o snapshot visual do Robo Demo:
 
 - botao Desarmar;
 - reset operacional explicito;
+- flag demo desligada ou bloqueio real confirmado pelo backend apos tentativa
+  de reidratacao;
 - troca confirmada de contexto operacional;
 - rollback de runtime.
 
