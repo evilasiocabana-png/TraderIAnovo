@@ -2350,6 +2350,15 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertIn("sem FULL_EXIT", gbpusd_rows[0]["Plano Position Manager"])
         self.assertIn("trailing por ATR x2.5", gbpusd_rows[0]["Plano Position Manager"])
 
+    def test_lab_confirmation_preview_usa_colunas_da_auditoria(self) -> None:
+        columns = dashboard_app._lab_historical_confirmation_audit_columns()
+        preview = dashboard_app._lab_historical_confirmation_preview_row()
+
+        self.assertEqual(list(preview.keys()), columns)
+        self.assertEqual(preview["Status"], "PREVIA")
+        self.assertEqual(preview["Alpha de entrada"], "ALPHA001")
+        self.assertIn("ema_curta", preview["Parametros da entrada"])
+
     def test_lab_audit_deriva_beta_stop_da_politica_mesmo_em_snapshot_beta2(
         self,
     ) -> None:
@@ -2871,6 +2880,48 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             self.assertTrue(second_online)
             self.assertIs(second_data, first_data)
             self.assertEqual(service.cycles, 1)
+        finally:
+            dashboard_app.st.session_state = previous_session_state
+
+    def test_robo_demo_online_global_cycle_roda_em_qualquer_aba(self) -> None:
+        class FakeSessionState(dict):
+            pass
+
+        class FakeService:
+            def __init__(self) -> None:
+                self.cycles: list[tuple[str, str]] = []
+
+            def get_demo_robot_status(self):
+                return SimpleNamespace(
+                    status="ARMED",
+                    result_status="ARMED_WAITING",
+                    provider="MT5_DEMO",
+                    mt5_order_send_enabled=True,
+                )
+
+            def arm_demo_robot(self, pair: str, timeframe: str):
+                return self.get_demo_robot_status()
+
+            def run_online_demo_robot_cycle(self, pair: str, timeframe: str):
+                self.cycles.append((pair, timeframe))
+                return self.get_demo_robot_status()
+
+            def get_dashboard_view_model(self):
+                return SimpleNamespace(demo_robot=self.get_demo_robot_status())
+
+        previous_session_state = dashboard_app.st.session_state
+        try:
+            dashboard_app.st.session_state = FakeSessionState(
+                {dashboard_app.MT5_DEMO_ROBOT_ONLINE_KEY: True}
+            )
+            service = FakeService()
+            data = SimpleNamespace(
+                mt5_forex_signals=SimpleNamespace(timeframe="M15"),
+            )
+
+            dashboard_app._maybe_run_demo_robot_global_cycle(service, data)
+
+            self.assertEqual(service.cycles, [("TODOS", "M15")])
         finally:
             dashboard_app.st.session_state = previous_session_state
 

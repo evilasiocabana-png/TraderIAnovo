@@ -1167,6 +1167,7 @@ def exibir_dashboard_layout(service: DashboardService, data: object) -> None:
             "Sistema Forex",
         )
     )
+    data = _maybe_run_demo_robot_global_cycle(service, data)
 
     render_started_at = time.perf_counter()
     if selected_tab == "MT5 Forex":
@@ -1184,6 +1185,24 @@ def exibir_dashboard_layout(service: DashboardService, data: object) -> None:
     else:
         st.error(f"Aba desconhecida: {selected_tab}")
     _record_runtime_render_duration(str(selected_tab), render_started_at)
+
+
+def _maybe_run_demo_robot_global_cycle(
+    service: DashboardService,
+    data: object,
+) -> object:
+    """Mantem o robo demo vivo mesmo quando o usuario esta fora da aba MT5."""
+    if not bool(st.session_state.get(MT5_DEMO_ROBOT_ONLINE_KEY, False)):
+        return data
+    forex = getattr(data, "mt5_forex_signals", None)
+    timeframe = str(getattr(forex, "timeframe", "M1") or "M1")
+    updated_data, _ = _run_demo_robot_online_cycle_if_due(
+        service,
+        data,
+        selected_pair="TODOS",
+        timeframe=timeframe,
+    )
+    return updated_data
 
 
 def _dashboard_tab_selector(options: tuple[str, ...]) -> str:
@@ -6982,38 +7001,7 @@ def _render_lab_historical_confirmation_audit(
         )
     _render_plain_markdown_table(
         rows,
-        empty_columns=[
-            "Par",
-            "Alpha de entrada",
-            "Confirmacao Historica",
-            "% Nao confirmado",
-            "Trades observados",
-            "Confirmados",
-            "Nao confirmados",
-            "TF",
-            "Direcao",
-            "Setup de entrada",
-            "Parametros da entrada",
-            "Beta Stop",
-            "Stop inicial em R",
-            "Plano Position Manager",
-            "Iguais ao melhor do par",
-            "Diferentes do melhor do par",
-            "Padrao observado",
-            "Filtro de liberacao",
-            "Regra de liberacao",
-            "RSI divergente",
-            "MACD hist divergente",
-            "ADX baixo",
-            "ADX caindo",
-            "ADX indisponivel",
-            "ATR em queda",
-            "ATR subindo",
-            "Momentum contra",
-            "Momentum enfraquecendo",
-            "Indicadores que diferenciam",
-            "Status",
-        ],
+        empty_columns=_lab_historical_confirmation_audit_columns(),
         empty_message="Nenhum ranking historico carregado. Execute Pesquisa no Lab.",
     )
 
@@ -7028,43 +7016,85 @@ def _render_scenario_runner_confirmation_audit(research: object) -> None:
     )
     _render_plain_markdown_table(
         _lab_historical_confirmation_audit_rows_from_research(research),
-        empty_columns=[
-            "Par",
-            "Alpha de entrada",
-            "Confirmacao Historica",
-            "% Nao confirmado",
-            "Trades observados",
-            "Confirmados",
-            "Nao confirmados",
-            "TF",
-            "Direcao",
-            "Setup de entrada",
-            "Parametros da entrada",
-            "Beta Stop",
-            "Stop inicial em R",
-            "Plano Position Manager",
-            "Iguais ao melhor do par",
-            "Diferentes do melhor do par",
-            "Padrao observado",
-            "Filtro de liberacao",
-            "Regra de liberacao",
-            "RSI divergente",
-            "MACD hist divergente",
-            "ADX baixo",
-            "ADX caindo",
-            "ADX indisponivel",
-            "ATR em queda",
-            "ATR subindo",
-            "Momentum contra",
-            "Momentum enfraquecendo",
-            "Indicadores que diferenciam",
-            "Status",
-        ],
+        empty_columns=_lab_historical_confirmation_audit_columns(),
         empty_message=(
             "Snapshot atual nao trouxe ranking nem amostra historica. "
             "Execute Pesquisa para gerar a auditoria."
         ),
     )
+
+
+def _render_lab_historical_confirmation_preview() -> None:
+    """Mostra a estrutura da planilha antes de rodar calculo pesado."""
+    st.markdown("### Previa da planilha de auditoria")
+    st.caption(
+        "Modelo visual sem calculo: esta e a planilha que sera preenchida "
+        "quando voce clicar em Atualizar calculos."
+    )
+    _render_plain_markdown_table(
+        [_lab_historical_confirmation_preview_row()],
+        empty_columns=_lab_historical_confirmation_audit_columns(),
+        empty_message="Previa indisponivel.",
+    )
+
+
+def _lab_historical_confirmation_audit_columns() -> list[str]:
+    return [
+        "Par",
+        "Alpha de entrada",
+        "Confirmacao Historica",
+        "% Nao confirmado",
+        "Trades observados",
+        "Confirmados",
+        "Nao confirmados",
+        "TF",
+        "Direcao",
+        "Setup de entrada",
+        "Parametros da entrada",
+        "Beta Stop",
+        "Stop inicial em R",
+        "Plano Position Manager",
+        "Iguais ao melhor do par",
+        "Diferentes do melhor do par",
+        "Padrao observado",
+        "Filtro de liberacao",
+        "Regra de liberacao",
+        "RSI divergente",
+        "MACD hist divergente",
+        "ADX baixo",
+        "ADX caindo",
+        "ADX indisponivel",
+        "ATR em queda",
+        "ATR subindo",
+        "Momentum contra",
+        "Momentum enfraquecendo",
+        "Indicadores que diferenciam",
+        "Status",
+    ]
+
+
+def _lab_historical_confirmation_preview_row() -> dict[str, object]:
+    return {
+        column: "A preencher apos Atualizar calculos"
+        for column in _lab_historical_confirmation_audit_columns()
+    } | {
+        "Par": "EXEMPLO",
+        "Alpha de entrada": "ALPHA001",
+        "Confirmacao Historica": "0.00%",
+        "% Nao confirmado": "0.00%",
+        "Trades observados": 0,
+        "Confirmados": 0,
+        "Nao confirmados": 0,
+        "TF": "M1/M5/M15/H1",
+        "Direcao": "BUY/SELL/WAIT",
+        "Setup de entrada": "MODELO_DA_ALPHA",
+        "Parametros da entrada": "ema_curta=... | ema_longa=... | rr=...",
+        "Beta Stop": "BETA...",
+        "Stop inicial em R": "1R = stop inicial ... | alvo planejado ...",
+        "Filtro de liberacao": "Indicador NV-V positivo",
+        "Regra de liberacao": "Regra aplicada ao filtro de entrada",
+        "Status": "PREVIA",
+    }
 
 
 def _lab_historical_confirmation_audit_rows_from_research(
@@ -8107,10 +8137,22 @@ def exibir_mt5_scenario_runner_research(
         _display_temporal_table(best_by_market)
     else:
         st.info("Nenhum cenario vencedor por par disponivel.")
+        _render_lab_historical_confirmation_preview()
+
+    show_confirmation_audit = st.checkbox(
+        "Mostrar planilha de auditoria da Confirmacao Historica",
+        value=True,
+        key="mt5_lab_show_confirmation_audit_table",
+    )
+    if show_confirmation_audit:
+        _render_scenario_runner_confirmation_audit(research)
+    else:
+        st.caption(
+            "Planilha de auditoria da Confirmacao Historica ocultada apenas "
+            "para aliviar a tela. O ultimo calculo do Lab permanece preservado."
+        )
 
     if include_full_audit:
-        _render_scenario_runner_confirmation_audit(research)
-
         st.markdown("### Ranking de cenarios testados")
         st.caption(
             "Auditoria completa dos cenarios avaliados. Serve para investigar por "
@@ -8122,9 +8164,9 @@ def exibir_mt5_scenario_runner_research(
             st.info("Nenhum ranking de cenarios disponivel.")
     else:
         st.caption(
-            "Ranking completo e auditoria visual das 16 Alphas ocultados para "
-            "manter a aba Lab leve. Marque 'Mostrar auditoria completa do Lab' "
-            "para carregar essas tabelas."
+            "Ranking completo dos cenarios ocultado para manter a aba Lab leve. "
+            "A auditoria visual da Confirmacao Historica permanece visivel; "
+            "marque 'Mostrar auditoria completa do Lab' para carregar o ranking pesado."
         )
 
 
