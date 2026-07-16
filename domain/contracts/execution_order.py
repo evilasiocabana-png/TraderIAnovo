@@ -1,6 +1,7 @@
 """Contrato de ordem operacional normalizada."""
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -23,3 +24,4 @@ class ExecutionOrder:
     beta_version: str = "BETA v1"
     beta_mode: str = "PROTECT_ONLY"
     operational_model: str = "MODELO_1_ALPHA_ATUAL"
+    plan_snapshot: dict[str, Any] | None = None

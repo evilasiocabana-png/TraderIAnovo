@@ -175,26 +175,27 @@ class MT5DemoRobotService:
                 signal,
                 trade_plan,
             )
-        regime_result = self.market_regime_pipeline.evaluate(signal)
-        if not regime_result.authorized:
-            self._mark_candle_evaluated(key, signal.candle_time, current_decision)
-            return self._result(
-                regime_result.block_reason or "REGIME_BLOCKED",
-                regime_result.message or "Regime de mercado nao autorizou entrada.",
-                signal,
-                trade_plan,
-            )
-        if regime_result.direction != current_decision:
-            self._mark_candle_evaluated(key, signal.candle_time, current_decision)
-            return self._result(
-                "REGIME_DIRECTION_MISMATCH",
-                (
-                    "Regime autorizou "
-                    f"{regime_result.direction}, mas o sinal atual e {current_decision}."
-                ),
-                signal,
-                trade_plan,
-            )
+        if not self._is_model2_inverse_signal(signal):
+            regime_result = self.market_regime_pipeline.evaluate(signal)
+            if not regime_result.authorized:
+                self._mark_candle_evaluated(key, signal.candle_time, current_decision)
+                return self._result(
+                    regime_result.block_reason or "REGIME_BLOCKED",
+                    regime_result.message or "Regime de mercado nao autorizou entrada.",
+                    signal,
+                    trade_plan,
+                )
+            if regime_result.direction != current_decision:
+                self._mark_candle_evaluated(key, signal.candle_time, current_decision)
+                return self._result(
+                    "REGIME_DIRECTION_MISMATCH",
+                    (
+                        "Regime autorizou "
+                        f"{regime_result.direction}, mas o sinal atual e {current_decision}."
+                    ),
+                    signal,
+                    trade_plan,
+                )
         if signal.temporal_blocked and signal.session_filter_enabled:
             self._mark_candle_evaluated(key, signal.candle_time, current_decision)
             return self._result(
@@ -271,8 +272,10 @@ class MT5DemoRobotService:
             beta_version=trade_plan.beta_version or DEFAULT_BETA_VERSION,
             beta_mode=trade_plan.beta_mode or "PROTECT_ONLY",
             operational_model=signal.operational_model,
+            plan_snapshot=self._trade_plan_snapshot(signal, trade_plan, current_decision),
         )
         self.execution_service.pending_audit_metadata = {
+            "plan_snapshot": order.plan_snapshot,
             "operational_model": signal.operational_model,
             "alpha_id": trade_plan.alpha_id or signal.alpha_id,
             "alpha_version": trade_plan.alpha_version or signal.alpha_version,
@@ -331,6 +334,10 @@ class MT5DemoRobotService:
             trade_plan=trade_plan,
         )
 
+    def _is_model2_inverse_signal(self, signal: MT5DemoRobotSignal) -> bool:
+        model = str(getattr(signal, "operational_model", "") or "").upper()
+        return model == "MODELO_2_ESPELHO_BETA2_RR1"
+
     def _trade_plan_validation(
         self,
         signal: MT5DemoRobotSignal,
@@ -376,6 +383,72 @@ class MT5DemoRobotService:
             trade_plan.operational_model,
         )
         return "|".join(str(part or "N/D").upper() for part in parts)
+
+    def _trade_plan_snapshot(
+        self,
+        signal: MT5DemoRobotSignal,
+        trade_plan: MT5DemoTradePlan,
+        direction: str,
+    ) -> dict[str, object]:
+        """Congela os parametros reais usados no envio, sem recalcular depois."""
+        return {
+            "schema_version": "1.0",
+            "symbol": trade_plan.symbol,
+            "timeframe": trade_plan.timeframe,
+            "candle_time": signal.candle_time,
+            "direction": direction,
+            "entry_price": float(trade_plan.entry_price),
+            "initial_stop": float(trade_plan.stop),
+            "target": float(trade_plan.target),
+            "risk_reward": float(trade_plan.risk_reward),
+            "source": trade_plan.source,
+            "status": trade_plan.status,
+            "plan_identity": self._trade_plan_identity(signal, trade_plan),
+            "trade_plan_version": trade_plan.trade_plan_version,
+            "operational_model": signal.operational_model,
+            "entry_setup": signal.active_model,
+            "exit_setup": trade_plan.stop_management,
+            "exit_model": trade_plan.exit_model,
+            "stop_reason": trade_plan.stop_reason,
+            "target_reason": trade_plan.target_reason,
+            "alpha_id": trade_plan.alpha_id or signal.alpha_id,
+            "alpha_version": trade_plan.alpha_version or signal.alpha_version,
+            "beta_id": trade_plan.beta_id,
+            "beta_version": trade_plan.beta_version,
+            "beta_mode": trade_plan.beta_mode,
+            "lab_configuration_version": signal.lab_configuration_version,
+            "indicator_bundle_version": signal.indicator_bundle_version,
+            "microstructure_version": signal.microstructure_version,
+            "validation_pipeline_version": signal.validation_pipeline_version,
+            "strategy_definition_version": signal.strategy_definition_version,
+            "technical_score": float(signal.technical_score),
+            "historical_confirmation": float(signal.historical_confirmation),
+            "entry_filter_status": signal.entry_filter_status,
+            "entry_filter_parameter": signal.entry_filter_parameter,
+            "entry_filter_reading": signal.entry_filter_reading,
+            "entry_filter_reason": signal.entry_filter_reason,
+            "last_price": signal.last_price,
+            "trend": signal.trend,
+            "momentum": signal.momentum,
+            "volatility": signal.volatility,
+            "rsi": signal.rsi,
+            "short_average": signal.short_average,
+            "long_average": signal.long_average,
+            "mid_average": signal.mid_average,
+            "ema_fast": signal.ema_fast,
+            "ema_mid": signal.ema_mid,
+            "ema_slow": signal.ema_slow,
+            "atr": signal.atr,
+            "support": signal.support,
+            "resistance": signal.resistance,
+            "swing_high": signal.swing_high,
+            "swing_low": signal.swing_low,
+            "forex_session": signal.forex_session,
+            "forex_session_open": signal.forex_session_open,
+            "timestamp_utc": signal.timestamp_utc,
+            "timestamp_brt": signal.timestamp_brt,
+            "weekday": signal.weekday,
+        }
 
     def _result(
         self,

@@ -1,7 +1,9 @@
 """Dashboard Streamlit do TraderIA Novo."""
 
+import csv
 from dataclasses import replace
 from datetime import date, datetime, timezone
+import io
 import inspect
 import json
 import os
@@ -64,15 +66,26 @@ MT5_FOREX_FRAGMENT_RUN_EVERY = f"{int(MT5_FOREX_AUTO_REFRESH_SECONDS)}s"
 MT5_REPORT_FRAGMENT_RUN_EVERY = f"{int(MT5_REPORT_AUTO_REFRESH_SECONDS)}s"
 MT5_LAB_TARGET_CONFIDENCE = 0.70
 MT5_ENTRY_FILTER_ADX_LOW_THRESHOLD = 20.0
-MT5_ENTRY_FILTER_MIN_EDGE = 0.05
+MT5_ENTRY_FILTER_MIN_EDGE = 0.02
 MT5_ENTRY_FILTER_MIN_SAMPLE_SIZE = 300
 MT5_ENTRY_FILTER_MODE_KEY = "mt5_entry_filter_mode"
 MT5_ENTRY_FILTER_RULES_CACHE_KEY = "mt5_entry_filter_rules_cache"
 MT5_OPERATIONAL_MODEL_KEY = "mt5_operational_model"
+MT5_LAB_RR3_EXPERIMENTAL_SNAPSHOT_KEY = "mt5_lab_rr3_experimental_snapshot"
+MT5_LAB_RR3_EXPERIMENTAL_SNAPSHOT_PATH = (
+    Path(".traderia") / "research" / "mt5_research_snapshot_rr3_experimental.json"
+)
+MT5_RR3_MIN_SAMPLE_SIZE = 150
+MT5_RR3_MIN_PROFIT_FACTOR = 1.20
+MT5_RR3_MIN_CONFIDENCE = 0.50
+MT5_RR3_MIN_SCORE = 0.60
 MT5_OPERATIONAL_MODEL_1 = "MODELO_1_ALPHA_ATUAL"
 MT5_OPERATIONAL_MODEL_2 = "MODELO_2_ESPELHO_BETA2_RR1"
 MT5_OPERATIONAL_MODEL_ALL = "TODOS_MODELOS"
 MT5_OPERATIONAL_MODEL_STATE_PATH = Path(".traderia") / "mt5_operational_model.json"
+MT5_DEMO_ROBOT_ONLINE_STATE_PATH = (
+    Path(".traderia") / "mt5_demo_robot_online_state.json"
+)
 MT5_DEMO_EXECUTION_LOG_PATH = Path(".traderia") / "mt5_demo_execution.jsonl"
 MT5_ENTRY_FILTER_SUPPORTED_INDICATORS = {
     "ADX baixo",
@@ -86,6 +99,7 @@ MT5_LAB_CALCULATION_SNAPSHOT_KEY = "mt5_lab_calculation_snapshot"
 MT5_ALPHA_LIBRARY_SEARCH_SPACE_SIZE = 839
 MT5_FOREX_CYCLE_LOCK = threading.Lock()
 MT5_FOREX_BACKGROUND_THREAD_STARTED = False
+MT5_DEMO_ROBOT_BACKGROUND_THREAD_STARTED = False
 MT5_RUNTIME_LOCK = RuntimeLockService()
 MT5_ENTRY_REGIME_PIPELINE = MarketRegimePipeline()
 
@@ -94,6 +108,7 @@ def get_dashboard_service() -> DashboardService:
     """Retorna a instancia persistente da fachada do dashboard."""
     _cleanup_legacy_traderia_processes_once()
     _start_mt5_forex_background_cycle_once()
+    _start_demo_robot_background_cycle_once()
     service = st.session_state.get("dashboard_service")
     if service is None or not _dashboard_service_valido(service):
         _clear_streamlit_resource_cache_if_available()
@@ -160,6 +175,118 @@ def _mt5_forex_background_cycle_env_enabled() -> bool:
         os.getenv("TRADERIA_BACKGROUND_CYCLE_ENABLED", "0").strip() == "1"
         or os.getenv("TRADERIA_MT5_BACKGROUND_CYCLE_ENABLED", "0").strip() == "1"
     )
+
+
+def _start_demo_robot_background_cycle_once(force: bool = False) -> None:
+    """Mantem o robo demo vivo mesmo quando a aba Streamlit deixa de renderizar."""
+    global MT5_DEMO_ROBOT_BACKGROUND_THREAD_STARTED
+    if MT5_DEMO_ROBOT_BACKGROUND_THREAD_STARTED:
+        return
+    if not (force or _demo_robot_background_cycle_should_start()):
+        return
+    MT5_DEMO_ROBOT_BACKGROUND_THREAD_STARTED = True
+    thread = threading.Thread(
+        target=_demo_robot_background_cycle,
+        name="TraderIA-MT5-Demo-Robot-Cycle",
+        daemon=True,
+    )
+    thread.start()
+
+
+def _demo_robot_background_cycle_should_start() -> bool:
+    if os.getenv("TRADERIA_DEMO_EXECUTION_ENABLED", "0").strip() != "1":
+        return False
+    if os.getenv("TRADERIA_DEMO_ROBOT_BACKGROUND_CYCLE_ENABLED", "1").strip() != "1":
+        return False
+    return bool(_load_demo_robot_online_state().get("online", False))
+
+
+def _demo_robot_background_cycle_active() -> bool:
+    """Indica se a entrada automatica ja esta sob responsabilidade do thread."""
+    return (
+        MT5_DEMO_ROBOT_BACKGROUND_THREAD_STARTED
+        and _demo_robot_background_cycle_should_start()
+    )
+
+
+def _demo_robot_background_cycle() -> None:
+    service = DashboardService()
+    while True:
+        state = _load_demo_robot_online_state()
+        online = bool(state.get("online", False))
+        if online and _mt5_forex_market_cycle_allowed_now():
+            pair = str(state.get("pair") or "TODOS")
+            timeframe = str(state.get("timeframe") or "M1")
+            try:
+                _apply_persisted_operational_model_to_service(service)
+                service.arm_demo_robot(pair=pair, timeframe=timeframe)
+                robot = service.run_online_demo_robot_cycle(
+                    pair=pair,
+                    timeframe=timeframe,
+                )
+                _write_demo_robot_background_state(
+                    online=True,
+                    pair=pair,
+                    timeframe=timeframe,
+                    status=str(getattr(robot, "status", "N/D")),
+                    result_status=str(getattr(robot, "result_status", "N/D")),
+                    message=str(getattr(robot, "result_message", "")),
+                )
+            except Exception as exc:  # noqa: BLE001 - ciclo externo nao deve derrubar app
+                _write_demo_robot_background_state(
+                    online=True,
+                    pair=pair,
+                    timeframe=timeframe,
+                    status="ERROR",
+                    result_status="ERROR",
+                    message=str(exc),
+                )
+        time.sleep(MT5_DEMO_ROBOT_INTERVAL_SECONDS)
+
+
+def _apply_persisted_operational_model_to_service(service: DashboardService) -> None:
+    try:
+        payload = json.loads(MT5_OPERATIONAL_MODEL_STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    model = str(payload.get("model") or "").strip().upper()
+    if not model:
+        return
+    setter = getattr(service, "set_mt5_operational_model", None)
+    if callable(setter):
+        setter(model)
+
+
+def _write_demo_robot_background_state(
+    *,
+    online: bool,
+    pair: str,
+    timeframe: str,
+    status: str,
+    result_status: str,
+    message: str,
+) -> None:
+    path = Path(".traderia") / "mt5_demo_robot_background_state.json"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "online": bool(online),
+                    "pair": str(pair or "TODOS"),
+                    "timeframe": str(timeframe or "M1"),
+                    "status": status,
+                    "result_status": result_status,
+                    "message": message,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                ensure_ascii=True,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
 
 
 def _forex_session_filter_ui_value() -> bool:
@@ -585,6 +712,45 @@ def _record_runtime_render_duration(tab_name: str, started_at: float) -> None:
     durations = dict(st.session_state.get(RUNTIME_RENDER_DURATIONS_KEY, {}) or {})
     durations[tab_name] = round((time.perf_counter() - started_at) * 1000.0, 2)
     st.session_state[RUNTIME_RENDER_DURATIONS_KEY] = durations
+
+
+def _persist_demo_robot_online_state(
+    *,
+    online: bool,
+    pair: str = "TODOS",
+    timeframe: str = "M1",
+    message: str = "",
+) -> None:
+    try:
+        MT5_DEMO_ROBOT_ONLINE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        MT5_DEMO_ROBOT_ONLINE_STATE_PATH.write_text(
+            json.dumps(
+                {
+                    "online": bool(online),
+                    "pair": str(pair or "TODOS"),
+                    "timeframe": str(timeframe or "M1"),
+                    "message": str(message or ""),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                ensure_ascii=True,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except OSError:
+        return
+
+
+def _load_demo_robot_online_state() -> dict[str, object]:
+    if not MT5_DEMO_ROBOT_ONLINE_STATE_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(
+            MT5_DEMO_ROBOT_ONLINE_STATE_PATH.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def ensure_mt5_forex_initial_load(service: DashboardService) -> None:
@@ -1157,6 +1323,8 @@ def exibir_dashboard_layout(service: DashboardService, data: object) -> None:
         "Fluxo Forex MT5: leitura online leve, pesquisa sob demanda e "
         "execucao demo controlada."
     )
+    _restore_demo_robot_online_state_if_needed()
+    _global_demo_robot_cycle_fragment(service, data)
     selected_tab = _dashboard_tab_selector(
         (
             "MT5 Forex",
@@ -1194,6 +1362,8 @@ def _maybe_run_demo_robot_global_cycle(
     """Mantem o robo demo vivo mesmo quando o usuario esta fora da aba MT5."""
     if not bool(st.session_state.get(MT5_DEMO_ROBOT_ONLINE_KEY, False)):
         return data
+    if _demo_robot_background_cycle_active():
+        return data
     forex = getattr(data, "mt5_forex_signals", None)
     timeframe = str(getattr(forex, "timeframe", "M1") or "M1")
     updated_data, _ = _run_demo_robot_online_cycle_if_due(
@@ -1203,6 +1373,29 @@ def _maybe_run_demo_robot_global_cycle(
         timeframe=timeframe,
     )
     return updated_data
+
+
+@st.fragment(run_every=MT5_FOREX_FRAGMENT_RUN_EVERY)
+def _global_demo_robot_cycle_fragment(
+    service: DashboardService,
+    data: object,
+) -> None:
+    """Mantem o robo demo em ciclo leve mesmo fora da aba MT5."""
+    _maybe_run_demo_robot_global_cycle(service, data)
+
+
+def _restore_demo_robot_online_state_if_needed() -> None:
+    if bool(st.session_state.get(MT5_DEMO_ROBOT_ONLINE_KEY, False)):
+        return
+    state = _load_demo_robot_online_state()
+    if not bool(state.get("online", False)):
+        return
+    st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = True
+    st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = 0.0
+    message = str(state.get("message") or "").strip()
+    st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY] = (
+        message or "Monitoramento online restaurado do estado persistido."
+    )
 
 
 def _dashboard_tab_selector(options: tuple[str, ...]) -> str:
@@ -1368,29 +1561,6 @@ def exibir_mt5_forex_dashboard(
         len(getattr(forex, "unavailable_pairs", []) or []),
     )
 
-    st.subheader("Motivos por par")
-    for row in display_rows:
-        with st.container(border=True):
-            colunas = st.columns([1, 1, 1, 1, 4])
-            colunas[0].metric("Par", row.get("Par", "N/D"))
-            colunas[1].metric("Decisao", row.get("Decisao", "WAIT"))
-            colunas[2].metric("Entrada Teorica", row.get("Entrada Teorica", "N/D"))
-            colunas[3].metric("Direcao Teorica", row.get("Direcao Teorica", "WAIT"))
-            colunas[4].write(row.get("Motivo", "N/D"))
-            colunas[4].caption(
-                " | ".join(
-                    [
-                        f"Candle: {row.get('Candle do Sinal', 'N/D')}",
-                        f"Preco: {row.get('Preco Teorico', 'N/D')}",
-                        f"Stop: {row.get('Stop Research', 'N/D')}",
-                        f"Alvo: {row.get('Alvo Research', 'N/D')}",
-                        f"Motivo entrada: {row.get('Motivo Entrada', 'N/D')}",
-                        f"Saida dinamica: {row.get('Recomendacao Saida', 'N/D')}",
-                        f"Estado: {row.get('Estado Mercado Saida', 'N/D')}",
-                        f"Execucao: {row.get('Execucao Saida Permitida', 'NAO')}",
-                    ]
-                )
-            )
     return data
 
 
@@ -1457,8 +1627,8 @@ def _render_mt5_operational_model_selector() -> str:
         )
         columns[2].caption(
             "MODELO 1 executa o plano vencedor vindo do Lab. MODELO 2 e a regra "
-            "manual definida por voce: inverte BUY/SELL, usa o stop original "
-            "como alvo e calcula stop simetrico com RR 1. "
+            "manual definida por voce: inverte BUY/SELL, usa o TP da BETA2 "
+            "invertida no ponto do stop original e calcula o loss em RR 1. "
             "Em TODOS, os dois modelos podem enviar ordem, mas cada modelo so "
             "pode ter uma posicao aberta por par."
         )
@@ -1466,8 +1636,8 @@ def _render_mt5_operational_model_selector() -> str:
     _persist_mt5_operational_model(selected)
     if selected == MT5_OPERATIONAL_MODEL_2:
         st.warning(
-            "Modelo 2 experimental ativo: BUY vira SELL, SELL vira BUY, alvo usa "
-            "o stop original da Alpha/BETA2 e stop fica em RR 1."
+            "Modelo 2 experimental ativo: BUY vira SELL, SELL vira BUY, TP usa "
+            "a BETA2 invertida no ponto do stop original e o loss fica em RR 1."
         )
     if selected == MT5_OPERATIONAL_MODEL_ALL:
         st.warning(
@@ -1726,6 +1896,7 @@ def _mt5_history_row(row: object) -> dict[str, object]:
 @st.fragment(run_every=MT5_REPORT_FRAGMENT_RUN_EVERY)
 def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None:
     """Exibe auditoria das negociacoes TraderIA x historico MT5."""
+    data = _maybe_run_demo_robot_global_cycle(service, data)
     forex = getattr(data, "mt5_forex_signals", None)
     if os.getenv("TRADERIA_MT5_REPORT_FORCE_LOAD_ENABLED", "0").strip() == "1":
         try:
@@ -2081,10 +2252,54 @@ def _render_mt5_trade_audit_history_table(
         "Historico paginado do mais recente para o mais antigo para preservar "
         "a leveza da aba Relatorio."
     )
+    filtered_table_rows = [
+        _mt5_trade_audit_row(row, signal_metrics)
+        for row in filtered
+    ]
+    csv_rows = [
+        _mt5_trade_audit_csv_row(row, signal_metrics)
+        for row in filtered
+    ]
+    st.download_button(
+        "Baixar historico filtrado CSV",
+        data=_table_rows_to_csv_bytes(csv_rows),
+        file_name="traderianovo_historico_mt5.csv",
+        mime="text/csv",
+        disabled=not csv_rows,
+        key="mt5_report_history_download_csv",
+    )
     _render_mt5_trade_audit_table(
-        [_mt5_trade_audit_row(row, signal_metrics) for row in filtered[start:end]],
+        filtered_table_rows[start:end],
         color_by_result=True,
     )
+
+
+def _table_rows_to_csv_bytes(rows: list[dict[str, object]]) -> bytes:
+    if not rows:
+        return b""
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=list(rows[0].keys()), extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    return output.getvalue().encode("utf-8-sig")
+
+
+def _mt5_trade_audit_csv_row(
+    row: object,
+    signal_metrics: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    payload = _mt5_trade_audit_row(row, signal_metrics)
+    snapshot = getattr(row, "plan_snapshot", {}) or {}
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    payload["Snapshot plano JSON"] = json.dumps(
+        snapshot,
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    for key, value in sorted(snapshot.items()):
+        payload[f"Plano {key}"] = value
+    return payload
 
 
 def _mt5_history_result_matches(row: object, result_filter: str) -> bool:
@@ -2154,11 +2369,27 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
     if len(curve) <= 1:
         st.info("Ainda nao ha operacoes encerradas suficientes para montar a curva.")
         return
+    max_chart_start_index = max(len(curve) - 2, 0)
+    chart_start_index = st.number_input(
+        "Indice inicial do grafico",
+        min_value=0,
+        max_value=max_chart_start_index,
+        value=0,
+        step=1,
+        help=(
+            "Use para iniciar a curva a partir de uma operacao especifica. "
+            "O trecho exibido sempre comeca em 0."
+        ),
+    )
+    chart_curve = _mt5_equity_curve_rebased_from_index(
+        curve,
+        int(chart_start_index),
+    )
     colunas = st.columns(3)
     colunas[0].metric("Patrimonio final", f"{curve[-1]:.2f}")
     colunas[1].metric("Operacoes na curva", str(len(curve) - 1))
-    colunas[2].metric("Base", "Saldo MT5 + lucro realizado")
-    st.line_chart({"Patrimonio": curve})
+    colunas[2].metric("Base", f"Trecho desde indice {int(chart_start_index)}")
+    st.line_chart({"Patrimonio": chart_curve})
 
 
 def _parse_dashboard_date(value: object) -> date:
@@ -2187,6 +2418,20 @@ def _mt5_realized_equity_curve(
         running_total += float(getattr(row, "mt5_realized_profit", 0.0) or 0.0)
         curve.append(round(running_total, 2))
     return curve
+
+
+def _mt5_equity_curve_rebased_from_index(
+    curve: list[float],
+    start_index: int,
+) -> list[float]:
+    if not curve:
+        return [0.0]
+    safe_start_index = max(0, min(int(start_index), len(curve) - 1))
+    segment = curve[safe_start_index:]
+    if not segment:
+        return [0.0]
+    baseline = float(segment[0])
+    return [round(float(value) - baseline, 2) for value in segment]
 
 
 def _mt5_trade_date_in_range(row: object, start_date: date | None) -> bool:
@@ -2510,21 +2755,34 @@ def _mt5_trade_audit_stop_message(row: object) -> str:
 def _mt5_trade_audit_parameters_label(row: object) -> str:
     """Resume os parametros gravados na ordem para conferencia no historico."""
     pieces: list[str] = []
-    alpha = str(getattr(row, "alpha_id", "") or "").strip()
-    alpha_version = str(getattr(row, "alpha_version", "") or "").strip()
+    snapshot = getattr(row, "plan_snapshot", {}) or {}
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    alpha = str(
+        snapshot.get("alpha_id") or getattr(row, "alpha_id", "") or ""
+    ).strip()
+    alpha_version = str(
+        snapshot.get("alpha_version") or getattr(row, "alpha_version", "") or ""
+    ).strip()
     if alpha and alpha.upper() not in {"N/D", "NONE"}:
         label = f"Alpha {alpha}"
         if alpha_version and alpha_version.upper() not in {"N/D", "NONE"}:
             label = f"{label} {alpha_version}"
         pieces.append(label)
 
-    entry_setup = str(getattr(row, "entry_setup", "") or "").strip()
+    entry_setup = str(
+        snapshot.get("entry_setup") or getattr(row, "entry_setup", "") or ""
+    ).strip()
     if entry_setup and entry_setup.upper() not in {"N/D", "NONE"}:
         pieces.append(f"Entrada {entry_setup}")
 
-    beta = str(getattr(row, "beta_id", "") or "").strip()
-    beta_version = str(getattr(row, "beta_version", "") or "").strip()
-    beta_mode = str(getattr(row, "beta_mode", "") or "").strip()
+    beta = str(snapshot.get("beta_id") or getattr(row, "beta_id", "") or "").strip()
+    beta_version = str(
+        snapshot.get("beta_version") or getattr(row, "beta_version", "") or ""
+    ).strip()
+    beta_mode = str(
+        snapshot.get("beta_mode") or getattr(row, "beta_mode", "") or ""
+    ).strip()
     if beta and beta.upper() not in {"N/D", "NONE"}:
         beta_label = f"Beta {beta}"
         if beta_version and beta_version.upper() not in {"N/D", "NONE"}:
@@ -2533,27 +2791,41 @@ def _mt5_trade_audit_parameters_label(row: object) -> str:
             beta_label = f"{beta_label} ({beta_mode})"
         pieces.append(beta_label)
 
-    timeframe = str(getattr(row, "session_timeframe", "") or "").strip()
+    timeframe = str(snapshot.get("timeframe") or "").strip()
+    if not timeframe or timeframe.upper() in {"N/D", "NONE"}:
+        timeframe = str(getattr(row, "session_timeframe", "") or "").strip()
     if not timeframe or timeframe.upper() in {"N/D", "NONE"}:
         timeframe = str(getattr(row, "timeframe", "") or "").strip()
     if timeframe and timeframe.upper() not in {"N/D", "NONE"}:
         pieces.append(f"TF {timeframe}")
 
-    risk_reward = _safe_float_or_none(getattr(row, "risk_reward", None))
+    risk_reward = _safe_float_or_none(
+        snapshot.get("risk_reward") or getattr(row, "risk_reward", None)
+    )
     if risk_reward is not None and risk_reward > 0:
         pieces.append(f"RR {risk_reward:.2f}")
 
-    entry_price = _safe_float_or_none(getattr(row, "entry_price", None))
+    entry_price = _safe_float_or_none(
+        snapshot.get("entry_price") or getattr(row, "entry_price", None)
+    )
     if entry_price is not None and entry_price > 0:
         pieces.append(f"Entrada {_price_label(entry_price)}")
-    stop = _safe_float_or_none(getattr(row, "stop", None))
+    stop = _safe_float_or_none(
+        snapshot.get("initial_stop") or getattr(row, "stop", None)
+    )
     if stop is not None:
         pieces.append(f"Stop {_price_label(stop)}")
-    target = _safe_float_or_none(getattr(row, "target", None))
+    target = _safe_float_or_none(
+        snapshot.get("target") or getattr(row, "target", None)
+    )
     if target is not None:
         pieces.append(f"Alvo {_price_label(target)}")
 
-    trade_plan = str(getattr(row, "trade_plan_version", "") or "").strip()
+    trade_plan = str(
+        snapshot.get("trade_plan_version")
+        or getattr(row, "trade_plan_version", "")
+        or ""
+    ).strip()
     if trade_plan and trade_plan.upper() not in {"N/D", "NONE"}:
         pieces.append(trade_plan)
     return " | ".join(pieces) if pieces else "N/D"
@@ -2620,6 +2892,12 @@ def _exibir_robo_demo_mt5(
         st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = online_allowed
         st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = 0.0
         st.session_state[MT5_DEMO_ROBOT_LAST_VISIBLE_SNAPSHOT_KEY] = armed_robot
+        _persist_demo_robot_online_state(
+            online=online_allowed,
+            pair=selected_pair,
+            timeframe=timeframe,
+            message=str(getattr(armed_robot, "message", "")),
+        )
         if online_allowed:
             _record_runtime_event("DEMO_ROBOT_ARMED_ONLINE")
             st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY] = (
@@ -2653,6 +2931,12 @@ def _exibir_robo_demo_mt5(
         st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY] = False
         st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = 0.0
         st.session_state.pop(MT5_DEMO_ROBOT_LAST_VISIBLE_SNAPSHOT_KEY, None)
+        _persist_demo_robot_online_state(
+            online=False,
+            pair=selected_pair,
+            timeframe=timeframe,
+            message=str(getattr(disarmed_robot, "message", "")),
+        )
         data = _with_demo_robot_snapshot(
             service.get_dashboard_view_model(),
             disarmed_robot,
@@ -2666,12 +2950,13 @@ def _exibir_robo_demo_mt5(
     if runtime_message:
         st.caption(str(runtime_message))
     if online_enabled:
-        data, online_enabled = _run_demo_robot_online_cycle_if_due(
-            service,
-            data,
-            selected_pair=selected_pair,
-            timeframe=timeframe,
-        )
+        if not _demo_robot_background_cycle_active():
+            data, online_enabled = _run_demo_robot_online_cycle_if_due(
+                service,
+                data,
+                selected_pair=selected_pair,
+                timeframe=timeframe,
+            )
         if online_enabled:
             st.success(
                 "Monitoramento online ATIVO: o robo atualiza MT5 e entra "
@@ -2938,6 +3223,12 @@ def _arm_all_demo_robot_from_reports(service: DashboardService, data: object) ->
         armed_robot
     )
     st.session_state[MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY] = 0.0
+    _persist_demo_robot_online_state(
+        online=bool(st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY]),
+        pair="TODOS",
+        timeframe=str(timeframe or "M1"),
+        message=str(getattr(armed_robot, "message", "")),
+    )
     if st.session_state[MT5_DEMO_ROBOT_ONLINE_KEY]:
         _record_runtime_event("DEMO_ROBOT_ARMED_ONLINE")
     else:
@@ -2970,6 +3261,12 @@ def _run_demo_robot_online_cycle_if_due(
             "Monitoramento online desligado: backend confirmou robo desarmado "
             "ou envio MT5 indisponivel."
         )
+        _persist_demo_robot_online_state(
+            online=False,
+            pair=selected_pair,
+            timeframe=timeframe,
+            message=str(st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY]),
+        )
         return data, False
 
     _record_runtime_event("DEMO_ROBOT_ONLINE_CYCLE_STARTED")
@@ -2987,6 +3284,12 @@ def _run_demo_robot_online_cycle_if_due(
         st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY] = (
             "Monitoramento online bloqueado pelo backend: "
             f"{getattr(cycle_robot, 'message', 'motivo indisponivel')}"
+        )
+        _persist_demo_robot_online_state(
+            online=False,
+            pair=selected_pair,
+            timeframe=timeframe,
+            message=str(st.session_state[MT5_DEMO_ROBOT_MESSAGE_KEY]),
         )
         refreshed_data = service.get_dashboard_view_model()
         refreshed_robot = _stable_demo_robot_snapshot(
@@ -3187,6 +3490,147 @@ def _exibir_entradas_teoricas_mt5(
         decision_column="Direcao",
         color_status_cells=True,
     )
+    _exibir_entrada_teorica_mt5_rr3_experimental(rows)
+
+
+def _exibir_entrada_teorica_mt5_rr3_experimental(
+    rows: list[dict[str, object]],
+) -> None:
+    """Mostra o Modelo 3 RR3 sem permitir execucao operacional."""
+    st.subheader("Entrada Teorica MT5 - Modelo 3 RR3 experimental")
+    st.caption(
+        "Somente leitura. Usa o snapshot RR3 separado para mostrar quais pares "
+        "teriam candidato RR3 com historico minimo. Nao envia ordem, nao muda "
+        "M1/M2 e nao alimenta o Position Manager."
+    )
+    payload = _load_rr3_experimental_snapshot_payload()
+    if payload is None:
+        st.info(
+            "Snapshot RR3 experimental ainda nao encontrado. Gere pelo Lab em "
+            "'Gerar snapshot RR3 experimental'."
+        )
+        return
+    rows_by_pair = {
+        str(row.get("Par", "") or "").upper(): row
+        for row in rows
+        if str(row.get("Par", "") or "").strip()
+    }
+    candidates = _rr3_experimental_mt5_rows(payload, rows_by_pair)
+    if not candidates:
+        st.info(
+            "Nenhum candidato RR3 passou nos criterios minimos de leitura "
+            "experimental."
+        )
+        return
+    _render_stable_readonly_table(
+        candidates,
+        model_column="Setup",
+        decision_column="Direcao",
+        color_status_cells=True,
+    )
+
+
+def _load_rr3_experimental_snapshot_payload() -> dict[str, object] | None:
+    try:
+        return json.loads(
+            MT5_LAB_RR3_EXPERIMENTAL_SNAPSHOT_PATH.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _rr3_experimental_mt5_rows(
+    payload: dict[str, object],
+    current_rows_by_pair: dict[str, dict[str, object]],
+) -> list[dict[str, object]]:
+    scenarios = [
+        scenario
+        for scenario in list(payload.get("best_scenarios_by_market", []) or [])
+        if isinstance(scenario, dict)
+    ]
+    result: list[dict[str, object]] = []
+    for scenario in sorted(scenarios, key=lambda item: str(item.get("pair", ""))):
+        pair = str(scenario.get("pair", "N/D") or "N/D").upper()
+        current_row = current_rows_by_pair.get(pair, {})
+        gate, reason = _rr3_experimental_gate(scenario)
+        direction = str(scenario.get("decision", "WAIT") or "WAIT").upper()
+        live_direction = str(
+            current_row.get("Direcao Teorica", "WAIT") or "WAIT"
+        ).upper()
+        signal_status = (
+            "OK"
+            if gate == "OK" and direction in {"BUY", "SELL"} and live_direction == direction
+            else "AGUARDA: sinal atual nao confirmou RR3"
+        )
+        if gate != "OK":
+            signal_status = gate
+        parameters = dict(scenario.get("parameters", {}) or {})
+        result.append(
+            {
+                "Par": pair,
+                "TF RR3": scenario.get("timeframe", "N/D"),
+                "Alpha RR3": scenario.get("alpha_id", "N/D"),
+                "Beta RR3": scenario.get("beta_id", "N/D"),
+                "Setup": scenario.get("model", "N/D"),
+                "Direcao": direction,
+                "RR": parameters.get("rr", "N/D"),
+                "Score": _optional_number(scenario.get("score")),
+                "Confirmacao": _optional_percent(scenario.get("lab_confidence")),
+                "Amostra": int(
+                    _safe_float_or_none(
+                        scenario.get("lab_confidence_sample_size")
+                    )
+                    or 0
+                ),
+                "PF": _optional_number(
+                    scenario.get("lab_confidence_profit_factor")
+                ),
+                "Sinal vivo": signal_status,
+                "Gate RR3": gate,
+                "Acao": "MONITORAR_READ_ONLY",
+                "Motivo": reason,
+            }
+        )
+    return result
+
+
+def _rr3_experimental_gate(scenario: dict[str, object]) -> tuple[str, str]:
+    score = _safe_float_or_none(scenario.get("score")) or 0.0
+    confidence = _safe_float_or_none(scenario.get("lab_confidence")) or 0.0
+    sample = int(
+        _safe_float_or_none(scenario.get("lab_confidence_sample_size")) or 0
+    )
+    profit_factor = (
+        _safe_float_or_none(scenario.get("lab_confidence_profit_factor")) or 0.0
+    )
+    parameters = dict(scenario.get("parameters", {}) or {})
+    rr = _safe_float_or_none(parameters.get("rr"))
+    if rr != 3.0:
+        return "BLOQ: RR diferente de 3", f"RR do cenario={rr or 'N/D'}."
+    if sample < MT5_RR3_MIN_SAMPLE_SIZE:
+        return (
+            "AGUARDA: pouca amostra",
+            f"Amostra {sample}; minimo {MT5_RR3_MIN_SAMPLE_SIZE}.",
+        )
+    if profit_factor < MT5_RR3_MIN_PROFIT_FACTOR:
+        return (
+            "BLOQ: PF baixo",
+            f"PF {profit_factor:.2f}; minimo {MT5_RR3_MIN_PROFIT_FACTOR:.2f}.",
+        )
+    if confidence < MT5_RR3_MIN_CONFIDENCE:
+        return (
+            "AGUARDA: confirmacao baixa",
+            f"Confirmacao {confidence:.2%}; minimo {MT5_RR3_MIN_CONFIDENCE:.0%}.",
+        )
+    if score < MT5_RR3_MIN_SCORE:
+        return (
+            "AGUARDA: score baixo",
+            f"Score {score:.2f}; minimo {MT5_RR3_MIN_SCORE:.2f}.",
+        )
+    return (
+        "OK",
+        "Candidato RR3 experimental passou nos gates; permanece read-only.",
+    )
 
 
 def _exibir_saidas_teoricas_mt5(
@@ -3198,8 +3642,8 @@ def _exibir_saidas_teoricas_mt5(
     st.subheader("Saida Teorica MT5")
     st.caption(
         "Somente leitura: acompanha posicoes abertas usando o modelo registrado "
-        "na ordem. Modelo 1 mostra a saida do Lab; Modelo 2 mostra o espelho "
-        "BETA2 RR1 fixo definido por voce."
+        "na ordem. Modelo 1 mostra a saida do Lab; Modelo 2 mostra TP da BETA2 "
+        "invertida e loss em RR1, conforme definido por voce."
     )
     st.markdown(
         (
@@ -3418,7 +3862,7 @@ def _mt5_theoretical_exit_scenario_label(
     display_model: str,
 ) -> str:
     if display_model == MT5_OPERATIONAL_MODEL_2:
-        return "RR1_FIXO"
+        return "TARGET_STOP_ORIGINAL_RR1"
     return scenario
 
 
@@ -3428,7 +3872,7 @@ def _mt5_theoretical_exit_stop_management_label(
 ) -> str:
     """Classifica a gestao do stop com linguagem operacional curta."""
     if display_model == MT5_OPERATIONAL_MODEL_2:
-        return "FIXO_RR1"
+        return "FIXO_STOP_ORIGINAL_RR1"
     if _mt5_theoretical_exit_stop_moved(row):
         return "SL MOVIDO"
     if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
@@ -3487,7 +3931,7 @@ def _mt5_theoretical_exit_model_label(
     display_model: str = MT5_OPERATIONAL_MODEL_1,
 ) -> str:
     if display_model == MT5_OPERATIONAL_MODEL_2:
-        return "BETA2_ESPELHO_RR1"
+        return "BETA002_ESPELHO_STOP_RR1"
     for value in (
         getattr(row, "exit_setup", None),
         getattr(row, "dynamic_exit_policy", None),
@@ -3662,14 +4106,14 @@ def _model2_adx_value(row: dict[str, object]) -> float | None:
 
 def _model2_adx_low_present(row: dict[str, object]) -> bool:
     adx = _model2_adx_value(row)
-    return adx is not None and adx > MT5_ENTRY_FILTER_ADX_LOW_THRESHOLD
+    return adx is not None and adx < MT5_ENTRY_FILTER_ADX_LOW_THRESHOLD
 
 
 def _model2_adx_wait_reason(row: dict[str, object]) -> str:
     adx = _model2_adx_value(row)
     if adx is None:
-        return "Modelo 2 aguardando leitura ADX para validar ADX > 20."
-    return f"Modelo 2 aguardando ADX > 20. ADX atual: {adx:.2f}."
+        return "Modelo 2 aguardando leitura ADX para validar ADX < 20."
+    return f"Modelo 2 aguardando ADX < 20. ADX atual: {adx:.2f}."
 
 
 def _parse_percent_text(value: object) -> float:
@@ -3689,12 +4133,12 @@ def _model2_inverse_entry_row(
     direction = str(row.get("Direcao Teorica", "WAIT") or "WAIT").upper()
     if require_filter_trigger and not _model2_adx_low_present(row):
         cloned = dict(row)
-        cloned["Modelo Ativo"] = f"MODELO2_AGUARDA_ADX_FORTE | {row.get('Modelo Ativo', 'N/D')}"
+        cloned["Modelo Ativo"] = f"MODELO2_AGUARDA_ADX_BAIXO | {row.get('Modelo Ativo', 'N/D')}"
         cloned["Direcao Teorica"] = "WAIT"
         cloned["Direcao"] = "WAIT"
         cloned["Plano Research"] = row.get("Plano Research", "SEM_PLANO")
         cloned["Codigo Rejeicao"] = row.get("Codigo Rejeicao", "N/D")
-        cloned["Modelo Saida"] = "BETA2_ESPELHO_RR1"
+        cloned["Modelo Saida"] = "BETA002_ESPELHO_STOP_RR1"
         cloned["Motivo Entrada"] = _model2_adx_wait_reason(row)
         return cloned
     if direction not in {"BUY", "SELL"}:
@@ -3704,7 +4148,7 @@ def _model2_inverse_entry_row(
         cloned["Direcao"] = "WAIT"
         cloned["Plano Research"] = row.get("Plano Research", "SEM_PLANO")
         cloned["Codigo Rejeicao"] = row.get("Codigo Rejeicao", "SEM_DIRECAO_ALPHA")
-        cloned["Modelo Saida"] = "BETA2_ESPELHO_RR1"
+        cloned["Modelo Saida"] = "BETA002_ESPELHO_STOP_RR1"
         cloned["Motivo Entrada"] = "Modelo 2 aguardando BUY/SELL da Alpha."
         return cloned
     entry = _price_from_display(row.get("Preco Teorico"))
@@ -3714,12 +4158,12 @@ def _model2_inverse_entry_row(
     cloned["Modelo Ativo"] = f"MODELO2_ESPELHO_BETA2 | {row.get('Modelo Ativo', 'N/D')}"
     cloned["Direcao Teorica"] = inverse
     cloned["Direcao"] = "VENDER" if inverse == "SELL" else "COMPRAR"
-    cloned["Modelo Saida"] = "BETA2_ESPELHO_RR1"
+    cloned["Modelo Saida"] = "BETA002_ESPELHO_STOP_RR1"
     cloned["RR Research"] = "1.00"
     cloned["RR Minimo"] = "1.00"
     cloned["Motivo Entrada"] = (
         f"Modelo 2: Alpha {direction}; entrada espelhada {inverse}. "
-        "Alvo no stop original e risco RR 1."
+        "Alvo no stop original da Alpha/Beta2 e stop em RR1."
     )
     if entry is None or original_stop is None:
         cloned["Plano Research"] = "SEM_PLANO"
@@ -3730,8 +4174,8 @@ def _model2_inverse_entry_row(
         cloned["Plano Research"] = "SEM_PLANO"
         cloned["Codigo Rejeicao"] = "MODELO2_DISTANCIA_ZERO"
         return cloned
-    inverse_stop = entry + distance if inverse == "SELL" else entry - distance
     inverse_target = original_stop
+    inverse_stop = entry + distance if inverse == "SELL" else entry - distance
     cloned["Stop Research"] = _format_model2_price(inverse_stop)
     cloned["Alvo Research"] = _format_model2_price(inverse_target)
     cloned["Plano Research"] = row.get("Plano Research", "PLANO_VALIDO")
@@ -3894,7 +4338,7 @@ def _entry_plan_gate(row: dict[str, object]) -> str:
     if status == "PLANO_VALIDO":
         return "OK"
     reason = str(row.get("Codigo Rejeicao", "") or "").strip()
-    if reason.upper() in {"MODELO2_AGUARDA_ADX_BAIXO", "MODELO2_AGUARDA_ADX_FORTE"}:
+    if reason.upper() == "MODELO2_AGUARDA_ADX_BAIXO":
         return "AGUARDA: ADX <= 20"
     if reason and reason.upper() != "N/D":
         return f"BLOQ: {reason}"
@@ -3934,13 +4378,13 @@ def _entry_filter_gate(row: dict[str, object]) -> str:
 
 
 def _entry_filter_gate_for_model2(row: dict[str, object]) -> str:
-    """No Modelo 2, somente ADX > 20 vira gatilho de inversao."""
+    """No Modelo 2, somente ADX < 20 vira gatilho de inversao."""
     adx = _model2_adx_value(row)
     if adx is None:
         return "AGUARDA: leitura ADX indisponivel"
-    if adx > MT5_ENTRY_FILTER_ADX_LOW_THRESHOLD:
-        return f"OK: gatilho inversao (ADX {adx:.2f} > 20)"
-    return f"AGUARDA: ADX {adx:.2f} <= 20"
+    if adx < MT5_ENTRY_FILTER_ADX_LOW_THRESHOLD:
+        return f"OK: gatilho inversao (ADX {adx:.2f} < 20)"
+    return f"AGUARDA: ADX {adx:.2f} >= 20"
 
 
 def _entry_regime_gate(row: dict[str, object]) -> str:
@@ -6884,13 +7328,524 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
             f"{candles_loaded} candles em {rows_count} pares e "
             f"{scenarios_count} cenarios Alpha+Beta multi-TF."
         )
+    if colunas[2].button(
+        "Gerar snapshot RR3 experimental",
+        key="research_generate_rr3_experimental_snapshot",
+    ):
+        _apply_forex_session_filter_preference(service, selected_session_filter)
+        progress = st.progress(0.0)
+        status_box = st.status(
+            "Preparando snapshot experimental RR3...",
+            expanded=True,
+        )
+        progress_floor = 0.20
+        progress_span = 0.60
+
+        def on_rr3_progress(event: dict[str, object]) -> None:
+            phase = str(event.get("phase", ""))
+            index = int(event.get("index", 0) or 0)
+            total = max(1, int(event.get("total", 1) or 1))
+            pair = str(event.get("pair", "N/D") or "N/D")
+            ratio = min(1.0, max(0.0, index / total))
+            if phase == "calculation_pair_started":
+                progress.progress(progress_floor + progress_span * (index - 1) / total)
+                status_box.write(f"Calculando RR3 {pair} ({index}/{total})...")
+            elif phase == "calculation_pair_finished":
+                progress.progress(progress_floor + progress_span * ratio)
+                status_box.write(f"{pair} RR3 calculado.")
+
+        status_box.write("Carregando base local salva do MT5.")
+        progress.progress(0.20)
+        status_box.write(
+            "Executando calculo pesado em modo experimental RR3; "
+            "snapshot operacional preservado."
+        )
+        research_rr3 = service.update_mt5_research_calculations_rr3_experimental(
+            timeframe="MULTI",
+            progress_callback=on_rr3_progress,
+        )
+        st.session_state[MT5_LAB_RR3_EXPERIMENTAL_SNAPSHOT_KEY] = research_rr3
+        candles_loaded = int(getattr(research_rr3, "candles_loaded", 0) or 0)
+        rows_count = len(list(getattr(research_rr3, "rows", []) or []))
+        scenarios_count = len(
+            list(getattr(research_rr3, "scenario_ranking", []) or [])
+        )
+        winners_count = len(
+            list(getattr(research_rr3, "best_scenarios_by_market", []) or [])
+        )
+        progress.progress(0.90)
+        status_box.write(f"Candles processados: {candles_loaded}.")
+        status_box.write(f"Pares avaliados: {rows_count}.")
+        status_box.write(f"Cenarios RR3 gerados: {scenarios_count}.")
+        status_box.write(f"Vencedores RR3 por par: {winners_count}.")
+        status_box.write(
+            "Arquivo: .traderia/research/mt5_research_snapshot_rr3_experimental.json"
+        )
+        progress.progress(1.0)
+        if scenarios_count > 0:
+            status_box.update(
+                label="Snapshot experimental RR3 concluido.",
+                state="complete",
+                expanded=False,
+            )
+        else:
+            status_box.update(
+                label="RR3 experimental terminou sem cenarios.",
+                state="error",
+                expanded=True,
+            )
+        st.success(
+            "Snapshot RR3 experimental gerado sem alterar o operacional: "
+            f"{scenarios_count} cenarios RR3 e {winners_count} vencedores por par."
+        )
     if st.session_state.get(MT5_LAB_CALCULATION_SNAPSHOT_KEY) is not None:
         colunas[1].caption("Planilha de auditoria visual alimentada pelo ultimo calculo.")
+    if st.session_state.get(MT5_LAB_RR3_EXPERIMENTAL_SNAPSHOT_KEY) is not None:
+        colunas[2].caption(
+            "RR3 experimental salvo separado; nao alimenta Forex, MT5 ou robo demo."
+        )
     colunas[3].caption(
         "Use o primeiro botão para baixar/salvar candles do MT5. Use o segundo "
-        "para recalcular Alphas, Betas e timeframes sobre o histórico salvo. Nenhuma "
-        "ação envia ordens ou participa do refresh leve do MT5 Forex."
+        "para recalcular Alphas, Betas e timeframes sobre o histórico salvo. "
+        "O RR3 experimental grava outro snapshot. Nenhuma ação envia ordens "
+        "ou participa do refresh leve do MT5 Forex."
     )
+    _render_rr3_experimental_comparison(service)
+
+
+def _render_rr3_experimental_comparison(service: DashboardService) -> None:
+    """Compara o snapshot operacional atual com o RR3 experimental."""
+    experimental_path = (
+        Path(".traderia")
+        / "research"
+        / "mt5_research_snapshot_rr3_experimental.json"
+    )
+    if not experimental_path.exists():
+        st.caption(
+            "Comparacao RR3 indisponivel: gere primeiro o snapshot RR3 experimental."
+        )
+        return
+    operational = service._load_mt5_research_snapshot()
+    if operational is None:
+        st.caption("Comparacao RR3 indisponivel: snapshot operacional nao encontrado.")
+        return
+    try:
+        experimental_payload = json.loads(experimental_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        st.caption("Comparacao RR3 indisponivel: arquivo experimental invalido.")
+        return
+    st.markdown("### Comparacao operacional x RR3 experimental")
+    st.caption(
+        "Somente leitura: compara os vencedores atuais com os vencedores RR3 "
+        "do snapshot experimental. Nao altera Forex, MT5, robo demo ou Position Manager."
+    )
+    _render_plain_markdown_table(
+        _rr3_experimental_comparison_rows(operational, experimental_payload),
+        empty_columns=[
+            "Par",
+            "Operacional",
+            "RR3 experimental",
+            "Leitura",
+        ],
+        empty_message="Sem dados comparaveis.",
+    )
+    _render_rr3_parameter_study(experimental_payload)
+
+
+def _render_rr3_parameter_study(
+    experimental_payload: dict[str, object],
+) -> None:
+    """Mostra quais variaveis diferenciam RR3 vencedor de nao vencedor."""
+    scenarios = [
+        row
+        for row in list(experimental_payload.get("scenario_ranking", []) or [])
+        if isinstance(row, dict)
+    ]
+    if not scenarios:
+        return
+    st.markdown("### Estudo experimental RR3: vencedores x nao vencedores")
+    st.caption(
+        "Criterio experimental: vencedor RR3 precisa estar APROVADO, ter amostra "
+        "historica, confirmacao maior que zero e Profit Factor acima de 1. "
+        "Esta tabela nao recomenda operar; ela mostra quais variaveis apareceram "
+        "mais quando o RR3 funcionou."
+    )
+    summary = _rr3_parameter_study_summary(scenarios)
+    columns = st.columns(4)
+    columns[0].metric("Cenarios RR3", summary["total"])
+    columns[1].metric("RR3 vencedores", summary["wins"])
+    columns[2].metric("RR3 nao vencedores", summary["non_wins"])
+    columns[3].metric("Taxa vencedora", _optional_percent(summary["win_rate"]))
+    _render_plain_markdown_table(
+        _rr3_parameter_edge_rows(scenarios),
+        empty_columns=[
+            "Variavel",
+            "Valor",
+            "Vencedores",
+            "Total",
+            "% vencedor",
+            "Score medio",
+            "Conf. media",
+            "PF medio",
+            "Leitura",
+        ],
+        empty_message="Sem variaveis suficientes para comparar.",
+    )
+    st.caption(
+        "Leitura dos indicadores internos: se um indicador aparece mais nos nao "
+        "vencedores, ele vira candidato a filtro de bloqueio; se aparece mais nos "
+        "vencedores, ele vira candidato a requisito de liberacao."
+    )
+    _render_plain_markdown_table(
+        _rr3_indicator_edge_rows(scenarios),
+        empty_columns=[
+            "Indicador",
+            "Presenca vencedores",
+            "Presenca nao vencedores",
+            "Diferenca",
+            "Interpretacao",
+        ],
+        empty_message="Sem indicadores internos suficientes.",
+    )
+
+
+def _rr3_experimental_comparison_rows(
+    operational: object,
+    experimental_payload: dict[str, object],
+) -> list[dict[str, object]]:
+    current_by_pair = {
+        str(getattr(scenario, "pair", "") or "").upper(): scenario
+        for scenario in list(getattr(operational, "best_scenarios_by_market", []) or [])
+        if str(getattr(scenario, "pair", "") or "").strip()
+    }
+    rr3_by_pair = {
+        str(row.get("pair", "") or "").upper(): row
+        for row in list(experimental_payload.get("best_scenarios_by_market", []) or [])
+        if isinstance(row, dict) and str(row.get("pair", "") or "").strip()
+    }
+    rows: list[dict[str, object]] = []
+    for pair in sorted(set(current_by_pair) | set(rr3_by_pair)):
+        current = current_by_pair.get(pair)
+        rr3 = rr3_by_pair.get(pair)
+        current_summary = _scenario_comparison_summary(current)
+        rr3_summary = _scenario_payload_comparison_summary(rr3)
+        current_score = _safe_float_or_none(getattr(current, "score", None))
+        rr3_score = _safe_float_or_none((rr3 or {}).get("score") if rr3 else None)
+        current_confidence = _safe_float_or_none(
+            getattr(current, "lab_confidence", None)
+        )
+        rr3_confidence = _safe_float_or_none(
+            (rr3 or {}).get("lab_confidence") if rr3 else None
+        )
+        rr3_sample = int(_safe_float_or_none((rr3 or {}).get("lab_confidence_sample_size")) or 0)
+        rr3_pf = _safe_float_or_none(
+            (rr3 or {}).get("lab_confidence_profit_factor") if rr3 else None
+        )
+        rows.append(
+            {
+                "Par": pair,
+                "Operacional atual": current_summary,
+                "RR3 experimental": rr3_summary,
+                "Delta score": _delta_label(rr3_score, current_score),
+                "Delta conf.": _delta_percent_label(rr3_confidence, current_confidence),
+                "Historico RR3": _rr3_history_label(rr3_sample, rr3_pf),
+                "Leitura": _rr3_comparison_reading(
+                    rr3_score=rr3_score,
+                    current_score=current_score,
+                    rr3_confidence=rr3_confidence,
+                    current_confidence=current_confidence,
+                    rr3_sample=rr3_sample,
+                    rr3_pf=rr3_pf,
+                ),
+            }
+        )
+    return rows
+
+
+def _scenario_comparison_summary(scenario: object | None) -> str:
+    if scenario is None:
+        return "N/D"
+    parameters = dict(getattr(scenario, "parameters", {}) or {})
+    return (
+        f"{getattr(scenario, 'alpha_id', 'N/D')} | "
+        f"{getattr(scenario, 'model', 'N/D')} | "
+        f"{getattr(scenario, 'timeframe', 'N/D')} | "
+        f"{getattr(scenario, 'decision', 'WAIT')} | "
+        f"RR {parameters.get('rr', 'N/D')} | "
+        f"{getattr(scenario, 'beta_id', 'N/D')} | "
+        f"{parameters.get('stop_management', 'N/D')} | "
+        f"Score {_optional_number(getattr(scenario, 'score', None))} | "
+        f"Conf {_optional_percent(getattr(scenario, 'lab_confidence', None))}"
+    )
+
+
+def _scenario_payload_comparison_summary(payload: dict[str, object] | None) -> str:
+    if not payload:
+        return "N/D"
+    parameters = dict(payload.get("parameters", {}) or {})
+    return (
+        f"{payload.get('alpha_id', 'N/D')} | "
+        f"{payload.get('model', 'N/D')} | "
+        f"{payload.get('timeframe', 'N/D')} | "
+        f"{payload.get('decision', 'WAIT')} | "
+        f"RR {parameters.get('rr', 'N/D')} | "
+        f"{payload.get('beta_id', 'N/D')} | "
+        f"{parameters.get('stop_management', 'N/D')} | "
+        f"Score {_optional_number(payload.get('score'))} | "
+        f"Conf {_optional_percent(payload.get('lab_confidence'))}"
+    )
+
+
+def _delta_label(new_value: float | None, base_value: float | None) -> str:
+    if new_value is None or base_value is None:
+        return "N/D"
+    return f"{new_value - base_value:+.4f}"
+
+
+def _delta_percent_label(new_value: float | None, base_value: float | None) -> str:
+    if new_value is None or base_value is None:
+        return "N/D"
+    return f"{new_value - base_value:+.2%}"
+
+
+def _rr3_history_label(sample: int, profit_factor: float | None) -> str:
+    pf = "N/D" if profit_factor is None else f"{profit_factor:.2f}"
+    return f"Amostra {sample} | PF {pf}"
+
+
+def _rr3_comparison_reading(
+    *,
+    rr3_score: float | None,
+    current_score: float | None,
+    rr3_confidence: float | None,
+    current_confidence: float | None,
+    rr3_sample: int,
+    rr3_pf: float | None,
+) -> str:
+    if rr3_score is None:
+        return "SEM_RR3"
+    if rr3_sample <= 0 or rr3_pf is None or rr3_pf <= 0:
+        return "NAO_USAR: sem historico valido"
+    if rr3_pf < 1.20:
+        return "FRACO: PF baixo"
+    if current_score is not None and rr3_score < current_score:
+        return "PIOR_SCORE"
+    if current_confidence is not None and rr3_confidence is not None:
+        if rr3_confidence < current_confidence:
+            return "PIOR_CONFIRMACAO"
+    return "CANDIDATO_A_ESTUDO"
+
+
+def _rr3_parameter_study_summary(
+    scenarios: list[dict[str, object]],
+) -> dict[str, object]:
+    wins = sum(1 for scenario in scenarios if _rr3_scenario_is_experimental_winner(scenario))
+    total = len(scenarios)
+    return {
+        "total": total,
+        "wins": wins,
+        "non_wins": max(0, total - wins),
+        "win_rate": wins / total if total else 0.0,
+    }
+
+
+def _rr3_scenario_is_experimental_winner(scenario: dict[str, object]) -> bool:
+    return (
+        str(scenario.get("status", "") or "").upper() == "APROVADO"
+        and (_safe_float_or_none(scenario.get("lab_confidence")) or 0.0) > 0.0
+        and (_safe_float_or_none(scenario.get("lab_confidence_sample_size")) or 0.0)
+        > 0.0
+        and (_safe_float_or_none(scenario.get("lab_confidence_profit_factor")) or 0.0)
+        > 1.0
+    )
+
+
+def _rr3_parameter_edge_rows(
+    scenarios: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    fields = [
+        "Par",
+        "TF",
+        "Direcao",
+        "Alpha",
+        "Setup",
+        "Beta",
+        "Stop",
+        "EMA curta",
+        "EMA longa",
+        "RSI sobrevenda",
+        "RSI sobrecompra",
+        "ATR fator",
+        "Sessao",
+    ]
+    buckets: dict[tuple[str, str], dict[str, float]] = {}
+    for scenario in scenarios:
+        values = _rr3_scenario_parameter_values(scenario)
+        is_winner = _rr3_scenario_is_experimental_winner(scenario)
+        for field in fields:
+            value = str(values.get(field, "N/D") or "N/D")
+            key = (field, value)
+            bucket = buckets.setdefault(
+                key,
+                {
+                    "total": 0.0,
+                    "wins": 0.0,
+                    "score": 0.0,
+                    "confidence": 0.0,
+                    "profit_factor": 0.0,
+                    "profit_factor_count": 0.0,
+                },
+            )
+            bucket["total"] += 1.0
+            bucket["wins"] += 1.0 if is_winner else 0.0
+            bucket["score"] += _safe_float_or_none(scenario.get("score")) or 0.0
+            bucket["confidence"] += (
+                _safe_float_or_none(scenario.get("lab_confidence")) or 0.0
+            )
+            profit_factor = _safe_float_or_none(
+                scenario.get("lab_confidence_profit_factor")
+            )
+            if profit_factor is not None and profit_factor > 0.0:
+                bucket["profit_factor"] += profit_factor
+                bucket["profit_factor_count"] += 1.0
+    rows: list[dict[str, object]] = []
+    for (field, value), bucket in buckets.items():
+        total = int(bucket["total"])
+        wins = int(bucket["wins"])
+        if total < 5:
+            continue
+        win_rate = wins / total if total else 0.0
+        avg_score = bucket["score"] / total if total else 0.0
+        avg_confidence = bucket["confidence"] / total if total else 0.0
+        avg_profit_factor = (
+            bucket["profit_factor"] / bucket["profit_factor_count"]
+            if bucket["profit_factor_count"]
+            else 0.0
+        )
+        rows.append(
+            {
+                "Variavel": field,
+                "Valor": value,
+                "Vencedores": wins,
+                "Total": total,
+                "% vencedor": _optional_percent(win_rate),
+                "Score medio": _optional_number(avg_score),
+                "Conf. media": _optional_percent(avg_confidence),
+                "PF medio": _optional_number(avg_profit_factor),
+                "Leitura": _rr3_parameter_reading(
+                    win_rate,
+                    wins,
+                    avg_profit_factor,
+                ),
+            }
+        )
+    return sorted(
+        rows,
+        key=lambda row: (
+            _safe_float_or_none(str(row["% vencedor"]).replace("%", "")) or 0.0,
+            int(row["Vencedores"]),
+            _safe_float_or_none(row["PF medio"]) or 0.0,
+        ),
+        reverse=True,
+    )[:18]
+
+
+def _rr3_scenario_parameter_values(
+    scenario: dict[str, object],
+) -> dict[str, object]:
+    parameters = dict(scenario.get("parameters", {}) or {})
+    return {
+        "Par": scenario.get("pair", "N/D"),
+        "TF": scenario.get("timeframe", "N/D"),
+        "Direcao": scenario.get("decision", "WAIT"),
+        "Alpha": scenario.get("alpha_id", "N/D"),
+        "Setup": scenario.get("model", "N/D"),
+        "Beta": scenario.get("beta_id", "N/D"),
+        "Stop": parameters.get("stop_management", "N/D"),
+        "EMA curta": parameters.get("ema_curta", "N/D"),
+        "EMA longa": parameters.get("ema_longa", "N/D"),
+        "RSI sobrevenda": parameters.get("rsi_sobrevenda", "N/D"),
+        "RSI sobrecompra": parameters.get("rsi_sobrecompra", "N/D"),
+        "ATR fator": parameters.get("atr_stop_factor", "N/D"),
+        "Sessao": scenario.get("temporal_session", "N/D"),
+    }
+
+
+def _rr3_parameter_reading(
+    win_rate: float,
+    wins: int,
+    avg_profit_factor: float,
+) -> str:
+    if wins <= 0:
+        return "EVITAR"
+    if win_rate >= 0.20 and avg_profit_factor >= 1.20:
+        return "FORTE_CANDIDATO"
+    if win_rate >= 0.10 and avg_profit_factor >= 1.0:
+        return "CANDIDATO"
+    if avg_profit_factor < 1.0:
+        return "PF_FRACO"
+    return "OBSERVAR"
+
+
+def _rr3_indicator_edge_rows(
+    scenarios: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    totals: dict[str, dict[str, float]] = {}
+    for scenario in scenarios:
+        if not _rr3_scenario_is_experimental_winner(scenario):
+            continue
+        metrics = dict(scenario.get("lab_discrimination_metrics", {}) or {})
+        for name, metric in metrics.items():
+            if str(name).startswith("_") or not isinstance(metric, dict):
+                continue
+            winner_rate = _safe_float_or_none(metric.get("winner_rate"))
+            loser_rate = _safe_float_or_none(metric.get("loser_rate"))
+            difference = _safe_float_or_none(metric.get("difference"))
+            if difference is None:
+                continue
+            bucket = totals.setdefault(
+                str(name),
+                {
+                    "count": 0.0,
+                    "winner_rate": 0.0,
+                    "loser_rate": 0.0,
+                    "difference": 0.0,
+                },
+            )
+            bucket["count"] += 1.0
+            bucket["winner_rate"] += winner_rate or 0.0
+            bucket["loser_rate"] += loser_rate or 0.0
+            bucket["difference"] += difference
+    rows: list[dict[str, object]] = []
+    for name, bucket in totals.items():
+        count = bucket["count"] or 1.0
+        winner_rate = bucket["winner_rate"] / count
+        loser_rate = bucket["loser_rate"] / count
+        difference = bucket["difference"] / count
+        rows.append(
+            {
+                "Indicador": name,
+                "Presenca vencedores": _optional_percent(winner_rate),
+                "Presenca nao vencedores": _optional_percent(loser_rate),
+                "Diferenca": _optional_percent(difference),
+                "Interpretacao": _rr3_indicator_reading(difference),
+            }
+        )
+    return sorted(
+        rows,
+        key=lambda row: abs(
+            _safe_float_or_none(str(row["Diferenca"]).replace("%", "")) or 0.0
+        ),
+        reverse=True,
+    )[:10]
+
+
+def _rr3_indicator_reading(difference: float) -> str:
+    if difference >= 0.05:
+        return "BLOQUEIO_CANDIDATO: aparece mais nos nao vencedores"
+    if difference <= -0.05:
+        return "LIBERACAO_CANDIDATA: aparece mais nos vencedores"
+    return "NEUTRO"
 
 
 def exibir_research_lab_data(

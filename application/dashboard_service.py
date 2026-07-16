@@ -77,7 +77,7 @@ from application.mt5_market_data_service import (
 )
 
 
-ENTRY_FILTER_MIN_NV_MINUS_V = 0.05
+ENTRY_FILTER_MIN_NV_MINUS_V = 0.02
 ENTRY_FILTER_MIN_SAMPLE_SIZE = 300
 ENTRY_FILTER_MAX_RULES = 2
 ENTRY_FILTER_ADX_LOW_THRESHOLD = 20.0
@@ -1948,6 +1948,14 @@ class DashboardService:
     def _mt5_research_snapshot_path(self) -> Path:
         return Path(".traderia") / "mt5_research_snapshot.json"
 
+    def _mt5_research_experimental_snapshot_path(self, label: str) -> Path:
+        safe_label = str(label or "experimental").strip().lower().replace(" ", "_")
+        return (
+            Path(".traderia")
+            / "research"
+            / f"mt5_research_snapshot_{safe_label}_experimental.json"
+        )
+
     def _mt5_research_runtime_index_path(self) -> Path:
         return self._mt5_research_snapshot_path().with_name(
             "mt5_research_runtime_index.json"
@@ -2186,6 +2194,38 @@ class DashboardService:
         """Recalcula o Lab usando o historico bruto salvo quando disponivel."""
         return self._update_mt5_research_calculations(timeframe=timeframe)
 
+    def update_mt5_research_calculations_rr3_experimental(
+        self,
+        timeframe: str = "M1",
+        progress_callback: object | None = None,
+    ) -> DashboardMT5HeuristicResearchViewModel:
+        """Gera um snapshot experimental RR3 sem alterar o snapshot operacional."""
+        history = self._load_mt5_research_history_snapshot()
+        if history is None or not list(getattr(history, "pairs", []) or []):
+            return self._mt5_local_research_snapshot_or_empty(
+                "Historico local do Lab indisponivel; RR3 experimental nao gerado."
+            )
+        if (
+            not self._mt5_research_history_has_candle_cache(history)
+            and not self._mt5_research_history_has_usable_rows(history)
+        ):
+            return self._mt5_local_research_snapshot_or_empty(
+                "Historico local sem cache de candles; RR3 experimental nao gerado."
+            )
+        calibration = self._run_mt5_research_calibration_from_history(
+            history,
+            timeframe=timeframe,
+            source="MT5_RESEARCH_RR3_EXPERIMENTAL_FROM_HISTORY",
+            progress_callback=progress_callback,
+            persist_operational=False,
+        )
+        experimental = self._mt5_research_experimental_rr_snapshot(
+            calibration,
+            target_rr=3.0,
+        )
+        self._save_mt5_research_experimental_snapshot(experimental, "rr3")
+        return experimental
+
     def _update_mt5_research_calculations(
         self,
         timeframe: str = "M1",
@@ -2239,6 +2279,7 @@ class DashboardService:
         timeframe: str = "M1",
         source: str = "MT5_RESEARCH_CALCULATED_FROM_HISTORY_SNAPSHOT",
         progress_callback: object | None = None,
+        persist_operational: bool = True,
     ) -> DashboardMT5HeuristicResearchViewModel:
         configuration = self.configuration_service.get_configuration_data()
         all_pairs = list(getattr(history, "pairs", []) or [])
@@ -2314,8 +2355,9 @@ class DashboardService:
                 "MT5 bruto salvo."
             ),
         )
-        object.__setattr__(self, "mt5_research_constants", calibration)
-        self._save_mt5_research_snapshot(calibration)
+        if persist_operational:
+            object.__setattr__(self, "mt5_research_constants", calibration)
+            self._save_mt5_research_snapshot(calibration)
         return calibration
 
     def _save_mt5_research_history_snapshot(
@@ -2638,6 +2680,127 @@ class DashboardService:
             encoding="utf-8",
         )
         self._save_mt5_research_runtime_index(research)
+
+    def _save_mt5_research_experimental_snapshot(
+        self,
+        research: DashboardMT5HeuristicResearchViewModel,
+        label: str,
+    ) -> None:
+        target = self._mt5_research_experimental_snapshot_path(label)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            json.dumps(asdict(research), ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+
+    def _mt5_research_experimental_rr_snapshot(
+        self,
+        research: DashboardMT5HeuristicResearchViewModel,
+        target_rr: float,
+    ) -> DashboardMT5HeuristicResearchViewModel:
+        scenarios = [
+            scenario
+            for scenario in list(getattr(research, "scenario_ranking", []) or [])
+            if self._mt5_scenario_rr_matches(scenario, target_rr)
+        ]
+        scenarios = sorted(
+            scenarios,
+            key=lambda scenario: (
+                -float(getattr(scenario, "score", 0.0) or 0.0),
+                str(getattr(scenario, "pair", "")),
+                str(getattr(scenario, "timeframe", "")),
+                str(getattr(scenario, "model", "")),
+            ),
+        )
+        best_scenarios = self._best_mt5_scenarios_by_pair(scenarios)
+        best_scenario = max(
+            best_scenarios,
+            key=self._mt5_lab_target_rank,
+            default=None,
+        )
+        if best_scenario is None:
+            return replace(
+                research,
+                rows=[],
+                scenario_ranking=scenarios,
+                best_scenarios_by_market=[],
+                best_scenario=None,
+                best_pair="NONE",
+                best_heuristic="NONE",
+                best_score=0.0,
+                best_decision="WAIT",
+                best_confidence=0.0,
+                winner_configuration={"rr": f"{target_rr:.1f}"},
+                winner_score_breakdown={},
+                winner_research_configuration={
+                    "Modo": "RR3_EXPERIMENTAL",
+                    "Operacional": "NAO",
+                },
+                status="RR3_EXPERIMENTAL_SEM_CENARIO",
+                message=(
+                    "Snapshot experimental RR3 gerado sem cenarios RR3 "
+                    "aproveitaveis no ranking."
+                ),
+                source="MT5_RESEARCH_RR3_EXPERIMENTAL",
+            )
+        parameters = dict(getattr(best_scenario, "parameters", {}) or {})
+        winner_configuration = {
+            "alpha": str(getattr(best_scenario, "alpha_id", "N/D")),
+            "pair": str(getattr(best_scenario, "pair", "N/D")),
+            "timeframe": str(getattr(best_scenario, "timeframe", "N/D")),
+            "model": str(getattr(best_scenario, "model", "N/D")),
+            "decision": str(getattr(best_scenario, "decision", "WAIT")),
+            **{str(key): str(value) for key, value in parameters.items()},
+            "rr": f"{target_rr:.1f}",
+        }
+        return replace(
+            research,
+            scenario_ranking=scenarios,
+            best_scenarios_by_market=best_scenarios,
+            best_scenario=best_scenario,
+            best_pair=str(getattr(best_scenario, "pair", "NONE")),
+            best_heuristic=str(getattr(best_scenario, "model", "NONE")),
+            best_score=float(getattr(best_scenario, "score", 0.0) or 0.0),
+            best_decision=str(getattr(best_scenario, "decision", "WAIT")),
+            best_confidence=float(
+                getattr(best_scenario, "lab_confidence", 0.0) or 0.0
+            ),
+            winner_configuration=winner_configuration,
+            winner_score_breakdown={
+                "Modo": "RR3_EXPERIMENTAL",
+                "RR": f"{target_rr:.1f}",
+                "Cenarios RR3": str(len(scenarios)),
+                "Pares vencedores RR3": str(len(best_scenarios)),
+            },
+            winner_research_configuration={
+                "Modo": "RR3_EXPERIMENTAL",
+                "Operacional": "NAO",
+                "Snapshot operacional preservado": str(
+                    self._mt5_research_snapshot_path()
+                ),
+                "Snapshot experimental": str(
+                    self._mt5_research_experimental_snapshot_path("rr3")
+                ),
+            },
+            status="RR3_EXPERIMENTAL",
+            message=(
+                "Snapshot experimental RR3 gerado em arquivo separado. "
+                "Nao alimenta Forex, MT5, robo demo ou Position Manager."
+            ),
+            source="MT5_RESEARCH_RR3_EXPERIMENTAL",
+        )
+
+    def _mt5_scenario_rr_matches(
+        self,
+        scenario: DashboardMT5ScenarioViewModel,
+        target_rr: float,
+    ) -> bool:
+        parameters = dict(getattr(scenario, "parameters", {}) or {})
+        try:
+            scenario_rr = float(parameters.get("rr", "nan"))
+        except (TypeError, ValueError):
+            return False
+        return math.isclose(scenario_rr, float(target_rr), rel_tol=1e-9, abs_tol=1e-9)
 
     def _load_mt5_research_snapshot(
         self,
@@ -3579,6 +3742,7 @@ class DashboardService:
         position_manager_audit: dict[str, dict[str, Any]] | None = None,
     ) -> DashboardMT5TradeAuditRowViewModel:
         local_ticket = self._int_or_none(record.get("ticket"))
+        plan_snapshot = self._plan_snapshot_from_record(record)
         mt5_record = mt5_history.get(local_ticket or -1)
         position_manager_record = self._position_manager_record_for_trade(
             record,
@@ -3719,6 +3883,7 @@ class DashboardService:
                 position_manager_status=position_manager_status,
                 position_manager_message=position_manager_message,
                 stop_movel_acionado=stop_movel_acionado,
+                plan_snapshot=plan_snapshot,
             )
         checks = self._mt5_trade_checks(record, mt5_record)
         status = "CONFERE" if all(checks.values()) else "DIVERGENTE"
@@ -3855,7 +4020,14 @@ class DashboardService:
             position_manager_status=position_manager_status,
             position_manager_message=position_manager_message,
             stop_movel_acionado=stop_movel_acionado,
+            plan_snapshot=plan_snapshot,
         )
+
+    def _plan_snapshot_from_record(self, record: dict[str, Any]) -> dict[str, object]:
+        snapshot = record.get("plan_snapshot")
+        if isinstance(snapshot, dict):
+            return dict(snapshot)
+        return {}
 
     def _mt5_only_trade_audit_rows(
         self,
@@ -4532,12 +4704,47 @@ class DashboardService:
                     ),
                 )
                 continue
+            model_candidates: list[tuple[str, DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]] = []
             for operational_model in selected_models:
                 model_row, model_plan = self._mt5_apply_operational_model(
                     row,
                     plan,
                     operational_model=operational_model,
                 )
+                if (
+                    str(getattr(model_row, "decision", "") or "").upper()
+                    in {"BUY", "SELL"}
+                    and model_plan.status == "PLANO_VALIDO"
+                ):
+                    model_candidates.append((operational_model, model_row, model_plan))
+            if self.get_mt5_operational_model() == MT5_OPERATIONAL_MODEL_ALL:
+                model_candidates = self._ordered_demo_model_candidates_per_pair(
+                    model_candidates,
+                )
+            if not model_candidates:
+                last_waiting = self._demo_robot_view_model(
+                    row=row,
+                    status="ARMED_WAITING",
+                    message=(
+                        "Robo demo armado; nenhum modelo operacional com BUY/SELL "
+                        "executavel para este par no candle atual."
+                    ),
+                    result_status="NO_MODEL_READY",
+                    result_message="Modelo 1 e Modelo 2 sem plano executavel.",
+                    entry_price=plan.entry_price,
+                    stop=plan.stop,
+                    target=plan.target,
+                    provider="MT5_DEMO",
+                    mt5_order_send_enabled=True,
+                    rejection_tree=self._demo_robot_rejection_tree(
+                        row,
+                        plan,
+                        enabled=self.mt5_demo_robot_service.enabled,
+                        mt5_order_send_enabled=True,
+                    ),
+                )
+                continue
+            for operational_model, model_row, model_plan in model_candidates:
                 time_context = self.forex_time_layer.classify(
                     model_row.pair,
                     str(getattr(source_row, "last_candle_time", "")),
@@ -4623,6 +4830,8 @@ class DashboardService:
                         result_message=result.message,
                     ),
                 )
+            if last_executed is not None:
+                continue
 
         object.__setattr__(
             self,
@@ -4795,12 +5004,22 @@ class DashboardService:
             )
             return self.last_demo_robot_status
 
+        audit_start = len(self.demo_robot_execution_service.list_audit_log())
         results = [
             self.run_demo_robot_once(pair=pair, timeframe=timeframe)
             for pair in requested_pairs
         ]
-        accepted = sum(1 for result in results if result.result_status == "ACCEPTED")
-        rejected = sum(1 for result in results if result.status == "REJECTED")
+        cycle_audit = self.demo_robot_execution_service.list_audit_log()[audit_start:]
+        accepted = sum(1 for row in cycle_audit if bool(getattr(row, "accepted", False)))
+        rejected = sum(
+            1
+            for row in cycle_audit
+            if not bool(getattr(row, "accepted", False))
+            and str(getattr(row, "status", "") or "").upper() == "REJECTED"
+        )
+        if not cycle_audit:
+            accepted = sum(1 for result in results if result.result_status == "ACCEPTED")
+            rejected = sum(1 for result in results if result.status == "REJECTED")
         no_order = sum(
             1
             for result in results
@@ -4836,6 +5055,15 @@ class DashboardService:
             ),
         )
         return self.last_demo_robot_status
+
+    def _ordered_demo_model_candidates_per_pair(
+        self,
+        candidates: list[
+            tuple[str, DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]
+        ],
+    ) -> list[tuple[str, DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]]:
+        """Em TODOS_MODELOS, mantem ordem estavel e permite M1+M2 no mesmo ciclo."""
+        return candidates
 
     def _candidate_rows_for_demo_robot(
         self,
@@ -4910,7 +5138,7 @@ class DashboardService:
                     row,
                     decision="WAIT",
                     theoretical_entry_direction="WAIT",
-                    active_model=f"MODELO2_AGUARDA_ADX_FORTE | {row.active_model}",
+                    active_model=f"MODELO2_AGUARDA_ADX_BAIXO | {row.active_model}",
                     reason=reason,
                     theoretical_entry_reason=reason,
                     research_plan_reason=reason,
@@ -4924,8 +5152,8 @@ class DashboardService:
         reason = (
             "Modelo 2 espelho: Alpha indicou "
             f"{plan.direction}; operacao invertida para {inverse_direction}. "
-            "Filtro ADX > 20 presente; alvo usa o stop original da Alpha/Beta2 "
-            "e stop fica em RR 1."
+            "Filtro ADX < 20 presente; alvo usa o stop original da "
+            "Alpha/Beta2 e stop usa RR1."
         )
         transformed_row = replace(
             row,
@@ -4963,7 +5191,7 @@ class DashboardService:
         row: DashboardMT5ForexSignalRowViewModel,
     ) -> bool:
         adx = self._optional_float(getattr(row, "adx", None))
-        return adx is not None and adx > 20.0
+        return adx is not None and adx < 20.0
 
     def _mt5_model2_adx_wait_reason(
         self,
@@ -4971,8 +5199,8 @@ class DashboardService:
     ) -> str:
         adx = self._optional_float(getattr(row, "adx", None))
         if adx is None:
-            return "Modelo 2 aguardando leitura ADX para validar ADX > 20."
-        return f"Modelo 2 aguardando ADX > 20. ADX atual: {adx:.2f}."
+            return "Modelo 2 aguardando leitura ADX para validar ADX < 20."
+        return f"Modelo 2 aguardando ADX < 20. ADX atual: {adx:.2f}."
 
     def _mt5_model2_inverse_plan(
         self,
@@ -4993,11 +5221,16 @@ class DashboardService:
             return None
         inverse_direction = "SELL" if direction == "BUY" else "BUY"
         inverse_target = original_stop
-        inverse_stop = entry + distance if inverse_direction == "SELL" else entry - distance
+        inverse_stop = (
+            entry + distance
+            if inverse_direction == "SELL"
+            else entry - distance
+        )
         risk_percent = abs(distance / entry) if entry else 0.0
+        reward_percent = abs(distance / entry) if entry else 0.0
         diagnostics = tuple(plan.diagnostics) + (
             f"MODELO2_ESPELHO_ORIGINAL={direction}",
-            "MODELO2_RR_1",
+            "MODELO2_TARGET_STOP_ORIGINAL_RR1",
         )
         return replace(
             plan,
@@ -5008,36 +5241,38 @@ class DashboardService:
             risk_pips=distance,
             reward_pips=distance,
             risk_percent=risk_percent,
-            reward_percent=risk_percent,
+            reward_percent=reward_percent,
             stop_reason=(
-                "Modelo 2: stop simetrico ao alvo espelho para manter RR 1."
+                "Modelo 2: stop em RR1, com a mesma distancia entre entrada e "
+                "alvo espelhado."
             ),
             target_reason=(
-                "Modelo 2: alvo no stop original da Alpha/Beta2 para testar "
-                "hipotese contraria."
+                "Modelo 2: alvo no stop original da Alpha/Beta2."
             ),
-            stop_management="FIXED_STOP_MODELO2_RR1",
+            stop_management="FIXED_STOP_MODELO2_STOP_RR1",
             stop_management_parameters={
                 "modelo_operacional": MT5_OPERATIONAL_MODEL_2,
                 "direcao_alpha_original": direction,
-                "alvo_modelo2": "STOP_ORIGINAL_ALPHA",
+                "alvo_modelo2": "STOP_ORIGINAL_ALPHA_BETA2",
+                "stop_modelo2": "MESMO_TAMANHO_DO_GANHO",
                 "rr": "1.0",
             },
             stop_management_reason=(
-                "Modelo 2 experimental: sem trailing; entrada espelhada com RR 1."
+                "Modelo 2 experimental: sem trailing; entrada espelhada com TP "
+                "no stop original da Alpha/Beta2 e stop em RR1."
             ),
             beta_id="BETA002",
-            beta_version="BETA2_ESPELHO_RR1",
+            beta_version="BETA002_ESPELHO_STOP_RR1",
             beta_mode="INVERSE_QUICK_TRADE",
             beta_reason=(
                 "Teste pratico: inverter sinal da Alpha quando BETA002 historico "
                 "indicar sequencia de loss."
             ),
-            exit_model="BETA2_ESPELHO_RR1",
+            exit_model="BETA002_ESPELHO_STOP_RR1",
             source="RESEARCH_LAB",
             reason=(
                 "Modelo 2 espelho executavel: usa plano valido do Lab, inverte "
-                "direcao e aplica RR 1."
+                "direcao, usa TP no stop original da Alpha/Beta2 e stop RR1."
             ),
             rr_current=1.0,
             rr_minimum=1.0,
@@ -5077,7 +5312,7 @@ class DashboardService:
 
     def _mt5_demo_execution_policy_from_env(self) -> DemoExecutionPolicy:
         return DemoExecutionPolicy(
-            max_daily_operations=int(os.environ.get("TRADERIA_DEMO_MAX_TRADES", "8")),
+            max_daily_operations=int(os.environ.get("TRADERIA_DEMO_MAX_TRADES", "0")),
             max_daily_loss=float(os.environ.get("TRADERIA_DEMO_MAX_DAILY_LOSS", "500")),
             allowed_start=os.environ.get(
                 "TRADERIA_DEMO_ALLOWED_START",

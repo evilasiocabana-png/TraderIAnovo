@@ -31,6 +31,7 @@ class Beta002Config:
     minimum_exit_evidence_groups: int = 4
     allow_stop_protection: bool = True
     allow_full_exit: bool = False
+    full_exit_min_r: float = 2.0
     modify_target: bool = False
     use_closed_candle_for_execution: bool = True
     healthy_min_score: float = 0.50
@@ -42,7 +43,7 @@ class Beta002Config:
     atr_protection_factor: float = 1.5
     ema_protection_atr_buffer: float = 0.5
     structure_buffer_pips: float = 2.0
-    protection_activation_r: float = 1.0
+    protection_activation_r: float = 1.5
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Beta002Config":
@@ -129,6 +130,7 @@ class Beta002Strategy:
             raw_state == "EXIT_CANDIDATE"
             and state == "EXIT_CANDIDATE"
             and self.config.allow_full_exit
+            and context.current_r >= float(self.config.full_exit_min_r)
             and len(evidence) >= self.config.minimum_exit_evidence_groups
             and action != "PROTECT_POSITION"
         ):

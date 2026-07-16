@@ -10,6 +10,7 @@ from application.demo_execution_service import (
 )
 from application.dashboard_service import DashboardService
 from application.dashboard_view_model import (
+    DashboardMT5ForexSignalRowViewModel,
     DashboardMT5HeuristicResearchRowViewModel,
     DashboardMT5HeuristicResearchViewModel,
 )
@@ -23,6 +24,7 @@ from domain.contracts.market_snapshot import MarketSnapshot
 from domain.contracts.risk_decision import RiskDecision
 from domain.contracts.strategy_signal import StrategySignal
 from domain.candle import Candle
+from research.mt5_research_trade_plan import MT5ResearchTradePlan
 
 
 class DemoExecutionServiceTest(unittest.TestCase):
@@ -78,6 +80,19 @@ class DemoExecutionServiceTest(unittest.TestCase):
 
         self.assertFalse(result.accepted)
         self.assertIn("Limite de operacoes", result.message)
+
+    def test_max_daily_operations_zero_remove_limite_diario(self) -> None:
+        service = DemoExecutionService(
+            provider=_AcceptingProvider(),
+            policy=DemoExecutionPolicy(max_daily_operations=0),
+            daily_operations=999,
+        )
+        context, order = self._prepared(service)
+
+        result = service.submit_demo_order(context, order, paper_validated=True)
+
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.status, "ACCEPTED")
 
     def test_bloqueia_limite_de_perda_diaria(self) -> None:
         service = DemoExecutionService(
@@ -299,6 +314,110 @@ class DemoExecutionServiceTest(unittest.TestCase):
             self._flat_then_trigger_candles("SELL")
         )
         self._install_certified_research_constants(service, ("EURUSD", "GBPUSD"))
+        valid_rows = {
+            "EURUSD": DashboardMT5ForexSignalRowViewModel(
+                pair="EURUSD",
+                status="OK",
+                timeframe="H1",
+                lab_timeframe="H1",
+                last_price=1.1000,
+                last_candle_time="2026-06-29T14:00:00+00:00",
+                trend="ALTA",
+                momentum=0.001,
+                volatility=0.001,
+                short_average=1.0995,
+                long_average=1.0980,
+                ema_fast=1.0995,
+                atr=0.001,
+                decision="BUY",
+                theoretical_entry_direction="BUY",
+                theoretical_entry_status="SINAL_TEORICO",
+                theoretical_entry_price=1.1000,
+                active_model="TREND_MOMENTUM",
+                confidence=0.80,
+                lab_confidence=0.75,
+                reason="Plano valido fixture.",
+                research_plan_status="PLANO_VALIDO",
+                research_plan_entry_price=1.1000,
+                research_plan_stop=1.0950,
+                research_plan_target=1.1100,
+                research_plan_risk_reward=2.0,
+            ),
+            "GBPUSD": DashboardMT5ForexSignalRowViewModel(
+                pair="GBPUSD",
+                status="OK",
+                timeframe="H1",
+                lab_timeframe="H1",
+                last_price=1.3000,
+                last_candle_time="2026-06-29T14:00:00+00:00",
+                trend="BAIXA",
+                momentum=-0.001,
+                volatility=0.001,
+                short_average=1.2995,
+                long_average=1.3020,
+                ema_fast=1.2995,
+                atr=0.001,
+                decision="SELL",
+                theoretical_entry_direction="SELL",
+                theoretical_entry_status="SINAL_TEORICO",
+                theoretical_entry_price=1.3000,
+                active_model="TREND_MOMENTUM",
+                confidence=0.80,
+                lab_confidence=0.75,
+                reason="Plano valido fixture.",
+                research_plan_status="PLANO_VALIDO",
+                research_plan_entry_price=1.3000,
+                research_plan_stop=1.3050,
+                research_plan_target=1.2900,
+                research_plan_risk_reward=2.0,
+            ),
+        }
+        valid_plans = {
+            "EURUSD": MT5ResearchTradePlan(
+                symbol="EURUSD",
+                timeframe="H1",
+                direction="BUY",
+                entry_price=1.1000,
+                stop=1.0950,
+                target=1.1100,
+                risk_reward=2.0,
+                stop_multiplier=2.0,
+                exit_model="FIXED_STOP",
+                exit_score=1.0,
+                exit_candidates=1,
+                status="PLANO_VALIDO",
+                risk_pips=0.005,
+                reward_pips=0.010,
+                source="RESEARCH_LAB",
+            ),
+            "GBPUSD": MT5ResearchTradePlan(
+                symbol="GBPUSD",
+                timeframe="H1",
+                direction="SELL",
+                entry_price=1.3000,
+                stop=1.3050,
+                target=1.2900,
+                risk_reward=2.0,
+                stop_multiplier=2.0,
+                exit_model="FIXED_STOP",
+                exit_score=1.0,
+                exit_candidates=1,
+                status="PLANO_VALIDO",
+                risk_pips=0.005,
+                reward_pips=0.010,
+                source="RESEARCH_LAB",
+            ),
+        }
+        object.__setattr__(
+            service,
+            "_to_view_model_mt5_forex_signal_row",
+            lambda source_row, *_args, **_kwargs: valid_rows[source_row.pair],
+        )
+        object.__setattr__(
+            service,
+            "_mt5_research_trade_plan_for_view_row",
+            lambda row, *_args, **_kwargs: valid_plans[row.pair],
+        )
         os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = "1"
         provider = _AcceptingProvider()
         object.__setattr__(
@@ -386,6 +505,110 @@ class DemoExecutionServiceTest(unittest.TestCase):
             self._flat_then_trigger_candles("SELL")
         )
         self._install_certified_research_constants(service, ("EURUSD", "GBPUSD"))
+        valid_rows = {
+            "EURUSD": DashboardMT5ForexSignalRowViewModel(
+                pair="EURUSD",
+                status="OK",
+                timeframe="H1",
+                lab_timeframe="H1",
+                last_price=1.1000,
+                last_candle_time="2026-06-29T14:00:00+00:00",
+                trend="ALTA",
+                momentum=0.001,
+                volatility=0.001,
+                short_average=1.0995,
+                long_average=1.0980,
+                ema_fast=1.0995,
+                atr=0.001,
+                decision="BUY",
+                theoretical_entry_direction="BUY",
+                theoretical_entry_status="SINAL_TEORICO",
+                theoretical_entry_price=1.1000,
+                active_model="TREND_MOMENTUM",
+                confidence=0.80,
+                lab_confidence=0.75,
+                reason="Plano valido fixture.",
+                research_plan_status="PLANO_VALIDO",
+                research_plan_entry_price=1.1000,
+                research_plan_stop=1.0950,
+                research_plan_target=1.1100,
+                research_plan_risk_reward=2.0,
+            ),
+            "GBPUSD": DashboardMT5ForexSignalRowViewModel(
+                pair="GBPUSD",
+                status="OK",
+                timeframe="H1",
+                lab_timeframe="H1",
+                last_price=1.3000,
+                last_candle_time="2026-06-29T14:00:00+00:00",
+                trend="BAIXA",
+                momentum=-0.001,
+                volatility=0.001,
+                short_average=1.2995,
+                long_average=1.3020,
+                ema_fast=1.2995,
+                atr=0.001,
+                decision="SELL",
+                theoretical_entry_direction="SELL",
+                theoretical_entry_status="SINAL_TEORICO",
+                theoretical_entry_price=1.3000,
+                active_model="TREND_MOMENTUM",
+                confidence=0.80,
+                lab_confidence=0.75,
+                reason="Plano valido fixture.",
+                research_plan_status="PLANO_VALIDO",
+                research_plan_entry_price=1.3000,
+                research_plan_stop=1.3050,
+                research_plan_target=1.2900,
+                research_plan_risk_reward=2.0,
+            ),
+        }
+        valid_plans = {
+            "EURUSD": MT5ResearchTradePlan(
+                symbol="EURUSD",
+                timeframe="H1",
+                direction="BUY",
+                entry_price=1.1000,
+                stop=1.0950,
+                target=1.1100,
+                risk_reward=2.0,
+                stop_multiplier=2.0,
+                exit_model="FIXED_STOP",
+                exit_score=1.0,
+                exit_candidates=1,
+                status="PLANO_VALIDO",
+                risk_pips=0.005,
+                reward_pips=0.010,
+                source="RESEARCH_LAB",
+            ),
+            "GBPUSD": MT5ResearchTradePlan(
+                symbol="GBPUSD",
+                timeframe="H1",
+                direction="SELL",
+                entry_price=1.3000,
+                stop=1.3050,
+                target=1.2900,
+                risk_reward=2.0,
+                stop_multiplier=2.0,
+                exit_model="FIXED_STOP",
+                exit_score=1.0,
+                exit_candidates=1,
+                status="PLANO_VALIDO",
+                risk_pips=0.005,
+                reward_pips=0.010,
+                source="RESEARCH_LAB",
+            ),
+        }
+        object.__setattr__(
+            service,
+            "_to_view_model_mt5_forex_signal_row",
+            lambda source_row, *_args, **_kwargs: valid_rows[source_row.pair],
+        )
+        object.__setattr__(
+            service,
+            "_mt5_research_trade_plan_for_view_row",
+            lambda row, *_args, **_kwargs: valid_plans[row.pair],
+        )
         os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = "1"
         provider = _AcceptingProvider()
         object.__setattr__(
@@ -527,22 +750,123 @@ class DemoExecutionServiceTest(unittest.TestCase):
             self._flat_then_trigger_candles("SELL")
         )
         self._install_certified_research_constants(service, ("EURUSD", "GBPUSD"))
+        valid_rows = {
+            "EURUSD": DashboardMT5ForexSignalRowViewModel(
+                pair="EURUSD",
+                status="OK",
+                timeframe="H1",
+                lab_timeframe="H1",
+                last_price=1.1000,
+                last_candle_time="2026-06-29T14:00:00+00:00",
+                trend="ALTA",
+                momentum=0.001,
+                volatility=0.001,
+                short_average=1.0995,
+                long_average=1.0980,
+                ema_fast=1.0995,
+                atr=0.001,
+                decision="BUY",
+                theoretical_entry_direction="BUY",
+                theoretical_entry_status="SINAL_TEORICO",
+                theoretical_entry_price=1.1000,
+                active_model="TREND_MOMENTUM",
+                confidence=0.80,
+                lab_confidence=0.75,
+                reason="Plano valido fixture.",
+                research_plan_status="PLANO_VALIDO",
+                research_plan_entry_price=1.1000,
+                research_plan_stop=1.0950,
+                research_plan_target=1.1100,
+                research_plan_risk_reward=2.0,
+            ),
+            "GBPUSD": DashboardMT5ForexSignalRowViewModel(
+                pair="GBPUSD",
+                status="OK",
+                timeframe="H1",
+                lab_timeframe="H1",
+                last_price=1.3000,
+                last_candle_time="2026-06-29T14:00:00+00:00",
+                trend="BAIXA",
+                momentum=-0.001,
+                volatility=0.001,
+                short_average=1.2995,
+                long_average=1.3020,
+                ema_fast=1.2995,
+                atr=0.001,
+                decision="SELL",
+                theoretical_entry_direction="SELL",
+                theoretical_entry_status="SINAL_TEORICO",
+                theoretical_entry_price=1.3000,
+                active_model="TREND_MOMENTUM",
+                confidence=0.80,
+                lab_confidence=0.75,
+                reason="Plano valido fixture.",
+                research_plan_status="PLANO_VALIDO",
+                research_plan_entry_price=1.3000,
+                research_plan_stop=1.3050,
+                research_plan_target=1.2900,
+                research_plan_risk_reward=2.0,
+            ),
+        }
+        valid_plans = {
+            "EURUSD": MT5ResearchTradePlan(
+                symbol="EURUSD",
+                timeframe="H1",
+                direction="BUY",
+                entry_price=1.1000,
+                stop=1.0950,
+                target=1.1100,
+                risk_reward=2.0,
+                stop_multiplier=2.0,
+                exit_model="FIXED_STOP",
+                exit_score=1.0,
+                exit_candidates=1,
+                status="PLANO_VALIDO",
+                risk_pips=0.005,
+                reward_pips=0.010,
+                source="RESEARCH_LAB",
+            ),
+            "GBPUSD": MT5ResearchTradePlan(
+                symbol="GBPUSD",
+                timeframe="H1",
+                direction="SELL",
+                entry_price=1.3000,
+                stop=1.3050,
+                target=1.2900,
+                risk_reward=2.0,
+                stop_multiplier=2.0,
+                exit_model="FIXED_STOP",
+                exit_score=1.0,
+                exit_candidates=1,
+                status="PLANO_VALIDO",
+                risk_pips=0.005,
+                reward_pips=0.010,
+                source="RESEARCH_LAB",
+            ),
+        }
+        object.__setattr__(
+            service,
+            "_to_view_model_mt5_forex_signal_row",
+            lambda source_row, *_args, **_kwargs: valid_rows[source_row.pair],
+        )
+        object.__setattr__(
+            service,
+            "_mt5_research_trade_plan_for_view_row",
+            lambda row, *_args, **_kwargs: valid_plans[row.pair],
+        )
         os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = "1"
         provider = _AcceptingProvider()
+        object.__setattr__(
+            service,
+            "demo_robot_execution_service",
+            DemoExecutionService(provider=provider),
+        )
 
         def load_forex(timeframe: str = "H1"):
             return service.mt5_market_data_service.latest_forex_signal_dashboard
 
         object.__setattr__(service, "load_mt5_forex_signals", load_forex)
-        object.__setattr__(
-            service,
-            "_enable_mt5_demo_provider",
-            lambda: object.__setattr__(
-                service,
-                "demo_robot_execution_service",
-                DemoExecutionService(provider=provider),
-            ),
-        )
+        object.__setattr__(service, "_enable_mt5_demo_provider", lambda: None)
 
         try:
             service.arm_demo_robot("TODOS", "H1")
@@ -553,6 +877,103 @@ class DemoExecutionServiceTest(unittest.TestCase):
         self.assertEqual(result.status, "BATCH_COMPLETED")
         self.assertIn("2 aceita", result.message)
         self.assertEqual([order.symbol for order in provider.orders], ["EURUSD", "GBPUSD"])
+
+    def test_todos_modelos_executa_modelo1_e_modelo2_no_mesmo_ciclo(self) -> None:
+        service = DashboardService()
+        service.set_mt5_operational_model("TODOS_MODELOS")
+        dashboard = self._forex_dashboard()
+        service.mt5_market_data_service.latest_forex_signal_dashboard = dashboard
+        valid_row = DashboardMT5ForexSignalRowViewModel(
+            pair="EURUSD",
+            status="OK",
+            timeframe="H1",
+            lab_timeframe="H1",
+            last_price=1.1000,
+            last_candle_time="2026-06-29T14:00:00+00:00",
+            trend="ALTA",
+            momentum=0.001,
+            volatility=0.001,
+            short_average=1.0995,
+            long_average=1.0980,
+            ema_fast=1.0995,
+            atr=0.001,
+            decision="BUY",
+            theoretical_entry_direction="BUY",
+            theoretical_entry_status="SINAL_TEORICO",
+            theoretical_entry_price=1.1000,
+            active_model="TREND_MOMENTUM",
+            confidence=0.80,
+            lab_confidence=0.75,
+            adx=19.5,
+            reason="Plano valido fixture.",
+            lab_ict_demo_allowed=True,
+            lab_ict_status="APROVADO",
+            research_plan_status="PLANO_VALIDO",
+            research_plan_entry_price=1.1000,
+            research_plan_stop=1.0950,
+            research_plan_target=1.1100,
+            research_plan_risk_reward=2.0,
+        )
+        valid_plan = MT5ResearchTradePlan(
+            symbol="EURUSD",
+            timeframe="H1",
+            direction="BUY",
+            entry_price=1.1000,
+            stop=1.0950,
+            target=1.1100,
+            risk_reward=2.0,
+            stop_multiplier=2.0,
+            exit_model="FIXED_STOP",
+            exit_score=1.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            risk_pips=0.005,
+            reward_pips=0.010,
+            alpha_id="ALPHA001",
+            beta_id="BETA001",
+            beta_version="FIXED_STOP",
+            source="RESEARCH_LAB",
+            reason="Plano valido fixture.",
+        )
+        object.__setattr__(
+            service,
+            "_to_view_model_mt5_forex_signal_row",
+            lambda *_args, **_kwargs: valid_row,
+        )
+        object.__setattr__(
+            service,
+            "_mt5_research_trade_plan_for_view_row",
+            lambda *_args, **_kwargs: valid_plan,
+        )
+        os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = "1"
+        provider = _AcceptingProvider()
+        object.__setattr__(
+            service,
+            "demo_robot_execution_service",
+            DemoExecutionService(provider=provider),
+        )
+
+        def load_forex(timeframe: str = "H1"):
+            return service.mt5_market_data_service.latest_forex_signal_dashboard
+
+        object.__setattr__(service, "load_mt5_forex_signals", load_forex)
+        object.__setattr__(service, "_enable_mt5_demo_provider", lambda: None)
+
+        try:
+            service.arm_demo_robot("TODOS", "H1")
+            result = service.run_online_demo_robot_cycle("TODOS", "H1")
+        finally:
+            os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
+
+        self.assertEqual(result.status, "BATCH_COMPLETED")
+        self.assertEqual(len(provider.orders), 2)
+        self.assertEqual(
+            [order.operational_model for order in provider.orders],
+            ["MODELO_1_ALPHA_ATUAL", "MODELO_2_ESPELHO_BETA2_RR1"],
+        )
+        self.assertIn(provider.orders[0].side, {"BUY", "SELL"})
+        self.assertIn(provider.orders[1].side, {"BUY", "SELL"})
+        self.assertNotEqual(provider.orders[0].side, provider.orders[1].side)
 
     def test_robo_temporal_continua_apos_par_sem_plano_research(self) -> None:
         service = DashboardService()

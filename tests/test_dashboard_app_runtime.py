@@ -12,6 +12,77 @@ from streamlit.testing.v1 import AppTest
 class DashboardAppRuntimeTest(unittest.TestCase):
     """Valida renderizacao real do workbench via Streamlit AppTest."""
 
+    def test_curva_patrimonial_rebaseia_trecho_a_partir_do_indice(self) -> None:
+        curve = [0.0, 10.0, 5.0, 25.0]
+
+        rebased = dashboard_app._mt5_equity_curve_rebased_from_index(curve, 2)
+
+        self.assertEqual(rebased, [0.0, 20.0])
+
+    def test_historico_mt5_exporta_csv_com_bom_para_excel(self) -> None:
+        payload = dashboard_app._table_rows_to_csv_bytes(
+            [{"Par": "EURUSD", "Lucro realizado MT5": "1.25"}],
+        )
+
+        self.assertTrue(payload.startswith(b"\xef\xbb\xbf"))
+        self.assertIn("EURUSD", payload.decode("utf-8-sig"))
+
+    def test_historico_mt5_csv_expande_snapshot_do_plano(self) -> None:
+        row = SimpleNamespace(
+            symbol="EURUSD",
+            mt5_realized_profit=1.25,
+            projected_profit=2.0,
+            projected_loss=-1.0,
+            side="BUY",
+            quantity=0.1,
+            entry_price=1.1,
+            risk_reward=2.0,
+            plan_snapshot={
+                "alpha_id": "ALPHA123",
+                "entry_setup": "ADX_TREND_STRENGTH",
+                "entry_price": 1.1,
+            },
+        )
+
+        output = dashboard_app._mt5_trade_audit_csv_row(row, {})
+
+        self.assertEqual(output["Plano alpha_id"], "ALPHA123")
+        self.assertIn("ADX_TREND_STRENGTH", output["Snapshot plano JSON"])
+
+    def test_robo_demo_background_cycle_exige_estado_online_persistido(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            previous_cwd = os.getcwd()
+            previous_flag = os.environ.get("TRADERIA_DEMO_EXECUTION_ENABLED")
+            previous_thread_state = dashboard_app.MT5_DEMO_ROBOT_BACKGROUND_THREAD_STARTED
+            try:
+                os.chdir(temp_dir)
+                os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = "1"
+                dashboard_app.MT5_DEMO_ROBOT_BACKGROUND_THREAD_STARTED = False
+
+                self.assertFalse(dashboard_app._demo_robot_background_cycle_should_start())
+                self.assertFalse(dashboard_app._demo_robot_background_cycle_active())
+
+                state_path = Path(".traderia") / "mt5_demo_robot_online_state.json"
+                state_path.parent.mkdir(parents=True)
+                state_path.write_text(
+                    '{"online": true, "pair": "TODOS", "timeframe": "M1"}',
+                    encoding="utf-8",
+                )
+
+                self.assertTrue(dashboard_app._demo_robot_background_cycle_should_start())
+                self.assertFalse(dashboard_app._demo_robot_background_cycle_active())
+
+                dashboard_app.MT5_DEMO_ROBOT_BACKGROUND_THREAD_STARTED = True
+
+                self.assertTrue(dashboard_app._demo_robot_background_cycle_active())
+            finally:
+                dashboard_app.MT5_DEMO_ROBOT_BACKGROUND_THREAD_STARTED = previous_thread_state
+                if previous_flag is None:
+                    os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
+                else:
+                    os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = previous_flag
+                os.chdir(previous_cwd)
+
     def test_modelo2_visual_inverte_direcao_e_usa_stop_original_como_alvo(
         self,
     ) -> None:
@@ -26,7 +97,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "Plano Research": "PLANO_VALIDO",
             "Modelo Ativo": "TREND_MOMENTUM",
             "Filtro entrada": "BLOQUEADO",
-            "ADX": "25.00",
+            "ADX": "19.50",
         }
 
         model2 = dashboard_app._model2_inverse_entry_row(row)
@@ -59,7 +130,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(model2["Direcao Teorica"], "WAIT")
         self.assertEqual(model2["Plano Research"], "PLANO_VALIDO")
         self.assertEqual(model2["Codigo Rejeicao"], "N/D")
-        self.assertIn("MODELO2_AGUARDA_ADX_FORTE", model2["Modelo Ativo"])
+        self.assertIn("MODELO2_AGUARDA_ADX_BAIXO", model2["Modelo Ativo"])
 
     def test_modelo2_resumo_trata_filtro_ruim_como_gatilho_de_inversao(self) -> None:
         row = {
@@ -80,8 +151,8 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "Media curta": "1.10100",
             "Media longa": "1.10000",
             "Filtro entrada": "BLOQUEADO",
-            "Filtro motivo": "ADX > 20",
-            "ADX": "25.00",
+            "Filtro motivo": "ADX < 20",
+            "ADX": "19.50",
         }
 
         model2 = dashboard_app._model2_inverse_entry_row(row)
@@ -113,7 +184,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                     '"operational_model":"MODELO_2_ESPELHO_BETA2_RR1",'
                     '"plan_identity":"EURUSD|M1|2026-07-14T01:48:00+00:00|'
                     'MODELO2_ESPELHO_BETA2 | PIVOT_REJECTION|TP V5|'
-                    'RESEARCH_LAB|PLANO_VALIDO|BETA002|BETA2_ESPELHO_RR1|'
+                    'RESEARCH_LAB|PLANO_VALIDO|BETA002|BETA002_ESPELHO_STOP_RR1|'
                     'MODELO_2_ESPELHO_BETA2_RR1"}\n'
                 ),
                 encoding="utf-8",
@@ -168,7 +239,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                     '"operational_model":"MODELO_2_ESPELHO_BETA2_RR1",'
                     '"plan_identity":"EURUSD|M1|2026-07-14T01:48:00+00:00|'
                     'MODELO2_ESPELHO_BETA2 | PIVOT_REJECTION|TP V5|'
-                    'RESEARCH_LAB|PLANO_VALIDO|BETA002|BETA2_ESPELHO_RR1|'
+                    'RESEARCH_LAB|PLANO_VALIDO|BETA002|BETA002_ESPELHO_STOP_RR1|'
                     'MODELO_2_ESPELHO_BETA2_RR1"}\n'
                 ),
                 encoding="utf-8",
@@ -208,7 +279,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             finally:
                 dashboard_app.MT5_DEMO_EXECUTION_LOG_PATH = original_path
 
-    def test_modelo2_nao_inverte_com_filtro_bloqueado_sem_adx_forte(self) -> None:
+    def test_modelo2_nao_inverte_com_filtro_bloqueado_sem_adx_baixo(self) -> None:
         row = {
             "Par": "EURUSD",
             "Periodo de tempo": "M1",
@@ -221,7 +292,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "Modelo Ativo": "TREND_MOMENTUM",
             "Filtro entrada": "BLOQUEADO",
             "Filtro motivo": "Momentum contra NV-V +11%",
-            "ADX": "19.50",
+            "ADX": "25.00",
         }
 
         model2 = dashboard_app._model2_inverse_entry_row(row)
@@ -229,7 +300,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(model2["Direcao Teorica"], "WAIT")
         self.assertEqual(model2["Plano Research"], "PLANO_VALIDO")
         self.assertEqual(model2["Codigo Rejeicao"], "N/D")
-        self.assertIn("ADX atual: 19.50", model2["Motivo Entrada"])
+        self.assertIn("ADX atual: 25.00", model2["Motivo Entrada"])
 
     def test_modelo2_resumo_aguarda_filtro_ruim_ausente(self) -> None:
         row = {
@@ -243,7 +314,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "Plano Research": "PLANO_VALIDO",
             "Modelo Ativo": "TREND_MOMENTUM",
             "Filtro entrada": "OK",
-            "ADX": "19.50",
+            "ADX": "25.00",
             "Zona Operacional": "SUPORTE",
         }
 
@@ -257,7 +328,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertEqual(output["Envio resumo"], "AGUARDA: Filtro")
         self.assertEqual(output["Plano"], "OK")
-        self.assertEqual(output["Filtro"], "AGUARDA: ADX 19.50 <= 20")
+        self.assertEqual(output["Filtro"], "AGUARDA: ADX 25.00 >= 20")
 
     def test_chaveamento_operacional_persiste_ultima_escolha(self) -> None:
         original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
@@ -743,6 +814,28 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertFalse(rules[0]["required_present"])
         self.assertEqual(rules[0]["action"], "EXIGIR_AUSENTE")
 
+    def test_filtro_entrada_usa_diferenca_nv_menos_v_acima_de_dois_porcento(
+        self,
+    ) -> None:
+        scenario = SimpleNamespace(
+            lab_confidence_sample_size=350,
+            lab_discrimination_metrics={
+                "ATR subindo": {
+                    "winner_rate": 0.4437,
+                    "loser_rate": 0.4779,
+                },
+                "MACD hist divergente": {
+                    "winner_rate": 0.0775,
+                    "loser_rate": 0.0885,
+                },
+            },
+        )
+
+        rules = dashboard_app._mt5_entry_filter_rules_from_scenario(scenario)
+
+        self.assertEqual([rule["indicator"] for rule in rules], ["ATR subindo"])
+        self.assertAlmostEqual(float(rules[0]["entry_edge"]), 0.0342)
+
     def test_filtro_entrada_ignora_diferenca_nv_menos_v_nao_positiva(self) -> None:
         scenario = SimpleNamespace(
             lab_confidence_sample_size=350,
@@ -873,7 +966,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             operational_model="MODELO_2_ESPELHO_BETA2_RR1",
             entry_setup="PIVOT_REJECTION",
             beta_id="BETA002",
-            beta_version="BETA2_ESPELHO_RR1",
+            beta_version="BETA002_ESPELHO_STOP_RR1",
             beta_mode="INVERSE_QUICK_TRADE",
             timeframe="M1",
             risk_reward=1.0,
@@ -908,7 +1001,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(view_row["Modelo envio"], "MODELO 2")
         self.assertIn("Alpha ALPHA001 v1.6", view_row["Parametros"])
         self.assertIn("Entrada PIVOT_REJECTION", view_row["Parametros"])
-        self.assertIn("Beta BETA002 BETA2_ESPELHO_RR1", view_row["Parametros"])
+        self.assertIn("Beta BETA002 BETA002_ESPELHO_STOP_RR1", view_row["Parametros"])
         self.assertIn("TF M1", view_row["Parametros"])
         self.assertIn("RR 1.00", view_row["Parametros"])
         self.assertEqual(
@@ -1515,14 +1608,14 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         output = dashboard_app._mt5_theoretical_exit_row(row, signal_by_pair)
 
         self.assertEqual(output["Lado"], "COMPRAR")
-        self.assertEqual(output["Cenario BETA002"], "RR1_FIXO")
+        self.assertEqual(output["Cenario BETA002"], "TARGET_STOP_ORIGINAL_RR1")
         self.assertEqual(output["TF Entrada Lab"], "M1")
         self.assertEqual(output["TF Saida Beta"], "M1")
         self.assertEqual(output["Modelo entrada"], "ADX_TREND_STRENGTH")
-        self.assertEqual(output["Modelo saida"], "BETA2_ESPELHO_RR1")
+        self.assertEqual(output["Modelo saida"], "BETA002_ESPELHO_STOP_RR1")
         self.assertEqual(output["Beta"], "BETA002")
         self.assertNotEqual(output["Ultimo candle fechado"], "N/D")
-        self.assertEqual(output["Gestao stop"], "FIXO_RR1")
+        self.assertEqual(output["Gestao stop"], "FIXO_STOP_ORIGINAL_RR1")
         self.assertEqual(output["Movimento SL"], "FIXO")
         self.assertEqual(output["Modelo envio"], "MODELO 2")
         self.assertIn("FULL_EXIT", output["Leitura programada"])
@@ -1572,9 +1665,9 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertEqual(output["Lado"], "COMPRAR")
         self.assertEqual(output["Beta"], "BETA002")
-        self.assertEqual(output["Modelo saida"], "BETA2_ESPELHO_RR1")
-        self.assertEqual(output["Cenario BETA002"], "RR1_FIXO")
-        self.assertEqual(output["Gestao stop"], "FIXO_RR1")
+        self.assertEqual(output["Modelo saida"], "BETA002_ESPELHO_STOP_RR1")
+        self.assertEqual(output["Cenario BETA002"], "TARGET_STOP_ORIGINAL_RR1")
+        self.assertEqual(output["Gestao stop"], "FIXO_STOP_ORIGINAL_RR1")
         self.assertEqual(output["Movimento SL"], "FIXO")
         self.assertEqual(output["Modelo envio"], "MODELO 2")
         self.assertEqual(output["Stop inicial"], "1.11000")

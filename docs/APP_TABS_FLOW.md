@@ -49,6 +49,41 @@ Regra de governanca:
 O Forex nao deve recalcular Lab pesado no ciclo leve. Ele consome o snapshot
 consolidado do Lab e atualiza somente a leitura de mercado.
 
+Regra operacional do Robo Demo:
+
+Quando o robo demo estiver online, a entrada automatica pertence ao ciclo de
+fundo do TraderIA Novo. A interface Streamlit deve apenas exibir o estado,
+permitir armar/desarmar e permitir avaliacao manual explicita. A renderizacao
+da aba `MT5 Forex` ou da aba `Relatorios` nao deve disparar uma segunda entrada
+automatica, pois isso pode gerar duplicidade de tentativa no mesmo candle.
+
+O ciclo de fundo deve:
+
+- ler `.traderia/mt5_demo_robot_online_state.json`;
+- respeitar o horario/feriado Forex;
+- respeitar a selecao operacional persistida em `.traderia/mt5_operational_model.json`;
+- chamar `run_online_demo_robot_cycle()` em intervalo leve;
+- registrar heartbeat em `.traderia/mt5_demo_robot_background_state.json`;
+- deixar a UI como camada de visualizacao, nao como motor automatico de entrada.
+
+Limite de operacoes:
+
+Por padrao o TraderIA Novo nao usa limite diario de quantidade de trades demo
+(`TRADERIA_DEMO_MAX_TRADES=0`). O valor `0` significa sem limite. Caso seja
+necessario impor teto operacional no futuro, configurar
+`TRADERIA_DEMO_MAX_TRADES` com numero maior que zero. As travas por par/modelo
+continuam ativas para impedir empilhamento indevido no mesmo ativo.
+
+Regra de modelos simultaneos:
+
+Quando a opcao `TODOS_MODELOS` estiver ativa, o ciclo deve avaliar Modelo 1 e
+Modelo 2 no mesmo ciclo, sem prioridade artificial. Se ambos estiverem prontos,
+ambos podem enviar ordem, respeitando a trava de no maximo uma posicao por
+modelo no mesmo par. O Modelo 2 e uma regra espelhada: usa plano valido do Lab,
+exige ADX < 20, inverte BUY/SELL, usa TP no stop original da Alpha/BETA2 e stop
+em RR1. Por ser espelhado, ele nao deve ser bloqueado pelo regime direcional do
+Modelo 1 depois que seu proprio filtro ADX ja autorizou a entrada.
+
 ## Aba Laboratorio de Pesquisa
 
 Responsabilidade:
@@ -117,6 +152,13 @@ Regra de governanca:
 
 Relatorio e somente leitura/auditoria. Nao deve virar fonte de decisao do Lab e
 nao deve alterar parametros de Alpha/setup.
+
+Regra adicional:
+
+Se o Robo Demo estiver online, a aba `Relatorios` tambem nao deve disparar ciclo
+automatico proprio. Ela consome o estado produzido pelo ciclo de fundo e mostra
+auditoria/posicoes. Isso permite acompanhar resultados sem precisar manter a aba
+`MT5 Forex` aberta e evita concorrencia entre UI e background.
 
 ## Comunicacao entre abas
 

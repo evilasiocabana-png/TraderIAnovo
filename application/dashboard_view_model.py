@@ -779,6 +779,7 @@ class DashboardMT5TradeAuditRowViewModel:
     position_manager_status: str = "N/D"
     position_manager_message: str = "N/D"
     stop_movel_acionado: bool = False
+    plan_snapshot: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

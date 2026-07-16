@@ -287,7 +287,7 @@ class PositionManagerServiceTest(unittest.TestCase):
     def test_fixed_stop_mantem_posicao_sem_acao_operacional(self) -> None:
         provider = _FakePositionProvider(
             position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1030),
-            price=1.1012,
+            price=1.1024,
         )
         manager = self._manager(provider, enabled=True)
 
@@ -297,11 +297,11 @@ class PositionManagerServiceTest(unittest.TestCase):
 
         self.assertEqual(result.status, "POSITION_HELD")
         self.assertEqual(result.action, "HOLD_POSITION")
-        self.assertEqual(result.position_state, "HEALTHY_POSITION")
+        self.assertEqual(result.position_state, "TREND_RUNNER")
         self.assertEqual(provider.modify_calls, 0)
         self.assertEqual(provider.close_calls, 0)
 
-    def test_abaixo_de_meio_r_preserva_plano_do_lab(self) -> None:
+    def test_abaixo_de_um_r_preserva_plano_do_lab(self) -> None:
         provider = _FakePositionProvider(
             position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
             price=1.1008,
@@ -323,13 +323,13 @@ class PositionManagerServiceTest(unittest.TestCase):
 
         self.assertEqual(result.status, "POSITION_HELD")
         self.assertEqual(result.action, "HOLD_POSITION")
-        self.assertIn("PROTECTION_WAIT_UNDER_0_50R", result.evidence)
+        self.assertIn("PROTECTION_WAIT_UNDER_1_00R", result.evidence)
         self.assertEqual(provider.modify_calls, 0)
 
-    def test_entre_meio_r_e_um_r_monitora_sem_mover_stop(self) -> None:
+    def test_entre_um_r_e_um_meio_r_monitora_sem_mover_stop(self) -> None:
         provider = _FakePositionProvider(
             position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
-            price=1.1012,
+            price=1.1024,
         )
         manager = self._manager(provider, enabled=True)
 
@@ -348,7 +348,7 @@ class PositionManagerServiceTest(unittest.TestCase):
 
         self.assertEqual(result.status, "POSITION_HELD")
         self.assertEqual(result.action, "HOLD_POSITION")
-        self.assertIn("PROTECTION_WAIT_UNDER_1_00R", result.evidence)
+        self.assertIn("PROTECTION_WAIT_UNDER_1_50R", result.evidence)
         self.assertEqual(provider.modify_calls, 0)
 
     def test_market_aware_stop_protection_move_stop_seguro(self) -> None:
@@ -417,7 +417,7 @@ class PositionManagerServiceTest(unittest.TestCase):
     def test_momentum_weakness_stop_tightening_move_para_entrada(self) -> None:
         provider = _FakePositionProvider(
             position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
-            price=1.1030,
+            price=1.1032,
         )
         manager = self._manager(provider, enabled=True)
 
@@ -480,10 +480,10 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertEqual(payload["execution_status"], "EXECUTED")
         self.assertEqual(provider.submit_order_calls, 0)
 
-    def test_evidencia_simples_nao_fecha_e_aguarda_um_r(self) -> None:
+    def test_evidencia_simples_nao_fecha_e_aguarda_um_meio_r(self) -> None:
         provider = _FakePositionProvider(
             position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1030),
-            price=1.1012,
+            price=1.1024,
         )
         manager = self._manager(provider, enabled=True)
 
@@ -499,7 +499,7 @@ class PositionManagerServiceTest(unittest.TestCase):
 
         self.assertEqual(result.status, "POSITION_HELD")
         self.assertEqual(result.action, "HOLD_POSITION")
-        self.assertIn("PROTECTION_WAIT_UNDER_1_00R", result.evidence)
+        self.assertIn("PROTECTION_WAIT_UNDER_1_50R", result.evidence)
         self.assertIsNone(provider.modified_stop)
         self.assertEqual(provider.close_calls, 0)
 

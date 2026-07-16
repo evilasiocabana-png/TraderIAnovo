@@ -13,6 +13,7 @@
     "minimum_exit_evidence_groups": 4,
     "allow_stop_protection": true,
     "allow_full_exit": false,
+    "full_exit_min_r": 2.0,
     "modify_target": false,
     "use_closed_candle_for_execution": true,
     "healthy_min_score": 0.5,
@@ -24,6 +25,6 @@
     "atr_protection_factor": 1.5,
     "ema_protection_atr_buffer": 0.5,
     "structure_buffer_pips": 2.0,
-    "protection_activation_r": 1.0
+    "protection_activation_r": 1.5
   }
 }

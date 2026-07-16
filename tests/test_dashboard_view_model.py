@@ -405,7 +405,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertEqual(transformed.beta_id, "BETA002")
         self.assertEqual(transformed.beta_mode, "INVERSE_QUICK_TRADE")
 
-    def test_modelo2_operacional_so_inverte_com_filtro_ruim_presente(self) -> None:
+    def test_modelo2_operacional_so_inverte_com_adx_forte(self) -> None:
         service = DashboardService()
         service.set_mt5_operational_model("MODELO_2_ESPELHO_BETA2_RR1")
         row = DashboardMT5ForexSignalRowViewModel(
@@ -443,7 +443,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertIn("AGUARDA_ADX_BAIXO", transformed_row.active_model)
         self.assertIs(transformed_plan, plan)
 
-    def test_modelo2_operacional_inverte_quando_filtro_ruim_presente(self) -> None:
+    def test_modelo2_operacional_inverte_quando_adx_baixo_presente(self) -> None:
         service = DashboardService()
         service.set_mt5_operational_model("MODELO_2_ESPELHO_BETA2_RR1")
         row = DashboardMT5ForexSignalRowViewModel(
@@ -453,7 +453,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
             theoretical_entry_status="SINAL_TEORICO",
             active_model="TREND_MOMENTUM",
             entry_filter_status="BLOQUEADO",
-            entry_filter_reason="Filtro NV-V presente: ADX baixo.",
+            entry_filter_reason="Filtro ADX < 20 presente.",
             adx=19.5,
         )
         plan = MT5ResearchTradePlan(
@@ -481,9 +481,9 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertEqual(transformed_row.decision, "SELL")
         self.assertEqual(transformed_plan.direction, "SELL")
         self.assertEqual(transformed_plan.beta_id, "BETA002")
-        self.assertEqual(transformed_plan.exit_model, "BETA2_ESPELHO_RR1")
+        self.assertEqual(transformed_plan.exit_model, "BETA002_ESPELHO_STOP_RR1")
 
-    def test_modelo2_operacional_nao_inverte_com_filtro_nao_adx(self) -> None:
+    def test_modelo2_operacional_nao_inverte_sem_adx_baixo(self) -> None:
         service = DashboardService()
         service.set_mt5_operational_model("MODELO_2_ESPELHO_BETA2_RR1")
         row = DashboardMT5ForexSignalRowViewModel(
@@ -946,6 +946,27 @@ class DashboardViewModelContractTest(unittest.TestCase):
 
         self.assertTrue(event["ADX indisponivel"])
         self.assertFalse(event["ADX baixo"])
+
+    def test_filtro_operacional_nv_menos_v_usa_corte_de_dois_porcento(self) -> None:
+        service = DashboardService()
+        active_research_row = SimpleNamespace(
+            lab_confidence_sample_size=350,
+            lab_discrimination_metrics={
+                "ATR subindo": {
+                    "winner_rate": 0.4437,
+                    "loser_rate": 0.4779,
+                },
+                "MACD hist divergente": {
+                    "winner_rate": 0.0775,
+                    "loser_rate": 0.0885,
+                },
+            },
+        )
+
+        rules = service._entry_filter_rules_from_research_row(active_research_row)
+
+        self.assertEqual([rule["indicator"] for rule in rules], ["ATR subindo"])
+        self.assertAlmostEqual(float(rules[0]["entry_edge"]), 0.0342)
 
     def test_macd_signal_historico_usa_ema_real_da_serie_macd(self) -> None:
         service = DashboardService()

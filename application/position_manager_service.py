@@ -77,6 +77,7 @@ class PositionTradePlan:
     beta_id: str = DEFAULT_BETA_ID
     beta_version: str = DEFAULT_BETA_VERSION
     beta_mode: str = "PROTECT_ONLY"
+    risk_reward: float | None = None
     atr: float | None = None
     momentum: float | None = None
     volatility: float | None = None
@@ -123,6 +124,14 @@ class PositionTradePlan:
         spread = _non_negative_optional_float(indicators.get("spread"))
         if spread is None:
             spread = _non_negative_optional_float(signal.get("spread"))
+        risk_reward = _positive_float(
+            signal.get("risk_reward")
+            or signal.get("research_plan_risk_reward")
+            or signal.get("rr")
+            or signal.get("risk_reward_ratio")
+        )
+        if risk_reward is None:
+            risk_reward = _risk_reward_from_prices(entry, stop, target)
         time_in_position_minutes = _non_negative_optional_float(
             signal.get("time_in_position_minutes")
             or signal.get("position_age_minutes")
@@ -150,6 +159,7 @@ class PositionTradePlan:
             beta_id=_normalize_beta_id(signal.get("beta_id")),
             beta_version=str(signal.get("beta_version") or DEFAULT_BETA_VERSION),
             beta_mode=str(signal.get("beta_mode") or "PROTECT_ONLY").upper(),
+            risk_reward=risk_reward,
             atr=atr,
             momentum=momentum,
             volatility=volatility,
@@ -727,7 +737,11 @@ class PositionManagerService:
                 beta_mode=plan.beta_mode,
                 evidence=snapshot.evidence,
             )
-        if self.early_exit_enabled and self._early_exit_confirmed(snapshot):
+        if (
+            self.early_exit_enabled
+            and snapshot.r_multiple >= self._early_exit_activation_r(plan)
+            and self._early_exit_confirmed(snapshot)
+        ):
             reason = self._early_exit_reason(snapshot)
             return PositionManagerDecision(
                 symbol=plan.symbol,
@@ -760,22 +774,6 @@ class PositionManagerService:
                 beta_mode=plan.beta_mode,
                 evidence=snapshot.evidence,
             )
-        if snapshot.r_multiple < 0.50:
-            return PositionManagerDecision(
-                symbol=plan.symbol,
-                ticket=snapshot.ticket,
-                state=snapshot.state,
-                action="HOLD_POSITION",
-                reason=(
-                    "Trade ainda nao andou 0.50R a favor; preservar stop inicial "
-                    "e dar espaco ao plano do Lab."
-                ),
-                confidence=0.55,
-                beta_id=plan.beta_id,
-                beta_version=plan.beta_version,
-                beta_mode=plan.beta_mode,
-                evidence=snapshot.evidence + ("PROTECTION_WAIT_UNDER_0_50R",),
-            )
         if snapshot.r_multiple < 1.00:
             return PositionManagerDecision(
                 symbol=plan.symbol,
@@ -783,14 +781,33 @@ class PositionManagerService:
                 state=snapshot.state,
                 action="HOLD_POSITION",
                 reason=(
-                    "Trade entre 0.50R e 1.00R; Position Manager monitora, mas "
-                    "nao move SL antes de confirmacao minima de 1.00R."
+                    "Trade ainda nao andou 1.00R a favor; preservar stop inicial "
+                    "e dar espaco ao plano do Lab."
                 ),
                 confidence=0.55,
                 beta_id=plan.beta_id,
                 beta_version=plan.beta_version,
                 beta_mode=plan.beta_mode,
                 evidence=snapshot.evidence + ("PROTECTION_WAIT_UNDER_1_00R",),
+            )
+        protection_activation_r = self._protection_activation_r(plan)
+        if snapshot.r_multiple < protection_activation_r:
+            return PositionManagerDecision(
+                symbol=plan.symbol,
+                ticket=snapshot.ticket,
+                state=snapshot.state,
+                action="HOLD_POSITION",
+                reason=(
+                    f"Trade entre 1.00R e {protection_activation_r:.2f}R; "
+                    "Position Manager observa, mas nao move SL antes de maturacao "
+                    "suficiente do plano."
+                ),
+                confidence=0.55,
+                beta_id=plan.beta_id,
+                beta_version=plan.beta_version,
+                beta_mode=plan.beta_mode,
+                evidence=snapshot.evidence
+                + (f"PROTECTION_WAIT_UNDER_{_r_tag(protection_activation_r)}R",),
             )
         candidate = self._dynamic_candidate_stop(
             side=snapshot.side,
@@ -938,6 +955,24 @@ class PositionManagerService:
             return "DYNAMIC_POSITION_MANAGER"
         return raw_policy
 
+    def _plan_risk_reward(self, plan: PositionTradePlan) -> float | None:
+        configured = _positive_float(plan.risk_reward)
+        if configured is not None:
+            return configured
+        return _risk_reward_from_prices(plan.entry, plan.stop, plan.target)
+
+    def _is_rr3_plan(self, plan: PositionTradePlan) -> bool:
+        rr = self._plan_risk_reward(plan)
+        return rr is not None and rr >= 2.95
+
+    def _protection_activation_r(self, plan: PositionTradePlan) -> float:
+        # Evita saida/protecao cedo demais: RR3 precisa respirar; planos menores
+        # tambem aguardam maturacao minima antes de mover SL.
+        return 1.50
+
+    def _early_exit_activation_r(self, plan: PositionTradePlan) -> float:
+        return 2.00 if self._is_rr3_plan(plan) else 1.50
+
     def _dynamic_candidate_stop(
         self,
         *,
@@ -949,7 +984,7 @@ class PositionManagerService:
         snapshot: PositionStateSnapshot,
     ) -> float | None:
         """Escolhe protecao por cenario, sem exigir saida predefinida no plano."""
-        if snapshot.r_multiple < 1.00:
+        if snapshot.r_multiple < self._protection_activation_r(plan):
             return None
         candidate_sources: list[float | None]
         if snapshot.state == "MOMENTUM_WEAKNESS":
@@ -1692,6 +1727,24 @@ def _non_negative_float(value: object) -> float:
     except (TypeError, ValueError):
         return 0.0
     return max(parsed, 0.0)
+
+
+def _risk_reward_from_prices(
+    entry: float,
+    stop: float,
+    target: float | None,
+) -> float | None:
+    if target is None:
+        return None
+    risk = abs(float(entry) - float(stop))
+    reward = abs(float(target) - float(entry))
+    if risk <= 0.0 or reward <= 0.0:
+        return None
+    return reward / risk
+
+
+def _r_tag(value: float) -> str:
+    return f"{value:.2f}".replace(".", "_")
 
 
 def _normalize_beta_id(value: object) -> str:

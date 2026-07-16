@@ -70,6 +70,12 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
         self.assertEqual(audit.target, plan.target)
         self.assertEqual(audit.risk_reward, plan.risk_reward)
         self.assertEqual(audit.candle_time, "2026-06-29T10:00:00+00:00")
+        self.assertEqual(order.plan_snapshot["symbol"], "EURUSD")
+        self.assertEqual(order.plan_snapshot["entry_setup"], "TREND_MOMENTUM")
+        self.assertEqual(order.plan_snapshot["entry_price"], plan.entry_price)
+        self.assertEqual(order.plan_snapshot["initial_stop"], plan.stop)
+        self.assertEqual(order.plan_snapshot["target"], plan.target)
+        self.assertEqual(audit.plan_snapshot["plan_identity"], order.plan_identity)
 
     def test_nao_reopera_mesmo_candle(self) -> None:
         provider = _AcceptingProvider()

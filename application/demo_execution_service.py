@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, time
-from typing import Protocol
+from typing import Any, Protocol
 
 from core.decision_pipeline import DecisionPipeline
 from domain.contracts.decision_context import DecisionContext
@@ -73,7 +73,7 @@ class DemoExecutionProvider(Protocol):
 class DemoExecutionPolicy:
     """Travas operacionais obrigatorias para execucao demo."""
 
-    max_daily_operations: int = 3
+    max_daily_operations: int = 0
     max_daily_loss: float = 500.0
     allowed_start: str = "09:00"
     allowed_end: str = "18:00"
@@ -126,6 +126,7 @@ class DemoExecutionAuditRecord:
     is_london_ny_overlap: bool = False
     is_sunday_open: bool = False
     is_friday_late: bool = False
+    plan_snapshot: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -354,7 +355,10 @@ class DemoExecutionService:
             return "DecisionPipeline nao aprovou BUY/SELL operacional."
         if order is None:
             return "Ordem ausente."
-        if self.daily_operations >= self.policy.max_daily_operations:
+        if (
+            self.policy.max_daily_operations > 0
+            and self.daily_operations >= self.policy.max_daily_operations
+        ):
             return "Limite de operacoes por dia atingido."
         if self.daily_result <= -abs(self.policy.max_daily_loss):
             return "Limite de perda diaria atingido."
@@ -367,7 +371,10 @@ class DemoExecutionService:
         if not self._is_trade_time_allowed(context.market_snapshot.datetime):
             return "Horario fora da janela permitida para operar."
         if self._has_open_position_for_same_model(order):
-            return "Ja existe uma posicao aberta para este simbolo neste modelo."
+            return (
+                "Ja existe uma posicao aberta para este simbolo neste modelo "
+                "ou o par ja atingiu o limite de dois modelos posicionados."
+            )
         return None
 
     def _has_open_position_for_same_model(self, order: ExecutionOrder) -> bool:
@@ -503,5 +510,6 @@ class DemoExecutionService:
                 ),
                 is_sunday_open=bool(metadata.get("is_sunday_open", False)),
                 is_friday_late=bool(metadata.get("is_friday_late", False)),
+                plan_snapshot=dict(metadata.get("plan_snapshot") or {}),
             )
         )

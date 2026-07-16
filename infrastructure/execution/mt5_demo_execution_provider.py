@@ -59,7 +59,9 @@ class MT5DemoExecutionProvider:
         initialize_check = self._initialize_check()
         if initialize_check is not None:
             return True
-        positions = self.mt5.positions_get(symbol=symbol) or []
+        positions = list(self.mt5.positions_get(symbol=symbol) or [])
+        if len(positions) >= 2:
+            return True
         expected = self._model_comment(operational_model)
         for position in positions:
             comment = str(getattr(position, "comment", "") or "").upper()
@@ -413,6 +415,10 @@ class MT5DemoExecutionProvider:
         if duplicate_rejection is not None:
             self._write_log(order, duplicate_rejection)
             return duplicate_rejection
+        position_rejection = self._open_position_model_limit_preflight(order)
+        if position_rejection is not None:
+            self._write_log(order, position_rejection)
+            return position_rejection
 
         tick = self.mt5.symbol_info_tick(order.symbol)
         if tick is None:
@@ -429,10 +435,35 @@ class MT5DemoExecutionProvider:
             self._write_log(order, stop_target_rejection)
             return stop_target_rejection
 
-        response = self._order_send(self._request(order, tick))
-        result = self._result_from_response(response)
-        self._write_log(order, result)
-        return result
+        with _MT5_ORDER_SEND_LOCK:
+            duplicate_rejection = self._duplicate_plan_preflight(order)
+            if duplicate_rejection is not None:
+                self._write_log(order, duplicate_rejection)
+                return duplicate_rejection
+            position_rejection = self._open_position_model_limit_preflight(order)
+            if position_rejection is not None:
+                self._write_log(order, position_rejection)
+                return position_rejection
+            tick = self.mt5.symbol_info_tick(order.symbol)
+            if tick is None:
+                result = ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=f"Tick indisponivel para {order.symbol}.",
+                )
+                self._write_log(order, result)
+                return result
+            stop_target_rejection = self._stop_target_preflight(order, tick)
+            if stop_target_rejection is not None:
+                self._write_log(order, stop_target_rejection)
+                return stop_target_rejection
+            try:
+                response = self.mt5.order_send(self._request(order, tick))
+            except Exception as exc:  # noqa: BLE001 - ponte externa MT5
+                response = _ExecutionSendException(exc)
+            result = self._result_from_response(response)
+            self._write_log(order, result)
+            return result
 
     def apply_stop_management_from_signals(
         self,
@@ -1076,6 +1107,43 @@ class MT5DemoExecutionProvider:
             )
         return None
 
+    def _open_position_model_limit_preflight(
+        self,
+        order: ExecutionOrder,
+    ) -> ExecutionResult | None:
+        """Bloqueia mais de uma posicao por modelo e mais de duas por par."""
+        positions = list(self.mt5.positions_get(symbol=order.symbol) or [])
+        if len(positions) >= 2:
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=(
+                    "Limite de dois posicionamentos por par atingido. "
+                    "Permitido no maximo um por modelo operacional."
+                ),
+            )
+        expected = self._model_comment(getattr(order, "operational_model", ""))
+        for position in positions:
+            comment = str(getattr(position, "comment", "") or "").upper()
+            if expected in comment:
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=(
+                        "Ja existe uma posicao aberta para este simbolo neste modelo."
+                    ),
+                )
+            if "TRADERIA" in comment and " M1" not in comment and " M2" not in comment:
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=(
+                        "Posicao TraderIA legada sem modelo identificado bloqueia "
+                        "nova entrada ate auditoria manual."
+                    ),
+                )
+        return None
+
     def _record_counts_as_plan_evaluation(self, record: dict[str, Any]) -> bool:
         """Duplicidade de plano so nasce de ordem aceita pelo MT5."""
         return bool(record.get("accepted", False))
@@ -1309,6 +1377,7 @@ class MT5DemoExecutionProvider:
                 "operational_model",
                 "MODELO_1_ALPHA_ATUAL",
             ),
+            "plan_snapshot": getattr(order, "plan_snapshot", None) or {},
         }
         with self.log_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(payload, ensure_ascii=True) + "\n")

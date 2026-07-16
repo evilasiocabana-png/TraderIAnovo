@@ -170,6 +170,40 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
             )
         )
 
+    def test_has_open_position_for_model_bloqueia_terceira_posicao_no_par(self) -> None:
+        mt5 = _FakeMT5(
+            open_positions=[
+                SimpleNamespace(comment="TraderIA M1"),
+                SimpleNamespace(comment="TraderIA M2"),
+            ]
+        )
+        provider = self._provider(mt5)
+
+        self.assertTrue(
+            provider.has_open_position_for_model("EURUSD", "MODELO_1_ALPHA_ATUAL")
+        )
+        self.assertTrue(
+            provider.has_open_position_for_model(
+                "EURUSD",
+                "MODELO_2_ESPELHO_BETA2_RR1",
+            )
+        )
+
+    def test_submit_order_bloqueia_terceira_posicao_no_par(self) -> None:
+        mt5 = _FakeMT5(
+            open_positions=[
+                SimpleNamespace(comment="TraderIA M1"),
+                SimpleNamespace(comment="TraderIA M2"),
+            ]
+        )
+        provider = self._provider(mt5)
+
+        result = provider.submit_order(self._order())
+
+        self.assertFalse(result.accepted)
+        self.assertIn("Limite de dois posicionamentos por par", result.message)
+        self.assertIsNone(mt5.last_request)
+
     def test_get_recent_candles_aceita_array_like_do_mt5(self) -> None:
         """copy_rates_from_pos pode retornar array com bool ambiguo."""
         candles = _AmbiguousRates(
@@ -197,6 +231,7 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
             content = log_path.read_text(encoding="utf-8")
             self.assertIn('"symbol": "WDO"', content)
             self.assertIn('"accepted": true', content)
+            self.assertIn('"plan_snapshot"', content)
 
     def test_break_even_move_stop_via_sltp_quando_preco_anda_um_risco(self) -> None:
         position = SimpleNamespace(
@@ -488,6 +523,7 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
             entry_price=100.0,
             stop=90.0,
             target=120.0,
+            plan_snapshot={"alpha_id": "ALPHA999", "entry_setup": "TEST_SETUP"},
         )
 
 

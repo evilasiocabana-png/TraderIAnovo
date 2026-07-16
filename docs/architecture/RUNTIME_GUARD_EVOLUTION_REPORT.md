@@ -74,6 +74,39 @@ Quando ligado, respeita horario/feriado Forex e chama leitura bloqueada por lock
 
 `_run_demo_robot_online_cycle_if_due()` roda separado do ciclo Forex, limitado por `MT5_DEMO_ROBOT_INTERVAL_SECONDS`. A UI preserva estado visual com `MT5_DEMO_ROBOT_LAST_VISIBLE_SNAPSHOT_KEY`; leituras transitorias do backend nao apagam o ultimo card valido. O botao Desarmar e a acao explicita que limpa o estado.
 
+Regra consolidada apos auditoria operacional:
+
+- quando `.traderia/mt5_demo_robot_online_state.json` indicar `online=true`, o
+  motor automatico de entrada deve ficar no ciclo de fundo do TraderIA Novo;
+- a UI Streamlit nao deve ser a dona da execucao automatica, porque render,
+  reload, troca de aba ou navegador dormindo podem interromper ou duplicar
+  tentativas;
+- com o ciclo de fundo ativo, as abas `MT5 Forex` e `Relatorios` apenas exibem
+  o estado, preservam o ultimo snapshot visual e permitem comandos manuais;
+- o heartbeat do ciclo fica em
+  `.traderia/mt5_demo_robot_background_state.json`;
+- qualquer futura mudanca no robo demo deve preservar essa separacao:
+  background executa, UI observa.
+
+Essa regra evita dois problemas ja observados em producao local:
+
+1. robo marcado como online, mas sem novas entradas porque a aba parou de
+   renderizar;
+2. dupla tentativa no mesmo candle quando UI e ciclo de fundo avaliam ao mesmo
+   tempo.
+
+Regra de Modelo 1 + Modelo 2:
+
+- em `TODOS_MODELOS`, Modelo 1 e Modelo 2 sao avaliados no mesmo ciclo, sem
+  prioridade entre eles;
+- se ambos estiverem prontos no mesmo candle, ambos podem enviar ordem;
+- a trava operacional fica no provider: no maximo uma posicao por modelo no
+  mesmo par;
+- Modelo 2 nao pode ser vetado pelo regime direcional usado pelo Modelo 1,
+  porque sua propria tese e espelhada e ja exige ADX < 20;
+- demais guardrails continuam ativos: horario, plano valido, risco, provider,
+  duplicidade por modelo e consistencia de stop/alvo.
+
 ### Runtime Health
 
 Runtime health e composto por lock busy, status de MT5, status do Robo Demo, historico de eventos, duracoes de render e mensagens de diagnostico. Ainda nao existe um modulo unico `RuntimeHealthService`; hoje isso esta distribuido no `dashboard_app.py`.
@@ -195,4 +228,3 @@ Streamlit UI
 - Robo Demo em ciclo proprio, separado do Forex.
 - Relatorio como observador, nao decisor.
 - Lab pesado somente sob comando explicito.
-
