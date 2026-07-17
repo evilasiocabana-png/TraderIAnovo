@@ -27,6 +27,12 @@ class DemoExecutionProvider(Protocol):
     def get_open_position(self, symbol: str) -> object | None:
         """Retorna a posicao aberta do simbolo, quando existir."""
 
+    def get_open_position_by_ticket(self, symbol: str, ticket: int) -> object | None:
+        """Retorna a posicao aberta exata pelo ticket, quando existir."""
+
+    def list_open_positions(self) -> list[object]:
+        """Lista posicoes abertas quando o provider suportar."""
+
     def get_current_price(self, symbol: str) -> float | None:
         """Retorna preco atual usado para acompanhar posicao aberta."""
 
@@ -141,6 +147,12 @@ class DisabledDemoExecutionProvider:
 
     def get_open_position(self, symbol: str) -> object | None:
         return None
+
+    def get_open_position_by_ticket(self, symbol: str, ticket: int) -> object | None:
+        return None
+
+    def list_open_positions(self) -> list[object]:
+        return []
 
     def get_current_price(self, symbol: str) -> float | None:
         return None
@@ -265,6 +277,23 @@ class DemoExecutionService:
     def get_open_position(self, symbol: str) -> object | None:
         """Consulta posicao aberta pelo provider demo."""
         return self.provider.get_open_position(symbol)
+
+    def get_open_position_by_ticket(self, symbol: str, ticket: int) -> object | None:
+        """Consulta posicao aberta exata pelo ticket."""
+        lookup = getattr(self.provider, "get_open_position_by_ticket", None)
+        if callable(lookup):
+            return lookup(symbol, ticket)
+        position = self.provider.get_open_position(symbol)
+        if position is None:
+            return None
+        return position if int(getattr(position, "ticket", 0) or 0) == int(ticket) else None
+
+    def list_open_positions(self) -> list[object]:
+        """Lista posicoes abertas pelo provider demo quando disponivel."""
+        list_positions = getattr(self.provider, "list_open_positions", None)
+        if callable(list_positions):
+            return list(list_positions() or [])
+        return []
 
     def get_current_price(self, symbol: str) -> float | None:
         """Consulta preco atual pelo provider demo."""

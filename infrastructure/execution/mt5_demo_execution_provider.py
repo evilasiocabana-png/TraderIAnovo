@@ -60,7 +60,7 @@ class MT5DemoExecutionProvider:
         if initialize_check is not None:
             return True
         positions = list(self.mt5.positions_get(symbol=symbol) or [])
-        if len(positions) >= 4:
+        if len(positions) >= 5:
             return True
         expected = self._model_comment(operational_model)
         for position in positions:
@@ -73,6 +73,7 @@ class MT5DemoExecutionProvider:
                 and " M2" not in comment
                 and " M3" not in comment
                 and " M4" not in comment
+                and " M5" not in comment
             ):
                 return True
         return False
@@ -84,6 +85,20 @@ class MT5DemoExecutionProvider:
             return None
         positions = self.mt5.positions_get(symbol=symbol) or []
         return positions[0] if positions else None
+
+    def get_open_position_by_ticket(self, symbol: str, ticket: int) -> object | None:
+        """Retorna a posicao aberta exata pelo ticket."""
+        initialize_check = self._initialize_check()
+        if initialize_check is not None:
+            return None
+        return self._find_position(str(symbol or "").upper(), int(ticket or 0))
+
+    def list_open_positions(self) -> list[object]:
+        """Lista posicoes abertas para gestao por ticket/modelo."""
+        initialize_check = self._initialize_check()
+        if initialize_check is not None:
+            return []
+        return list(self.mt5.positions_get() or [])
 
     def get_current_price(self, symbol: str) -> float | None:
         """Retorna preco atual read-only para validacao de SL."""
@@ -1100,7 +1115,42 @@ class MT5DemoExecutionProvider:
                 status="REJECTED",
                 message="Direcao invalida para envio MT5 Demo.",
             )
+        minimum_distance = self._minimum_stop_distance(order.symbol)
+        if minimum_distance > 0.0:
+            stop_distance = abs(float(price) - float(stop))
+            target_distance = abs(float(target) - float(price))
+            if stop_distance < minimum_distance or target_distance < minimum_distance:
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=(
+                        "Plano MT5 Demo rejeitado antes do envio: SL/TP abaixo da "
+                        f"distancia minima do broker para {order.symbol} "
+                        f"(min {minimum_distance:.6f}; "
+                        f"dist SL {stop_distance:.6f}; dist TP {target_distance:.6f})."
+                    ),
+                    executed_price=price,
+                )
         return None
+
+    def _minimum_stop_distance(self, symbol: str) -> float:
+        """Distancia minima exigida pelo broker para SL/TP no preco atual."""
+        try:
+            info = self.mt5.symbol_info(symbol)
+        except Exception:  # noqa: BLE001 - ponte externa MT5
+            return 0.0
+        if info is None:
+            return 0.0
+        point = self._positive_float(getattr(info, "point", None))
+        if point is None:
+            digits = getattr(info, "digits", None)
+            try:
+                point = 10 ** (-int(digits))
+            except (TypeError, ValueError):
+                point = self._pip_size(symbol)
+        stops_level = self._non_negative_float(getattr(info, "trade_stops_level", 0))
+        freeze_level = self._non_negative_float(getattr(info, "trade_freeze_level", 0))
+        return float(max(stops_level, freeze_level) * point)
 
     def _duplicate_plan_preflight(
         self,
@@ -1138,14 +1188,14 @@ class MT5DemoExecutionProvider:
         self,
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
-        """Bloqueia mais de uma posicao por modelo e mais de quatro por par."""
+        """Bloqueia mais de uma posicao por modelo e mais de cinco por par."""
         positions = list(self.mt5.positions_get(symbol=order.symbol) or [])
-        if len(positions) >= 4:
+        if len(positions) >= 5:
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
                 message=(
-                    "Limite de quatro posicionamentos por par atingido. "
+                    "Limite de cinco posicionamentos por par atingido. "
                     "Permitido no maximo um por modelo operacional."
                 ),
             )
@@ -1166,6 +1216,7 @@ class MT5DemoExecutionProvider:
                 and " M2" not in comment
                 and " M3" not in comment
                 and " M4" not in comment
+                and " M5" not in comment
             ):
                 return ExecutionResult(
                     accepted=False,
@@ -1426,6 +1477,8 @@ class MT5DemoExecutionProvider:
             return "M3"
         if model == "MODELO_4_ESPELHO_M1":
             return "M4"
+        if model == "MODELO_5_PRICE_ACTION":
+            return "M5"
         return "M1"
 
     def _write_management_log(self, payload: dict[str, Any]) -> None:

@@ -81,6 +81,35 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertIn("ask", result.message)
         self.assertIsNone(mt5.last_request)
 
+    def test_rejeita_preflight_quando_sl_tp_violam_distancia_minima_broker(
+        self,
+    ) -> None:
+        mt5 = _FakeMT5()
+        mt5.symbol = SimpleNamespace(
+            visible=True,
+            point=0.00001,
+            trade_stops_level=50,
+            trade_freeze_level=0,
+        )
+        mt5.tick = SimpleNamespace(ask=1.10000, bid=1.09998)
+        provider = self._provider(mt5)
+
+        result = provider.submit_order(
+            ExecutionOrder(
+                symbol="EURUSD",
+                side="BUY",
+                quantity=0.1,
+                entry_price=1.10000,
+                stop=1.09970,
+                target=1.10040,
+            )
+        )
+
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.status, "REJECTED")
+        self.assertIn("distancia minima do broker", result.message)
+        self.assertIsNone(mt5.last_request)
+
     def test_bloqueia_mesmo_plano_no_mesmo_candle_do_lab(self) -> None:
         mt5 = _FakeMT5()
         mt5.tick = SimpleNamespace(ask=1.33712, bid=1.33710)
@@ -216,6 +245,9 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertFalse(
             provider.has_open_position_for_model("EURUSD", "MODELO_4_ESPELHO_M1")
         )
+        self.assertFalse(
+            provider.has_open_position_for_model("EURUSD", "MODELO_5_PRICE_ACTION")
+        )
 
     def test_submit_order_permite_terceira_posicao_m3_no_par(self) -> None:
         mt5 = _FakeMT5(
@@ -250,7 +282,7 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertTrue(result.accepted)
         self.assertIsNotNone(mt5.last_request)
 
-    def test_submit_order_bloqueia_quinta_posicao_no_par(self) -> None:
+    def test_submit_order_permite_quinta_posicao_m5_no_par(self) -> None:
         mt5 = _FakeMT5(
             open_positions=[
                 SimpleNamespace(comment="TraderIA M1"),
@@ -260,11 +292,30 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
             ]
         )
         provider = self._provider(mt5)
+        order = self._order()
+        object.__setattr__(order, "operational_model", "MODELO_5_PRICE_ACTION")
+
+        result = provider.submit_order(order)
+
+        self.assertTrue(result.accepted)
+        self.assertIsNotNone(mt5.last_request)
+
+    def test_submit_order_bloqueia_sexta_posicao_no_par(self) -> None:
+        mt5 = _FakeMT5(
+            open_positions=[
+                SimpleNamespace(comment="TraderIA M1"),
+                SimpleNamespace(comment="TraderIA M2"),
+                SimpleNamespace(comment="TraderIA M3"),
+                SimpleNamespace(comment="TraderIA M4"),
+                SimpleNamespace(comment="TraderIA M5"),
+            ]
+        )
+        provider = self._provider(mt5)
 
         result = provider.submit_order(self._order())
 
         self.assertFalse(result.accepted)
-        self.assertIn("Limite de quatro posicionamentos por par", result.message)
+        self.assertIn("Limite de cinco posicionamentos por par", result.message)
         self.assertIsNone(mt5.last_request)
 
     def test_get_recent_candles_aceita_array_like_do_mt5(self) -> None:
@@ -613,6 +664,7 @@ class _FakeMT5:
         self.rates = []
         self.empty_order_response = False
         self.last_error_value = (1, "Success")
+        self.symbol = SimpleNamespace(visible=True)
 
     def initialize(self):
         self.initialize_calls += 1
@@ -622,7 +674,7 @@ class _FakeMT5:
         return SimpleNamespace(trade_mode=self.trade_mode)
 
     def symbol_info(self, symbol: str):
-        return SimpleNamespace(visible=True)
+        return self.symbol
 
     def symbol_select(self, symbol: str, visible: bool):
         return True

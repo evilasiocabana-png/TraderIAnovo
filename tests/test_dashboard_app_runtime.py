@@ -63,7 +63,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 self.assertFalse(dashboard_app._demo_robot_background_cycle_active())
 
                 state_path = Path(".traderia") / "mt5_demo_robot_online_state.json"
-                state_path.parent.mkdir(parents=True)
+                state_path.parent.mkdir(parents=True, exist_ok=True)
                 state_path.write_text(
                     '{"online": true, "pair": "TODOS", "timeframe": "M1"}',
                     encoding="utf-8",
@@ -121,7 +121,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "Plano Research": "PLANO_VALIDO",
             "Modelo Ativo": "TREND_MOMENTUM",
             "Filtro entrada": "OK",
-            "ADX": "19.50",
+            "ADX": "25.00",
             "Zona Operacional": "SUPORTE",
         }
 
@@ -1481,6 +1481,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             SimpleNamespace(operational_model="MODELO_2_ESPELHO_BETA2_RR1"),
             SimpleNamespace(operational_model="MODELO_3_RR3"),
             SimpleNamespace(operational_model="MODELO_4_ESPELHO_M1"),
+            SimpleNamespace(operational_model="MODELO_5_PRICE_ACTION"),
             SimpleNamespace(operational_model="N/D"),
             SimpleNamespace(
                 operational_model="N/D",
@@ -1493,12 +1494,14 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         model2 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 2")
         model3 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 3")
         model4 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 4")
+        model5 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 5")
 
-        self.assertEqual(model0, [rows[4]])
+        self.assertEqual(model0, [rows[5]])
         self.assertEqual(model1, [rows[0]])
-        self.assertEqual(model2, [rows[1], rows[5]])
+        self.assertEqual(model2, [rows[1], rows[6]])
         self.assertEqual(model3, [rows[2]])
         self.assertEqual(model4, [rows[3]])
+        self.assertEqual(model5, [rows[4]])
 
     def test_saldo_inicial_mt5_default_visual_e_zero(self) -> None:
         source = inspect.getsource(dashboard_app._exibir_evolucao_patrimonial_mt5)
@@ -1742,6 +1745,57 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(output["Modelo envio"], "MODELO 4")
         self.assertEqual(output["Stop inicial"], "1.12000")
         self.assertEqual(output["Alvo"], "1.09000")
+
+    def test_saida_teorica_m3_usa_plano_da_ordem_aberta(self) -> None:
+        row = SimpleNamespace(
+            symbol="EURJPY",
+            side="BUY",
+            mt5_side="BUY",
+            operational_model=dashboard_app.MT5_OPERATIONAL_MODEL_3,
+            timeframe="M15",
+            alpha_id="ALPHA007",
+            beta_id="BETA006",
+            beta_version="CHANDELIER_STOP_MANAGER",
+            entry_setup="MODELO3_RR3 | MACD_MOMENTUM_SHIFT",
+            exit_setup="CHANDELIER_EXIT",
+            stop=185.417,
+            mt5_stop=185.417,
+            target=186.159,
+            entry_price=185.611,
+            mt5_price=185.780,
+            plan_snapshot={
+                "timeframe": "M15",
+                "alpha_id": "ALPHA007",
+                "beta_id": "BETA006",
+                "entry_setup": "MODELO3_RR3 | MACD_MOMENTUM_SHIFT",
+                "exit_setup": "CHANDELIER_EXIT",
+                "initial_stop": 185.417,
+                "target": 186.159,
+            },
+        )
+        signal_by_pair = {
+            "EURJPY": {
+                "Periodo de tempo": "M1",
+                "Alpha Lab": "ALPHA009",
+                "Beta Lab": "BETA004",
+                "Modelo Ativo": "ATR_VOLATILITY_REGIME",
+                "Modelo Saida": "BREAK_EVEN",
+                "Stop Research": "185.76000",
+                "Alvo Research": "185.20200",
+            }
+        }
+
+        output = dashboard_app._mt5_theoretical_exit_row(row, signal_by_pair)
+
+        self.assertEqual(output["Modelo"], "MODELO 3")
+        self.assertEqual(output["TF Entrada Lab"], "M15")
+        self.assertEqual(output["TF Saida Beta"], "M15")
+        self.assertEqual(output["Alpha"], "ALPHA007")
+        self.assertEqual(output["Beta"], "BETA006")
+        self.assertEqual(output["Modelo entrada"], "MODELO3_RR3 | MACD_MOMENTUM_SHIFT")
+        self.assertEqual(output["Modelo saida"], "CHANDELIER_EXIT")
+        self.assertEqual(output["Stop inicial"], "185.41700")
+        self.assertEqual(output["Alvo"], "186.15900")
 
     def test_saida_teorica_usa_modelo_gravado_na_ordem_antes_do_chaveamento(self) -> None:
         row = SimpleNamespace(
@@ -2121,6 +2175,55 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             self.assertEqual(os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"], "1")
         finally:
             dashboard_app.st.session_state = previous_session_state
+            if previous_env is None:
+                os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
+            else:
+                os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = previous_env
+
+    def test_armar_robo_persiste_online_mesmo_se_backend_bloquear_no_clique(
+        self,
+    ) -> None:
+        class FakeSessionState(dict):
+            pass
+
+        class FakeService:
+            def arm_demo_robot(self, pair: str, timeframe: str):
+                return SimpleNamespace(
+                    status="DISARMED",
+                    provider="MT5_DEMO_DISABLED",
+                    mt5_order_send_enabled=False,
+                    message="backend ainda indisponivel",
+                )
+
+        persisted: list[dict[str, object]] = []
+
+        def fake_persist(**kwargs):
+            persisted.append(dict(kwargs))
+
+        previous_session_state = dashboard_app.st.session_state
+        previous_persist = dashboard_app._persist_demo_robot_online_state
+        previous_env = os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
+        data = SimpleNamespace(mt5_forex_signals=SimpleNamespace(timeframe="M1"))
+        try:
+            dashboard_app.st.session_state = FakeSessionState()
+            dashboard_app._persist_demo_robot_online_state = fake_persist
+
+            robot = dashboard_app._arm_all_demo_robot_from_reports(
+                FakeService(),
+                data,
+            )
+
+            self.assertEqual(robot.status, "DISARMED")
+            self.assertTrue(
+                dashboard_app.st.session_state[
+                    dashboard_app.MT5_DEMO_ROBOT_ONLINE_KEY
+                ]
+            )
+            self.assertTrue(persisted)
+            self.assertTrue(persisted[-1]["online"])
+        finally:
+            dashboard_app.st.session_state = previous_session_state
+            dashboard_app._persist_demo_robot_online_state = previous_persist
             if previous_env is None:
                 os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
             else:
@@ -2925,7 +3028,8 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         with open("dashboard_app.py", encoding="utf-8") as file:
             source = file.read()
 
-        self.assertEqual(source.count("@st.fragment"), 2)
+        self.assertEqual(source.count("@st.fragment"), 3)
+        self.assertIn("def _global_demo_robot_cycle_fragment", source)
         self.assertIn("def exibir_mt5_forex_dashboard", source)
         self.assertIn("def exibir_relatorios_dashboard", source)
         self.assertNotIn("@st.fragment\ndef _exibir_robo_demo_mt5", source)
@@ -3145,6 +3249,56 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             )
         finally:
             dashboard_app.st.session_state = previous_session_state
+
+    def test_robo_demo_online_nao_desarma_persistido_quando_backend_falha(self) -> None:
+        class FakeSessionState(dict):
+            pass
+
+        class FakeService:
+            def get_demo_robot_status(self):
+                return SimpleNamespace(
+                    status="DISARMED",
+                    result_status="DISARMED",
+                    provider="MT5_DEMO_DISABLED",
+                    mt5_order_send_enabled=False,
+                    message="backend ainda inicializando",
+                )
+
+            def arm_demo_robot(self, pair: str, timeframe: str):
+                return self.get_demo_robot_status()
+
+        persisted: list[dict[str, object]] = []
+
+        def fake_persist(**kwargs):
+            persisted.append(dict(kwargs))
+
+        previous_session_state = dashboard_app.st.session_state
+        previous_persist = dashboard_app._persist_demo_robot_online_state
+        try:
+            dashboard_app.st.session_state = FakeSessionState(
+                {dashboard_app.MT5_DEMO_ROBOT_ONLINE_KEY: True}
+            )
+            dashboard_app._persist_demo_robot_online_state = fake_persist
+
+            _, online = dashboard_app._run_demo_robot_online_cycle_if_due(
+                FakeService(),
+                SimpleNamespace(),
+                selected_pair="TODOS",
+                timeframe="M1",
+            )
+
+            self.assertTrue(online)
+            self.assertTrue(
+                dashboard_app.st.session_state[
+                    dashboard_app.MT5_DEMO_ROBOT_ONLINE_KEY
+                ]
+            )
+            self.assertTrue(persisted)
+            self.assertTrue(persisted[-1]["online"])
+            self.assertIn("ultimo comando", str(persisted[-1]["message"]))
+        finally:
+            dashboard_app.st.session_state = previous_session_state
+            dashboard_app._persist_demo_robot_online_state = previous_persist
 
     def test_auto_refresh_nao_recarrega_pagina_inteira_por_padrao(self) -> None:
         original_st = dashboard_app.st

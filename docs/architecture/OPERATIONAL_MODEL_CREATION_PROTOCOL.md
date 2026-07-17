@@ -280,16 +280,16 @@ Checklist:
 - testes de envio;
 - testes de bloqueio.
 
-Regra atual apos M4:
+Regra atual apos M5:
 
 ```text
-Maximo por par: 4 posicoes
-Regra: uma posicao por modelo M1, M2, M3 e M4
-Quinta posicao no mesmo par: bloqueada
+Maximo por par: 5 posicoes
+Regra: uma posicao por modelo M1, M2, M3, M4 e M5
+Sexta posicao no mesmo par: bloqueada
 Mesmo modelo no mesmo par: bloqueado
 ```
 
-Para M5 ou modelos futuros, o limite precisa ser reavaliado explicitamente. Nao aumentar automaticamente sem decisao.
+Para M6 ou modelos futuros, o limite precisa ser reavaliado explicitamente. Nao aumentar automaticamente sem decisao.
 
 ## Registro do M4
 
@@ -306,8 +306,9 @@ Entrada: inverte BUY/SELL do M1
 Stop inicial: alvo original do M1
 Alvo: stop original do M1
 Beta/saida: BETA004_ESPELHO_M1
-Coexistencia: pode operar junto com M1, M2 e M3
-Limite: uma posicao M4 por par; maximo quatro posicoes por par
+Coexistencia: independente do M1 para envio; pode operar sozinho se selecionado
+ou se o M1 for rejeitado no mesmo ciclo
+Limite: uma posicao M4 por par; maximo cinco posicoes por par
 Comentario MT5: TraderIA M4
 ```
 
@@ -315,7 +316,39 @@ Aprendizado:
 
 ```text
 Modelo espelho nao precisa recalcular Lab quando a fonte e um plano ja aprovado.
+Modelo espelho pode usar o plano do M1 como fonte, mas nao deve depender de M1
+ser aceito no mesmo ciclo. M4 precisa passar por seus proprios gates de
+duplicidade, posicao aberta, provider, MT5 e risco.
 Mesmo assim, precisa atravessar tela, backend, provider, relatorio e testes.
+```
+
+## Registro do M5
+
+O M5 nasceu como fluxo proprio de Price Action simples, independente de M1-M4.
+
+Definicao:
+
+```text
+Identificador: MODELO_5_PRICE_ACTION
+Nome curto: M5
+Origem: leitura leve de Price Action sobre a linha MT5 atual
+Selecao: estrutura + zona de interesse + confirmacao viva
+Entrada: PRICE_ACTION_ENTRY_MODEL
+Stop inicial: estrutural, alem de suporte/fundo ou resistencia/topo com buffer
+Alvo: nivel estrutural ou projecao minima de 1.5R
+Alpha: ALPHAPRICE5
+Beta/saida: BETAPRICE5_PRICE_ACTION_STRUCTURE_EXIT
+Coexistencia: pode operar junto com M1, M2, M3 e M4
+Limite: uma posicao M5 por par; maximo cinco posicoes por par
+Comentario MT5: TraderIA M5
+```
+
+Aprendizado:
+
+```text
+Modelo proprio nao deve falsificar origem como Research Lab.
+M5 usa source=PRICE_ACTION_MODEL e o robo aceita essa fonte como contrato operacional autorizado.
+Mesmo sem passar no Lab pesado, M5 precisa expor gates, plano, provider, historico, saida e testes.
 ```
 
 ### 9. Position Manager e Saida

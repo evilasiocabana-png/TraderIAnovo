@@ -184,6 +184,29 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertEqual(result.status, "POSITION_ABSENT")
         self.assertEqual(provider.modify_calls, 0)
 
+    def test_plano_com_ticket_nao_usa_posicao_errada_do_mesmo_par(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURJPY", "BUY", 185.60, 185.40, 186.20, ticket=111),
+            price=185.90,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan(
+                "EURJPY",
+                "BUY",
+                entry=185.60,
+                stop=185.40,
+                target=186.20,
+                beta_id="BETA006",
+                ticket=222,
+            )
+        )
+
+        self.assertEqual(result.status, "POSITION_ABSENT")
+        self.assertEqual(result.ticket, 222)
+        self.assertEqual(provider.modify_calls, 0)
+
     def test_sem_atr_ainda_pode_proteger_por_break_even(self) -> None:
         provider = _FakePositionProvider(
             position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
@@ -780,6 +803,7 @@ class PositionManagerServiceTest(unittest.TestCase):
         swing_high: float | None = None,
         swing_low: float | None = None,
         beta_id: str = "BETA001",
+        ticket: int | None = None,
     ) -> PositionTradePlan:
         return PositionTradePlan(
             symbol=symbol,
@@ -797,6 +821,7 @@ class PositionManagerServiceTest(unittest.TestCase):
             swing_high=swing_high,
             swing_low=swing_low,
             beta_id=beta_id,
+            ticket=ticket,
         )
 
 
@@ -807,9 +832,10 @@ def _position(
     stop: float,
     target: float,
     volume: float = 0.1,
+    ticket: int = 123,
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        ticket=123,
+        ticket=ticket,
         symbol=symbol,
         side=side,
         type=0 if side == "BUY" else 1,
@@ -843,6 +869,12 @@ class _FakePositionProvider:
         if str(getattr(self.position, "symbol", "")).upper() != symbol.upper():
             return None
         return self.position
+
+    def get_open_position_by_ticket(self, symbol: str, ticket: int) -> object | None:
+        position = self.get_open_position(symbol)
+        if position is None:
+            return None
+        return position if int(getattr(position, "ticket", 0) or 0) == int(ticket) else None
 
     def get_current_price(self, symbol: str) -> float | None:
         return self.price

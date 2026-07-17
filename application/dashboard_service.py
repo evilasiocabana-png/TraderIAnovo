@@ -11,6 +11,7 @@ import sqlite3
 import sys
 import tempfile
 import threading
+import time
 from typing import Any
 import warnings
 
@@ -75,6 +76,10 @@ from application.mt5_market_data_service import (
     MT5ForexSignalRow,
     MT5MarketDataService,
 )
+from application.price_action_simple_model import (
+    PriceActionInput,
+    PriceActionSimpleModel,
+)
 
 
 ENTRY_FILTER_MIN_NV_MINUS_V = 0.02
@@ -92,7 +97,9 @@ MT5_OPERATIONAL_MODEL_1 = "MODELO_1_ALPHA_ATUAL"
 MT5_OPERATIONAL_MODEL_2 = "MODELO_2_ESPELHO_BETA2_RR1"
 MT5_OPERATIONAL_MODEL_3 = "MODELO_3_RR3"
 MT5_OPERATIONAL_MODEL_4 = "MODELO_4_ESPELHO_M1"
+MT5_OPERATIONAL_MODEL_5 = "MODELO_5_PRICE_ACTION"
 MT5_OPERATIONAL_MODEL_ALL = "TODOS_MODELOS"
+MT5_OPERATIONAL_MODEL_5_ENTRY_TIMEFRAME = "M5"
 MT5_RR3_MIN_SAMPLE_SIZE = 150
 MT5_RR3_MIN_PROFIT_FACTOR = 1.20
 MT5_RR3_MIN_CONFIDENCE = 0.50
@@ -119,7 +126,7 @@ from application.mt5_demo_robot_service import (
     MT5DemoRobotSignal,
     MT5DemoTradePlan,
 )
-from application.position_manager_service import PositionManagerService
+from application.position_manager_service import PositionManagerService, PositionTradePlan
 from application.paper_trading_service import PaperTradingReport
 from application.paper_trading_service import PaperTradingService
 from application.regime_service import RegimeData, RegimeService
@@ -668,6 +675,7 @@ class DashboardService:
     mt5_trade_open_ticket_cache: set[int] = field(default_factory=set)
     mt5_trade_history_cache_status: str = "SEM_CACHE"
     mt5_trade_history_cache_message: str = "Historico MT5 ainda nao carregado."
+    mt5_visual_auto_export_last_run: float = 0.0
     session_service: SessionService = SessionService(
         OperationSession("N/D", "09:00", "18:00")
     )
@@ -716,6 +724,7 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_2,
             MT5_OPERATIONAL_MODEL_3,
             MT5_OPERATIONAL_MODEL_4,
+            MT5_OPERATIONAL_MODEL_5,
             MT5_OPERATIONAL_MODEL_ALL,
         }:
             normalized = MT5_OPERATIONAL_MODEL_1
@@ -735,6 +744,7 @@ class DashboardService:
                 MT5_OPERATIONAL_MODEL_2,
                 MT5_OPERATIONAL_MODEL_3,
                 MT5_OPERATIONAL_MODEL_4,
+                MT5_OPERATIONAL_MODEL_5,
             )
         return (selected,)
 
@@ -3112,9 +3122,92 @@ class DashboardService:
                         self._dynamic_exit_demo_sl_assisted_enabled()
                     ),
                 )
-                manager.manage_signals(signals)
+                plans = self._position_manager_plans_from_open_execution_records()
+                if plans:
+                    for plan in plans:
+                        manager.manage_plan(plan)
+                else:
+                    manager.manage_signals(signals)
         except (OSError, ValueError, RuntimeError, TypeError):
             return
+
+    def _position_manager_plans_from_open_execution_records(
+        self,
+    ) -> list[PositionTradePlan]:
+        """Usa o plano original de cada ordem aberta para gerir M1-M5 por ticket."""
+        list_positions = getattr(self.demo_robot_execution_service, "list_open_positions", None)
+        if not callable(list_positions):
+            return []
+        open_positions = list(list_positions() or [])
+        open_tickets = {
+            int(getattr(position, "ticket", 0) or 0)
+            for position in open_positions
+            if int(getattr(position, "ticket", 0) or 0) > 0
+        }
+        if not open_tickets:
+            return []
+        plans: list[PositionTradePlan] = []
+        seen: set[int] = set()
+        for record in reversed(self._read_mt5_demo_execution_jsonl()):
+            if not bool(record.get("accepted")):
+                continue
+            ticket = self._int_or_none(record.get("ticket"))
+            if ticket is None or ticket not in open_tickets or ticket in seen:
+                continue
+            plan = PositionTradePlan.from_signal(
+                self._position_manager_signal_from_execution_record(record)
+            )
+            if plan is not None:
+                plans.append(plan)
+                seen.add(ticket)
+        return plans
+
+    def _position_manager_signal_from_execution_record(
+        self,
+        record: dict[str, Any],
+    ) -> dict[str, Any]:
+        snapshot = dict(record.get("plan_snapshot") or {})
+        indicators = {
+            "atr": snapshot.get("atr"),
+            "momentum": snapshot.get("momentum"),
+            "volatility": snapshot.get("volatility"),
+            "spread": snapshot.get("spread"),
+            "support": snapshot.get("support"),
+            "resistance": snapshot.get("resistance"),
+            "swing_high": snapshot.get("swing_high"),
+            "swing_low": snapshot.get("swing_low"),
+        }
+        return {
+            "ticket": record.get("ticket"),
+            "symbol": record.get("symbol") or snapshot.get("symbol"),
+            "decision": record.get("side") or snapshot.get("direction"),
+            "entry": record.get("entry_price") or snapshot.get("entry_price"),
+            "stop": record.get("stop") or snapshot.get("initial_stop"),
+            "target": record.get("target") or snapshot.get("target"),
+            "risk_reward": record.get("risk_reward") or snapshot.get("risk_reward"),
+            "stop_management": (
+                record.get("exit_policy")
+                or record.get("exit_setup")
+                or snapshot.get("stop_management")
+                or snapshot.get("exit_model")
+            ),
+            "stop_management_parameters": snapshot.get(
+                "stop_management_parameters",
+                {},
+            ),
+            "alpha_id": record.get("alpha_id") or snapshot.get("alpha_id"),
+            "alpha_version": record.get("alpha_version") or snapshot.get("alpha_version"),
+            "beta_id": record.get("beta_id") or snapshot.get("beta_id"),
+            "beta_version": record.get("beta_version") or snapshot.get("beta_version"),
+            "beta_mode": record.get("beta_mode") or snapshot.get("beta_mode"),
+            "timeframe": snapshot.get("timeframe") or record.get("timeframe"),
+            "last_candle_time": snapshot.get("candle_time"),
+            "plan_status": snapshot.get("status") or "PLANO_VALIDO",
+            "lab_configuration_source": snapshot.get("source") or "EXECUTION_RECORD",
+            "market_indicators": {
+                key: value for key, value in indicators.items() if value is not None
+            },
+        }
 
     def _mt5_visual_signals_output_path(self, output_path: object | None) -> Path:
         if output_path is not None:
@@ -3139,10 +3232,22 @@ class DashboardService:
 
     def _auto_export_mt5_visual_signals(self) -> MT5VisualSignalExportResult | None:
         """Sincroniza o JSON visual automaticamente sem impactar o fluxo MT5."""
+        min_interval = self._positive_float(
+            os.getenv("TRADERIA_MT5_VISUAL_AUTO_EXPORT_MIN_INTERVAL_SECONDS", "5"),
+            5.0,
+        )
+        now = time.monotonic()
+        if (
+            min_interval > 0.0
+            and self.mt5_visual_auto_export_last_run > 0.0
+            and now - self.mt5_visual_auto_export_last_run < min_interval
+        ):
+            return None
         if os.getenv("TRADERIA_MT5_VISUAL_SIGNALS_ENABLED", "1").strip() != "1":
             try:
                 target = self._mt5_visual_signals_output_path(None)
                 self.mt5_visual_signal_exporter.clear(target)
+                object.__setattr__(self, "mt5_visual_auto_export_last_run", now)
                 return None
             except (OSError, ValueError, RuntimeError):
                 return None
@@ -3154,6 +3259,7 @@ class DashboardService:
                 target,
             )
             self._apply_mt5_demo_stop_management(target)
+            object.__setattr__(self, "mt5_visual_auto_export_last_run", now)
             return result
         except (OSError, ValueError, RuntimeError):
             return None
@@ -4694,7 +4800,11 @@ class DashboardService:
                 ),
             )
             plan = self._mt5_research_trade_plan_for_view_row(row)
-            if plan.status != "PLANO_VALIDO":
+            selected_models = self._mt5_operational_models_to_evaluate()
+            if plan.status != "PLANO_VALIDO" and not any(
+                model in {MT5_OPERATIONAL_MODEL_3, MT5_OPERATIONAL_MODEL_5}
+                for model in selected_models
+            ):
                 last_waiting = self._demo_robot_view_model(
                     row=row,
                     status="AGUARDANDO_PLANO",
@@ -4735,6 +4845,29 @@ class DashboardService:
                     model_candidates,
                 )
             if not model_candidates:
+                if plan.status != "PLANO_VALIDO":
+                    last_waiting = self._demo_robot_view_model(
+                        row=row,
+                        status="AGUARDANDO_PLANO",
+                        message=(
+                            "Sinal direcional sem plano executavel. Robo continua "
+                            "monitorando os demais modelos e pares."
+                        ),
+                        result_status=plan.status,
+                        result_message=plan.reason,
+                        entry_price=None,
+                        stop=None,
+                        target=None,
+                        provider="MT5_DEMO",
+                        mt5_order_send_enabled=True,
+                        rejection_tree=self._demo_robot_rejection_tree(
+                            row,
+                            plan,
+                            enabled=self.mt5_demo_robot_service.enabled,
+                            mt5_order_send_enabled=True,
+                        ),
+                    )
+                    continue
                 last_waiting = self._demo_robot_view_model(
                     row=row,
                     status="ARMED_WAITING",
@@ -5146,6 +5279,8 @@ class DashboardService:
             return self._mt5_model3_rr3_plan(row, plan)
         if selected_model == MT5_OPERATIONAL_MODEL_4:
             return self._mt5_model4_inverse_m1_plan(row, plan)
+        if selected_model == MT5_OPERATIONAL_MODEL_5:
+            return self._mt5_model5_price_action_plan(row, plan)
         if selected_model != MT5_OPERATIONAL_MODEL_2:
             return row, plan
         if not self._mt5_model2_adx_low_present(row):
@@ -5200,6 +5335,155 @@ class DashboardService:
             research_plan_rr_current=transformed_plan.rr_current,
             research_plan_rr_minimum=transformed_plan.rr_minimum,
             research_plan_diagnostics=transformed_plan.diagnostics,
+        )
+        return transformed_row, transformed_plan
+
+    def _mt5_model5_price_action_plan(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        fallback_plan: MT5ResearchTradePlan,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        decision = PriceActionSimpleModel().evaluate(
+            PriceActionInput(
+                symbol=row.pair,
+                timeframe=MT5_OPERATIONAL_MODEL_5_ENTRY_TIMEFRAME,
+                last_price=row.last_price,
+                pivot=row.pivot,
+                support=row.support,
+                resistance=row.resistance,
+                swing_high=row.swing_high,
+                swing_low=row.swing_low,
+                short_average=row.short_average,
+                long_average=row.long_average,
+                atr=row.atr,
+                spread=row.spread,
+                confirmation_status=row.theoretical_entry_status,
+                confirmation_direction=row.theoretical_entry_direction or row.decision,
+            )
+        )
+        if not decision.ready:
+            reason = decision.reason or "M5 aguardando Price Action."
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    active_model=f"MODELO5_PRICE_ACTION | {decision.status}",
+                    reason=reason,
+                    theoretical_entry_reason=reason,
+                    research_plan_reason=reason,
+                    research_plan_diagnostics=decision.diagnostics
+                    + decision.blocking_reasons,
+                ),
+                fallback_plan,
+            )
+        transformed_row = replace(
+            row,
+            timeframe=MT5_OPERATIONAL_MODEL_5_ENTRY_TIMEFRAME,
+            decision=decision.direction,
+            theoretical_entry_direction=decision.direction,
+            theoretical_entry_status="SINAL_TEORICO",
+            theoretical_entry_price=decision.entry_price,
+            active_model="MODELO5_PRICE_ACTION_SIMPLE",
+            reason=decision.reason,
+            theoretical_entry_reason=decision.reason,
+            lab_alpha_id="ALPHAPRICE5",
+            lab_alpha_version="PRICE_ACTION_SIMPLE_V1",
+            beta_id="BETAPRICE5",
+            beta_version="BETAPRICE5_PRICE_ACTION_STRUCTURE_EXIT",
+            beta_mode="STRUCTURE_EXIT",
+            beta_reason=(
+                "M5 usa saida Price Action: alvo estrutural, protecao por novo "
+                "pivo e invalidacao estrutural."
+            ),
+            lab_parameters={
+                "alpha": "ALPHAPRICE5",
+                "alpha_version": "PRICE_ACTION_SIMPLE_V1",
+                "beta_id": "BETAPRICE5",
+                "beta_version": "BETAPRICE5_PRICE_ACTION_STRUCTURE_EXIT",
+                "beta_mode": "STRUCTURE_EXIT",
+                "timeframe": MT5_OPERATIONAL_MODEL_5_ENTRY_TIMEFRAME,
+                "rr": f"{decision.risk_reward:.4f}",
+                "stop_management": "PRICE_ACTION_STRUCTURE_MANAGER",
+                "market_structure": decision.market_structure,
+                "interest_zone": decision.interest_zone,
+                "confirmation_type": decision.confirmation_type,
+            },
+            lab_confidence=max(row.lab_confidence, 0.50),
+            active_model_score=max(row.active_model_score, decision.risk_reward),
+            research_plan_status="PLANO_VALIDO",
+            research_plan_entry_price=decision.entry_price,
+            research_plan_stop=decision.stop,
+            research_plan_target=decision.target,
+            research_plan_risk_reward=decision.risk_reward,
+            research_plan_exit_model="BETAPRICE5_PRICE_ACTION_STRUCTURE_EXIT",
+            research_plan_stop_reason=decision.stop_reason,
+            research_plan_target_reason=decision.target_reason,
+            research_plan_stop_management="PRICE_ACTION_STRUCTURE_MANAGER",
+            research_plan_stop_management_parameters={
+                "modelo_operacional": MT5_OPERATIONAL_MODEL_5,
+                "market_structure": decision.market_structure,
+                "interest_zone": decision.interest_zone,
+                "confirmation_type": decision.confirmation_type,
+            },
+            research_plan_stop_management_reason=(
+                "M5 acompanha novos pivos e invalida por fechamento estrutural; "
+                "nao move para break-even imediatamente."
+            ),
+            research_plan_reason=decision.reason,
+            research_plan_rr_current=decision.risk_reward,
+            research_plan_rr_minimum=PriceActionSimpleModel.minimum_risk_reward,
+            research_plan_diagnostics=decision.diagnostics,
+        )
+        entry = float(decision.entry_price or 0.0)
+        stop = float(decision.stop or 0.0)
+        target = float(decision.target or 0.0)
+        transformed_plan = MT5ResearchTradePlan(
+            symbol=row.pair,
+            timeframe=MT5_OPERATIONAL_MODEL_5_ENTRY_TIMEFRAME,
+            direction=decision.direction,
+            entry_price=entry,
+            stop=stop,
+            target=target,
+            risk_reward=decision.risk_reward,
+            stop_multiplier=0.0,
+            exit_model="BETAPRICE5_PRICE_ACTION_STRUCTURE_EXIT",
+            exit_score=decision.risk_reward,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            risk_pips=abs(entry - stop),
+            reward_pips=abs(target - entry),
+            risk_percent=abs((entry - stop) / entry) if entry else 0.0,
+            reward_percent=abs((target - entry) / entry) if entry else 0.0,
+            stop_reason=decision.stop_reason,
+            target_reason=decision.target_reason,
+            stop_management="PRICE_ACTION_STRUCTURE_MANAGER",
+            stop_management_parameters={
+                "modelo_operacional": MT5_OPERATIONAL_MODEL_5,
+                "market_structure": decision.market_structure,
+                "interest_zone": decision.interest_zone,
+                "confirmation_type": decision.confirmation_type,
+            },
+            stop_management_reason=(
+                "M5 Price Action: stop estrutural inicial; protecao posterior por "
+                "novo pivo confirmado e invalidacao estrutural."
+            ),
+            alpha_id="ALPHAPRICE5",
+            alpha_version="PRICE_ACTION_SIMPLE_V1",
+            beta_id="BETAPRICE5",
+            beta_version="BETAPRICE5_PRICE_ACTION_STRUCTURE_EXIT",
+            beta_mode="STRUCTURE_EXIT",
+            beta_reason="Saida M5 baseada em alvo ou perda confirmada da estrutura.",
+            source="PRICE_ACTION_MODEL",
+            reason=decision.reason,
+            rr_current=decision.risk_reward,
+            rr_minimum=PriceActionSimpleModel.minimum_risk_reward,
+            diagnostics=decision.diagnostics,
+            certification_score=100.0,
+            certification_grade="M5",
+            certification_status="PRICE_ACTION_READY",
+            certification_usage="M5 Price Action liberado para Demo quando gates estiverem OK.",
+            certification_demo_allowed=True,
         )
         return transformed_row, transformed_plan
 
@@ -7593,6 +7877,12 @@ class DashboardService:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    def _positive_float(self, value: object, default: float) -> float:
+        parsed = self._optional_float(value)
+        if parsed is None or parsed <= 0.0:
+            return float(default)
+        return float(parsed)
 
     def _format_optional_float(
         self,

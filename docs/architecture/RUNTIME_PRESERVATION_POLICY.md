@@ -160,14 +160,21 @@ tratar isso como reidratacao de backend, nao como desarme operacional. A acao
 permitida e rearmar o backend em memoria antes da avaliacao normal, mantendo o
 mesmo intervalo de ciclo e sem iniciar leitura pesada do Lab.
 
+O ultimo comando manual do usuario e a fonte da verdade para o estado armado do
+Robo Demo. Se o usuario clicou em `Armar robo demo`, reinicio do Streamlit,
+troca de aba, reload do navegador, leitura vazia, backend recem-instanciado ou
+falha transitoria do MT5 nao podem persistir `online=false`. Nesses casos o
+sistema deve manter `online=true`, registrar mensagem de reidratacao/bloqueio
+temporario e tentar rearmar no proximo ciclo leve.
+
 Somente estas acoes podem limpar o snapshot visual do Robo Demo:
 
-- botao Desarmar;
-- reset operacional explicito;
-- flag demo desligada ou bloqueio real confirmado pelo backend apos tentativa
-  de reidratacao;
-- troca confirmada de contexto operacional;
-- rollback de runtime.
+- botao `Desarmar robo` acionado pelo usuario;
+- rollback/restauracao explicitamente solicitada pelo usuario.
+
+Flags, MT5 indisponivel ou backend bloqueado podem impedir envio de ordem no
+ciclo atual, mas nao podem mudar o ultimo estado manual persistido para
+desarmado.
 
 O Runtime Guard nao pode abrir ordem, fechar posicao ou mover SL/TP automaticamente. Qualquer execucao demo precisa passar pelos gates especificos do Provider Demo e contratos de Dynamic Exit.
 
@@ -204,6 +211,30 @@ O Relatorio deve:
 - nao mover stop;
 - nao recalcular Lab;
 - nao apagar operacoes em negociacao por oscilacao temporaria.
+
+## Politica Para Logs Quentes E Position Manager
+
+Logs operacionais quentes em `.traderia/` nao podem crescer sem limite durante a
+sessao do app. O estado atual do Position Manager deve ser lido preferencialmente
+de `.traderia/position_manager_current.json`. O arquivo
+`.traderia/position_manager.jsonl` e trilha historica rotacionavel, nao fonte
+principal para renderizacao a cada ciclo.
+
+Regras:
+
+- rotacionar `position_manager.jsonl` quando ultrapassar o limite configurado;
+- manter limite padrao conservador de 25 MB;
+- permitir ajuste via `TRADERIA_POSITION_MANAGER_LOG_MAX_MB`;
+- preservar arquivos arquivados para auditoria, sem usa-los no ciclo leve;
+- nao varrer JSONL historico inteiro para desenhar painel atual;
+- nao bloquear UI por leitura de auditoria historica;
+- usar snapshot atual primeiro e JSONL recente apenas como complemento.
+
+O export visual automatico para MT5 tambem deve respeitar intervalo minimo entre
+reruns. O padrao atual e 5 segundos via
+`TRADERIA_MT5_VISUAL_AUTO_EXPORT_MIN_INTERVAL_SECONDS`. Essa trava nao altera o
+ciclo operacional nem muda decisao de entrada/saida; apenas evita trabalho
+duplicado quando o Streamlit renderiza a mesma tela varias vezes no mesmo ciclo.
 
 ## Politica Para Safe Mode E Stop Movel
 

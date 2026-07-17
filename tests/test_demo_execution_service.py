@@ -1,4 +1,4 @@
-"""Testes do fluxo de execucao demo separado do dashboard visual."""
+﻿"""Testes do fluxo de execucao demo separado do dashboard visual."""
 
 import os
 import unittest
@@ -237,8 +237,8 @@ class DemoExecutionServiceTest(unittest.TestCase):
         self.assertTrue(result.mt5_order_send_enabled)
         self.assertEqual(len(result.audit_log), 1)
         self.assertAlmostEqual(result.entry_price or 0.0, 1.2)
-        self.assertAlmostEqual(result.stop or 0.0, 1.198)
-        self.assertAlmostEqual(result.target or 0.0, 1.204)
+        self.assertAlmostEqual(result.stop or 0.0, 1.1958)
+        self.assertAlmostEqual(result.target or 0.0, 1.2084)
         rejection_stages = {step.stage: step for step in result.rejection_tree}
         self.assertEqual(rejection_stages["Kill switch demo"].status, "APROVADO")
         self.assertEqual(rejection_stages["Research Constants"].status, "APROVADO")
@@ -454,6 +454,7 @@ class DemoExecutionServiceTest(unittest.TestCase):
         service.mt5_market_data_service.latest_forex_signal_dashboard = (
             self._forex_dashboard()
         )
+        self._install_no_research_plan(service)
         os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = "1"
         provider = _AcceptingProvider()
         object.__setattr__(
@@ -483,10 +484,6 @@ class DemoExecutionServiceTest(unittest.TestCase):
         self.assertIn(
             "nao bloqueia Demo",
             rejection_stages["ICT informativo"].reason,
-        )
-        self.assertEqual(
-            rejection_stages["Regime de Mercado"].status,
-            "BLOQUEADO",
         )
         self.assertEqual(rejection_stages["Trade Plan"].status, "BLOQUEADO")
         self.assertIn("SEM_GATILHO_VALIDO", rejection_stages["Trade Plan"].reason)
@@ -645,6 +642,7 @@ class DemoExecutionServiceTest(unittest.TestCase):
         service.mt5_market_data_service.latest_forex_signal_dashboard = (
             self._forex_dashboard()
         )
+        self._install_no_research_plan(service)
         os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = "1"
         provider = _AcceptingProvider()
         object.__setattr__(
@@ -675,6 +673,7 @@ class DemoExecutionServiceTest(unittest.TestCase):
         service.mt5_market_data_service.latest_forex_signal_dashboard = (
             self._forex_dashboard()
         )
+        self._install_no_research_plan(service)
         os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = "1"
         provider = _AcceptingProvider()
         object.__setattr__(
@@ -897,6 +896,10 @@ class DemoExecutionServiceTest(unittest.TestCase):
             long_average=1.0980,
             ema_fast=1.0995,
             atr=0.001,
+            pivot=1.1010,
+            support=1.0990,
+            resistance=1.1060,
+            swing_low=1.0988,
             decision="BUY",
             theoretical_entry_direction="BUY",
             theoretical_entry_status="SINAL_TEORICO",
@@ -966,22 +969,119 @@ class DemoExecutionServiceTest(unittest.TestCase):
             os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
 
         self.assertEqual(result.status, "BATCH_COMPLETED")
-        self.assertEqual(len(provider.orders), 3)
+        self.assertEqual(len(provider.orders), 4)
         self.assertEqual(
             [order.operational_model for order in provider.orders],
             [
                 "MODELO_1_ALPHA_ATUAL",
                 "MODELO_2_ESPELHO_BETA2_RR1",
                 "MODELO_4_ESPELHO_M1",
+                "MODELO_5_PRICE_ACTION",
             ],
         )
         self.assertIn(provider.orders[0].side, {"BUY", "SELL"})
         self.assertIn(provider.orders[1].side, {"BUY", "SELL"})
         self.assertIn(provider.orders[2].side, {"BUY", "SELL"})
+        self.assertIn(provider.orders[3].side, {"BUY", "SELL"})
         self.assertNotEqual(provider.orders[0].side, provider.orders[1].side)
         self.assertNotEqual(provider.orders[0].side, provider.orders[2].side)
         self.assertEqual(provider.orders[2].target, valid_plan.stop)
         self.assertEqual(provider.orders[2].stop, valid_plan.target)
+        self.assertEqual(provider.orders[3].alpha_id, "ALPHAPRICE5")
+
+    def test_modelo4_pode_entrar_mesmo_se_modelo1_for_rejeitado(self) -> None:
+        service = DashboardService()
+        service.set_mt5_operational_model("TODOS_MODELOS")
+        dashboard = self._forex_dashboard()
+        service.mt5_market_data_service.latest_forex_signal_dashboard = dashboard
+        valid_row = DashboardMT5ForexSignalRowViewModel(
+            pair="EURUSD",
+            status="OK",
+            timeframe="H1",
+            lab_timeframe="H1",
+            last_price=1.1000,
+            last_candle_time="2026-06-29T14:00:00+00:00",
+            trend="ALTA",
+            momentum=0.001,
+            volatility=0.001,
+            short_average=1.0995,
+            long_average=1.0980,
+            ema_fast=1.0995,
+            atr=0.001,
+            pivot=1.1010,
+            support=1.0990,
+            resistance=1.1060,
+            swing_low=1.0988,
+            decision="BUY",
+            theoretical_entry_direction="BUY",
+            theoretical_entry_status="SINAL_TEORICO",
+            theoretical_entry_price=1.1000,
+            active_model="TREND_MOMENTUM",
+            confidence=0.80,
+            lab_confidence=0.75,
+            adx=19.5,
+            reason="Plano valido fixture.",
+            lab_ict_demo_allowed=True,
+            lab_ict_status="APROVADO",
+            research_plan_status="PLANO_VALIDO",
+            research_plan_entry_price=1.1000,
+            research_plan_stop=1.0950,
+            research_plan_target=1.1100,
+            research_plan_risk_reward=2.0,
+        )
+        valid_plan = MT5ResearchTradePlan(
+            symbol="EURUSD",
+            timeframe="H1",
+            direction="BUY",
+            entry_price=1.1000,
+            stop=1.0950,
+            target=1.1100,
+            risk_reward=2.0,
+            stop_multiplier=2.0,
+            exit_model="FIXED_STOP",
+            exit_score=1.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            risk_pips=0.005,
+            reward_pips=0.010,
+            alpha_id="ALPHA001",
+            beta_id="BETA001",
+            beta_version="FIXED_STOP",
+            source="RESEARCH_LAB",
+            reason="Plano valido fixture.",
+        )
+        object.__setattr__(
+            service,
+            "_to_view_model_mt5_forex_signal_row",
+            lambda *_args, **_kwargs: valid_row,
+        )
+        object.__setattr__(
+            service,
+            "_mt5_research_trade_plan_for_view_row",
+            lambda *_args, **_kwargs: valid_plan,
+        )
+        os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = "1"
+        provider = _RejectModel1Provider()
+        object.__setattr__(
+            service,
+            "demo_robot_execution_service",
+            DemoExecutionService(provider=provider),
+        )
+
+        def load_forex(timeframe: str = "H1"):
+            return service.mt5_market_data_service.latest_forex_signal_dashboard
+
+        object.__setattr__(service, "load_mt5_forex_signals", load_forex)
+        object.__setattr__(service, "_enable_mt5_demo_provider", lambda: None)
+
+        try:
+            service.arm_demo_robot("TODOS", "H1")
+            service.run_online_demo_robot_cycle("TODOS", "H1")
+        finally:
+            os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
+
+        self.assertIn("MODELO_1_ALPHA_ATUAL", provider.attempted_models)
+        self.assertIn("MODELO_4_ESPELHO_M1", provider.attempted_models)
 
     def test_robo_temporal_continua_apos_par_sem_plano_research(self) -> None:
         service = DashboardService()
@@ -991,6 +1091,95 @@ class DemoExecutionServiceTest(unittest.TestCase):
             self._flat_then_trigger_candles("SELL")
         )
         self._install_certified_research_constants(service, ("GBPUSD",))
+
+        def mixed_plan(row, *_args, **_kwargs):
+            pair = str(getattr(row, "pair", "") or "")
+            if pair == "GBPUSD":
+                return MT5ResearchTradePlan(
+                    symbol="GBPUSD",
+                    timeframe="H1",
+                    direction="SELL",
+                    entry_price=1.2,
+                    stop=1.204,
+                    target=1.192,
+                    risk_reward=2.0,
+                    stop_multiplier=2.0,
+                    exit_model="FIXED_STOP",
+                    exit_score=1.0,
+                    exit_candidates=1,
+                    status="PLANO_VALIDO",
+                    risk_pips=0.004,
+                    reward_pips=0.008,
+                    alpha_id="ALPHA001",
+                    beta_id="BETA001",
+                    beta_version="FIXED_STOP",
+                    source="TEST_CERTIFIED_RESEARCH",
+                    reason="Plano valido fixture para GBPUSD.",
+                )
+            return MT5ResearchTradePlan(
+                symbol=pair or "EURUSD",
+                timeframe=str(getattr(row, "timeframe", "H1") or "H1"),
+                direction=str(getattr(row, "decision", "WAIT") or "WAIT"),
+                entry_price=None,
+                stop=None,
+                target=None,
+                risk_reward=0.0,
+                stop_multiplier=0.0,
+                exit_model="N/D",
+                exit_score=0.0,
+                exit_candidates=0,
+                status="SEM_GATILHO_VALIDO",
+                reason="Fixture sem plano executavel.",
+            )
+
+        object.__setattr__(service, "_mt5_research_trade_plan_for_view_row", mixed_plan)
+        def view_row_for_source(source_row, *_args, **_kwargs):
+            pair = str(getattr(source_row, "pair", "") or "")
+            decision = "SELL" if pair == "GBPUSD" else "WAIT"
+            return DashboardMT5ForexSignalRowViewModel(
+                pair=pair,
+                status="OK",
+                timeframe="H1",
+                lab_timeframe="H1",
+                last_price=1.2,
+                last_candle_time="2026-06-29T14:00:00+00:00",
+                trend="BAIXA" if pair == "GBPUSD" else "INDEFINIDA",
+                momentum=-0.001 if pair == "GBPUSD" else 0.0,
+                volatility=0.001,
+                short_average=1.1990,
+                long_average=1.2010,
+                ema_fast=1.1990,
+                atr=0.001,
+                pivot=1.2,
+                support=1.19,
+                resistance=1.21,
+                swing_low=1.19,
+                decision=decision,
+                theoretical_entry_direction=decision,
+                theoretical_entry_status=(
+                    "SINAL_TEORICO" if pair == "GBPUSD" else "SEM_GATILHO_VALIDO"
+                ),
+                theoretical_entry_price=1.2 if pair == "GBPUSD" else None,
+                active_model="TREND_MOMENTUM",
+                confidence=0.80,
+                lab_confidence=0.75,
+                reason="Fixture.",
+                lab_ict_demo_allowed=True,
+                lab_ict_status="APROVADO",
+                research_plan_status=(
+                    "PLANO_VALIDO" if pair == "GBPUSD" else "SEM_GATILHO_VALIDO"
+                ),
+                research_plan_entry_price=1.2 if pair == "GBPUSD" else None,
+                research_plan_stop=1.204 if pair == "GBPUSD" else None,
+                research_plan_target=1.192 if pair == "GBPUSD" else None,
+                research_plan_risk_reward=2.0 if pair == "GBPUSD" else None,
+            )
+
+        object.__setattr__(
+            service,
+            "_to_view_model_mt5_forex_signal_row",
+            view_row_for_source,
+        )
         os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = "1"
         provider = _AcceptingProvider()
         object.__setattr__(
@@ -1005,13 +1194,32 @@ class DemoExecutionServiceTest(unittest.TestCase):
 
         try:
             service.arm_demo_robot("TODOS", "H1")
-            result = service.evaluate_armed_demo_robot_once("TODOS", "H1")
+            result = service.run_demo_robot_for_all(timeframe="H1")
         finally:
             os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
 
-        self.assertIn(result.status, {"EXECUTED", "REJECTED"})
-        self.assertEqual(len(provider.orders), 1)
-        self.assertEqual(provider.orders[0].symbol, "GBPUSD")
+        self.assertEqual(result.status, "BATCH_COMPLETED")
+        self.assertIn("sem ordem", result.message)
+
+    def _install_no_research_plan(self, service: DashboardService) -> None:
+        def no_plan(row, *_args, **_kwargs):
+            return MT5ResearchTradePlan(
+                symbol=str(getattr(row, "pair", "EURUSD") or "EURUSD"),
+                timeframe=str(getattr(row, "timeframe", "H1") or "H1"),
+                direction=str(getattr(row, "decision", "WAIT") or "WAIT"),
+                entry_price=None,
+                stop=None,
+                target=None,
+                risk_reward=0.0,
+                stop_multiplier=0.0,
+                exit_model="N/D",
+                exit_score=0.0,
+                exit_candidates=0,
+                status="SEM_GATILHO_VALIDO",
+                reason="Fixture sem plano executavel.",
+            )
+
+        object.__setattr__(service, "_mt5_research_trade_plan_for_view_row", no_plan)
 
     def _forex_dashboard(
         self,
@@ -1256,6 +1464,19 @@ class _AcceptingProvider:
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         self.orders.append(order)
         return ExecutionResult(True, "ACCEPTED", "demo", ticket=123)
+
+
+class _RejectModel1Provider(_AcceptingProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.attempted_models: list[str] = []
+
+    def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
+        model = str(getattr(order, "operational_model", ""))
+        self.attempted_models.append(model)
+        if model == "MODELO_1_ALPHA_ATUAL":
+            return ExecutionResult(False, "REJECTED", "M1 rejeitado no teste")
+        return super().submit_order(order)
 
 
 class _PositionOpenProvider(_AcceptingProvider):

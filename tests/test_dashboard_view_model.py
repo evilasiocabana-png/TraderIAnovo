@@ -574,7 +574,63 @@ class DashboardViewModelContractTest(unittest.TestCase):
                 "MODELO_2_ESPELHO_BETA2_RR1",
                 "MODELO_3_RR3",
                 "MODELO_4_ESPELHO_M1",
+                "MODELO_5_PRICE_ACTION",
             ),
+        )
+
+    def test_modelo5_price_action_cria_plano_proprio(self) -> None:
+        service = DashboardService()
+        service.set_mt5_operational_model("MODELO_5_PRICE_ACTION")
+        row = DashboardMT5ForexSignalRowViewModel(
+            pair="EURUSD",
+            status="OK",
+            timeframe="M1",
+            last_price=1.1000,
+            pivot=1.1010,
+            support=1.0990,
+            resistance=1.1060,
+            swing_low=1.0988,
+            short_average=1.1010,
+            long_average=1.1000,
+            atr=0.0010,
+            decision="BUY",
+            theoretical_entry_direction="BUY",
+            theoretical_entry_status="SINAL_TEORICO",
+            theoretical_entry_price=1.1000,
+            active_model="TREND_MOMENTUM",
+            entry_filter_status="OK",
+        )
+        fallback_plan = MT5ResearchTradePlan(
+            symbol="EURUSD",
+            timeframe="M1",
+            direction="WAIT",
+            entry_price=None,
+            stop=None,
+            target=None,
+            risk_reward=0.0,
+            stop_multiplier=0.0,
+            exit_model="NONE",
+            exit_score=0.0,
+            exit_candidates=0,
+            status="SEM_GATILHO_VALIDO",
+        )
+
+        transformed_row, transformed_plan = service._mt5_apply_operational_model(
+            row,
+            fallback_plan,
+        )
+
+        self.assertEqual(transformed_row.decision, "BUY")
+        self.assertEqual(transformed_plan.source, "PRICE_ACTION_MODEL")
+        self.assertEqual(transformed_row.timeframe, "M5")
+        self.assertEqual(transformed_plan.timeframe, "M5")
+        self.assertEqual(transformed_plan.alpha_id, "ALPHAPRICE5")
+        self.assertEqual(transformed_plan.beta_id, "BETAPRICE5")
+        self.assertEqual(transformed_plan.status, "PLANO_VALIDO")
+        self.assertLess(transformed_plan.stop or 0.0, transformed_plan.entry_price or 0.0)
+        self.assertGreater(
+            transformed_plan.target or 0.0,
+            transformed_plan.entry_price or 0.0,
         )
 
     def test_scenario_runner_novas_alphas_usam_indicadores_especificos(self) -> None:

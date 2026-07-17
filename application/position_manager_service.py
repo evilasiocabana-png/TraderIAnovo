@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from domain.contracts.beta_strategy import BetaDecision, BetaStrategyContext
 
 DEFAULT_BETA_ID = "BETA001"
 DEFAULT_BETA_VERSION = "BETA v1"
+DEFAULT_POSITION_MANAGER_LOG_MAX_MB = 25
 
 
 class PositionManagerProvider(Protocol):
@@ -21,6 +23,9 @@ class PositionManagerProvider(Protocol):
 
     def get_open_position(self, symbol: str) -> object | None:
         """Retorna a posicao aberta do simbolo, quando existir."""
+
+    def get_open_position_by_ticket(self, symbol: str, ticket: int) -> object | None:
+        """Retorna a posicao aberta exata pelo ticket, quando existir."""
 
     def get_current_price(self, symbol: str) -> float | None:
         """Retorna o preco atual usado para validar SL."""
@@ -77,6 +82,7 @@ class PositionTradePlan:
     beta_id: str = DEFAULT_BETA_ID
     beta_version: str = DEFAULT_BETA_VERSION
     beta_mode: str = "PROTECT_ONLY"
+    ticket: int | None = None
     risk_reward: float | None = None
     atr: float | None = None
     momentum: float | None = None
@@ -159,6 +165,11 @@ class PositionTradePlan:
             beta_id=_normalize_beta_id(signal.get("beta_id")),
             beta_version=str(signal.get("beta_version") or DEFAULT_BETA_VERSION),
             beta_mode=str(signal.get("beta_mode") or "PROTECT_ONLY").upper(),
+            ticket=_optional_int(
+                signal.get("ticket")
+                or signal.get("mt5_ticket")
+                or signal.get("local_ticket")
+            ),
             risk_reward=risk_reward,
             atr=atr,
             momentum=momentum,
@@ -304,7 +315,12 @@ class PositionManagerService:
     current_state_path: Path = field(
         default_factory=lambda: Path(".traderia") / "position_manager_current.json"
     )
+    history_dedupe_path: Path = field(
+        default_factory=lambda: Path(".traderia")
+        / "position_manager_history_dedupe.json"
+    )
     beta002_strategy: Beta002Strategy = field(default_factory=Beta002Strategy)
+    log_max_mb: int = DEFAULT_POSITION_MANAGER_LOG_MAX_MB
 
     def manage_signals(
         self,
@@ -360,11 +376,12 @@ class PositionManagerService:
                 )
             )
 
-        position = self.provider.get_open_position(plan.symbol)
+        position = self._open_position_for_plan(plan)
         if position is None:
             return self._record(
                 PositionManagerResult(
                     symbol=plan.symbol,
+                    ticket=plan.ticket,
                     status="POSITION_ABSENT",
                     action="STOP_MAINTAINED",
                     message="Sem posicao aberta no MT5; nada a gerenciar.",
@@ -715,6 +732,19 @@ class PositionManagerService:
             ),
             evidence=evidence,
         )
+
+    def _open_position_for_plan(self, plan: PositionTradePlan) -> object | None:
+        """Busca a posicao exata por ticket quando o plano veio de ordem aceita."""
+        if plan.ticket is not None:
+            lookup = getattr(self.provider, "get_open_position_by_ticket", None)
+            if callable(lookup):
+                return lookup(plan.symbol, int(plan.ticket))
+        position = self.provider.get_open_position(plan.symbol)
+        if plan.ticket is not None and position is not None:
+            position_ticket = _optional_int(getattr(position, "ticket", None))
+            if position_ticket is not None and position_ticket != int(plan.ticket):
+                return None
+        return position
 
     def _decide(
         self,
@@ -1550,11 +1580,36 @@ class PositionManagerService:
         }
         previous = self._current_state_record(payload)
         self._write_current_state(payload)
-        if self._should_append_history(payload, previous):
+        should_append = self._should_append_history(payload, previous)
+        if should_append and self._is_low_signal_history_duplicate(payload):
+            should_append = False
+        if should_append:
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            self._rotate_history_if_needed()
             with self.log_path.open("a", encoding="utf-8") as file:
                 file.write(json.dumps(payload, ensure_ascii=True) + "\n")
+            self._remember_low_signal_history(payload)
         return result
+
+    def _rotate_history_if_needed(self) -> None:
+        """Arquiva o JSONL quente quando crescer demais para preservar leveza."""
+        if not self.log_path.exists():
+            return
+        max_mb = _positive_int(
+            os.getenv("TRADERIA_POSITION_MANAGER_LOG_MAX_MB"),
+            self.log_max_mb,
+        )
+        max_bytes = max(1, max_mb) * 1024 * 1024
+        try:
+            if self.log_path.stat().st_size <= max_bytes:
+                return
+            stamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S")
+            archive_path = self.log_path.with_name(
+                f"{self.log_path.stem}_{stamp}.archive{self.log_path.suffix}"
+            )
+            self.log_path.replace(archive_path)
+        except OSError:
+            return
 
     def _current_state_record(
         self,
@@ -1612,12 +1667,19 @@ class PositionManagerService:
         payload: dict[str, Any],
         previous: dict[str, Any] | None,
     ) -> bool:
+        if self._is_high_signal_history(payload):
+            return True
+        if previous is None:
+            return True
+        return self._history_signature(payload) != self._history_signature(previous)
+
+    def _is_high_signal_history(self, payload: dict[str, Any]) -> bool:
         status = str(payload.get("status") or "").upper()
         action = str(payload.get("action") or "").upper()
         execution_status = str(payload.get("execution_status") or "").upper()
         final_reason = str(payload.get("final_exit_reason") or "").upper()
         tags = {str(tag).upper() for tag in payload.get("audit_tags", []) or []}
-        high_signal = (
+        return (
             bool(payload.get("submitted"))
             or bool(payload.get("success"))
             or payload.get("new_stop") is not None
@@ -1645,11 +1707,74 @@ class PositionManagerService:
                 }
             )
         )
-        if high_signal:
-            return True
-        if previous is None:
-            return True
-        return self._history_signature(payload) != self._history_signature(previous)
+
+    def _is_low_signal_history_duplicate(self, payload: dict[str, Any]) -> bool:
+        if self._is_high_signal_history(payload):
+            return False
+        dedupe = self._load_history_dedupe()
+        key = self._history_dedupe_key(payload)
+        signature = self._history_signature_text(payload)
+        return bool(key and dedupe.get(key) == signature)
+
+    def _remember_low_signal_history(self, payload: dict[str, Any]) -> None:
+        if self._is_high_signal_history(payload):
+            return
+        key = self._history_dedupe_key(payload)
+        if not key:
+            return
+        dedupe = self._load_history_dedupe()
+        dedupe[key] = self._history_signature_text(payload)
+        history_dedupe_path = self._resolved_history_dedupe_path()
+        history_dedupe_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            history_dedupe_path.write_text(
+                json.dumps(dedupe, ensure_ascii=True, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            return
+
+    def _load_history_dedupe(self) -> dict[str, str]:
+        history_dedupe_path = self._resolved_history_dedupe_path()
+        if not history_dedupe_path.exists():
+            return {}
+        try:
+            payload = json.loads(
+                history_dedupe_path.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return {
+            str(key): str(value)
+            for key, value in payload.items()
+            if isinstance(key, str)
+        } if isinstance(payload, dict) else {}
+
+    def _resolved_history_dedupe_path(self) -> Path:
+        default_path = Path(".traderia") / "position_manager_history_dedupe.json"
+        if (
+            self.history_dedupe_path == default_path
+            and self.log_path.parent != default_path.parent
+        ):
+            return self.log_path.with_name("position_manager_history_dedupe.json")
+        return self.history_dedupe_path
+
+    def _history_dedupe_key(self, payload: dict[str, Any]) -> str:
+        ticket = payload.get("ticket")
+        if ticket is not None:
+            return f"ticket:{ticket}"
+        symbol = str(payload.get("symbol") or "").upper()
+        side = str(payload.get("side") or "").upper()
+        policy = str(payload.get("policy") or "").upper()
+        beta_id = str(payload.get("beta_id") or "").upper()
+        return f"symbol:{symbol}:{side}:{policy}:{beta_id}" if symbol else ""
+
+    def _history_signature_text(self, payload: dict[str, Any]) -> str:
+        return json.dumps(
+            self._history_signature(payload),
+            ensure_ascii=True,
+            default=str,
+        )
 
     def _history_signature(self, record: dict[str, Any]) -> tuple[Any, ...]:
         return (
@@ -1706,9 +1831,24 @@ def _positive_float(value: object) -> float | None:
     return parsed
 
 
+def _positive_int(value: object, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return max(1, int(default))
+    return max(1, parsed)
+
+
 def _optional_float(value: object) -> float | None:
     try:
         return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_int(value: object) -> int | None:
+    try:
+        return int(value)
     except (TypeError, ValueError):
         return None
 

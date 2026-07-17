@@ -351,8 +351,8 @@ class MT5DemoRobotService:
             trade_plan.timeframe,
         ):
             return "Plano do Research Lab pertence a outro simbolo/timeframe."
-        if trade_plan.source != "RESEARCH_LAB":
-            return "Plano de trade nao veio do Research Lab."
+        if trade_plan.source not in {"RESEARCH_LAB", "PRICE_ACTION_MODEL"}:
+            return "Plano de trade nao veio de fonte operacional autorizada."
         if trade_plan.status != "PLANO_VALIDO":
             return "Plano do Research Lab nao esta com status PLANO_VALIDO."
         if trade_plan.risk_reward <= 0:
