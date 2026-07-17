@@ -1475,6 +1475,31 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertEqual(curve, [50000.0, 49996.5, 49998.5])
 
+    def test_evolucao_patrimonial_filtra_por_modelo_operacional(self) -> None:
+        rows = [
+            SimpleNamespace(operational_model="MODELO_1_ALPHA_ATUAL"),
+            SimpleNamespace(operational_model="MODELO_2_ESPELHO_BETA2_RR1"),
+            SimpleNamespace(operational_model="MODELO_3_RR3"),
+            SimpleNamespace(operational_model="MODELO_4_ESPELHO_M1"),
+            SimpleNamespace(operational_model="N/D"),
+            SimpleNamespace(
+                operational_model="N/D",
+                plan_snapshot={"operational_model": "MODELO_2_ESPELHO_BETA2_RR1"},
+            ),
+        ]
+
+        model0 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 0")
+        model1 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 1")
+        model2 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 2")
+        model3 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 3")
+        model4 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 4")
+
+        self.assertEqual(model0, [rows[4]])
+        self.assertEqual(model1, [rows[0]])
+        self.assertEqual(model2, [rows[1], rows[5]])
+        self.assertEqual(model3, [rows[2]])
+        self.assertEqual(model4, [rows[3]])
+
     def test_saldo_inicial_mt5_default_visual_e_zero(self) -> None:
         source = inspect.getsource(dashboard_app._exibir_evolucao_patrimonial_mt5)
 
@@ -1640,7 +1665,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             alpha_id="ALPHA011",
             entry_setup="PIVOT_REJECTION",
             exit_setup="BREAK_EVEN",
-            operational_model="MODELO_1_ALPHA_ATUAL",
+            operational_model="N/D",
         )
         signal_by_pair = {
             "EURUSD": {
@@ -1671,6 +1696,51 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(output["Movimento SL"], "FIXO")
         self.assertEqual(output["Modelo envio"], "MODELO 2")
         self.assertEqual(output["Stop inicial"], "1.11000")
+        self.assertEqual(output["Alvo"], "1.09000")
+
+    def test_saida_teorica_modelo4_mostra_espelho_do_m1(self) -> None:
+        row = SimpleNamespace(
+            symbol="EURUSD",
+            side="SELL",
+            mt5_side="SELL",
+            stop=1.1200,
+            mt5_stop=1.1200,
+            target=1.0900,
+            beta_id="BETA004",
+            alpha_id="ALPHA011",
+            entry_setup="PIVOT_REJECTION",
+            exit_setup="BETA004_ESPELHO_M1",
+            operational_model="MODELO_4_ESPELHO_M1",
+        )
+        signal_by_pair = {
+            "EURUSD": {
+                "Periodo de tempo": "M1",
+                "Alpha Lab": "ALPHA011",
+                "Beta Lab": "BETA004",
+                "Modelo Ativo": "PIVOT_REJECTION",
+                "Direcao Teorica": "BUY",
+                "Direcao": "COMPRAR",
+                "Preco Teorico": "1.10000",
+                "Stop Research": "1.09000",
+                "Alvo Research": "1.12000",
+                "Plano Research": "PLANO_VALIDO",
+            }
+        }
+
+        output = dashboard_app._mt5_theoretical_exit_row(
+            row,
+            signal_by_pair,
+            display_model=dashboard_app.MT5_OPERATIONAL_MODEL_1,
+        )
+
+        self.assertEqual(output["Lado"], "VENDER")
+        self.assertEqual(output["Beta"], "BETA004")
+        self.assertEqual(output["Modelo saida"], "BETA004_ESPELHO_M1")
+        self.assertEqual(output["Cenario BETA002"], "ESPELHO_M1_STOP_ALVO_TROCADOS")
+        self.assertEqual(output["Gestao stop"], "FIXO_ESPELHO_M1")
+        self.assertEqual(output["Movimento SL"], "FIXO")
+        self.assertEqual(output["Modelo envio"], "MODELO 4")
+        self.assertEqual(output["Stop inicial"], "1.12000")
         self.assertEqual(output["Alvo"], "1.09000")
 
     def test_saida_teorica_usa_modelo_gravado_na_ordem_antes_do_chaveamento(self) -> None:

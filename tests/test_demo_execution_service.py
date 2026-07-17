@@ -878,7 +878,7 @@ class DemoExecutionServiceTest(unittest.TestCase):
         self.assertIn("2 aceita", result.message)
         self.assertEqual([order.symbol for order in provider.orders], ["EURUSD", "GBPUSD"])
 
-    def test_todos_modelos_executa_modelo1_e_modelo2_no_mesmo_ciclo(self) -> None:
+    def test_todos_modelos_executa_modelos_1_2_e_4_no_mesmo_ciclo(self) -> None:
         service = DashboardService()
         service.set_mt5_operational_model("TODOS_MODELOS")
         dashboard = self._forex_dashboard()
@@ -966,14 +966,22 @@ class DemoExecutionServiceTest(unittest.TestCase):
             os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
 
         self.assertEqual(result.status, "BATCH_COMPLETED")
-        self.assertEqual(len(provider.orders), 2)
+        self.assertEqual(len(provider.orders), 3)
         self.assertEqual(
             [order.operational_model for order in provider.orders],
-            ["MODELO_1_ALPHA_ATUAL", "MODELO_2_ESPELHO_BETA2_RR1"],
+            [
+                "MODELO_1_ALPHA_ATUAL",
+                "MODELO_2_ESPELHO_BETA2_RR1",
+                "MODELO_4_ESPELHO_M1",
+            ],
         )
         self.assertIn(provider.orders[0].side, {"BUY", "SELL"})
         self.assertIn(provider.orders[1].side, {"BUY", "SELL"})
+        self.assertIn(provider.orders[2].side, {"BUY", "SELL"})
         self.assertNotEqual(provider.orders[0].side, provider.orders[1].side)
+        self.assertNotEqual(provider.orders[0].side, provider.orders[2].side)
+        self.assertEqual(provider.orders[2].target, valid_plan.stop)
+        self.assertEqual(provider.orders[2].stop, valid_plan.target)
 
     def test_robo_temporal_continua_apos_par_sem_plano_research(self) -> None:
         service = DashboardService()
@@ -1121,6 +1129,16 @@ class DemoExecutionServiceTest(unittest.TestCase):
                 timeframe="H1",
                 source="TEST_CERTIFIED_RESEARCH",
             ),
+        )
+        object.__setattr__(
+            service,
+            "_mt5_research_source_for_reports",
+            lambda: service.mt5_research_constants,
+        )
+        object.__setattr__(
+            service,
+            "_load_mt5_model3_rr3_snapshot",
+            lambda: {},
         )
 
     def _flat_then_trigger_candles(self, direction: str) -> list[Candle]:

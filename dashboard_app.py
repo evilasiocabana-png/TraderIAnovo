@@ -81,6 +81,8 @@ MT5_RR3_MIN_CONFIDENCE = 0.50
 MT5_RR3_MIN_SCORE = 0.60
 MT5_OPERATIONAL_MODEL_1 = "MODELO_1_ALPHA_ATUAL"
 MT5_OPERATIONAL_MODEL_2 = "MODELO_2_ESPELHO_BETA2_RR1"
+MT5_OPERATIONAL_MODEL_3 = "MODELO_3_RR3"
+MT5_OPERATIONAL_MODEL_4 = "MODELO_4_ESPELHO_M1"
 MT5_OPERATIONAL_MODEL_ALL = "TODOS_MODELOS"
 MT5_OPERATIONAL_MODEL_STATE_PATH = Path(".traderia") / "mt5_operational_model.json"
 MT5_DEMO_ROBOT_ONLINE_STATE_PATH = (
@@ -1594,7 +1596,9 @@ def _render_mt5_operational_model_selector() -> str:
     labels = {
         MT5_OPERATIONAL_MODEL_1: "Modelo 1 - Lab vencedor",
         MT5_OPERATIONAL_MODEL_2: "Modelo 2 - espelho definido por voce",
-        MT5_OPERATIONAL_MODEL_ALL: "Todos - Modelo 1 e Modelo 2",
+        MT5_OPERATIONAL_MODEL_3: "Modelo 3 - M3 RR3",
+        MT5_OPERATIONAL_MODEL_4: "Modelo 4 - espelho do M1",
+        MT5_OPERATIONAL_MODEL_ALL: "Todos - M1, M2, M3 e M4",
     }
     current = str(
         st.session_state.get(
@@ -1629,7 +1633,10 @@ def _render_mt5_operational_model_selector() -> str:
             "MODELO 1 executa o plano vencedor vindo do Lab. MODELO 2 e a regra "
             "manual definida por voce: inverte BUY/SELL, usa o TP da BETA2 "
             "invertida no ponto do stop original e calcula o loss em RR 1. "
-            "Em TODOS, os dois modelos podem enviar ordem, mas cada modelo so "
+            "MODELO 3 e o fluxo M3 RR3: usa snapshot RR3 e so envia quando "
+            "o sinal vivo confirma a direcao. MODELO 4 copia o M1 e espelha "
+            "direcao, stop e alvo: stop original vira alvo e alvo original vira "
+            "stop. Em TODOS, os quatro modelos podem enviar ordem, mas cada modelo so "
             "pode ter uma posicao aberta por par."
         )
     st.session_state[MT5_OPERATIONAL_MODEL_KEY] = selected
@@ -1641,8 +1648,18 @@ def _render_mt5_operational_model_selector() -> str:
         )
     if selected == MT5_OPERATIONAL_MODEL_ALL:
         st.warning(
-            "Todos os modelos ativo: Modelo 1 e Modelo 2 podem enviar ordem. "
-            "O mesmo par pode ter ate duas posicoes, uma por modelo."
+            "Todos os modelos ativo: M1, M2, M3 e M4 podem enviar ordem. "
+            "O mesmo par pode ter uma posicao por modelo."
+        )
+    if selected == MT5_OPERATIONAL_MODEL_3:
+        st.warning(
+            "M3 RR3 ativo: usa o snapshot RR3 e so envia quando o sinal vivo "
+            "confirmar a direcao do candidato M3."
+        )
+    if selected == MT5_OPERATIONAL_MODEL_4:
+        st.warning(
+            "Modelo 4 ativo: espelho do M1. Nao recalcula Lab; inverte BUY/SELL, "
+            "usa o stop original como alvo e o alvo original como stop."
         )
     return selected
 
@@ -1652,6 +1669,8 @@ def _valid_mt5_operational_model(model: object) -> str:
     if normalized in {
         MT5_OPERATIONAL_MODEL_1,
         MT5_OPERATIONAL_MODEL_2,
+        MT5_OPERATIONAL_MODEL_3,
+        MT5_OPERATIONAL_MODEL_4,
         MT5_OPERATIONAL_MODEL_ALL,
     }:
         return normalized
@@ -1705,6 +1724,10 @@ def _mt5_operational_model_short_label(model: str) -> str:
     normalized = str(model or "").upper()
     if normalized == MT5_OPERATIONAL_MODEL_2:
         return "MODELO 2"
+    if normalized == MT5_OPERATIONAL_MODEL_3:
+        return "M3"
+    if normalized == MT5_OPERATIONAL_MODEL_4:
+        return "M4"
     if normalized == MT5_OPERATIONAL_MODEL_ALL:
         return "TODOS"
     return "MODELO 1"
@@ -2361,15 +2384,30 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
         step=10.0,
         format="%.2f",
     )
-    curve = _mt5_realized_equity_curve(
+    main_chart_selection = _mt5_equity_main_chart_model_selection()
+    main_chart_rows = _mt5_rows_for_equity_model_selection(
         rows,
+        main_chart_selection,
+    )
+    main_curve = _mt5_realized_equity_curve(
+        main_chart_rows,
         initial_balance=float(initial_balance),
         start_date=start_date,
     )
-    if len(curve) <= 1:
-        st.info("Ainda nao ha operacoes encerradas suficientes para montar a curva.")
-        return
-    max_chart_start_index = max(len(curve) - 2, 0)
+    model_curves = {
+        model: _mt5_realized_equity_curve(
+            _mt5_rows_for_equity_model_filter(rows, model),
+            initial_balance=float(initial_balance),
+            start_date=start_date,
+        )
+        for model in ["MODELO 1", "MODELO 2", "MODELO 3", "MODELO 4"]
+    }
+    max_chart_start_index = max(
+        [
+            max(len(main_curve) - 2, 0),
+            *[max(len(curve) - 2, 0) for curve in model_curves.values()],
+        ]
+    )
     chart_start_index = st.number_input(
         "Indice inicial do grafico",
         min_value=0,
@@ -2381,6 +2419,104 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
             "O trecho exibido sempre comeca em 0."
         ),
     )
+    st.caption(
+        _mt5_equity_model_filter_caption(
+            rows,
+            main_chart_rows,
+            str(main_chart_selection),
+        )
+    )
+    _render_mt5_equity_chart(
+        f"Grafico principal - {main_chart_selection}",
+        main_curve,
+        chart_start_index=int(chart_start_index),
+        model_filter=str(main_chart_selection),
+    )
+    for model_filter in ["MODELO 1", "MODELO 2", "MODELO 3", "MODELO 4"]:
+        _render_mt5_equity_chart(
+            model_filter,
+            model_curves[model_filter],
+            chart_start_index=int(chart_start_index),
+            model_filter=model_filter,
+    )
+
+
+def _mt5_equity_main_chart_model_selection() -> str:
+    st.caption("Grafico principal")
+    colunas = st.columns(5)
+    all_selected = colunas[0].checkbox(
+        "Todos",
+        value=True,
+        key="mt5_report_equity_main_all",
+        help="Marca M1, M2, M3 e M4 no grafico principal.",
+    )
+    selected_models: list[str] = []
+    for index, model in enumerate(("M1", "M2", "M3", "M4"), start=1):
+        checked = colunas[index].checkbox(
+            model,
+            value=all_selected,
+            disabled=all_selected,
+            key=f"mt5_report_equity_main_{model.lower()}",
+        )
+        if all_selected or checked:
+            selected_models.append(model)
+    if not selected_models:
+        st.warning("Selecione pelo menos um modelo para o grafico principal.")
+        return "TODOS"
+    return " + ".join(selected_models)
+
+
+def _mt5_rows_for_equity_model_selection(
+    rows: list[object],
+    selection: str,
+) -> list[object]:
+    normalized = str(selection or "TODOS").upper().replace(" ", "")
+    if normalized == "TODOS":
+        return list(rows)
+    selected_keys = {
+        part
+        for part in normalized.split("+")
+        if part in {
+            "M1",
+            "M2",
+            "M3",
+            "M4",
+            "MODELO1",
+            "MODELO2",
+            "MODELO3",
+            "MODELO4",
+        }
+    }
+    model_keys = {
+        "M1": "MODELO1",
+        "M2": "MODELO2",
+        "M3": "MODELO3",
+        "M4": "MODELO4",
+        "MODELO1": "MODELO1",
+        "MODELO2": "MODELO2",
+        "MODELO3": "MODELO3",
+        "MODELO4": "MODELO4",
+    }
+    targets = {model_keys[key] for key in selected_keys}
+    if not targets:
+        return list(rows)
+    return [row for row in rows if _mt5_equity_row_model_key(row) in targets]
+
+
+def _render_mt5_equity_chart(
+    title: str,
+    curve: list[float],
+    *,
+    chart_start_index: int,
+    model_filter: str,
+) -> None:
+    st.markdown(f"##### {title}")
+    if len(curve) <= 1:
+        st.info(
+            "Ainda nao ha operacoes encerradas suficientes para montar a curva "
+            f"com o filtro {model_filter}."
+        )
+        return
     chart_curve = _mt5_equity_curve_rebased_from_index(
         curve,
         int(chart_start_index),
@@ -2388,8 +2524,81 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
     colunas = st.columns(3)
     colunas[0].metric("Patrimonio final", f"{curve[-1]:.2f}")
     colunas[1].metric("Operacoes na curva", str(len(curve) - 1))
-    colunas[2].metric("Base", f"Trecho desde indice {int(chart_start_index)}")
+    colunas[2].metric(
+        "Base",
+        f"{model_filter} desde indice {int(chart_start_index)}",
+    )
     st.line_chart({"Patrimonio": chart_curve})
+
+
+def _mt5_rows_for_equity_model_filter(
+    rows: list[object],
+    model_filter: str,
+) -> list[object]:
+    normalized = str(model_filter or "TODOS").upper()
+    if normalized == "TODOS":
+        return list(rows)
+    target = normalized.replace(" ", "")
+    return [
+        row
+        for row in rows
+        if _mt5_equity_row_model_key(row) == target
+    ]
+
+
+def _mt5_equity_model_filter_caption(
+    rows: list[object],
+    filtered_rows: list[object],
+    model_filter: str,
+) -> str:
+    counts = {
+        "MODELO0": 0,
+        "MODELO1": 0,
+        "MODELO2": 0,
+        "MODELO3": 0,
+        "MODELO4": 0,
+    }
+    for row in rows:
+        key = _mt5_equity_row_model_key(row)
+        counts[key if key in counts else "MODELO0"] += 1
+    return (
+        f"Filtro aplicado: {model_filter} | linhas na curva: {len(filtered_rows)} | "
+        f"M0: {counts['MODELO0']} | M1: {counts['MODELO1']} | "
+        f"M2: {counts['MODELO2']} | M3: {counts['MODELO3']} | "
+        f"M4: {counts['MODELO4']}"
+    )
+
+
+def _mt5_equity_row_model_key(row: object) -> str:
+    model = str(getattr(row, "operational_model", "") or "").upper()
+    if not model or model in {"N/D", "NONE"}:
+        snapshot = getattr(row, "plan_snapshot", {}) or {}
+        if isinstance(snapshot, dict):
+            model = str(snapshot.get("operational_model", "") or "").upper()
+    if not model or model in {"N/D", "NONE"}:
+        identity = str(getattr(row, "plan_identity", "") or "").upper()
+        if not identity:
+            snapshot = getattr(row, "plan_snapshot", {}) or {}
+            if isinstance(snapshot, dict):
+                identity = str(snapshot.get("plan_identity", "") or "").upper()
+        model = identity
+    if "MODELO_2" in model or "MODELO 2" in model or model == "M2":
+        return "MODELO2"
+    if "MODELO_3" in model or "MODELO 3" in model or model == "M3":
+        return "MODELO3"
+    if "MODELO_4" in model or "MODELO 4" in model or model == "M4":
+        return "MODELO4"
+    if "MODELO_1" in model or "MODELO 1" in model or model == "M1":
+        return "MODELO1"
+    if "MODELO2" in model:
+        return "MODELO2"
+    if "MODELO3" in model:
+        return "MODELO3"
+    if "MODELO4" in model:
+        return "MODELO4"
+    if "MODELO1" in model:
+        return "MODELO1"
+    return "MODELO0"
 
 
 def _parse_dashboard_date(value: object) -> date:
@@ -3490,18 +3699,54 @@ def _exibir_entradas_teoricas_mt5(
         decision_column="Direcao",
         color_status_cells=True,
     )
-    _exibir_entrada_teorica_mt5_rr3_experimental(rows)
+    _exibir_entrada_teorica_mt5_rr3_experimental(
+        rows,
+        robot_online=robot_online,
+        mt5_online=mt5_online,
+        execution_enabled=_mt5_operational_model_enabled(
+            operational_model,
+            MT5_OPERATIONAL_MODEL_3,
+        ),
+    )
+    st.subheader("Entrada Teorica MT5 - Modelo 4 espelho M1")
+    st.caption(
+        "Modelo espelho do M1: copia o plano vencedor do Lab sem recalcular, "
+        "inverte BUY/SELL, usa o stop original como alvo e o alvo original "
+        "como stop. Tabela sempre visivel para conferencia; envia ordem somente "
+        "quando Modelo 4 ou Todos estiver selecionado."
+    )
+    _render_stable_readonly_table(
+        [
+            _forex_theoretical_entry_row(
+                _model4_inverse_entry_row(row),
+                robot_online=robot_online,
+                mt5_online=mt5_online,
+                execution_enabled=_mt5_operational_model_enabled(
+                    operational_model,
+                    MT5_OPERATIONAL_MODEL_4,
+                ),
+                operational_model=MT5_OPERATIONAL_MODEL_4,
+            )
+            for row in rows
+        ],
+        model_column="Modelo ativo",
+        decision_column="Direcao",
+        color_status_cells=True,
+    )
 
 
 def _exibir_entrada_teorica_mt5_rr3_experimental(
     rows: list[dict[str, object]],
+    *,
+    robot_online: bool = False,
+    mt5_online: bool = False,
+    execution_enabled: bool = False,
 ) -> None:
-    """Mostra o Modelo 3 RR3 sem permitir execucao operacional."""
-    st.subheader("Entrada Teorica MT5 - Modelo 3 RR3 experimental")
+    """Mostra o fluxo M3 RR3 com os mesmos gates visuais de M1/M2."""
+    st.subheader("Entrada Teorica MT5 - M3 RR3")
     st.caption(
-        "Somente leitura. Usa o snapshot RR3 separado para mostrar quais pares "
-        "teriam candidato RR3 com historico minimo. Nao envia ordem, nao muda "
-        "M1/M2 e nao alimenta o Position Manager."
+        "Fluxo proprio M3: acompanha candidatos RR3 do snapshot separado com "
+        "as mesmas etapas visuais de envio usadas em M1/M2."
     )
     payload = _load_rr3_experimental_snapshot_payload()
     if payload is None:
@@ -3515,7 +3760,13 @@ def _exibir_entrada_teorica_mt5_rr3_experimental(
         for row in rows
         if str(row.get("Par", "") or "").strip()
     }
-    candidates = _rr3_experimental_mt5_rows(payload, rows_by_pair)
+    candidates = _rr3_experimental_mt5_rows(
+        payload,
+        rows_by_pair,
+        robot_online=robot_online,
+        mt5_online=mt5_online,
+        execution_enabled=execution_enabled,
+    )
     if not candidates:
         st.info(
             "Nenhum candidato RR3 passou nos criterios minimos de leitura "
@@ -3524,7 +3775,7 @@ def _exibir_entrada_teorica_mt5_rr3_experimental(
         return
     _render_stable_readonly_table(
         candidates,
-        model_column="Setup",
+        model_column="Modelo ativo",
         decision_column="Direcao",
         color_status_cells=True,
     )
@@ -3542,56 +3793,197 @@ def _load_rr3_experimental_snapshot_payload() -> dict[str, object] | None:
 def _rr3_experimental_mt5_rows(
     payload: dict[str, object],
     current_rows_by_pair: dict[str, dict[str, object]],
+    *,
+    robot_online: bool = False,
+    mt5_online: bool = False,
+    execution_enabled: bool = False,
 ) -> list[dict[str, object]]:
-    scenarios = [
-        scenario
-        for scenario in list(payload.get("best_scenarios_by_market", []) or [])
-        if isinstance(scenario, dict)
-    ]
+    scenarios = _rr3_experimental_best_scenarios_by_pair(payload)
     result: list[dict[str, object]] = []
-    for scenario in sorted(scenarios, key=lambda item: str(item.get("pair", ""))):
-        pair = str(scenario.get("pair", "N/D") or "N/D").upper()
-        current_row = current_rows_by_pair.get(pair, {})
-        gate, reason = _rr3_experimental_gate(scenario)
-        direction = str(scenario.get("decision", "WAIT") or "WAIT").upper()
-        live_direction = str(
-            current_row.get("Direcao Teorica", "WAIT") or "WAIT"
-        ).upper()
-        signal_status = (
-            "OK"
-            if gate == "OK" and direction in {"BUY", "SELL"} and live_direction == direction
-            else "AGUARDA: sinal atual nao confirmou RR3"
-        )
-        if gate != "OK":
-            signal_status = gate
-        parameters = dict(scenario.get("parameters", {}) or {})
+    for scenario in scenarios:
         result.append(
-            {
-                "Par": pair,
-                "TF RR3": scenario.get("timeframe", "N/D"),
-                "Alpha RR3": scenario.get("alpha_id", "N/D"),
-                "Beta RR3": scenario.get("beta_id", "N/D"),
-                "Setup": scenario.get("model", "N/D"),
-                "Direcao": direction,
-                "RR": parameters.get("rr", "N/D"),
-                "Score": _optional_number(scenario.get("score")),
-                "Confirmacao": _optional_percent(scenario.get("lab_confidence")),
-                "Amostra": int(
-                    _safe_float_or_none(
-                        scenario.get("lab_confidence_sample_size")
-                    )
-                    or 0
-                ),
-                "PF": _optional_number(
-                    scenario.get("lab_confidence_profit_factor")
-                ),
-                "Sinal vivo": signal_status,
-                "Gate RR3": gate,
-                "Acao": "MONITORAR_READ_ONLY",
-                "Motivo": reason,
-            }
+            _rr3_experimental_theoretical_entry_row(
+                scenario,
+                current_rows_by_pair,
+                robot_online=robot_online,
+                mt5_online=mt5_online,
+                execution_enabled=execution_enabled,
+            )
         )
     return result
+
+
+def _rr3_experimental_best_scenarios_by_pair(
+    payload: dict[str, object],
+) -> list[dict[str, object]]:
+    source = [
+        scenario
+        for scenario in list(payload.get("scenario_ranking", []) or [])
+        if isinstance(scenario, dict)
+    ]
+    if not source:
+        source = [
+            scenario
+            for scenario in list(payload.get("best_scenarios_by_market", []) or [])
+            if isinstance(scenario, dict)
+        ]
+    best_by_pair: dict[str, dict[str, object]] = {}
+    for scenario in source:
+        pair = str(scenario.get("pair", "") or "").upper()
+        if not pair:
+            continue
+        parameters = dict(scenario.get("parameters", {}) or {})
+        if _safe_float_or_none(parameters.get("rr")) != 3.0:
+            continue
+        current = best_by_pair.get(pair)
+        if current is None or _rr3_experimental_runtime_rank(
+            scenario,
+        ) > _rr3_experimental_runtime_rank(current):
+            best_by_pair[pair] = scenario
+    return sorted(
+        best_by_pair.values(),
+        key=lambda scenario: str(scenario.get("pair", "")),
+    )
+
+
+def _rr3_experimental_runtime_rank(
+    scenario: dict[str, object],
+) -> tuple[bool, bool, bool, float, int, float, float]:
+    status_ok = str(scenario.get("status", "") or "").upper() == "APROVADO"
+    sample = int(_safe_float_or_none(scenario.get("lab_confidence_sample_size")) or 0)
+    profit_factor = _safe_float_or_none(
+        scenario.get("lab_confidence_profit_factor")
+    ) or 0.0
+    confidence = _safe_float_or_none(scenario.get("lab_confidence")) or 0.0
+    score = _safe_float_or_none(scenario.get("score")) or 0.0
+    return (
+        status_ok,
+        status_ok,
+        sample > 0,
+        confidence,
+        sample,
+        profit_factor,
+        score,
+    )
+
+
+def _rr3_experimental_theoretical_entry_row(
+    scenario: dict[str, object],
+    current_rows_by_pair: dict[str, dict[str, object]],
+    *,
+    robot_online: bool = False,
+    mt5_online: bool = False,
+    execution_enabled: bool = False,
+) -> dict[str, object]:
+    pair = str(scenario.get("pair", "N/D") or "N/D").upper()
+    current_row = dict(current_rows_by_pair.get(pair, {}))
+    gate, reason = _rr3_experimental_gate(scenario)
+    parameters = dict(scenario.get("parameters", {}) or {})
+    direction = str(scenario.get("decision", "WAIT") or "WAIT").upper()
+    live_direction = str(current_row.get("Direcao Teorica", "WAIT") or "WAIT").upper()
+    live_trigger = str(current_row.get("Entrada Teorica", "") or "").upper()
+    signal_gate = (
+        "OK"
+        if gate == "OK"
+        and direction in {"BUY", "SELL"}
+        and live_direction == direction
+        and live_trigger == "SINAL_TEORICO"
+        else "AGUARDA: sinal atual nao confirmou M3"
+    )
+    plan_gate = "OK" if gate == "OK" else gate
+    zone_gate = _entry_zone_gate(current_row)
+    robot_gate = _entry_robot_gate(robot_online)
+    mt5_gate = _entry_mt5_gate(mt5_online)
+    filter_gate = "OK: RR3" if gate == "OK" else gate
+    regime_row = dict(current_row)
+    regime_row["Direcao Teorica"] = direction
+    regime_gate = _entry_regime_gate(regime_row)
+    duplicate_gate = _entry_duplicate_gate(
+        {
+            **current_row,
+            "Par": pair,
+            "Periodo de tempo": scenario.get("timeframe", "N/D"),
+            "Direcao Teorica": direction,
+            "Preco Teorico": current_row.get("Preco Teorico", "N/D"),
+            "Stop Research": current_row.get("Stop Research", "N/D"),
+            "Alvo Research": current_row.get("Alvo Research", "N/D"),
+            "Alpha Lab": scenario.get("alpha_id", "N/D"),
+            "Modelo Saida": scenario.get("beta_id", "N/D"),
+        },
+        operational_model=MT5_OPERATIONAL_MODEL_3,
+    )
+    price_gate = (
+        "OK"
+        if signal_gate == "OK" and plan_gate == "OK"
+        else "AGUARDA: M3 aguardando encaixe"
+    )
+    position_gate = _entry_position_gate(current_row)
+    send_gate = _entry_send_gate(
+        entry_gate=signal_gate,
+        plan_gate=plan_gate,
+        zone_gate=zone_gate,
+        robot_gate=robot_gate,
+        mt5_gate=mt5_gate,
+        filter_gate=filter_gate,
+        duplicate_gate=duplicate_gate,
+        regime_gate=regime_gate,
+        price_gate=price_gate,
+        position_gate=position_gate,
+    )
+    if not execution_enabled:
+        send_gate = "MONITOR: outro modelo"
+    sample = int(_safe_float_or_none(scenario.get("lab_confidence_sample_size")) or 0)
+    return {
+        "Par": pair,
+        "Timeframe": scenario.get("timeframe", "N/D"),
+        "Envio resumo": send_gate,
+        "Duplicidade": duplicate_gate,
+        "Sinal": signal_gate,
+        "Plano": plan_gate,
+        "Zona gate": zone_gate,
+        "Robo": robot_gate,
+        "MT5": mt5_gate,
+        "Filtro": filter_gate,
+        "Regime": regime_gate,
+        "Plano vigente": price_gate,
+        "Posicao": position_gate,
+        "Envio": send_gate,
+        "Alpha": scenario.get("alpha_id", "N/D"),
+        "Beta": scenario.get("beta_id", "N/D"),
+        "Setup M3": scenario.get("model", "N/D"),
+        "Config vencedora": _scenario_parameters_label(parameters),
+        "Posicao aberta": "SIM"
+        if _entry_open_position_side(current_row) != "N/D"
+        else "NAO",
+        "Direcao posicao": _entry_open_position_side(current_row),
+        "Alpha posicao": _entry_open_position_alpha(current_row),
+        "Sinal teorico atual": live_direction,
+        "Confere posicao": _entry_position_theoretical_match(
+            _entry_open_position_side(current_row),
+            direction,
+        ),
+        "Modelo ativo": scenario.get("model", "N/D"),
+        "Zona": current_row.get("Zona Operacional", "N/D"),
+        "Suporte": current_row.get("Suporte", "N/D"),
+        "Resistencia": current_row.get("Resistencia", "N/D"),
+        "Pivot": current_row.get("Pivot", "N/D"),
+        "Entrada Teorica": "SINAL_TEORICO" if signal_gate == "OK" else live_trigger or "SEM_GATILHO",
+        "Candle do Sinal": current_row.get("Candle do Sinal", "N/D"),
+        "Preco Teorico": current_row.get("Preco Teorico", "N/D"),
+        "Direcao": direction,
+        "Plano Research": "PLANO_VALIDO" if plan_gate == "OK" else "M3_AGUARDANDO",
+        "Codigo Rejeicao": "N/D" if plan_gate == "OK" else reason,
+        "Stop Research": current_row.get("Stop Research", "N/D"),
+        "Alvo Research": current_row.get("Alvo Research", "N/D"),
+        "RR Research": parameters.get("rr", "N/D"),
+        "RR Minimo": 3.0,
+        "Score": _optional_number(scenario.get("score")),
+        "Confirmacao": _optional_percent(scenario.get("lab_confidence")),
+        "Amostra": sample,
+        "PF": _optional_number(scenario.get("lab_confidence_profit_factor")),
+        "Modelo Saida": scenario.get("beta_id", "N/D"),
+        "Motivo": reason,
+    }
 
 
 def _rr3_experimental_gate(scenario: dict[str, object]) -> tuple[str, str]:
@@ -3607,29 +3999,14 @@ def _rr3_experimental_gate(scenario: dict[str, object]) -> tuple[str, str]:
     rr = _safe_float_or_none(parameters.get("rr"))
     if rr != 3.0:
         return "BLOQ: RR diferente de 3", f"RR do cenario={rr or 'N/D'}."
-    if sample < MT5_RR3_MIN_SAMPLE_SIZE:
-        return (
-            "AGUARDA: pouca amostra",
-            f"Amostra {sample}; minimo {MT5_RR3_MIN_SAMPLE_SIZE}.",
-        )
-    if profit_factor < MT5_RR3_MIN_PROFIT_FACTOR:
-        return (
-            "BLOQ: PF baixo",
-            f"PF {profit_factor:.2f}; minimo {MT5_RR3_MIN_PROFIT_FACTOR:.2f}.",
-        )
-    if confidence < MT5_RR3_MIN_CONFIDENCE:
-        return (
-            "AGUARDA: confirmacao baixa",
-            f"Confirmacao {confidence:.2%}; minimo {MT5_RR3_MIN_CONFIDENCE:.0%}.",
-        )
-    if score < MT5_RR3_MIN_SCORE:
-        return (
-            "AGUARDA: score baixo",
-            f"Score {score:.2f}; minimo {MT5_RR3_MIN_SCORE:.2f}.",
-        )
+    status = str(scenario.get("status", "") or "").upper()
+    if status != "APROVADO":
+        return "BLOQ: status RR3", f"Status RR3 {status or 'N/D'}."
     return (
         "OK",
-        "Candidato RR3 experimental passou nos gates; permanece read-only.",
+        "Cenario vencedor RR3 aprovado; "
+        f"amostra={sample}, PF={profit_factor:.2f}, "
+        f"confirmacao={confidence:.2%}, score={score:.2f}.",
     )
 
 
@@ -3648,9 +4025,10 @@ def _exibir_saidas_teoricas_mt5(
     st.markdown(
         (
             "<div class='traderia-status-legend'>"
-            "<span class='traderia-legend-ok'>HOLD saudavel</span>"
-            "<span class='traderia-legend-wait'>PROTECT / atencao</span>"
-            "<span class='traderia-legend-blocked'>Dado ausente/bloqueado</span>"
+            "<span class='traderia-legend-model1'>Modelo 1 / M1</span>"
+            "<span class='traderia-legend-model2'>Modelo 2 / M2</span>"
+            "<span class='traderia-legend-model3'>Modelo 3 / M3</span>"
+            "<span class='traderia-legend-model4'>Modelo 4 / M4</span>"
             "</div>"
         ),
         unsafe_allow_html=True,
@@ -3719,15 +4097,14 @@ def _mt5_theoretical_exit_row(
     *,
     display_model: str | None = None,
 ) -> dict[str, object]:
-    """Linha compacta da leitura BETA002 para posicao aberta."""
+    """Linha compacta da leitura de saida para posicao aberta."""
     pair = str(getattr(row, "symbol", "N/D") or "N/D").upper()
     signal = signal_by_pair.get(pair, {})
     scenario = _mt5_theoretical_exit_scenario(row)
-    effective_model = str(
-        display_model
-        or getattr(row, "operational_model", MT5_OPERATIONAL_MODEL_1)
-        or MT5_OPERATIONAL_MODEL_1
-    ).upper()
+    effective_model = _mt5_theoretical_exit_effective_model(
+        row,
+        str(display_model or MT5_OPERATIONAL_MODEL_1),
+    )
     display_signal = _mt5_theoretical_exit_display_signal(signal, effective_model)
     return {
         "Par": pair,
@@ -3797,10 +4174,20 @@ def _mt5_theoretical_exit_effective_model(
 ) -> str:
     """Usa o modelo gravado na ordem; fallback apenas para posicao legada."""
     row_model = str(getattr(row, "operational_model", "") or "").upper()
-    if row_model in {MT5_OPERATIONAL_MODEL_1, MT5_OPERATIONAL_MODEL_2}:
+    if row_model in {
+        MT5_OPERATIONAL_MODEL_1,
+        MT5_OPERATIONAL_MODEL_2,
+        MT5_OPERATIONAL_MODEL_3,
+        MT5_OPERATIONAL_MODEL_4,
+    }:
         return row_model
     fallback = str(fallback_model or MT5_OPERATIONAL_MODEL_1).upper()
-    if fallback in {MT5_OPERATIONAL_MODEL_1, MT5_OPERATIONAL_MODEL_2}:
+    if fallback in {
+        MT5_OPERATIONAL_MODEL_1,
+        MT5_OPERATIONAL_MODEL_2,
+        MT5_OPERATIONAL_MODEL_3,
+        MT5_OPERATIONAL_MODEL_4,
+    }:
         return fallback
     return MT5_OPERATIONAL_MODEL_1
 
@@ -3811,6 +4198,8 @@ def _mt5_theoretical_exit_display_signal(
 ) -> dict[str, object]:
     if display_model == MT5_OPERATIONAL_MODEL_2 and signal:
         return _model2_inverse_entry_row(signal, require_filter_trigger=False)
+    if display_model == MT5_OPERATIONAL_MODEL_4 and signal:
+        return _model4_inverse_entry_row(signal)
     return signal
 
 
@@ -3835,6 +4224,8 @@ def _mt5_theoretical_exit_stop_value(
 ) -> float | None:
     if display_model == MT5_OPERATIONAL_MODEL_2 and display_signal:
         return _price_from_display(display_signal.get("Stop Research"))
+    if display_model == MT5_OPERATIONAL_MODEL_4 and display_signal:
+        return _price_from_display(display_signal.get("Stop Research"))
     return _safe_float_or_none(getattr(row, "stop", None))
 
 
@@ -3845,6 +4236,8 @@ def _mt5_theoretical_exit_target_value(
 ) -> float | None:
     if display_model == MT5_OPERATIONAL_MODEL_2 and display_signal:
         return _price_from_display(display_signal.get("Alvo Research"))
+    if display_model == MT5_OPERATIONAL_MODEL_4 and display_signal:
+        return _price_from_display(display_signal.get("Alvo Research"))
     return _safe_float_or_none(getattr(row, "target", None))
 
 
@@ -3853,6 +4246,8 @@ def _mt5_theoretical_exit_candidate_stop(
     display_model: str,
 ) -> float | None:
     if display_model == MT5_OPERATIONAL_MODEL_2:
+        return None
+    if display_model == MT5_OPERATIONAL_MODEL_4:
         return None
     return _safe_float_or_none(getattr(row, "dynamic_exit_candidate_stop", None))
 
@@ -3863,6 +4258,8 @@ def _mt5_theoretical_exit_scenario_label(
 ) -> str:
     if display_model == MT5_OPERATIONAL_MODEL_2:
         return "TARGET_STOP_ORIGINAL_RR1"
+    if display_model == MT5_OPERATIONAL_MODEL_4:
+        return "ESPELHO_M1_STOP_ALVO_TROCADOS"
     return scenario
 
 
@@ -3873,6 +4270,8 @@ def _mt5_theoretical_exit_stop_management_label(
     """Classifica a gestao do stop com linguagem operacional curta."""
     if display_model == MT5_OPERATIONAL_MODEL_2:
         return "FIXO_STOP_ORIGINAL_RR1"
+    if display_model == MT5_OPERATIONAL_MODEL_4:
+        return "FIXO_ESPELHO_M1"
     if _mt5_theoretical_exit_stop_moved(row):
         return "SL MOVIDO"
     if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
@@ -3890,6 +4289,8 @@ def _mt5_theoretical_exit_stop_movement_label(
 ) -> str:
     if display_model == MT5_OPERATIONAL_MODEL_2:
         return "FIXO"
+    if display_model == MT5_OPERATIONAL_MODEL_4:
+        return "FIXO"
     if _mt5_theoretical_exit_stop_moved(row):
         return "JA_MOVEU"
     if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
@@ -3904,6 +4305,8 @@ def _mt5_theoretical_exit_beta_label(
 ) -> str:
     if display_model == MT5_OPERATIONAL_MODEL_2:
         return "BETA002"
+    if display_model == MT5_OPERATIONAL_MODEL_4:
+        return "BETA004"
     row_beta = str(getattr(row, "beta_id", "") or "").upper()
     signal_beta = str(signal.get("Beta Lab", "") or "").upper()
     return signal_beta or row_beta or "BETA001"
@@ -3932,6 +4335,8 @@ def _mt5_theoretical_exit_model_label(
 ) -> str:
     if display_model == MT5_OPERATIONAL_MODEL_2:
         return "BETA002_ESPELHO_STOP_RR1"
+    if display_model == MT5_OPERATIONAL_MODEL_4:
+        return "BETA004_ESPELHO_M1"
     for value in (
         getattr(row, "exit_setup", None),
         getattr(row, "dynamic_exit_policy", None),
@@ -3958,6 +4363,10 @@ def _mt5_sender_model_label(
         return "MODELO 1"
     if model == MT5_OPERATIONAL_MODEL_2:
         return "MODELO 2"
+    if model == MT5_OPERATIONAL_MODEL_3:
+        return "MODELO 3"
+    if model == MT5_OPERATIONAL_MODEL_4:
+        return "MODELO 4"
     return model if model not in {"", "NONE"} else "N/D"
 
 
@@ -4009,36 +4418,22 @@ def _mt5_theoretical_exit_programming_label(row: object) -> str:
 
 
 def _mt5_theoretical_exit_cell_class(row: dict[str, object], column: str) -> str:
-    """Destaca apenas variaveis alinhadas da leitura BETA002."""
+    """Destaca apenas a celula do modelo; a linha ja comunica M1/M2/M3/M4."""
     if column == "Modelo envio":
         model = str(row.get(column, "") or "").upper()
+        if model == "MODELO 4":
+            return "traderia-cell-model4"
+        if model == "MODELO 3":
+            return "traderia-cell-model3"
         if model == "MODELO 2":
             return "traderia-cell-model2"
         if model == "MODELO 1":
             return "traderia-cell-model1"
-    if column in {"Gestao stop", "Movimento SL"}:
-        return ""
-    scenario = str(row.get("Cenario BETA002", "") or "").upper()
-    if scenario != "FULL_EXIT":
-        return ""
-    if column in {
-        "Cenario BETA002",
-        "Score forca",
-        "Confirmacoes",
-        "Duracao",
-        "Slope EMA14",
-        "Momentum14",
-        "ATR relativo",
-        "Estrutura",
-        "Leitura programada",
-        "Motivo",
-    }:
-        return "traderia-cell-active"
     return ""
 
 
 def _render_mt5_theoretical_exit_table(rows: list[dict[str, object]]) -> None:
-    """Renderiza tabela da saida teorica com azul para alinhamento FULL_EXIT."""
+    """Renderiza tabela da saida teorica colorida pelo modelo operacional."""
     if not rows:
         st.info("Nenhum registro disponivel.")
         return
@@ -4046,12 +4441,7 @@ def _render_mt5_theoretical_exit_table(rows: list[dict[str, object]]) -> None:
     header = "".join(f"<th>{_html_escape(column)}</th>" for column in columns)
     body = []
     for row in rows:
-        scenario = str(row.get("Cenario BETA002", "HOLD") or "HOLD").upper()
-        row_class = {
-            "FULL_EXIT": "traderia-row-sell",
-            "PROTECT": "traderia-row-wait",
-            "HOLD": "traderia-row-buy",
-        }.get(scenario, "traderia-row-wait")
+        row_class = _mt5_theoretical_exit_model_row_class(row)
         cells = []
         for column in columns:
             cell_class = _mt5_theoretical_exit_cell_class(row, column)
@@ -4073,6 +4463,29 @@ def _render_mt5_theoretical_exit_table(rows: list[dict[str, object]]) -> None:
             "</div>"
         ),
         unsafe_allow_html=True,
+    )
+
+
+def _mt5_theoretical_exit_model_row_class(row: dict[str, object]) -> str:
+    model_text = " ".join(
+        str(row.get(column, "") or "").upper()
+        for column in ("Modelo envio", "Modelo entrada", "Modelo saida")
+    )
+    if "MODELO 3" in model_text or "MODELO3" in model_text or "M3" in model_text:
+        return "traderia-row-model3"
+    if "MODELO 4" in model_text or "MODELO4" in model_text or "M4" in model_text:
+        return "traderia-row-model4"
+    if "MODELO 2" in model_text or "MODELO2" in model_text:
+        return "traderia-row-model2"
+    return "traderia-row-model1"
+
+
+def _mt5_theoretical_exit_is_model3(row: dict[str, object]) -> bool:
+    return any(
+        "MODELO 3" in str(row.get(column, "") or "").upper()
+        or "MODELO3" in str(row.get(column, "") or "").upper()
+        or "M3" == str(row.get(column, "") or "").strip().upper()
+        for column in ("Modelo envio", "Modelo entrada", "Modelo saida")
     )
 
 
@@ -4178,6 +4591,48 @@ def _model2_inverse_entry_row(
     inverse_stop = entry + distance if inverse == "SELL" else entry - distance
     cloned["Stop Research"] = _format_model2_price(inverse_stop)
     cloned["Alvo Research"] = _format_model2_price(inverse_target)
+    cloned["Plano Research"] = row.get("Plano Research", "PLANO_VALIDO")
+    cloned["Codigo Rejeicao"] = row.get("Codigo Rejeicao", "N/D")
+    return cloned
+
+
+def _model4_inverse_entry_row(row: dict[str, object]) -> dict[str, object]:
+    """Cria leitura visual do Modelo 4 espelhando o plano M1 sem alterar o Lab."""
+    direction = str(row.get("Direcao Teorica", "WAIT") or "WAIT").upper()
+    cloned = dict(row)
+    cloned["Modelo Ativo"] = f"MODELO4_ESPELHO_M1 | {row.get('Modelo Ativo', 'N/D')}"
+    cloned["Modelo Saida"] = "BETA004_ESPELHO_M1"
+    if direction not in {"BUY", "SELL"}:
+        cloned["Direcao Teorica"] = "WAIT"
+        cloned["Direcao"] = "WAIT"
+        cloned["Plano Research"] = row.get("Plano Research", "SEM_PLANO")
+        cloned["Codigo Rejeicao"] = row.get("Codigo Rejeicao", "SEM_DIRECAO_M1")
+        cloned["Motivo Entrada"] = "Modelo 4 aguardando BUY/SELL do Modelo 1."
+        return cloned
+    entry = _price_from_display(row.get("Preco Teorico"))
+    original_stop = _price_from_display(row.get("Stop Research"))
+    original_target = _price_from_display(row.get("Alvo Research"))
+    inverse = "SELL" if direction == "BUY" else "BUY"
+    cloned["Direcao Teorica"] = inverse
+    cloned["Direcao"] = "VENDER" if inverse == "SELL" else "COMPRAR"
+    cloned["Motivo Entrada"] = (
+        f"Modelo 4: espelho do M1. M1 {direction}; entrada M4 {inverse}. "
+        "Stop original vira alvo e alvo original vira stop."
+    )
+    if entry is None or original_stop is None or original_target is None:
+        cloned["Plano Research"] = "SEM_PLANO"
+        cloned["Codigo Rejeicao"] = "MODELO4_PRECO_STOP_OU_ALVO_AUSENTE"
+        return cloned
+    cloned["Stop Research"] = _format_model2_price(original_target)
+    cloned["Alvo Research"] = _format_model2_price(original_stop)
+    distance_stop = abs(float(original_target) - float(entry))
+    distance_target = abs(float(entry) - float(original_stop))
+    cloned["RR Research"] = (
+        _format_model2_price(distance_target / distance_stop)
+        if distance_stop > 0
+        else "N/D"
+    )
+    cloned["RR Minimo"] = cloned["RR Research"]
     cloned["Plano Research"] = row.get("Plano Research", "PLANO_VALIDO")
     cloned["Codigo Rejeicao"] = row.get("Codigo Rejeicao", "N/D")
     return cloned
@@ -5166,6 +5621,26 @@ def _inject_dashboard_css() -> None:
             background: #FFFFFF !important;
             color: #111827 !important;
         }
+        .traderia-row-model1 td {
+            background: #DDF7E3 !important;
+            color: #0F3D24 !important;
+            font-weight: 800;
+        }
+        .traderia-row-model2 td {
+            background: #FEF3C7 !important;
+            color: #78350F !important;
+            font-weight: 800;
+        }
+        .traderia-row-model3 td {
+            background: #FCE7F3 !important;
+            color: #831843 !important;
+            font-weight: 800;
+        }
+        .traderia-row-model4 td {
+            background: #E0F2FE !important;
+            color: #075985 !important;
+            font-weight: 800;
+        }
         .traderia-stable-table td.traderia-cell-active {
             background: #DBEAFE !important;
             color: #0F172A !important;
@@ -5182,8 +5657,18 @@ def _inject_dashboard_css() -> None:
             font-weight: 850;
         }
         .traderia-stable-table td.traderia-cell-model2 {
-            background: #CCFF00 !important;
-            color: #163300 !important;
+            background: #FDE68A !important;
+            color: #78350F !important;
+            font-weight: 900;
+        }
+        .traderia-stable-table td.traderia-cell-model3 {
+            background: #F9A8D4 !important;
+            color: #831843 !important;
+            font-weight: 900;
+        }
+        .traderia-stable-table td.traderia-cell-model4 {
+            background: #7DD3FC !important;
+            color: #075985 !important;
             font-weight: 900;
         }
         .traderia-stable-table td.traderia-cell-wait {
@@ -5212,6 +5697,22 @@ def _inject_dashboard_css() -> None:
         .traderia-legend-ok {
             background: #DDF7E3;
             color: #0F3D24;
+        }
+        .traderia-legend-model1 {
+            background: #DDF7E3;
+            color: #0F3D24;
+        }
+        .traderia-legend-model2 {
+            background: #FEF3C7;
+            color: #78350F;
+        }
+        .traderia-legend-model3 {
+            background: #FCE7F3;
+            color: #831843;
+        }
+        .traderia-legend-model4 {
+            background: #E0F2FE;
+            color: #075985;
         }
         .traderia-legend-wait {
             background: #FEF3C7;
@@ -7402,7 +7903,7 @@ def exibir_research_lab_actions(service: DashboardService) -> None:
         colunas[1].caption("Planilha de auditoria visual alimentada pelo ultimo calculo.")
     if st.session_state.get(MT5_LAB_RR3_EXPERIMENTAL_SNAPSHOT_KEY) is not None:
         colunas[2].caption(
-            "RR3 experimental salvo separado; nao alimenta Forex, MT5 ou robo demo."
+            "RR3 salvo separado; alimenta o fluxo M3 quando esse modelo estiver ativo."
         )
     colunas[3].caption(
         "Use o primeiro botão para baixar/salvar candles do MT5. Use o segundo "

@@ -175,7 +175,7 @@ class MT5DemoRobotService:
                 signal,
                 trade_plan,
             )
-        if not self._is_model2_inverse_signal(signal):
+        if not self._is_inverse_operational_model_signal(signal):
             regime_result = self.market_regime_pipeline.evaluate(signal)
             if not regime_result.authorized:
                 self._mark_candle_evaluated(key, signal.candle_time, current_decision)
@@ -334,9 +334,12 @@ class MT5DemoRobotService:
             trade_plan=trade_plan,
         )
 
-    def _is_model2_inverse_signal(self, signal: MT5DemoRobotSignal) -> bool:
+    def _is_inverse_operational_model_signal(self, signal: MT5DemoRobotSignal) -> bool:
         model = str(getattr(signal, "operational_model", "") or "").upper()
-        return model == "MODELO_2_ESPELHO_BETA2_RR1"
+        return model in {
+            "MODELO_2_ESPELHO_BETA2_RR1",
+            "MODELO_4_ESPELHO_M1",
+        }
 
     def _trade_plan_validation(
         self,

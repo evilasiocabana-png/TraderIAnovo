@@ -90,7 +90,13 @@ ENTRY_FILTER_SUPPORTED_INDICATORS = {
 }
 MT5_OPERATIONAL_MODEL_1 = "MODELO_1_ALPHA_ATUAL"
 MT5_OPERATIONAL_MODEL_2 = "MODELO_2_ESPELHO_BETA2_RR1"
+MT5_OPERATIONAL_MODEL_3 = "MODELO_3_RR3"
+MT5_OPERATIONAL_MODEL_4 = "MODELO_4_ESPELHO_M1"
 MT5_OPERATIONAL_MODEL_ALL = "TODOS_MODELOS"
+MT5_RR3_MIN_SAMPLE_SIZE = 150
+MT5_RR3_MIN_PROFIT_FACTOR = 1.20
+MT5_RR3_MIN_CONFIDENCE = 0.50
+MT5_RR3_MIN_SCORE = 0.60
 from application.dynamic_exit_market_state_service import (
     DynamicExitMarketStateClassifier,
 )
@@ -708,6 +714,8 @@ class DashboardService:
         if normalized not in {
             MT5_OPERATIONAL_MODEL_1,
             MT5_OPERATIONAL_MODEL_2,
+            MT5_OPERATIONAL_MODEL_3,
+            MT5_OPERATIONAL_MODEL_4,
             MT5_OPERATIONAL_MODEL_ALL,
         }:
             normalized = MT5_OPERATIONAL_MODEL_1
@@ -722,7 +730,12 @@ class DashboardService:
     def _mt5_operational_models_to_evaluate(self) -> tuple[str, ...]:
         selected = self.get_mt5_operational_model()
         if selected == MT5_OPERATIONAL_MODEL_ALL:
-            return (MT5_OPERATIONAL_MODEL_1, MT5_OPERATIONAL_MODEL_2)
+            return (
+                MT5_OPERATIONAL_MODEL_1,
+                MT5_OPERATIONAL_MODEL_2,
+                MT5_OPERATIONAL_MODEL_3,
+                MT5_OPERATIONAL_MODEL_4,
+            )
         return (selected,)
 
     def get_dashboard_data(self) -> DashboardData:
@@ -2774,7 +2787,7 @@ class DashboardService:
             },
             winner_research_configuration={
                 "Modo": "RR3_EXPERIMENTAL",
-                "Operacional": "NAO",
+                "Operacional": "M3",
                 "Snapshot operacional preservado": str(
                     self._mt5_research_snapshot_path()
                 ),
@@ -2785,7 +2798,7 @@ class DashboardService:
             status="RR3_EXPERIMENTAL",
             message=(
                 "Snapshot experimental RR3 gerado em arquivo separado. "
-                "Nao alimenta Forex, MT5, robo demo ou Position Manager."
+                "Alimenta o fluxo M3 quando o modelo operacional M3 estiver ativo."
             ),
             source="MT5_RESEARCH_RR3_EXPERIMENTAL",
         )
@@ -4730,7 +4743,7 @@ class DashboardService:
                         "executavel para este par no candle atual."
                     ),
                     result_status="NO_MODEL_READY",
-                    result_message="Modelo 1 e Modelo 2 sem plano executavel.",
+                    result_message="Modelos operacionais sem plano executavel.",
                     entry_price=plan.entry_price,
                     stop=plan.stop,
                     target=plan.target,
@@ -5129,6 +5142,10 @@ class DashboardService:
         selected_model = str(
             operational_model or self.get_mt5_operational_model()
         ).upper()
+        if selected_model == MT5_OPERATIONAL_MODEL_3:
+            return self._mt5_model3_rr3_plan(row, plan)
+        if selected_model == MT5_OPERATIONAL_MODEL_4:
+            return self._mt5_model4_inverse_m1_plan(row, plan)
         if selected_model != MT5_OPERATIONAL_MODEL_2:
             return row, plan
         if not self._mt5_model2_adx_low_present(row):
@@ -5185,6 +5202,133 @@ class DashboardService:
             research_plan_diagnostics=transformed_plan.diagnostics,
         )
         return transformed_row, transformed_plan
+
+    def _mt5_model4_inverse_m1_plan(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        plan: MT5ResearchTradePlan,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        transformed_plan = self._mt5_model4_inverse_plan(plan)
+        if transformed_plan is None:
+            reason = "Modelo 4 aguardando plano M1 valido com entrada, stop e alvo."
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    active_model=f"MODELO4_AGUARDA_PLANO_M1 | {row.active_model}",
+                    reason=reason,
+                    theoretical_entry_reason=reason,
+                    research_plan_reason=reason,
+                ),
+                plan,
+            )
+        inverse_direction = transformed_plan.direction
+        reason = (
+            "Modelo 4 espelho do M1: Alpha indicou "
+            f"{plan.direction}; operacao invertida para {inverse_direction}. "
+            "Stop original vira alvo e alvo original vira stop."
+        )
+        transformed_row = replace(
+            row,
+            decision=inverse_direction,
+            theoretical_entry_direction=inverse_direction,
+            active_model=f"MODELO4_ESPELHO_M1 | {row.active_model}",
+            reason=reason,
+            theoretical_entry_reason=reason,
+            beta_id=transformed_plan.beta_id,
+            beta_version=transformed_plan.beta_version,
+            beta_mode=transformed_plan.beta_mode,
+            beta_reason=transformed_plan.beta_reason,
+            research_plan_stop=transformed_plan.stop,
+            research_plan_target=transformed_plan.target,
+            research_plan_risk_reward=transformed_plan.risk_reward,
+            research_plan_exit_model=transformed_plan.exit_model,
+            research_plan_stop_reason=transformed_plan.stop_reason,
+            research_plan_target_reason=transformed_plan.target_reason,
+            research_plan_stop_management=transformed_plan.stop_management,
+            research_plan_stop_management_parameters=dict(
+                transformed_plan.stop_management_parameters
+            ),
+            research_plan_stop_management_reason=(
+                transformed_plan.stop_management_reason
+            ),
+            research_plan_reason=transformed_plan.reason,
+            research_plan_rr_current=transformed_plan.rr_current,
+            research_plan_rr_minimum=transformed_plan.rr_minimum,
+            research_plan_diagnostics=transformed_plan.diagnostics,
+        )
+        return transformed_row, transformed_plan
+
+    def _mt5_model4_inverse_plan(
+        self,
+        plan: MT5ResearchTradePlan,
+    ) -> MT5ResearchTradePlan | None:
+        direction = str(plan.direction or "WAIT").upper()
+        if (
+            plan.status != "PLANO_VALIDO"
+            or direction not in {"BUY", "SELL"}
+            or plan.entry_price is None
+            or plan.stop is None
+            or plan.target is None
+        ):
+            return None
+        entry = float(plan.entry_price)
+        original_stop = float(plan.stop)
+        original_target = float(plan.target)
+        risk_distance = abs(original_target - entry)
+        reward_distance = abs(entry - original_stop)
+        if risk_distance <= 0 or reward_distance <= 0:
+            return None
+        inverse_direction = "SELL" if direction == "BUY" else "BUY"
+        risk_reward = reward_distance / risk_distance if risk_distance else 0.0
+        diagnostics = tuple(plan.diagnostics) + (
+            f"MODELO4_ESPELHO_M1_ORIGINAL={direction}",
+            "MODELO4_STOP_ORIGINAL_VIRA_ALVO",
+            "MODELO4_ALVO_ORIGINAL_VIRA_STOP",
+        )
+        return replace(
+            plan,
+            direction=inverse_direction,
+            stop=original_target,
+            target=original_stop,
+            risk_reward=risk_reward,
+            risk_pips=risk_distance,
+            reward_pips=reward_distance,
+            risk_percent=abs(risk_distance / entry) if entry else 0.0,
+            reward_percent=abs(reward_distance / entry) if entry else 0.0,
+            stop_reason="Modelo 4: stop no alvo original do Modelo 1.",
+            target_reason="Modelo 4: alvo no stop original do Modelo 1.",
+            stop_management="FIXED_STOP_MODELO4_ESPELHO_M1",
+            stop_management_parameters={
+                "modelo_operacional": MT5_OPERATIONAL_MODEL_4,
+                "direcao_m1_original": direction,
+                "alvo_modelo4": "STOP_ORIGINAL_M1",
+                "stop_modelo4": "ALVO_ORIGINAL_M1",
+                "rr": f"{risk_reward:.4f}",
+            },
+            stop_management_reason=(
+                "Modelo 4 espelho do M1: sem recalculo de Lab; troca stop e "
+                "alvo originais e inverte a direcao."
+            ),
+            beta_id="BETA004",
+            beta_version="BETA004_ESPELHO_M1",
+            beta_mode="M1_MIRROR",
+            beta_reason=(
+                "Modelo 4: espelho operacional do Modelo 1 conforme protocolo "
+                "de criacao de modelo."
+            ),
+            exit_model="BETA004_ESPELHO_M1",
+            source="RESEARCH_LAB",
+            reason=(
+                "Modelo 4 espelho executavel: copia o plano valido do M1, "
+                "inverte direcao, usa stop original como alvo e alvo original "
+                "como stop."
+            ),
+            rr_current=risk_reward,
+            rr_minimum=risk_reward,
+            diagnostics=diagnostics,
+        )
 
     def _mt5_model2_adx_low_present(
         self,
@@ -5277,6 +5421,207 @@ class DashboardService:
             rr_current=1.0,
             rr_minimum=1.0,
             diagnostics=diagnostics,
+        )
+
+    def _mt5_model3_rr3_plan(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        fallback_plan: MT5ResearchTradePlan,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        scenario = self._mt5_model3_rr3_scenario_for_pair(row.pair)
+        if scenario is None:
+            reason = "M3 aguardando snapshot RR3 aprovado para este par."
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    active_model=f"MODELO3_AGUARDA_RR3 | {row.active_model}",
+                    reason=reason,
+                    theoretical_entry_reason=reason,
+                    research_plan_reason=reason,
+                ),
+                fallback_plan,
+            )
+        gate_ok, gate_reason = self._mt5_model3_rr3_gate(scenario)
+        direction = str(scenario.get("decision", "WAIT") or "WAIT").upper()
+        if not gate_ok:
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    active_model=f"MODELO3_BLOQUEADO_RR3 | {row.active_model}",
+                    reason=gate_reason,
+                    theoretical_entry_reason=gate_reason,
+                    research_plan_reason=gate_reason,
+                ),
+                fallback_plan,
+            )
+        live_direction = str(row.theoretical_entry_direction or row.decision or "WAIT").upper()
+        live_entry_status = str(row.theoretical_entry_status or "").upper()
+        if live_entry_status != "SINAL_TEORICO" or live_direction != direction:
+            reason = (
+                "M3 RR3 pronto no snapshot, mas aguardando sinal vivo confirmar "
+                f"{direction}. Atual: {live_entry_status or 'SEM_GATILHO'} / {live_direction}."
+            )
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    active_model=f"MODELO3_AGUARDA_SINAL | {row.active_model}",
+                    reason=reason,
+                    theoretical_entry_reason=reason,
+                    research_plan_reason=reason,
+                ),
+                fallback_plan,
+            )
+        parameters = {
+            str(key): str(value)
+            for key, value in dict(scenario.get("parameters", {}) or {}).items()
+        }
+        parameters["rr"] = "3.0"
+        alpha_id = str(scenario.get("alpha_id") or parameters.get("alpha") or row.lab_alpha_id)
+        beta_id = str(scenario.get("beta_id") or parameters.get("beta_id") or row.beta_id)
+        beta_version = str(
+            scenario.get("beta_version")
+            or parameters.get("beta_version")
+            or row.beta_version
+        )
+        beta_mode = str(
+            scenario.get("beta_mode")
+            or parameters.get("beta_mode")
+            or row.beta_mode
+        )
+        model_name = str(scenario.get("model") or row.active_model)
+        reason = (
+            f"M3 RR3 executavel: {model_name} {direction}; "
+            f"{gate_reason}"
+        )
+        transformed_row = replace(
+            row,
+            timeframe=str(scenario.get("timeframe") or row.timeframe),
+            lab_timeframe=str(scenario.get("timeframe") or row.lab_timeframe),
+            decision=direction,
+            theoretical_entry_direction=direction,
+            active_model=f"MODELO3_RR3 | {model_name}",
+            reason=reason,
+            theoretical_entry_reason=reason,
+            lab_alpha_id=alpha_id,
+            beta_id=beta_id,
+            beta_version=beta_version,
+            beta_mode=beta_mode,
+            beta_reason=str(
+                scenario.get("beta_reason")
+                or parameters.get("beta_reason")
+                or "M3 RR3 usa beta do snapshot experimental aprovado."
+            ),
+            lab_parameters=parameters,
+            lab_confidence=float(scenario.get("lab_confidence") or row.lab_confidence or 0.0),
+            active_model_score=float(scenario.get("score") or row.active_model_score or 0.0),
+            research_plan_reason=reason,
+        )
+        transformed_plan = self._mt5_research_trade_plan_for_data(
+            symbol=transformed_row.pair,
+            timeframe=transformed_row.lab_timeframe or transformed_row.timeframe,
+            decision=direction,
+            active_model=transformed_row.active_model,
+            entry_status=transformed_row.theoretical_entry_status,
+            entry_price=transformed_row.theoretical_entry_price,
+            atr=transformed_row.atr,
+            reason=reason,
+            lab_parameters=parameters,
+            certification_demo_allowed=True,
+            certification_score=float(scenario.get("ict_score") or 100.0),
+            certification_grade=str(scenario.get("ict_grade") or "M3"),
+            certification_status="M3_RR3_APROVADO",
+            certification_usage="M3 RR3 liberado para Demo quando o sinal vivo confirmar.",
+            certification_rejection_reasons=(),
+            alpha_id=alpha_id,
+            alpha_version=str(scenario.get("alpha_version") or row.lab_alpha_version),
+            beta_id=beta_id,
+            beta_version=beta_version,
+            beta_mode=beta_mode,
+        )
+        return transformed_row, transformed_plan
+
+    def _mt5_model3_rr3_scenario_for_pair(
+        self,
+        pair: str,
+    ) -> dict[str, object] | None:
+        payload = self._load_mt5_model3_rr3_snapshot()
+        source = list(payload.get("scenario_ranking", []) or [])
+        if not source:
+            source = list(payload.get("best_scenarios_by_market", []) or [])
+        scenarios = [
+            item
+            for item in source
+            if isinstance(item, dict)
+            and str(item.get("pair", "") or "").upper() == str(pair or "").upper()
+            and self._mt5_model3_rr3_matches(item)
+        ]
+        if not scenarios:
+            return None
+        return max(
+            scenarios,
+            key=self._mt5_model3_rr3_runtime_rank,
+        )
+
+    def _load_mt5_model3_rr3_snapshot(self) -> dict[str, object]:
+        path = self._mt5_research_experimental_snapshot_path("rr3")
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    def _mt5_model3_rr3_matches(self, scenario: dict[str, object]) -> bool:
+        parameters = dict(scenario.get("parameters", {}) or {})
+        return self._optional_float(parameters.get("rr")) == 3.0
+
+    def _mt5_model3_rr3_runtime_rank(
+        self,
+        scenario: dict[str, object],
+    ) -> tuple[bool, bool, bool, float, int, float, float]:
+        status_ok = str(scenario.get("status", "") or "").upper() == "APROVADO"
+        sample = int(self._optional_float(scenario.get("lab_confidence_sample_size")) or 0)
+        profit_factor = self._optional_float(
+            scenario.get("lab_confidence_profit_factor")
+        ) or 0.0
+        confidence = self._optional_float(scenario.get("lab_confidence")) or 0.0
+        score = self._optional_float(scenario.get("score")) or 0.0
+        return (
+            status_ok,
+            status_ok,
+            sample > 0,
+            confidence,
+            sample,
+            profit_factor,
+            score,
+        )
+
+    def _mt5_model3_rr3_gate(
+        self,
+        scenario: dict[str, object],
+    ) -> tuple[bool, str]:
+        parameters = dict(scenario.get("parameters", {}) or {})
+        rr = self._optional_float(parameters.get("rr"))
+        if rr != 3.0:
+            return False, f"M3 bloqueado: RR do cenario={rr or 'N/D'}, esperado 3.0."
+        status = str(scenario.get("status", "") or "").upper()
+        if status != "APROVADO":
+            return False, f"M3 bloqueado: status RR3 {status or 'N/D'}."
+        sample = int(self._optional_float(scenario.get("lab_confidence_sample_size")) or 0)
+        profit_factor = self._optional_float(
+            scenario.get("lab_confidence_profit_factor")
+        ) or 0.0
+        confidence = self._optional_float(scenario.get("lab_confidence")) or 0.0
+        score = self._optional_float(scenario.get("score")) or 0.0
+        return True, (
+            "M3 RR3 vencedor aprovado; "
+            f"amostra={sample}, PF={profit_factor:.2f}, "
+            f"confirmacao={confidence:.2%}, score={score:.2f}."
         )
 
     def _mt5_demo_execution_enabled(self) -> bool:
@@ -7571,15 +7916,19 @@ class DashboardService:
     def _mt5_lab_target_rank(
         self,
         scenario: DashboardMT5ScenarioViewModel,
-    ) -> tuple[bool, float, int, float, bool]:
+    ) -> tuple[bool, float, int, float, float, bool]:
         lab_confidence = float(getattr(scenario, "lab_confidence", 0.0) or 0.0)
         score = float(getattr(scenario, "score", 0.0) or 0.0)
         sample_size = int(getattr(scenario, "lab_confidence_sample_size", 0) or 0)
+        profit_factor = float(
+            getattr(scenario, "lab_confidence_profit_factor", 0.0) or 0.0
+        )
         meets_target = lab_confidence >= MT5_LAB_TARGET_CONFIDENCE
         return (
             str(getattr(scenario, "status", "")) == "APROVADO",
             lab_confidence,
             sample_size,
+            profit_factor,
             score,
             meets_target,
         )

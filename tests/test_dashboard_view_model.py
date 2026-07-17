@@ -405,6 +405,47 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertEqual(transformed.beta_id, "BETA002")
         self.assertEqual(transformed.beta_mode, "INVERSE_QUICK_TRADE")
 
+    def test_modelo4_espelha_plano_do_modelo1_sem_recalcular_lab(self) -> None:
+        service = DashboardService()
+        service.set_mt5_operational_model("MODELO_4_ESPELHO_M1")
+        row = DashboardMT5ForexSignalRowViewModel(
+            pair="EURUSD",
+            decision="BUY",
+            theoretical_entry_direction="BUY",
+            theoretical_entry_status="SINAL_TEORICO",
+            active_model="TREND_MOMENTUM",
+            entry_filter_status="OK",
+        )
+        plan = MT5ResearchTradePlan(
+            symbol="EURUSD",
+            timeframe="M1",
+            direction="BUY",
+            entry_price=1.1000,
+            stop=1.0950,
+            target=1.1150,
+            risk_reward=3.0,
+            stop_multiplier=2.0,
+            exit_model="INITIAL_RISK_PLAN",
+            exit_score=0.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            alpha_id="ALPHA001",
+            beta_id="BETA005",
+        )
+
+        transformed_row, transformed_plan = service._mt5_apply_operational_model(
+            row,
+            plan,
+        )
+
+        self.assertEqual(transformed_row.decision, "SELL")
+        self.assertEqual(transformed_plan.direction, "SELL")
+        self.assertAlmostEqual(transformed_plan.target or 0.0, 1.0950)
+        self.assertAlmostEqual(transformed_plan.stop or 0.0, 1.1150)
+        self.assertAlmostEqual(transformed_plan.risk_reward, 1 / 3)
+        self.assertEqual(transformed_plan.beta_id, "BETA004")
+        self.assertEqual(transformed_plan.exit_model, "BETA004_ESPELHO_M1")
+
     def test_modelo2_operacional_so_inverte_com_adx_forte(self) -> None:
         service = DashboardService()
         service.set_mt5_operational_model("MODELO_2_ESPELHO_BETA2_RR1")
@@ -528,7 +569,12 @@ class DashboardViewModelContractTest(unittest.TestCase):
 
         self.assertEqual(
             service._mt5_operational_models_to_evaluate(),
-            ("MODELO_1_ALPHA_ATUAL", "MODELO_2_ESPELHO_BETA2_RR1"),
+            (
+                "MODELO_1_ALPHA_ATUAL",
+                "MODELO_2_ESPELHO_BETA2_RR1",
+                "MODELO_3_RR3",
+                "MODELO_4_ESPELHO_M1",
+            ),
         )
 
     def test_scenario_runner_novas_alphas_usam_indicadores_especificos(self) -> None:

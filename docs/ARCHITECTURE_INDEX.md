@@ -30,6 +30,10 @@ aplicação e não duplica o conteúdo dos documentos referenciados.
 - [MARKET_DATA_CERTIFIED.md](MARKET_DATA_CERTIFIED.md)
   - Certificacao oficial da plataforma para pesquisa quantitativa com dados
     historicos reais, mantendo operacao real proibida.
+- [architecture/OPERATIONAL_MODEL_CREATION_PROTOCOL.md](architecture/OPERATIONAL_MODEL_CREATION_PROTOCOL.md)
+  - Protocolo oficial para criar novos modelos operacionais, baseado na
+    retrospectiva do M3 RR3, cobrindo snapshot, Trade Plan, gates, Robo Demo,
+    Provider MT5, Position Manager, relatorio e testes.
 - ARCHITECTURE_BASELINE.md
   - Não existe como arquivo separado no estado atual. A política de baseline
     está documentada em [README.md](../README.md), seção "Política de Baseline

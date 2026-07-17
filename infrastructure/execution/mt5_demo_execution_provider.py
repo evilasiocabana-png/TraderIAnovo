@@ -60,14 +60,20 @@ class MT5DemoExecutionProvider:
         if initialize_check is not None:
             return True
         positions = list(self.mt5.positions_get(symbol=symbol) or [])
-        if len(positions) >= 2:
+        if len(positions) >= 4:
             return True
         expected = self._model_comment(operational_model)
         for position in positions:
             comment = str(getattr(position, "comment", "") or "").upper()
             if expected in comment:
                 return True
-            if "TRADERIA" in comment and " M1" not in comment and " M2" not in comment:
+            if (
+                "TRADERIA" in comment
+                and " M1" not in comment
+                and " M2" not in comment
+                and " M3" not in comment
+                and " M4" not in comment
+            ):
                 return True
         return False
 
@@ -457,11 +463,22 @@ class MT5DemoExecutionProvider:
             if stop_target_rejection is not None:
                 self._write_log(order, stop_target_rejection)
                 return stop_target_rejection
+            request = self._request(order, tick)
+            order_check = self._order_check(request)
+            if order_check is not None and not self._order_check_passed(order_check):
+                result = ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=self._order_check_message(order_check),
+                    error_code=self._order_check_retcode(order_check),
+                )
+                self._write_log(order, result)
+                return result
             try:
-                response = self.mt5.order_send(self._request(order, tick))
+                response = self.mt5.order_send(request)
             except Exception as exc:  # noqa: BLE001 - ponte externa MT5
                 response = _ExecutionSendException(exc)
-            result = self._result_from_response(response)
+            result = self._result_from_response(response, order_check=order_check)
             self._write_log(order, result)
             return result
 
@@ -1030,9 +1047,9 @@ class MT5DemoExecutionProvider:
     ) -> ExecutionResult | None:
         """Rejeita plano stale antes do MT5 retornar Invalid stops."""
         side = str(order.side or "").upper()
-        price = self._positive_float(
-            getattr(tick, "ask", None) if side == "BUY" else getattr(tick, "bid", None)
-        )
+        bid = self._positive_float(getattr(tick, "bid", None))
+        ask = self._positive_float(getattr(tick, "ask", None))
+        price = ask if side == "BUY" else bid
         stop = self._positive_float(getattr(order, "stop", None))
         target = self._positive_float(getattr(order, "target", None))
         if price is None:
@@ -1047,23 +1064,33 @@ class MT5DemoExecutionProvider:
                 status="REJECTED",
                 message="Stop Loss e Take Profit invalidos para envio MT5 Demo.",
             )
-        if side == "BUY" and not (stop < price < target):
+        if side == "BUY" and (
+            bid is None
+            or ask is None
+            or not (stop < bid and ask < target)
+        ):
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
                 message=(
                     "Plano MT5 Demo stale: preco atual tornou SL/TP invalidos "
-                    f"para BUY ({stop:.6f} < {price:.6f} < {target:.6f})."
+                    f"para BUY (SL {stop:.6f} < bid {bid or 0.0:.6f}; "
+                    f"ask {ask or 0.0:.6f} < TP {target:.6f})."
                 ),
                 executed_price=price,
             )
-        if side == "SELL" and not (target < price < stop):
+        if side == "SELL" and (
+            bid is None
+            or ask is None
+            or not (target < bid and ask < stop)
+        ):
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
                 message=(
                     "Plano MT5 Demo stale: preco atual tornou SL/TP invalidos "
-                    f"para SELL ({target:.6f} < {price:.6f} < {stop:.6f})."
+                    f"para SELL (TP {target:.6f} < bid {bid or 0.0:.6f}; "
+                    f"ask {ask or 0.0:.6f} < SL {stop:.6f})."
                 ),
                 executed_price=price,
             )
@@ -1111,14 +1138,14 @@ class MT5DemoExecutionProvider:
         self,
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
-        """Bloqueia mais de uma posicao por modelo e mais de duas por par."""
+        """Bloqueia mais de uma posicao por modelo e mais de quatro por par."""
         positions = list(self.mt5.positions_get(symbol=order.symbol) or [])
-        if len(positions) >= 2:
+        if len(positions) >= 4:
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
                 message=(
-                    "Limite de dois posicionamentos por par atingido. "
+                    "Limite de quatro posicionamentos por par atingido. "
                     "Permitido no maximo um por modelo operacional."
                 ),
             )
@@ -1133,7 +1160,13 @@ class MT5DemoExecutionProvider:
                         "Ja existe uma posicao aberta para este simbolo neste modelo."
                     ),
                 )
-            if "TRADERIA" in comment and " M1" not in comment and " M2" not in comment:
+            if (
+                "TRADERIA" in comment
+                and " M1" not in comment
+                and " M2" not in comment
+                and " M3" not in comment
+                and " M4" not in comment
+            ):
                 return ExecutionResult(
                     accepted=False,
                     status="REJECTED",
@@ -1389,6 +1422,10 @@ class MT5DemoExecutionProvider:
         model = str(operational_model or "").upper()
         if model == "MODELO_2_ESPELHO_BETA2_RR1":
             return "M2"
+        if model == "MODELO_3_RR3":
+            return "M3"
+        if model == "MODELO_4_ESPELHO_M1":
+            return "M4"
         return "M1"
 
     def _write_management_log(self, payload: dict[str, Any]) -> None:
