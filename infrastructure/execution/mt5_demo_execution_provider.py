@@ -60,7 +60,7 @@ class MT5DemoExecutionProvider:
         if initialize_check is not None:
             return True
         positions = list(self.mt5.positions_get(symbol=symbol) or [])
-        if len(positions) >= 5:
+        if len(positions) >= 6:
             return True
         expected = self._model_comment(operational_model)
         for position in positions:
@@ -74,6 +74,7 @@ class MT5DemoExecutionProvider:
                 and " M3" not in comment
                 and " M4" not in comment
                 and " M5" not in comment
+                and " M6" not in comment
             ):
                 return True
         return False
@@ -1188,14 +1189,14 @@ class MT5DemoExecutionProvider:
         self,
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
-        """Bloqueia mais de uma posicao por modelo e mais de cinco por par."""
+        """Bloqueia mais de uma posicao por modelo e mais de seis por par."""
         positions = list(self.mt5.positions_get(symbol=order.symbol) or [])
-        if len(positions) >= 5:
+        if len(positions) >= 6:
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
                 message=(
-                    "Limite de cinco posicionamentos por par atingido. "
+                    "Limite de seis posicionamentos por par atingido. "
                     "Permitido no maximo um por modelo operacional."
                 ),
             )
@@ -1217,6 +1218,7 @@ class MT5DemoExecutionProvider:
                 and " M3" not in comment
                 and " M4" not in comment
                 and " M5" not in comment
+                and " M6" not in comment
             ):
                 return ExecutionResult(
                     accepted=False,
@@ -1479,6 +1481,8 @@ class MT5DemoExecutionProvider:
             return "M4"
         if model == "MODELO_5_PRICE_ACTION":
             return "M5"
+        if model == "MODELO_6_ESPELHO_M5":
+            return "M6"
         return "M1"
 
     def _write_management_log(self, payload: dict[str, Any]) -> None:

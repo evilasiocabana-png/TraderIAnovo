@@ -402,7 +402,7 @@ class DemoExecutionService:
         if self._has_open_position_for_same_model(order):
             return (
                 "Ja existe uma posicao aberta para este simbolo neste modelo "
-                "ou o par ja atingiu o limite de dois modelos posicionados."
+                "ou o par ja atingiu o limite de modelos posicionados."
             )
         return None
 

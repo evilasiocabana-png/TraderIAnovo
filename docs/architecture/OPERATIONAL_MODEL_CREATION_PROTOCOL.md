@@ -280,16 +280,16 @@ Checklist:
 - testes de envio;
 - testes de bloqueio.
 
-Regra atual apos M5:
+Regra atual apos M6:
 
 ```text
-Maximo por par: 5 posicoes
-Regra: uma posicao por modelo M1, M2, M3, M4 e M5
-Sexta posicao no mesmo par: bloqueada
+Maximo por par: 6 posicoes
+Regra: uma posicao por modelo M1, M2, M3, M4, M5 e M6
+Setima posicao no mesmo par: bloqueada
 Mesmo modelo no mesmo par: bloqueado
 ```
 
-Para M6 ou modelos futuros, o limite precisa ser reavaliado explicitamente. Nao aumentar automaticamente sem decisao.
+Para M7 ou modelos futuros, o limite precisa ser reavaliado explicitamente. Nao aumentar automaticamente sem decisao.
 
 ## Registro do M4
 
@@ -339,7 +339,7 @@ Alvo: nivel estrutural ou projecao minima de 1.5R
 Alpha: ALPHAPRICE5
 Beta/saida: BETAPRICE5_PRICE_ACTION_STRUCTURE_EXIT
 Coexistencia: pode operar junto com M1, M2, M3 e M4
-Limite: uma posicao M5 por par; maximo cinco posicoes por par
+Limite: uma posicao M5 por par; maximo seis posicoes por par apos M6
 Comentario MT5: TraderIA M5
 ```
 
@@ -349,6 +349,37 @@ Aprendizado:
 Modelo proprio nao deve falsificar origem como Research Lab.
 M5 usa source=PRICE_ACTION_MODEL e o robo aceita essa fonte como contrato operacional autorizado.
 Mesmo sem passar no Lab pesado, M5 precisa expor gates, plano, provider, historico, saida e testes.
+```
+
+## Registro do M6
+
+O M6 nasceu como espelho operacional do M5, sem recalculo pesado de Lab e sem
+alterar o M5 original.
+
+Definicao:
+
+```text
+Identificador: MODELO_6_ESPELHO_M5
+Nome curto: M6
+Origem: plano valido do Modelo 5 / Price Action simples
+Selecao: calcula o M5 e espelha o plano quando M5 estiver pronto
+Entrada: inverte BUY/SELL do M5
+Stop inicial: alvo original do M5
+Alvo: stop original do M5
+Alpha: ALPHAPRICE6
+Beta/saida: BETAPRICE6_ESPELHO_M5
+Coexistencia: independente do M5 para envio; pode operar sozinho se selecionado
+Limite: uma posicao M6 por par; maximo seis posicoes por par
+Comentario MT5: TraderIA M6
+```
+
+Aprendizado:
+
+```text
+Modelo espelho de modelo proprio deve preservar a origem do plano base, mas
+ter Alpha/Beta proprios para evitar confusao com o modelo original.
+M6 usa source=PRICE_ACTION_MODEL porque nasce do Price Action M5, mas recebe
+identidade operacional propria: MODELO_6_ESPELHO_M5.
 ```
 
 ### 9. Position Manager e Saida

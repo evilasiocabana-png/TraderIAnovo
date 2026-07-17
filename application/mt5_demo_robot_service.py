@@ -339,6 +339,7 @@ class MT5DemoRobotService:
         return model in {
             "MODELO_2_ESPELHO_BETA2_RR1",
             "MODELO_4_ESPELHO_M1",
+            "MODELO_6_ESPELHO_M5",
         }
 
     def _trade_plan_validation(

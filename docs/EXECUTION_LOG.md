@@ -2,6 +2,20 @@
 
 ## 2026-07-17
 
+### Modelo Operacional: M6 Espelho Do M5
+
+- Pedido: criar o `MODELO_6_ESPELHO_M5` usando o protocolo de criacao de
+  modelo, sem alterar o M5 original.
+- Regra: calcula o plano Price Action do M5; se M5 estiver pronto, inverte
+  BUY/SELL, usa o stop original do M5 como alvo e o alvo original do M5 como
+  stop.
+- Identidade: Alpha `ALPHAPRICE6`, Beta `BETAPRICE6`, source
+  `PRICE_ACTION_MODEL`, modelo operacional `MODELO_6_ESPELHO_M5`.
+- Visual: M6 aparece no seletor, no modo Todos, na Entrada Teorica MT5, na
+  Saida Teorica MT5, no relatorio e nos graficos patrimoniais por modelo.
+- Guardrail: M6 e independente do M5 para selecao/envio, mas depende de um
+  plano M5 valido para construir o espelho no ciclo atual.
+
 ### Correcao: Position Manager Por Ticket E Modelo
 
 - Sintoma: auditoria do `EURJPY M15` em `MODELO_3_RR3` mostrou a ordem enviada
@@ -13,7 +27,7 @@
 - Correcao aplicada: planos de posicoes abertas agora sao reconstruidos a partir
   das ordens aceitas em `.traderia/mt5_demo_execution.jsonl` e vinculados pelo
   `ticket` da posicao MT5.
-- Impacto: M1, M2, M3, M4 e M5 mantem Alpha/Beta/modelo/TF originais da ordem
+- Impacto: M1, M2, M3, M4, M5 e M6 mantem Alpha/Beta/modelo/TF originais da ordem
   aceita durante a gestao de saida.
 - Guardrail: se o ticket do plano nao existir mais no MT5, o Position Manager
   registra `POSITION_ABSENT` e nao mexe em outra posicao do mesmo par.

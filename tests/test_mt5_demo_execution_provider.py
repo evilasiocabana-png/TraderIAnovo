@@ -248,6 +248,9 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertFalse(
             provider.has_open_position_for_model("EURUSD", "MODELO_5_PRICE_ACTION")
         )
+        self.assertFalse(
+            provider.has_open_position_for_model("EURUSD", "MODELO_6_ESPELHO_M5")
+        )
 
     def test_submit_order_permite_terceira_posicao_m3_no_par(self) -> None:
         mt5 = _FakeMT5(
@@ -300,7 +303,7 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertTrue(result.accepted)
         self.assertIsNotNone(mt5.last_request)
 
-    def test_submit_order_bloqueia_sexta_posicao_no_par(self) -> None:
+    def test_submit_order_permite_sexta_posicao_m6_no_par(self) -> None:
         mt5 = _FakeMT5(
             open_positions=[
                 SimpleNamespace(comment="TraderIA M1"),
@@ -311,11 +314,32 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
             ]
         )
         provider = self._provider(mt5)
+        order = self._order()
+        object.__setattr__(order, "operational_model", "MODELO_6_ESPELHO_M5")
+
+        result = provider.submit_order(order)
+
+        self.assertTrue(result.accepted)
+        self.assertIsNotNone(mt5.last_request)
+        self.assertEqual(mt5.last_request["comment"], "TraderIA M6")
+
+    def test_submit_order_bloqueia_setima_posicao_no_par(self) -> None:
+        mt5 = _FakeMT5(
+            open_positions=[
+                SimpleNamespace(comment="TraderIA M1"),
+                SimpleNamespace(comment="TraderIA M2"),
+                SimpleNamespace(comment="TraderIA M3"),
+                SimpleNamespace(comment="TraderIA M4"),
+                SimpleNamespace(comment="TraderIA M5"),
+                SimpleNamespace(comment="TraderIA M6"),
+            ]
+        )
+        provider = self._provider(mt5)
 
         result = provider.submit_order(self._order())
 
         self.assertFalse(result.accepted)
-        self.assertIn("Limite de cinco posicionamentos por par", result.message)
+        self.assertIn("Limite de seis posicionamentos por par", result.message)
         self.assertIsNone(mt5.last_request)
 
     def test_get_recent_candles_aceita_array_like_do_mt5(self) -> None:

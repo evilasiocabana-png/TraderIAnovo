@@ -969,7 +969,7 @@ class DemoExecutionServiceTest(unittest.TestCase):
             os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
 
         self.assertEqual(result.status, "BATCH_COMPLETED")
-        self.assertEqual(len(provider.orders), 4)
+        self.assertEqual(len(provider.orders), 5)
         self.assertEqual(
             [order.operational_model for order in provider.orders],
             [
@@ -977,17 +977,23 @@ class DemoExecutionServiceTest(unittest.TestCase):
                 "MODELO_2_ESPELHO_BETA2_RR1",
                 "MODELO_4_ESPELHO_M1",
                 "MODELO_5_PRICE_ACTION",
+                "MODELO_6_ESPELHO_M5",
             ],
         )
         self.assertIn(provider.orders[0].side, {"BUY", "SELL"})
         self.assertIn(provider.orders[1].side, {"BUY", "SELL"})
         self.assertIn(provider.orders[2].side, {"BUY", "SELL"})
         self.assertIn(provider.orders[3].side, {"BUY", "SELL"})
+        self.assertIn(provider.orders[4].side, {"BUY", "SELL"})
         self.assertNotEqual(provider.orders[0].side, provider.orders[1].side)
         self.assertNotEqual(provider.orders[0].side, provider.orders[2].side)
         self.assertEqual(provider.orders[2].target, valid_plan.stop)
         self.assertEqual(provider.orders[2].stop, valid_plan.target)
         self.assertEqual(provider.orders[3].alpha_id, "ALPHAPRICE5")
+        self.assertEqual(provider.orders[4].alpha_id, "ALPHAPRICE6")
+        self.assertNotEqual(provider.orders[3].side, provider.orders[4].side)
+        self.assertEqual(provider.orders[4].target, provider.orders[3].stop)
+        self.assertEqual(provider.orders[4].stop, provider.orders[3].target)
 
     def test_modelo4_pode_entrar_mesmo_se_modelo1_for_rejeitado(self) -> None:
         service = DashboardService()

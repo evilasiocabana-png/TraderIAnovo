@@ -1329,7 +1329,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(summary["Custo aberto"], "-2.80")
         self.assertEqual(summary["Custo aberto projetado"], "-2.00")
         self.assertEqual(summary["Risco em aberto"], "-21.41")
-        self.assertEqual(summary["Lucro MT5 aberto"], "15.47")
+        self.assertEqual(summary["Resultado MT5"], "15.47")
         self.assertEqual(summary["Rollover custo"], "COM ROLLOVER")
 
     def test_auditoria_mt5_mostra_custo_aberto_por_operacao_aberta(self) -> None:
@@ -1372,7 +1372,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(open_view["Swap aberto"], "-0.40")
         self.assertEqual(open_view["Fee aberta"], "-0.05")
         self.assertEqual(open_view["Risco em aberto"], "-42.91")
-        self.assertEqual(open_view["Lucro MT5 aberto"], "7.60")
+        self.assertEqual(open_view["Resultado MT5"], "7.60")
         self.assertEqual(open_view["Rollover custo"], "SEM ROLLOVER")
         self.assertEqual(closed_view["Lucro projetado aberto"], "N/D")
         self.assertEqual(closed_view["Custo aberto projetado"], "N/D")
@@ -1381,7 +1381,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(closed_view["Swap aberto"], "N/D")
         self.assertEqual(closed_view["Fee aberta"], "N/D")
         self.assertEqual(closed_view["Risco em aberto"], "N/D")
-        self.assertEqual(closed_view["Lucro MT5 aberto"], "N/D")
+        self.assertEqual(closed_view["Resultado MT5"], "N/D")
         self.assertEqual(closed_view["Rollover custo"], "N/D")
 
     def test_historico_mt5_colore_vencedoras_e_perdedoras(self) -> None:
@@ -1482,6 +1482,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             SimpleNamespace(operational_model="MODELO_3_RR3"),
             SimpleNamespace(operational_model="MODELO_4_ESPELHO_M1"),
             SimpleNamespace(operational_model="MODELO_5_PRICE_ACTION"),
+            SimpleNamespace(operational_model="MODELO_6_ESPELHO_M5"),
             SimpleNamespace(operational_model="N/D"),
             SimpleNamespace(
                 operational_model="N/D",
@@ -1495,13 +1496,15 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         model3 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 3")
         model4 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 4")
         model5 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 5")
+        model6 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 6")
 
-        self.assertEqual(model0, [rows[5]])
+        self.assertEqual(model0, [rows[6]])
         self.assertEqual(model1, [rows[0]])
-        self.assertEqual(model2, [rows[1], rows[6]])
+        self.assertEqual(model2, [rows[1], rows[7]])
         self.assertEqual(model3, [rows[2]])
         self.assertEqual(model4, [rows[3]])
         self.assertEqual(model5, [rows[4]])
+        self.assertEqual(model6, [rows[5]])
 
     def test_saldo_inicial_mt5_default_visual_e_zero(self) -> None:
         source = inspect.getsource(dashboard_app._exibir_evolucao_patrimonial_mt5)

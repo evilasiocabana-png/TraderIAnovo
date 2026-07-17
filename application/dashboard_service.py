@@ -98,6 +98,7 @@ MT5_OPERATIONAL_MODEL_2 = "MODELO_2_ESPELHO_BETA2_RR1"
 MT5_OPERATIONAL_MODEL_3 = "MODELO_3_RR3"
 MT5_OPERATIONAL_MODEL_4 = "MODELO_4_ESPELHO_M1"
 MT5_OPERATIONAL_MODEL_5 = "MODELO_5_PRICE_ACTION"
+MT5_OPERATIONAL_MODEL_6 = "MODELO_6_ESPELHO_M5"
 MT5_OPERATIONAL_MODEL_ALL = "TODOS_MODELOS"
 MT5_OPERATIONAL_MODEL_5_ENTRY_TIMEFRAME = "M5"
 MT5_RR3_MIN_SAMPLE_SIZE = 150
@@ -725,6 +726,7 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_3,
             MT5_OPERATIONAL_MODEL_4,
             MT5_OPERATIONAL_MODEL_5,
+            MT5_OPERATIONAL_MODEL_6,
             MT5_OPERATIONAL_MODEL_ALL,
         }:
             normalized = MT5_OPERATIONAL_MODEL_1
@@ -745,6 +747,7 @@ class DashboardService:
                 MT5_OPERATIONAL_MODEL_3,
                 MT5_OPERATIONAL_MODEL_4,
                 MT5_OPERATIONAL_MODEL_5,
+                MT5_OPERATIONAL_MODEL_6,
             )
         return (selected,)
 
@@ -3134,7 +3137,7 @@ class DashboardService:
     def _position_manager_plans_from_open_execution_records(
         self,
     ) -> list[PositionTradePlan]:
-        """Usa o plano original de cada ordem aberta para gerir M1-M5 por ticket."""
+        """Usa o plano original de cada ordem aberta para gerir M1-M6 por ticket."""
         list_positions = getattr(self.demo_robot_execution_service, "list_open_positions", None)
         if not callable(list_positions):
             return []
@@ -4802,7 +4805,12 @@ class DashboardService:
             plan = self._mt5_research_trade_plan_for_view_row(row)
             selected_models = self._mt5_operational_models_to_evaluate()
             if plan.status != "PLANO_VALIDO" and not any(
-                model in {MT5_OPERATIONAL_MODEL_3, MT5_OPERATIONAL_MODEL_5}
+                model
+                in {
+                    MT5_OPERATIONAL_MODEL_3,
+                    MT5_OPERATIONAL_MODEL_5,
+                    MT5_OPERATIONAL_MODEL_6,
+                }
                 for model in selected_models
             ):
                 last_waiting = self._demo_robot_view_model(
@@ -5281,6 +5289,8 @@ class DashboardService:
             return self._mt5_model4_inverse_m1_plan(row, plan)
         if selected_model == MT5_OPERATIONAL_MODEL_5:
             return self._mt5_model5_price_action_plan(row, plan)
+        if selected_model == MT5_OPERATIONAL_MODEL_6:
+            return self._mt5_model6_inverse_m5_plan(row, plan)
         if selected_model != MT5_OPERATIONAL_MODEL_2:
             return row, plan
         if not self._mt5_model2_adx_low_present(row):
@@ -5486,6 +5496,144 @@ class DashboardService:
             certification_demo_allowed=True,
         )
         return transformed_row, transformed_plan
+
+    def _mt5_model6_inverse_m5_plan(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        fallback_plan: MT5ResearchTradePlan,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        m5_row, m5_plan = self._mt5_model5_price_action_plan(row, fallback_plan)
+        transformed_plan = self._mt5_model6_inverse_plan(m5_plan)
+        if transformed_plan is None:
+            reason = "Modelo 6 aguardando plano M5 valido com entrada, stop e alvo."
+            return (
+                replace(
+                    m5_row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    active_model=f"MODELO6_AGUARDA_M5 | {m5_row.active_model}",
+                    reason=reason,
+                    theoretical_entry_reason=reason,
+                    lab_alpha_id="ALPHAPRICE6",
+                    lab_alpha_version="PRICE_ACTION_MIRROR_V1",
+                    beta_id="BETAPRICE6",
+                    beta_version="BETAPRICE6_ESPELHO_M5",
+                    beta_mode="M5_MIRROR",
+                    research_plan_reason=reason,
+                ),
+                fallback_plan,
+            )
+        reason = (
+            "Modelo 6 espelho do M5: Price Action M5 indicou "
+            f"{m5_plan.direction}; operacao invertida para {transformed_plan.direction}. "
+            "Stop original do M5 vira alvo e alvo original vira stop."
+        )
+        transformed_row = replace(
+            m5_row,
+            decision=transformed_plan.direction,
+            theoretical_entry_direction=transformed_plan.direction,
+            active_model="MODELO6_ESPELHO_M5 | MODELO5_PRICE_ACTION_SIMPLE",
+            reason=reason,
+            theoretical_entry_reason=reason,
+            lab_alpha_id="ALPHAPRICE6",
+            lab_alpha_version="PRICE_ACTION_MIRROR_V1",
+            beta_id=transformed_plan.beta_id,
+            beta_version=transformed_plan.beta_version,
+            beta_mode=transformed_plan.beta_mode,
+            beta_reason=transformed_plan.beta_reason,
+            research_plan_stop=transformed_plan.stop,
+            research_plan_target=transformed_plan.target,
+            research_plan_risk_reward=transformed_plan.risk_reward,
+            research_plan_exit_model=transformed_plan.exit_model,
+            research_plan_stop_reason=transformed_plan.stop_reason,
+            research_plan_target_reason=transformed_plan.target_reason,
+            research_plan_stop_management=transformed_plan.stop_management,
+            research_plan_stop_management_parameters=dict(
+                transformed_plan.stop_management_parameters
+            ),
+            research_plan_stop_management_reason=(
+                transformed_plan.stop_management_reason
+            ),
+            research_plan_reason=transformed_plan.reason,
+            research_plan_rr_current=transformed_plan.rr_current,
+            research_plan_rr_minimum=transformed_plan.rr_minimum,
+            research_plan_diagnostics=transformed_plan.diagnostics,
+        )
+        return transformed_row, transformed_plan
+
+    def _mt5_model6_inverse_plan(
+        self,
+        plan: MT5ResearchTradePlan,
+    ) -> MT5ResearchTradePlan | None:
+        direction = str(plan.direction or "WAIT").upper()
+        if (
+            plan.status != "PLANO_VALIDO"
+            or direction not in {"BUY", "SELL"}
+            or plan.entry_price is None
+            or plan.stop is None
+            or plan.target is None
+        ):
+            return None
+        entry = float(plan.entry_price)
+        original_stop = float(plan.stop)
+        original_target = float(plan.target)
+        risk_distance = abs(original_target - entry)
+        reward_distance = abs(entry - original_stop)
+        if risk_distance <= 0 or reward_distance <= 0:
+            return None
+        inverse_direction = "SELL" if direction == "BUY" else "BUY"
+        risk_reward = reward_distance / risk_distance if risk_distance else 0.0
+        diagnostics = tuple(plan.diagnostics) + (
+            f"MODELO6_ESPELHO_M5_ORIGINAL={direction}",
+            "MODELO6_STOP_ORIGINAL_M5_VIRA_ALVO",
+            "MODELO6_ALVO_ORIGINAL_M5_VIRA_STOP",
+        )
+        return replace(
+            plan,
+            direction=inverse_direction,
+            stop=original_target,
+            target=original_stop,
+            risk_reward=risk_reward,
+            risk_pips=risk_distance,
+            reward_pips=reward_distance,
+            risk_percent=abs(risk_distance / entry) if entry else 0.0,
+            reward_percent=abs(reward_distance / entry) if entry else 0.0,
+            stop_reason="Modelo 6: stop no alvo original do Modelo 5.",
+            target_reason="Modelo 6: alvo no stop original do Modelo 5.",
+            stop_management="FIXED_STOP_MODELO6_ESPELHO_M5",
+            stop_management_parameters={
+                "modelo_operacional": MT5_OPERATIONAL_MODEL_6,
+                "direcao_m5_original": direction,
+                "alvo_modelo6": "STOP_ORIGINAL_M5",
+                "stop_modelo6": "ALVO_ORIGINAL_M5",
+                "rr": f"{risk_reward:.4f}",
+            },
+            stop_management_reason=(
+                "Modelo 6 espelho do M5: sem recalculo de Lab; troca stop e "
+                "alvo originais do Price Action e inverte a direcao."
+            ),
+            alpha_id="ALPHAPRICE6",
+            alpha_version="PRICE_ACTION_MIRROR_V1",
+            beta_id="BETAPRICE6",
+            beta_version="BETAPRICE6_ESPELHO_M5",
+            beta_mode="M5_MIRROR",
+            beta_reason=(
+                "Modelo 6: espelho operacional do Modelo 5 conforme protocolo "
+                "de criacao de modelo."
+            ),
+            exit_model="BETAPRICE6_ESPELHO_M5",
+            source="PRICE_ACTION_MODEL",
+            reason=(
+                "Modelo 6 espelho executavel: calcula o M5, inverte direcao, "
+                "usa stop original como alvo e alvo original como stop."
+            ),
+            rr_current=risk_reward,
+            rr_minimum=risk_reward,
+            diagnostics=diagnostics,
+            certification_grade="M6",
+            certification_status="PRICE_ACTION_MIRROR_READY",
+            certification_usage="M6 espelho do M5 liberado para Demo quando gates estiverem OK.",
+        )
 
     def _mt5_model4_inverse_m1_plan(
         self,

@@ -8,6 +8,8 @@ import inspect
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import threading
 import time
 import unicodedata
@@ -88,6 +90,7 @@ MT5_OPERATIONAL_MODEL_2 = "MODELO_2_ESPELHO_BETA2_RR1"
 MT5_OPERATIONAL_MODEL_3 = "MODELO_3_RR3"
 MT5_OPERATIONAL_MODEL_4 = "MODELO_4_ESPELHO_M1"
 MT5_OPERATIONAL_MODEL_5 = "MODELO_5_PRICE_ACTION"
+MT5_OPERATIONAL_MODEL_6 = "MODELO_6_ESPELHO_M5"
 MT5_OPERATIONAL_MODEL_ALL = "TODOS_MODELOS"
 MT5_OPERATIONAL_MODEL_5_ENTRY_TIMEFRAME = "M5"
 MT5_OPERATIONAL_MODEL_STATE_PATH = Path(".traderia") / "mt5_operational_model.json"
@@ -704,12 +707,76 @@ def _reset_dashboard_runtime_from_top() -> None:
     st.rerun()
 
 
+def _powershell_quote(value: object) -> str:
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _current_streamlit_port(default: str = "8532") -> str:
+    args = list(sys.argv)
+    for index, arg in enumerate(args):
+        if arg == "--server.port" and index + 1 < len(args):
+            return str(args[index + 1])
+        if arg.startswith("--server.port="):
+            return arg.split("=", 1)[1]
+    return default
+
+
+def _restart_dashboard_process_from_top() -> None:
+    """Reinicia o processo Streamlit atual para liberar RAM acumulada."""
+    app_path = Path(__file__).resolve()
+    cwd = Path.cwd()
+    port = _current_streamlit_port()
+    restart_dir = Path(".traderia") / "runtime"
+    restart_dir.mkdir(parents=True, exist_ok=True)
+    script_path = restart_dir / "restart_traderianovo_streamlit.ps1"
+    argument_line = subprocess.list2cmdline(
+        [
+            "-m",
+            "streamlit",
+            "run",
+            str(app_path),
+            "--server.port",
+            port,
+            "--server.headless",
+            "true",
+        ]
+    )
+    script_path.write_text(
+        "\n".join(
+            [
+                "$ErrorActionPreference = 'SilentlyContinue'",
+                f"$pidToWait = {os.getpid()}",
+                "Wait-Process -Id $pidToWait -Timeout 20",
+                "Start-Sleep -Seconds 1",
+                "Start-Process "
+                f"-FilePath {_powershell_quote(sys.executable)} "
+                f"-ArgumentList {_powershell_quote(argument_line)} "
+                f"-WorkingDirectory {_powershell_quote(cwd)} "
+                "-WindowStyle Hidden",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    subprocess.Popen(
+        [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script_path),
+        ],
+        close_fds=True,
+    )
+    os._exit(0)
+
+
 def _render_top_runtime_reset() -> None:
     """Exibe reset rapido logo abaixo do nome do TraderIA Novo."""
     cols = st.columns([1, 5])
     if cols[0].button("Reiniciar", key="traderia_top_runtime_reset"):
         _mark_ui_critical_interaction()
-        _reset_dashboard_runtime_from_top()
+        _restart_dashboard_process_from_top()
     message = st.session_state.get(RUNTIME_CLEANUP_MESSAGE_KEY)
     removed_count = st.session_state.get("runtime_top_reset_removed_count")
     if message and removed_count is not None:
@@ -1623,7 +1690,8 @@ def _render_mt5_operational_model_selector() -> str:
         MT5_OPERATIONAL_MODEL_3: "Modelo 3 - M3 RR3",
         MT5_OPERATIONAL_MODEL_4: "Modelo 4 - espelho do M1",
         MT5_OPERATIONAL_MODEL_5: "Modelo 5 - Price Action",
-        MT5_OPERATIONAL_MODEL_ALL: "Todos - M1, M2, M3, M4 e M5",
+        MT5_OPERATIONAL_MODEL_6: "Modelo 6 - espelho do M5",
+        MT5_OPERATIONAL_MODEL_ALL: "Todos - M1, M2, M3, M4, M5 e M6",
     }
     current = str(
         st.session_state.get(
@@ -1662,7 +1730,8 @@ def _render_mt5_operational_model_selector() -> str:
             "o sinal vivo confirma a direcao. MODELO 4 copia o M1 e espelha "
             "direcao, stop e alvo: stop original vira alvo e alvo original vira "
             "stop. MODELO 5 usa Price Action simples com estrutura, zona e "
-            "confirmacao. Em TODOS, os cinco modelos podem enviar ordem, mas "
+            "confirmacao. MODELO 6 espelha o M5: inverte direcao e troca stop "
+            "por alvo. Em TODOS, os seis modelos podem enviar ordem, mas "
             "cada modelo so pode ter uma posicao aberta por par."
         )
     st.session_state[MT5_OPERATIONAL_MODEL_KEY] = selected
@@ -1674,7 +1743,7 @@ def _render_mt5_operational_model_selector() -> str:
         )
     if selected == MT5_OPERATIONAL_MODEL_ALL:
         st.warning(
-            "Todos os modelos ativo: M1, M2, M3, M4 e M5 podem enviar ordem. "
+            "Todos os modelos ativo: M1, M2, M3, M4, M5 e M6 podem enviar ordem. "
             "O mesmo par pode ter uma posicao por modelo."
         )
     if selected == MT5_OPERATIONAL_MODEL_3:
@@ -1692,6 +1761,11 @@ def _render_mt5_operational_model_selector() -> str:
             "Modelo 5 ativo: Price Action simples. Usa estrutura, zona de "
             "interesse, confirmacao viva, stop estrutural e alvo estrutural/projecao."
         )
+    if selected == MT5_OPERATIONAL_MODEL_6:
+        st.warning(
+            "Modelo 6 ativo: espelho do M5. Calcula o Price Action do M5, "
+            "inverte BUY/SELL e usa o stop do M5 como alvo."
+        )
     return selected
 
 
@@ -1703,6 +1777,7 @@ def _valid_mt5_operational_model(model: object) -> str:
         MT5_OPERATIONAL_MODEL_3,
         MT5_OPERATIONAL_MODEL_4,
         MT5_OPERATIONAL_MODEL_5,
+        MT5_OPERATIONAL_MODEL_6,
         MT5_OPERATIONAL_MODEL_ALL,
     }:
         return normalized
@@ -1762,6 +1837,8 @@ def _mt5_operational_model_short_label(model: str) -> str:
         return "M4"
     if normalized == MT5_OPERATIONAL_MODEL_5:
         return "M5"
+    if normalized == MT5_OPERATIONAL_MODEL_6:
+        return "M6"
     if normalized == MT5_OPERATIONAL_MODEL_ALL:
         return "TODOS"
     return "MODELO 1"
@@ -2150,7 +2227,7 @@ def _mt5_open_profit_summary(rows: list[object]) -> dict[str, str]:
         "Custo aberto": f"{open_cost:.2f}",
         "Custo aberto projetado": f"{projected_open_cost:.2f}",
         "Risco em aberto": f"{projected_loss:.2f}",
-        "Lucro MT5 aberto": f"{mt5_profit:.2f}",
+        "Resultado MT5": f"{mt5_profit:.2f}",
         "Rollover custo": "COM ROLLOVER" if has_rollover else "SEM ROLLOVER",
     }
 
@@ -2159,10 +2236,10 @@ def _exibir_resumo_lucro_em_negociacao_mt5(rows: list[object]) -> None:
     summary = _mt5_open_profit_summary(rows)
     colunas = st.columns(6)
     colunas[0].metric("Lucro projetado aberto", summary["Lucro projetado aberto"])
-    colunas[1].metric("Custo aberto projetado", summary["Custo aberto projetado"])
+    colunas[1].metric("Resultado MT5", summary["Resultado MT5"])
     colunas[2].metric("Custo aberto", summary["Custo aberto"])
     colunas[3].metric("Risco em aberto", summary["Risco em aberto"])
-    colunas[4].metric("Lucro MT5 aberto", summary["Lucro MT5 aberto"])
+    colunas[4].metric("Custo aberto projetado", summary["Custo aberto projetado"])
     colunas[5].metric("Rollover custo", summary["Rollover custo"])
 
 
@@ -2496,7 +2573,14 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
             initial_balance=float(initial_balance),
             start_date=start_date,
         )
-        for model in ["MODELO 1", "MODELO 2", "MODELO 3", "MODELO 4", "MODELO 5"]
+        for model in [
+            "MODELO 1",
+            "MODELO 2",
+            "MODELO 3",
+            "MODELO 4",
+            "MODELO 5",
+            "MODELO 6",
+        ]
     }
     max_chart_start_index = max(
         [
@@ -2528,7 +2612,14 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
         chart_start_index=int(chart_start_index),
         model_filter=str(main_chart_selection),
     )
-    for model_filter in ["MODELO 1", "MODELO 2", "MODELO 3", "MODELO 4", "MODELO 5"]:
+    for model_filter in [
+        "MODELO 1",
+        "MODELO 2",
+        "MODELO 3",
+        "MODELO 4",
+        "MODELO 5",
+        "MODELO 6",
+    ]:
         _render_mt5_equity_chart(
             model_filter,
             model_curves[model_filter],
@@ -2539,15 +2630,15 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
 
 def _mt5_equity_main_chart_model_selection() -> str:
     st.caption("Grafico principal")
-    colunas = st.columns(6)
+    colunas = st.columns(7)
     all_selected = colunas[0].checkbox(
         "Todos",
         value=True,
         key="mt5_report_equity_main_all",
-        help="Marca M1, M2, M3, M4 e M5 no grafico principal.",
+        help="Marca M1, M2, M3, M4, M5 e M6 no grafico principal.",
     )
     selected_models: list[str] = []
-    for index, model in enumerate(("M1", "M2", "M3", "M4", "M5"), start=1):
+    for index, model in enumerate(("M1", "M2", "M3", "M4", "M5", "M6"), start=1):
         checked = colunas[index].checkbox(
             model,
             value=all_selected,
@@ -2578,11 +2669,13 @@ def _mt5_rows_for_equity_model_selection(
             "M3",
             "M4",
             "M5",
+            "M6",
             "MODELO1",
             "MODELO2",
             "MODELO3",
             "MODELO4",
             "MODELO5",
+            "MODELO6",
         }
     }
     model_keys = {
@@ -2591,11 +2684,13 @@ def _mt5_rows_for_equity_model_selection(
         "M3": "MODELO3",
         "M4": "MODELO4",
         "M5": "MODELO5",
+        "M6": "MODELO6",
         "MODELO1": "MODELO1",
         "MODELO2": "MODELO2",
         "MODELO3": "MODELO3",
         "MODELO4": "MODELO4",
         "MODELO5": "MODELO5",
+        "MODELO6": "MODELO6",
     }
     targets = {model_keys[key] for key in selected_keys}
     if not targets:
@@ -2658,6 +2753,7 @@ def _mt5_equity_model_filter_caption(
         "MODELO3": 0,
         "MODELO4": 0,
         "MODELO5": 0,
+        "MODELO6": 0,
     }
     for row in rows:
         key = _mt5_equity_row_model_key(row)
@@ -2666,7 +2762,8 @@ def _mt5_equity_model_filter_caption(
         f"Filtro aplicado: {model_filter} | linhas na curva: {len(filtered_rows)} | "
         f"M0: {counts['MODELO0']} | M1: {counts['MODELO1']} | "
         f"M2: {counts['MODELO2']} | M3: {counts['MODELO3']} | "
-        f"M4: {counts['MODELO4']} | M5: {counts['MODELO5']}"
+        f"M4: {counts['MODELO4']} | M5: {counts['MODELO5']} | "
+        f"M6: {counts['MODELO6']}"
     )
 
 
@@ -2691,6 +2788,8 @@ def _mt5_equity_row_model_key(row: object) -> str:
         return "MODELO4"
     if "MODELO_5" in model or "MODELO 5" in model or model == "M5":
         return "MODELO5"
+    if "MODELO_6" in model or "MODELO 6" in model or model == "M6":
+        return "MODELO6"
     if "MODELO_1" in model or "MODELO 1" in model or model == "M1":
         return "MODELO1"
     if "MODELO2" in model:
@@ -2701,6 +2800,8 @@ def _mt5_equity_row_model_key(row: object) -> str:
         return "MODELO4"
     if "MODELO5" in model:
         return "MODELO5"
+    if "MODELO6" in model:
+        return "MODELO6"
     if "MODELO1" in model:
         return "MODELO1"
     return "MODELO0"
@@ -2796,7 +2897,7 @@ def _mt5_trade_audit_row(
         "Swap aberto": _mt5_open_trade_money(row, "mt5_swap"),
         "Fee aberta": _mt5_open_trade_money(row, "mt5_fee"),
         "Risco em aberto": _mt5_open_trade_money(row, "projected_loss"),
-        "Lucro MT5 aberto": _mt5_open_trade_money(row, "mt5_realized_profit"),
+        "Resultado MT5": _mt5_open_trade_money(row, "mt5_realized_profit"),
         "Rollover custo": _mt5_open_trade_rollover_label(row),
         "Operacao MT5": str(getattr(row, "operation_status", "N/D")),
         "Fonte MT5": str(getattr(row, "mt5_source", "N/D")),
@@ -3874,6 +3975,29 @@ def _exibir_entradas_teoricas_mt5(
         decision_column="Direcao",
         color_status_cells=True,
     )
+    st.subheader("Entrada Teorica MT5 - Modelo 6 espelho M5")
+    st.caption(
+        "Modelo espelho do M5: calcula o Price Action do M5, inverte BUY/SELL, "
+        "usa o stop original do M5 como alvo e o alvo original do M5 como stop."
+    )
+    _render_stable_readonly_table(
+        [
+            _forex_theoretical_entry_row(
+                _model6_inverse_price_action_entry_row(row),
+                robot_online=robot_online,
+                mt5_online=mt5_online,
+                execution_enabled=_mt5_operational_model_enabled(
+                    operational_model,
+                    MT5_OPERATIONAL_MODEL_6,
+                ),
+                operational_model=MT5_OPERATIONAL_MODEL_6,
+            )
+            for row in rows
+        ],
+        model_column="Modelo ativo",
+        decision_column="Direcao",
+        color_status_cells=True,
+    )
 
 
 def _exibir_entrada_teorica_mt5_rr3_experimental(
@@ -4171,6 +4295,7 @@ def _exibir_saidas_teoricas_mt5(
             "<span class='traderia-legend-model3'>Modelo 3 / M3</span>"
             "<span class='traderia-legend-model4'>Modelo 4 / M4</span>"
             "<span class='traderia-legend-model5'>Modelo 5 / M5</span>"
+            "<span class='traderia-legend-model6'>Modelo 6 / M6</span>"
             "</div>"
         ),
         unsafe_allow_html=True,
@@ -4417,6 +4542,7 @@ def _mt5_theoretical_exit_effective_model(
         MT5_OPERATIONAL_MODEL_3,
         MT5_OPERATIONAL_MODEL_4,
         MT5_OPERATIONAL_MODEL_5,
+        MT5_OPERATIONAL_MODEL_6,
     }:
         return row_model
     fallback = str(fallback_model or MT5_OPERATIONAL_MODEL_1).upper()
@@ -4426,6 +4552,7 @@ def _mt5_theoretical_exit_effective_model(
         MT5_OPERATIONAL_MODEL_3,
         MT5_OPERATIONAL_MODEL_4,
         MT5_OPERATIONAL_MODEL_5,
+        MT5_OPERATIONAL_MODEL_6,
     }:
         return fallback
     return MT5_OPERATIONAL_MODEL_1
@@ -4441,6 +4568,8 @@ def _mt5_theoretical_exit_display_signal(
         return _model4_inverse_entry_row(signal)
     if display_model == MT5_OPERATIONAL_MODEL_5 and signal:
         return _model5_price_action_entry_row(signal)
+    if display_model == MT5_OPERATIONAL_MODEL_6 and signal:
+        return _model6_inverse_price_action_entry_row(signal)
     return signal
 
 
@@ -4473,6 +4602,8 @@ def _mt5_theoretical_exit_stop_value(
         return _price_from_display(display_signal.get("Stop Research"))
     if display_model == MT5_OPERATIONAL_MODEL_5 and display_signal:
         return _price_from_display(display_signal.get("Stop Research"))
+    if display_model == MT5_OPERATIONAL_MODEL_6 and display_signal:
+        return _price_from_display(display_signal.get("Stop Research"))
     return _mt5_trade_row_price(row, "stop", "stop", "initial_stop", "stop_loss")
 
 
@@ -4497,6 +4628,8 @@ def _mt5_theoretical_exit_target_value(
         return _price_from_display(display_signal.get("Alvo Research"))
     if display_model == MT5_OPERATIONAL_MODEL_5 and display_signal:
         return _price_from_display(display_signal.get("Alvo Research"))
+    if display_model == MT5_OPERATIONAL_MODEL_6 and display_signal:
+        return _price_from_display(display_signal.get("Alvo Research"))
     return _mt5_trade_row_price(row, "target", "target", "take_profit", "alvo")
 
 
@@ -4510,6 +4643,8 @@ def _mt5_theoretical_exit_candidate_stop(
         return None
     if display_model == MT5_OPERATIONAL_MODEL_5:
         return _safe_float_or_none(getattr(row, "dynamic_exit_candidate_stop", None))
+    if display_model == MT5_OPERATIONAL_MODEL_6:
+        return None
     return _safe_float_or_none(getattr(row, "dynamic_exit_candidate_stop", None))
 
 
@@ -4523,6 +4658,8 @@ def _mt5_theoretical_exit_scenario_label(
         return "ESPELHO_M1_STOP_ALVO_TROCADOS"
     if display_model == MT5_OPERATIONAL_MODEL_5:
         return "PRICE_ACTION_ESTRUTURAL"
+    if display_model == MT5_OPERATIONAL_MODEL_6:
+        return "ESPELHO_M5_STOP_ALVO_TROCADOS"
     return scenario
 
 
@@ -4537,6 +4674,8 @@ def _mt5_theoretical_exit_stop_management_label(
         return "FIXO_ESPELHO_M1"
     if display_model == MT5_OPERATIONAL_MODEL_5:
         return "ESTRUTURAL_PRICE_ACTION"
+    if display_model == MT5_OPERATIONAL_MODEL_6:
+        return "FIXO_ESPELHO_M5"
     if _mt5_theoretical_exit_stop_moved(row):
         return "SL MOVIDO"
     if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
@@ -4560,6 +4699,8 @@ def _mt5_theoretical_exit_stop_movement_label(
         if _mt5_theoretical_exit_stop_moved(row):
             return "JA_MOVEU"
         return "AGUARDA_PIVO"
+    if display_model == MT5_OPERATIONAL_MODEL_6:
+        return "FIXO"
     if _mt5_theoretical_exit_stop_moved(row):
         return "JA_MOVEU"
     if getattr(row, "dynamic_exit_candidate_stop", None) is not None:
@@ -4581,6 +4722,8 @@ def _mt5_theoretical_exit_beta_label(
         return "BETA004"
     if display_model == MT5_OPERATIONAL_MODEL_5:
         return "BETAPRICE5"
+    if display_model == MT5_OPERATIONAL_MODEL_6:
+        return "BETAPRICE6"
     signal_beta = str(signal.get("Beta Lab", "") or "").upper()
     return row_beta.upper() or signal_beta or "BETA001"
 
@@ -4613,6 +4756,8 @@ def _mt5_theoretical_exit_model_label(
         return "BETA004_ESPELHO_M1"
     if display_model == MT5_OPERATIONAL_MODEL_5:
         return "BETAPRICE5_PRICE_ACTION_STRUCTURE_EXIT"
+    if display_model == MT5_OPERATIONAL_MODEL_6:
+        return "BETAPRICE6_ESPELHO_M5"
     for value in (
         getattr(row, "exit_setup", None),
         getattr(row, "dynamic_exit_policy", None),
@@ -4658,6 +4803,8 @@ def _mt5_sender_model_label(
         return "MODELO 4"
     if model == MT5_OPERATIONAL_MODEL_5:
         return "MODELO 5"
+    if model == MT5_OPERATIONAL_MODEL_6:
+        return "MODELO 6"
     return model if model not in {"", "NONE"} else "N/D"
 
 
@@ -4709,13 +4856,15 @@ def _mt5_theoretical_exit_programming_label(row: object) -> str:
 
 
 def _mt5_theoretical_exit_cell_class(row: dict[str, object], column: str) -> str:
-    """Destaca apenas a celula do modelo; a linha ja comunica M1-M5."""
+    """Destaca apenas a celula do modelo; a linha ja comunica M1-M6."""
     if column == "Modelo envio":
         model = str(row.get(column, "") or "").upper()
         if model == "MODELO 4":
             return "traderia-cell-model4"
         if model == "MODELO 5":
             return "traderia-cell-model5"
+        if model == "MODELO 6":
+            return "traderia-cell-model6"
         if model == "MODELO 3":
             return "traderia-cell-model3"
         if model == "MODELO 2":
@@ -4770,6 +4919,8 @@ def _mt5_theoretical_exit_model_row_class(row: dict[str, object]) -> str:
         return "traderia-row-model4"
     if "MODELO 5" in model_text or "MODELO5" in model_text or "M5" in model_text:
         return "traderia-row-model5"
+    if "MODELO 6" in model_text or "MODELO6" in model_text or "M6" in model_text:
+        return "traderia-row-model6"
     if "MODELO 2" in model_text or "MODELO2" in model_text:
         return "traderia-row-model2"
     return "traderia-row-model1"
@@ -4983,6 +5134,59 @@ def _model5_price_action_entry_row(row: dict[str, object]) -> dict[str, object]:
     cloned["Plano Research"] = "PLANO_VALIDO"
     cloned["Codigo Rejeicao"] = "N/D"
     return cloned
+
+
+def _model6_inverse_price_action_entry_row(row: dict[str, object]) -> dict[str, object]:
+    """Cria leitura visual do Modelo 6 espelhando o plano Price Action do M5."""
+    m5_row = _model5_price_action_entry_row(row)
+    cloned = dict(m5_row)
+    cloned["Modelo Ativo"] = "MODELO6_ESPELHO_M5"
+    cloned["Modelo Saida"] = "BETAPRICE6_ESPELHO_M5"
+    cloned["Alpha Lab"] = "ALPHAPRICE6"
+    cloned["Beta Lab"] = "BETAPRICE6"
+    status = str(m5_row.get("Plano Research", "") or "").upper()
+    direction = str(
+        m5_row.get("Direcao Teorica", m5_row.get("Direcao", "WAIT")) or "WAIT"
+    ).upper()
+    if status != "PLANO_VALIDO" or direction not in {"BUY", "SELL", "COMPRAR", "VENDER"}:
+        cloned["Direcao Teorica"] = "WAIT"
+        cloned["Direcao"] = "WAIT"
+        cloned["Plano Research"] = "SEM_PLANO"
+        cloned["Codigo Rejeicao"] = str(
+            m5_row.get("Codigo Rejeicao", "MODELO6_AGUARDA_M5_VALIDO")
+            or "MODELO6_AGUARDA_M5_VALIDO"
+        )
+        cloned["Motivo Entrada"] = "M6 aguardando M5 pronto para espelhar."
+        return cloned
+    inverse_direction = "SELL" if direction in {"BUY", "COMPRAR"} else "BUY"
+    original_stop = m5_row.get("Stop Research")
+    original_target = m5_row.get("Alvo Research")
+    cloned["Direcao Teorica"] = inverse_direction
+    cloned["Direcao"] = "COMPRAR" if inverse_direction == "BUY" else "VENDER"
+    cloned["Stop Research"] = original_target
+    cloned["Alvo Research"] = original_stop
+    cloned["RR Research"] = _model6_inverse_rr_from_prices(m5_row)
+    cloned["RR Minimo"] = cloned["RR Research"]
+    cloned["Plano Research"] = "PLANO_VALIDO"
+    cloned["Codigo Rejeicao"] = "N/D"
+    cloned["Motivo Entrada"] = (
+        "M6 espelho do M5: inverte a direcao; stop do M5 vira alvo e "
+        "alvo do M5 vira stop."
+    )
+    return cloned
+
+
+def _model6_inverse_rr_from_prices(row: dict[str, object]) -> str:
+    entry = _price_from_display(row.get("Preco Teorico"))
+    stop = _price_from_display(row.get("Stop Research"))
+    target = _price_from_display(row.get("Alvo Research"))
+    if entry is None or stop is None or target is None:
+        return str(row.get("RR Research", "0.00") or "0.00")
+    risk = abs(float(target) - float(entry))
+    reward = abs(float(entry) - float(stop))
+    if risk <= 0:
+        return "0.00"
+    return _format_model2_price(reward / risk)
 
 
 def _format_model2_price(value: float) -> str:
@@ -5824,6 +6028,8 @@ def _mt5_trade_audit_model_row_class(row: dict[str, object]) -> str:
     model = str(row.get("Modelo", row.get("Modelo envio", "")) or "").upper()
     if "MODELO 5" in model or "MODELO5" in model or model == "M5":
         return "traderia-row-model5"
+    if "MODELO 6" in model or "MODELO6" in model or model == "M6":
+        return "traderia-row-model6"
     if "MODELO 4" in model or "MODELO4" in model or model == "M4":
         return "traderia-row-model4"
     if "MODELO 3" in model or "MODELO3" in model or model == "M3":
@@ -6019,6 +6225,11 @@ def _inject_dashboard_css() -> None:
             color: #111827 !important;
             font-weight: 800;
         }
+        .traderia-row-model6 td {
+            background: #EDE9FE !important;
+            color: #4C1D95 !important;
+            font-weight: 800;
+        }
         .traderia-stable-table td.traderia-cell-active {
             background: #DBEAFE !important;
             color: #0F172A !important;
@@ -6052,6 +6263,11 @@ def _inject_dashboard_css() -> None:
         .traderia-stable-table td.traderia-cell-model5 {
             background: #FFFFFF !important;
             color: #111827 !important;
+            font-weight: 900;
+        }
+        .traderia-stable-table td.traderia-cell-model6 {
+            background: #DDD6FE !important;
+            color: #4C1D95 !important;
             font-weight: 900;
         }
         .traderia-stable-table td.traderia-cell-result-positive {
@@ -6113,6 +6329,10 @@ def _inject_dashboard_css() -> None:
             color: #075985;
         }
         .traderia-legend-model5 {
+            background: #FFFFFF;
+            color: #111827;
+        }
+        .traderia-legend-model6 {
             background: #EDE9FE;
             color: #4C1D95;
         }
