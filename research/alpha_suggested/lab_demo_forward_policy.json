@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "scope": "DEMO_ONLY",
+  "real_account_authorized": false,
+  "decision": "USER_APPROVED_ALL_PAIRS_BY_MODEL",
+  "models": {
+    "M2": {
+      "approve_all_pairs": true
+    },
+    "M3": {
+      "approve_all_pairs": true
+    },
+    "M4": {
+      "approve_all_pairs": true
+    },
+    "M5": {
+      "approve_all_pairs": true
+    }
+  }
+}

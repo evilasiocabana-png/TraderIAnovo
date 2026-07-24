@@ -126,7 +126,7 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
             "MODELO_2_ESPELHO_BETA2_RR1",
         )
 
-    def test_rejeicao_transitoria_nao_consumir_candle(self) -> None:
+    def test_plano_stale_consumir_candle_para_nao_repetir_rejeicao(self) -> None:
         provider = _RejectingProvider(
             ExecutionResult(
                 False,
@@ -145,9 +145,9 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
         second = service.evaluate_once(signal, plan)
 
         self.assertEqual(first.status, "REJECTED")
-        self.assertEqual(second.status, "REJECTED")
-        self.assertEqual(provider.calls, 2)
-        self.assertEqual(service.last_candle_by_market, {})
+        self.assertEqual(second.status, "NO_NEW_CANDLE")
+        self.assertEqual(provider.calls, 1)
+        self.assertTrue(service.last_candle_by_market)
 
     def test_autotrading_desligado_nao_consumir_candle(self) -> None:
         provider = _RejectingProvider(
@@ -212,6 +212,39 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
             ),
             self._plan("BUY"),
         )
+
+        self.assertEqual(result.status, "REGIME_INDEFINIDO")
+        self.assertFalse(result.executed)
+        self.assertEqual(provider.orders, [])
+
+    def test_modelo4_herda_o_gate_de_regime_do_modelo1(self) -> None:
+        provider = _AcceptingProvider()
+        service = MT5DemoRobotService(
+            execution_service=DemoExecutionService(provider=provider),
+            enabled=True,
+        )
+        signal = MT5DemoRobotSignal(
+            symbol="EURUSD",
+            timeframe="H1",
+            candle_time="2026-06-29T10:00:00+00:00",
+            decision="SELL",
+            confidence=0.70,
+            active_model="MODELO4_ESPELHO_M1",
+            reason="Espelho de uma M1 sem regime definido.",
+            trend="INDEFINIDA",
+            operational_model="MODELO_4_ESPELHO_M1",
+        )
+        plan = MT5DemoTradePlan(
+            symbol="EURUSD",
+            timeframe="H1",
+            entry_price=1.1000,
+            stop=1.1200,
+            target=1.0900,
+            risk_reward=0.5,
+            operational_model="MODELO_4_ESPELHO_M1",
+        )
+
+        result = service.evaluate_once(signal, plan)
 
         self.assertEqual(result.status, "REGIME_INDEFINIDO")
         self.assertFalse(result.executed)
@@ -288,7 +321,7 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
             self._signal(
                 "BUY",
                 temporal_blocked=True,
-                temporal_status="ROLLOVER_BLOQUEADO",
+                temporal_status="FORA_DA_JANELA",
                 session_filter_enabled=False,
                 session_filter_result="IGNORED",
             ),
@@ -300,9 +333,30 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
         audit = service.execution_service.list_audit_log()[0]
         self.assertFalse(audit.session_filter_enabled)
         self.assertEqual(audit.session_filter_result, "IGNORED")
-        self.assertEqual(audit.forex_session, "ROLLOVER")
+        self.assertEqual(audit.forex_session, "LONDON")
         self.assertFalse(audit.forex_session_open)
-        self.assertTrue(audit.is_rollover)
+        self.assertFalse(audit.is_rollover)
+
+    def test_rollover_bloqueia_mesmo_com_filtro_opcional_desligado(self) -> None:
+        provider = _AcceptingProvider()
+        service = MT5DemoRobotService(
+            execution_service=DemoExecutionService(provider=provider),
+            enabled=True,
+        )
+
+        result = service.evaluate_once(
+            self._signal(
+                "BUY",
+                temporal_blocked=True,
+                temporal_status="ROLLOVER_BLOQUEADO",
+                session_filter_enabled=False,
+                session_filter_result="SAFETY_BLOCKED",
+            ),
+            self._plan("BUY"),
+        )
+
+        self.assertEqual(result.status, "TEMPORAL_BLOCKED")
+        self.assertEqual(provider.orders, [])
 
     def test_bloqueia_sinal_com_filtro_de_entrada_nv_v(self) -> None:
         provider = _AcceptingProvider()
@@ -326,6 +380,45 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
 
         self.assertEqual(result.status, "ENTRY_FILTER_BLOCKED")
         self.assertEqual(provider.orders, [])
+
+    def test_modelo6_original_nao_recebe_regime_legado_sobreposto(self) -> None:
+        service = MT5DemoRobotService(
+            execution_service=DemoExecutionService(provider=_AcceptingProvider()),
+            enabled=True,
+        )
+        signal = MT5DemoRobotSignal(
+            **{
+                **self._signal("BUY").__dict__,
+                "operational_model": "MODELO_6_TREND_MOMENTUM_ORIGINAL",
+            }
+        )
+
+        self.assertIsNone(service._regime_validation_signal(signal))
+
+    def test_modelo6_original_aceita_fonte_operacional_propria(self) -> None:
+        provider = _AcceptingProvider()
+        service = MT5DemoRobotService(
+            execution_service=DemoExecutionService(provider=provider),
+            enabled=True,
+        )
+        signal = MT5DemoRobotSignal(
+            **{
+                **self._signal("BUY").__dict__,
+                "operational_model": "MODELO_6_TREND_MOMENTUM_ORIGINAL",
+            }
+        )
+        plan = MT5DemoTradePlan(
+            **{
+                **self._plan("BUY").__dict__,
+                "source": "M6_ORIGINAL_MARCO_ZERO",
+                "operational_model": "MODELO_6_TREND_MOMENTUM_ORIGINAL",
+            }
+        )
+
+        result = service.evaluate_once(signal, plan)
+
+        self.assertEqual(result.status, "EXECUTED")
+        self.assertEqual(provider.orders[0].plan_snapshot["source"], "M6_ORIGINAL_MARCO_ZERO")
 
     def _signal(
         self,

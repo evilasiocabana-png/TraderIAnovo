@@ -7,6 +7,9 @@ import unittest
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
+
+import application.position_manager_service as position_manager_module
 
 from application.position_manager_service import (
     PositionManagerService,
@@ -16,6 +19,70 @@ from application.position_manager_service import (
 
 class PositionManagerServiceTest(unittest.TestCase):
     """Cobre gestao de SL sem abrir novas entradas."""
+
+    def test_m6_original_ignora_snapshot_dinamico_antigo(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1040),
+            price=1.1030,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        results = manager.manage_signals(
+            [
+                {
+                    "ticket": 123,
+                    "symbol": "EURUSD",
+                    "decision": "BUY",
+                    "entry": 1.1000,
+                    "stop": 1.0980,
+                    "target": 1.1040,
+                    "stop_management": "DYNAMIC_POSITION_MANAGER",
+                    "stop_management_parameters": {
+                        "atr_trailing_factor": "2.0",
+                        "atr_trailing_activation_rr": "1.5",
+                        "break_even_trigger_rr": "1.5",
+                    },
+                    "alpha_id": "ALPHA001",
+                    "alpha_version": "MARCO_ZERO_A3BC912",
+                    "beta_id": "BETA001",
+                    "beta_version": "BETA001_PROTECT_ONLY_V1",
+                    "beta_mode": "PROTECT_ONLY",
+                    "operational_model": "MODELO_6_TREND_MOMENTUM_ORIGINAL",
+                    "entry_setup": "M6_TREND_MOMENTUM_ORIGINAL",
+                    "plan_status": "PLANO_VALIDO",
+                }
+            ]
+        )
+
+        self.assertEqual(results[0].status, "POSITION_HELD")
+        self.assertEqual(results[0].policy, "RESEARCH_FIXED_SL_TP")
+        self.assertEqual(results[0].beta_mode, "FIXED_SL_TP")
+        self.assertEqual(results[0].old_stop, 1.0980)
+        self.assertEqual(provider.modify_calls, 0)
+        self.assertEqual(provider.close_calls, 0)
+
+    def test_m1_preserva_plano_lab_mesmo_com_snapshot_dinamico_antigo(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1040),
+            price=1.1030,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan(
+                "EURUSD",
+                "BUY",
+                stop_management="DYNAMIC_POSITION_MANAGER",
+                operational_model="MODELO_1_ALPHA_ATUAL",
+            )
+        )
+
+        self.assertEqual(result.status, "POSITION_HELD")
+        self.assertEqual(result.policy, "RESEARCH_FIXED_SL_TP")
+        self.assertEqual(result.beta_mode, "FIXED_SL_TP")
+        self.assertEqual(result.old_stop, 1.0980)
+        self.assertEqual(provider.modify_calls, 0)
+        self.assertEqual(provider.close_calls, 0)
 
     def test_buy_move_stop_para_cima_por_atr_trailing(self) -> None:
         provider = _FakePositionProvider(
@@ -141,6 +208,79 @@ class PositionManagerServiceTest(unittest.TestCase):
                 temp_path / "position_manager.jsonl"
             ).read_text(encoding="utf-8").splitlines()
             self.assertEqual(len(history_lines), 1)
+
+    def test_manage_plans_grava_estado_atual_uma_vez_por_ciclo(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            current_path = temp_path / "position_manager_current.json"
+            provider = _FakePositionProvider(
+                position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
+                price=1.1050,
+            )
+            manager = self._manager(
+                provider,
+                enabled=True,
+                log_path=temp_path / "position_manager.jsonl",
+                current_state_path=current_path,
+                state_path=temp_path / "position_manager_state.json",
+            )
+            plan = self._plan(
+                "EURUSD",
+                "BUY",
+                stop_management="MIRROR_FIXED_PAIR",
+            )
+            actual_atomic_write = position_manager_module._atomic_write_text
+            current_writes: list[Path] = []
+
+            def tracked_atomic_write(path: Path, content: str) -> None:
+                if path == current_path:
+                    current_writes.append(path)
+                actual_atomic_write(path, content)
+
+            with patch.object(
+                position_manager_module,
+                "_atomic_write_text",
+                side_effect=tracked_atomic_write,
+            ):
+                results = manager.manage_plans([plan, plan])
+
+            self.assertEqual(len(results), 2)
+            self.assertEqual(len(current_writes), 1)
+            self.assertEqual(
+                json.loads(current_path.read_text(encoding="utf-8"))["type"],
+                "POSITION_MANAGER_CURRENT",
+            )
+
+    def test_manage_plans_recupera_estado_utf8_interrompido(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            current_path = temp_path / "position_manager_current.json"
+            current_path.write_bytes(b'{"records": {}}\xdd')
+            provider = _FakePositionProvider(
+                position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
+                price=1.1050,
+            )
+            manager = self._manager(
+                provider,
+                enabled=True,
+                log_path=temp_path / "position_manager.jsonl",
+                current_state_path=current_path,
+                state_path=temp_path / "position_manager_state.json",
+            )
+
+            manager.manage_plans(
+                [
+                    self._plan(
+                        "EURUSD",
+                        "BUY",
+                        stop_management="MIRROR_FIXED_PAIR",
+                    )
+                ]
+            )
+
+            recovered = json.loads(current_path.read_text(encoding="utf-8"))
+            self.assertIn("ticket:123", recovered["records"])
+            self.assertEqual(list(temp_path.glob("*.tmp")), [])
 
     def test_posicao_aberta_nao_depende_de_novo_gatilho_teorico(self) -> None:
         provider = _FakePositionProvider(
@@ -593,6 +733,28 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertEqual(provider.modify_calls, 0)
         self.assertEqual(provider.close_calls, 0)
 
+    def test_par_espelhado_m1_m4_nunca_move_stop_isoladamente(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1060),
+            price=1.1050,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan(
+                "EURUSD",
+                "BUY",
+                stop_management="MIRROR_FIXED_PAIR",
+                beta_id="BETA002",
+            )
+        )
+
+        self.assertEqual(result.status, "POSITION_HELD")
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertEqual(provider.modify_calls, 0)
+        self.assertEqual(provider.close_calls, 0)
+        self.assertIn("espelhado M1/M4", result.message)
+
     def test_beta002_venda_saudavel_mantem_posicao(self) -> None:
         provider = _FakePositionProvider(
             position=_position("USDCHF", "SELL", 0.8060, 0.8070, 0.8000),
@@ -804,6 +966,7 @@ class PositionManagerServiceTest(unittest.TestCase):
         swing_low: float | None = None,
         beta_id: str = "BETA001",
         ticket: int | None = None,
+        operational_model: str = "N/D",
     ) -> PositionTradePlan:
         return PositionTradePlan(
             symbol=symbol,
@@ -822,6 +985,7 @@ class PositionManagerServiceTest(unittest.TestCase):
             swing_low=swing_low,
             beta_id=beta_id,
             ticket=ticket,
+            operational_model=operational_model,
         )
 
 

@@ -34,6 +34,23 @@ aplicação e não duplica o conteúdo dos documentos referenciados.
   - Protocolo oficial para criar novos modelos operacionais, baseado na
     retrospectiva do M3 RR3, cobrindo snapshot, Trade Plan, gates, Robo Demo,
     Provider MT5, Position Manager, relatorio e testes.
+- [architecture/END_TO_END_OPERATIONAL_FLOW.md](architecture/END_TO_END_OPERATIONAL_FLOW.md)
+  - Mapa canonico das relacoes entre Lab, ciclo Forex, modelos M1-M6, Trade
+    Plan, Robo Demo, MT5, Position Manager, Relatorio, estados e testes.
+- [research/LAB_MODELS_MT5_OPERATIONAL_PARITY_2026-07-22.md](research/LAB_MODELS_MT5_OPERATIONAL_PARITY_2026-07-22.md)
+  - Certificacao da promocao dos planos pesquisados para M2-M5, matriz de pares,
+    contrato de candle fechado, SL/TP fixos e gates MT5 Demo. O estado inativo
+    do M6 nesse documento e historico e foi superado pela ativacao registrada
+    no fluxo operacional canonico.
+- [research/ALPHA_SUGERIDA_002_PLUS_M3_INDIVIDUAL_2026-07-21.md](research/ALPHA_SUGERIDA_002_PLUS_M3_INDIVIDUAL_2026-07-21.md)
+  - Pesquisa individual por par e timeframe registrada como M3 read-only, com
+    custos, holdout, classificacao e guardrails de promocao.
+- [research/MODEL_4_CONTEXTUAL_FRONTIER_2026-07-21.md](research/MODEL_4_CONTEXTUAL_FRONTIER_2026-07-21.md)
+  - Fronteira M4 de pesquisa com contexto MTF, forca relativa, assimetria,
+    proxima abertura, embargo e separacao explicita do M4 operacional.
+- [research/MODEL_5_BEST_M1_M4_2026-07-22.md](research/MODEL_5_BEST_M1_M4_2026-07-22.md)
+  - Consolidado M5-P read-only que escolhe uma evidencia por par entre M1-M4,
+    priorizando certificacao, holdout e estresse sem alterar o M5 operacional.
 - ARCHITECTURE_BASELINE.md
   - Não existe como arquivo separado no estado atual. A política de baseline
     está documentada em [README.md](../README.md), seção "Política de Baseline

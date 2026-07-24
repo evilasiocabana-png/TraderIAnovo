@@ -293,6 +293,15 @@ class ForexTimeLayer:
                 0.0,
                 str(server_rollover.get("reason") or "Rollover do servidor MT5."),
             )
+        if timestamp_utc.weekday() == 5 or (
+            timestamp_utc.weekday() == 6 and not self._is_sunday_open(timestamp_utc)
+        ):
+            return (
+                "FIM_DE_SEMANA_BLOQUEADO",
+                True,
+                0.0,
+                "Mercado Forex fechado no fim de semana.",
+            )
         if self._is_sunday_open(timestamp_utc):
             return (
                 "DOMINGO_ABERTURA_BLOQUEADO",

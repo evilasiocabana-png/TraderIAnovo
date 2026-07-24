@@ -65,7 +65,7 @@ class MT5DemoExecutionProvider:
         expected = self._model_comment(operational_model)
         for position in positions:
             comment = str(getattr(position, "comment", "") or "").upper()
-            if expected in comment:
+            if expected in comment.split():
                 return True
             if (
                 "TRADERIA" in comment
@@ -1164,15 +1164,27 @@ class MT5DemoExecutionProvider:
         current_key = self._execution_plan_key(order)
         if current_key is None:
             return None
+        current_snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        current_candle = str(current_snapshot.get("candle_time") or "").strip()
         for record in self._read_execution_log_records():
             if not self._record_counts_as_plan_evaluation(record):
                 continue
             record_identity = str(record.get("plan_identity") or "").strip()
-            if not record_identity or record_identity.upper() == "N/D":
-                continue
-            if record_identity != current_identity:
-                continue
             if self._record_plan_key(record) != current_key:
+                continue
+            record_snapshot = dict(record.get("plan_snapshot") or {})
+            record_candle = str(record_snapshot.get("candle_time") or "").strip()
+            same_identity = bool(
+                record_identity
+                and record_identity.upper() != "N/D"
+                and record_identity == current_identity
+            )
+            same_executable_candle = bool(
+                current_candle
+                and record_candle
+                and current_candle == record_candle
+            )
+            if not same_identity and not same_executable_candle:
                 continue
             return ExecutionResult(
                 accepted=False,
@@ -1203,7 +1215,7 @@ class MT5DemoExecutionProvider:
         expected = self._model_comment(getattr(order, "operational_model", ""))
         for position in positions:
             comment = str(getattr(position, "comment", "") or "").upper()
-            if expected in comment:
+            if expected in comment.split():
                 return ExecutionResult(
                     accepted=False,
                     status="REJECTED",
@@ -1473,15 +1485,31 @@ class MT5DemoExecutionProvider:
 
     def _model_comment(self, operational_model: object) -> str:
         model = str(operational_model or "").upper()
-        if model == "MODELO_2_ESPELHO_BETA2_RR1":
+        if model in {
+            "MODELO_2_ESPELHO_BETA2_RR1",
+            "MODELO_2_LAB_ALPHA_SUGERIDA_1_PLUS",
+        }:
             return "M2"
-        if model == "MODELO_3_RR3":
+        if model in {
+            "MODELO_3_RR3",
+            "MODELO_3_LAB_ALPHA_SUGERIDA_2_PLUS",
+        }:
             return "M3"
-        if model == "MODELO_4_ESPELHO_M1":
+        if model in {
+            "MODELO_4_ESPELHO_M1",
+            "MODELO_4_LAB_CONTEXTUAL_MTF",
+        }:
             return "M4"
-        if model == "MODELO_5_PRICE_ACTION":
+        if model in {
+            "MODELO_5_PESQUISA_CONSOLIDADO",
+            "MODELO_5_PRICE_ACTION",
+            "MODELO_5_LAB_CONSOLIDADO",
+        }:
             return "M5"
-        if model == "MODELO_6_ESPELHO_M5":
+        if model in {
+            "MODELO_6_TREND_MOMENTUM_ORIGINAL",
+            "MODELO_6_ESPELHO_M5",
+        }:
             return "M6"
         return "M1"
 

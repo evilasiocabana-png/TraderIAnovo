@@ -69,8 +69,8 @@ def main() -> None:
             policy=DemoExecutionPolicy(
                 max_daily_operations=int(os.environ.get("TRADERIA_DEMO_MAX_TRADES", "8")),
                 max_daily_loss=float(os.environ.get("TRADERIA_DEMO_MAX_DAILY_LOSS", "500")),
-                allowed_start=os.environ.get("TRADERIA_DEMO_ALLOWED_START", "09:00"),
-                allowed_end=os.environ.get("TRADERIA_DEMO_ALLOWED_END", "18:00"),
+                allowed_start=os.environ.get("TRADERIA_DEMO_ALLOWED_START", "00:00"),
+                allowed_end=os.environ.get("TRADERIA_DEMO_ALLOWED_END", "23:59"),
             ),
         ),
         config=DemoTradingRuntimeConfig(

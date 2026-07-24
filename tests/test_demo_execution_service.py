@@ -125,7 +125,13 @@ class DemoExecutionServiceTest(unittest.TestCase):
         self.assertIn("Stop Loss", result.message)
 
     def test_bloqueia_fora_do_horario_permitido(self) -> None:
-        service = DemoExecutionService(provider=_AcceptingProvider())
+        service = DemoExecutionService(
+            provider=_AcceptingProvider(),
+            policy=DemoExecutionPolicy(
+                allowed_start="09:00",
+                allowed_end="18:00",
+            ),
+        )
         context, order = service.prepare_order(
             self._signal("BUY"),
             self._snapshot(datetime_text="2026-06-29 20:00:00"),
@@ -236,9 +242,9 @@ class DemoExecutionServiceTest(unittest.TestCase):
         self.assertFalse(result.real_order_enabled)
         self.assertTrue(result.mt5_order_send_enabled)
         self.assertEqual(len(result.audit_log), 1)
-        self.assertAlmostEqual(result.entry_price or 0.0, 1.2)
-        self.assertAlmostEqual(result.stop or 0.0, 1.1958)
-        self.assertAlmostEqual(result.target or 0.0, 1.2084)
+        self.assertAlmostEqual(result.entry_price or 0.0, 1.1)
+        self.assertAlmostEqual(result.stop or 0.0, 1.098)
+        self.assertAlmostEqual(result.target or 0.0, 1.104)
         rejection_stages = {step.stage: step for step in result.rejection_tree}
         self.assertEqual(rejection_stages["Kill switch demo"].status, "APROVADO")
         self.assertEqual(rejection_stages["Research Constants"].status, "APROVADO")
@@ -877,7 +883,7 @@ class DemoExecutionServiceTest(unittest.TestCase):
         self.assertIn("2 aceita", result.message)
         self.assertEqual([order.symbol for order in provider.orders], ["EURUSD", "GBPUSD"])
 
-    def test_todos_modelos_executa_modelos_1_2_e_4_no_mesmo_ciclo(self) -> None:
+    def test_todos_modelos_nao_fabrica_outros_modelos_a_partir_do_m1(self) -> None:
         service = DashboardService()
         service.set_mt5_operational_model("TODOS_MODELOS")
         dashboard = self._forex_dashboard()
@@ -969,33 +975,16 @@ class DemoExecutionServiceTest(unittest.TestCase):
             os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
 
         self.assertEqual(result.status, "BATCH_COMPLETED")
-        self.assertEqual(len(provider.orders), 5)
-        self.assertEqual(
-            [order.operational_model for order in provider.orders],
-            [
-                "MODELO_1_ALPHA_ATUAL",
-                "MODELO_2_ESPELHO_BETA2_RR1",
-                "MODELO_4_ESPELHO_M1",
-                "MODELO_5_PRICE_ACTION",
-                "MODELO_6_ESPELHO_M5",
-            ],
-        )
+        self.assertEqual(len(provider.orders), 1)
+        self.assertEqual(provider.orders[0].operational_model, "MODELO_1_ALPHA_ATUAL")
         self.assertIn(provider.orders[0].side, {"BUY", "SELL"})
-        self.assertIn(provider.orders[1].side, {"BUY", "SELL"})
-        self.assertIn(provider.orders[2].side, {"BUY", "SELL"})
-        self.assertIn(provider.orders[3].side, {"BUY", "SELL"})
-        self.assertIn(provider.orders[4].side, {"BUY", "SELL"})
-        self.assertNotEqual(provider.orders[0].side, provider.orders[1].side)
-        self.assertNotEqual(provider.orders[0].side, provider.orders[2].side)
-        self.assertEqual(provider.orders[2].target, valid_plan.stop)
-        self.assertEqual(provider.orders[2].stop, valid_plan.target)
-        self.assertEqual(provider.orders[3].alpha_id, "ALPHAPRICE5")
-        self.assertEqual(provider.orders[4].alpha_id, "ALPHAPRICE6")
-        self.assertNotEqual(provider.orders[3].side, provider.orders[4].side)
-        self.assertEqual(provider.orders[4].target, provider.orders[3].stop)
-        self.assertEqual(provider.orders[4].stop, provider.orders[3].target)
+        self.assertEqual(provider.orders[0].plan_snapshot["risk_reward"], 2.0)
+        self.assertAlmostEqual(provider.orders[0].target, 1.1100)
+        self.assertEqual(provider.orders[0].exit_policy, "FIXED_STOP")
+        self.assertEqual(provider.orders[0].plan_snapshot["mirror_pair_id"], "")
+        self.assertEqual(provider.orders[0].plan_snapshot["mirror_pair_role"], "")
 
-    def test_modelo4_pode_entrar_mesmo_se_modelo1_for_rejeitado(self) -> None:
+    def test_modelo4_nao_e_sintetizado_quando_so_m1_tem_plano(self) -> None:
         service = DashboardService()
         service.set_mt5_operational_model("TODOS_MODELOS")
         dashboard = self._forex_dashboard()
@@ -1087,7 +1076,128 @@ class DemoExecutionServiceTest(unittest.TestCase):
             os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
 
         self.assertIn("MODELO_1_ALPHA_ATUAL", provider.attempted_models)
-        self.assertIn("MODELO_4_ESPELHO_M1", provider.attempted_models)
+        self.assertEqual(provider.attempted_models, ["MODELO_1_ALPHA_ATUAL"])
+
+    def test_posicao_m4_aberta_nao_bloqueia_entrada_independente_m1(self) -> None:
+        service = DashboardService()
+        service.set_mt5_operational_model("TODOS_MODELOS")
+        service.mt5_market_data_service.latest_forex_signal_dashboard = (
+            self._forex_dashboard()
+        )
+        service.mt5_market_data_service.latest_forex_candles[("EURUSD", "H1")] = (
+            self._flat_then_trigger_candles("BUY")
+        )
+        self._install_certified_research_constants(service, ("EURUSD",))
+        provider = _Model4PositionOpenProvider()
+        object.__setattr__(
+            service,
+            "demo_robot_execution_service",
+            DemoExecutionService(provider=provider),
+        )
+        object.__setattr__(service, "_enable_mt5_demo_provider", lambda: None)
+        os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = "1"
+        try:
+            service.arm_demo_robot("TODOS", "H1")
+            result = service.evaluate_armed_demo_robot_once("TODOS", "H1")
+        finally:
+            os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
+
+        attempted = {
+            str(getattr(order, "operational_model", ""))
+            for order in provider.orders
+        }
+        self.assertIn("MODELO_1_ALPHA_ATUAL", attempted)
+        self.assertNotIn("MODELO_4_ESPELHO_M1", attempted)
+        self.assertEqual(provider.close_requests, [])
+
+    def test_m1_aceito_nao_cria_nem_fecha_modelo4_sem_sinal_proprio(self) -> None:
+        service = DashboardService()
+        service.set_mt5_operational_model("TODOS_MODELOS")
+        dashboard = self._forex_dashboard()
+        service.mt5_market_data_service.latest_forex_signal_dashboard = dashboard
+        valid_row = DashboardMT5ForexSignalRowViewModel(
+            pair="EURUSD",
+            status="OK",
+            timeframe="H1",
+            lab_timeframe="H1",
+            last_price=1.1000,
+            last_candle_time="2026-06-29T14:00:00+00:00",
+            trend="ALTA",
+            momentum=0.001,
+            volatility=0.001,
+            short_average=1.0995,
+            long_average=1.0980,
+            ema_fast=1.0995,
+            atr=0.001,
+            pivot=1.1010,
+            support=1.0990,
+            resistance=1.1060,
+            swing_low=1.0988,
+            decision="BUY",
+            theoretical_entry_direction="BUY",
+            theoretical_entry_status="SINAL_TEORICO",
+            theoretical_entry_price=1.1000,
+            active_model="TREND_MOMENTUM",
+            confidence=0.80,
+            lab_confidence=0.75,
+            adx=19.5,
+            reason="Plano valido fixture.",
+            lab_ict_demo_allowed=True,
+            lab_ict_status="APROVADO",
+            research_plan_status="PLANO_VALIDO",
+            research_plan_entry_price=1.1000,
+            research_plan_stop=1.0950,
+            research_plan_target=1.1100,
+            research_plan_risk_reward=2.0,
+        )
+        valid_plan = MT5ResearchTradePlan(
+            symbol="EURUSD",
+            timeframe="H1",
+            direction="BUY",
+            entry_price=1.1000,
+            stop=1.0950,
+            target=1.1100,
+            risk_reward=2.0,
+            stop_multiplier=2.0,
+            exit_model="FIXED_STOP",
+            exit_score=1.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            alpha_id="ALPHA001",
+            beta_id="BETA001",
+            source="RESEARCH_LAB",
+        )
+        object.__setattr__(
+            service,
+            "_to_view_model_mt5_forex_signal_row",
+            lambda *_args, **_kwargs: valid_row,
+        )
+        object.__setattr__(
+            service,
+            "_mt5_research_trade_plan_for_view_row",
+            lambda *_args, **_kwargs: valid_plan,
+        )
+        provider = _RejectModel4Provider()
+        object.__setattr__(
+            service,
+            "demo_robot_execution_service",
+            DemoExecutionService(provider=provider),
+        )
+        object.__setattr__(
+            service,
+            "load_mt5_forex_signals",
+            lambda timeframe="H1": dashboard,
+        )
+        object.__setattr__(service, "_enable_mt5_demo_provider", lambda: None)
+        os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = "1"
+        try:
+            service.arm_demo_robot("TODOS", "H1")
+            service.run_online_demo_robot_cycle("TODOS", "H1")
+        finally:
+            os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
+
+        self.assertEqual(provider.attempted_models, ["MODELO_1_ALPHA_ATUAL"])
+        self.assertEqual(provider.close_requests, [])
 
     def test_robo_temporal_continua_apos_par_sem_plano_research(self) -> None:
         service = DashboardService()
@@ -1485,9 +1595,27 @@ class _RejectModel1Provider(_AcceptingProvider):
         return super().submit_order(order)
 
 
+class _RejectModel4Provider(_RejectModel1Provider):
+    def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
+        model = str(getattr(order, "operational_model", ""))
+        self.attempted_models.append(model)
+        if model == "MODELO_4_ESPELHO_M1":
+            return ExecutionResult(False, "REJECTED", "M4 rejeitado no teste")
+        return _AcceptingProvider.submit_order(self, order)
+
+
 class _PositionOpenProvider(_AcceptingProvider):
     def has_open_position(self, symbol: str) -> bool:
         return True
+
+
+class _Model4PositionOpenProvider(_AcceptingProvider):
+    def has_open_position_for_model(
+        self,
+        symbol: str,
+        operational_model: str,
+    ) -> bool:
+        return str(operational_model).upper() == "MODELO_4_ESPELHO_M1"
 
 
 if __name__ == "__main__":

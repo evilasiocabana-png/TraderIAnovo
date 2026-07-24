@@ -41,6 +41,8 @@ class MT5MarketDataProvider:
     def connect(self) -> bool:
         """Inicializa o MT5 e autentica usando configuracao externa."""
         if self._use_external_mt5_process():
+            if self.connected:
+                return True
             payload = self._external_mt5_call("connect")
             self.connected = bool(payload.get("ok"))
             if self.connected:
@@ -138,10 +140,16 @@ class MT5MarketDataProvider:
         if count <= 0:
             return []
         if self._use_external_mt5_process():
-            external_count = min(
-                int(count),
-                int(os.getenv("TRADERIA_MT5_EXTERNAL_MAX_CANDLES", "500")),
-            )
+            external_limit = os.getenv(
+                "TRADERIA_MT5_EXTERNAL_MAX_CANDLES",
+                "",
+            ).strip()
+            external_count = int(count)
+            if external_limit:
+                try:
+                    external_count = min(external_count, max(int(external_limit), 1))
+                except ValueError:
+                    external_count = int(count)
             payload = self._external_mt5_call(
                 "get_candles",
                 symbol=symbol,
@@ -313,6 +321,57 @@ class MT5MarketDataProvider:
         self.symbols.sort()
         self.last_error = ""
         return batch
+
+    def get_research_batch(
+        self,
+        symbols: list[str] | tuple[str, ...],
+        timeframes: dict[str, Any],
+        count: int,
+    ) -> dict[str, dict[str, dict[str, Any]]]:
+        """Le pares e timeframes do Lab em uma unica sessao externa MT5."""
+        if count <= 0 or not symbols or not timeframes:
+            return {}
+        if not self._use_external_mt5_process():
+            return {
+                label: self.get_forex_batch(
+                    {symbol: timeframe for symbol in symbols},
+                    count,
+                )
+                for label, timeframe in timeframes.items()
+            }
+        payload = self._external_mt5_call(
+            "research_batch",
+            symbols=[str(symbol) for symbol in symbols],
+            timeframes={str(key): int(value) for key, value in timeframes.items()},
+            count=int(count),
+        )
+        if not bool(payload.get("ok")):
+            self.connected = False
+            self.last_error = str(
+                payload.get("message", "Falha na leitura multi-TF do Research Lab.")
+            )
+            return {}
+        self.connected = True
+        self.account = str(payload.get("account", self.account))
+        self.server_name = str(payload.get("server", self.server_name))
+        self.account_type = str(payload.get("account_type", self.account_type))
+        result: dict[str, dict[str, dict[str, Any]]] = {}
+        for label, symbols_payload in dict(payload.get("timeframes", {})).items():
+            timeframe_rows: dict[str, dict[str, Any]] = {}
+            for symbol, data in dict(symbols_payload or {}).items():
+                candles = [
+                    self._to_candle(rate)
+                    for rate in list(dict(data or {}).get("rates", []))
+                ]
+                timeframe_rows[str(symbol)] = {
+                    "exists": bool(dict(data or {}).get("exists")),
+                    "selected": bool(dict(data or {}).get("selected")),
+                    "candles": candles,
+                    "microstructure": dict(data or {}).get("microstructure", {}),
+                }
+            result[str(label).upper()] = timeframe_rows
+        self.last_error = ""
+        return result
 
     def diagnose_connection(
         self,
@@ -565,7 +624,7 @@ try:
         tick = mt5.symbol_info_tick(symbol)
         tick_time = getattr(tick, "time", None) if tick else None
         server_time = (
-            datetime.fromtimestamp(float(tick_time)).isoformat()
+            datetime.fromtimestamp(float(tick_time), tz=UTC).isoformat()
             if tick_time
             else "N/D"
         )
@@ -615,6 +674,61 @@ try:
                 },
             }
         emit({"ok": True, "symbols": response})
+    elif action == "research_batch":
+        symbols = [str(item) for item in list(request.get("symbols", []))]
+        timeframes = dict(request.get("timeframes", {}))
+        count = int(request.get("count", 0))
+        response = {}
+        for label, timeframe in timeframes.items():
+            timeframe_response = {}
+            for symbol in symbols:
+                selected = bool(mt5.symbol_select(symbol, True))
+                info = mt5.symbol_info(symbol)
+                exists = info is not None
+                rates = None
+                if exists and selected:
+                    rates = mt5.copy_rates_from_pos(symbol, int(timeframe), 0, count)
+                rows = []
+                if rates is not None:
+                    for rate in list(rates):
+                        rows.append({
+                            "time": int(rate["time"]),
+                            "open": float(rate["open"]),
+                            "high": float(rate["high"]),
+                            "low": float(rate["low"]),
+                            "close": float(rate["close"]),
+                            "tick_volume": int(rate["tick_volume"]),
+                            "real_volume": int(rate["real_volume"]) if "real_volume" in rate.dtype.names else 0,
+                        })
+                tick = mt5.symbol_info_tick(symbol) if exists else None
+                point = float(getattr(info, "point", 0.0) or 0.0) if info else None
+                spread_points = float(getattr(info, "spread", 0.0) or 0.0) if info else None
+                bid = float(getattr(tick, "bid", 0.0) or 0.0) if tick else None
+                ask = float(getattr(tick, "ask", 0.0) or 0.0) if tick else None
+                spread = ask - bid if bid is not None and ask is not None and ask >= bid else None
+                if spread is None and point is not None and spread_points is not None:
+                    spread = point * spread_points
+                timeframe_response[symbol] = {
+                    "exists": exists,
+                    "selected": selected,
+                    "rates": rows,
+                    "microstructure": {
+                        "bid": bid,
+                        "ask": ask,
+                        "point": point,
+                        "spread": spread,
+                        "spread_points": spread_points,
+                    },
+                }
+            response[str(label).upper()] = timeframe_response
+        account = mt5.account_info()
+        emit({
+            "ok": True,
+            "timeframes": response,
+            "account": getattr(account, "login", "N/D") if account else "N/D",
+            "server": getattr(account, "server", "N/D") if account else "N/D",
+            "account_type": getattr(account, "trade_mode", "N/D") if account else "N/D",
+        })
     else:
         emit({"ok": False, "message": f"Acao MT5 desconhecida: {action}"})
 finally:

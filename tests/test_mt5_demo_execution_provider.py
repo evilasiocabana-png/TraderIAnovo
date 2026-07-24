@@ -135,6 +135,44 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
             self.assertFalse(second.accepted)
             self.assertIn("duplicado", second.message)
 
+    def test_bloqueia_plano_identico_de_modelos_diferentes_no_mesmo_candle(self) -> None:
+        mt5 = _FakeMT5()
+        mt5.tick = SimpleNamespace(ask=1.10002, bid=1.10000)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = MT5DemoExecutionProvider(
+                mt5=mt5,
+                log_path=Path(temp_dir) / "orders.jsonl",
+            )
+            common = {
+                "symbol": "EURUSD",
+                "side": "BUY",
+                "quantity": 0.1,
+                "entry_price": 1.10001,
+                "stop": 1.09800,
+                "target": 1.10403,
+                "plan_snapshot": {
+                    "candle_time": "2026-07-22T11:30:00+00:00",
+                },
+            }
+            first = provider.submit_order(
+                ExecutionOrder(
+                    **common,
+                    plan_identity="EURUSD|M30|M3|ALPHA_X",
+                    operational_model="MODELO_3_LAB_ALPHA_SUGERIDA_2_PLUS",
+                )
+            )
+            second = provider.submit_order(
+                ExecutionOrder(
+                    **common,
+                    plan_identity="EURUSD|M30|M5|ALPHA_X",
+                    operational_model="MODELO_5_LAB_CONSOLIDADO",
+                )
+            )
+
+            self.assertTrue(first.accepted)
+            self.assertFalse(second.accepted)
+            self.assertIn("duplicado", second.message)
+
     def test_tentativa_rejeitada_nao_bloqueia_reenvio_do_plano(self) -> None:
         mt5 = _FakeMT5()
         mt5.tick = SimpleNamespace(ask=1.33712, bid=1.33710)
@@ -315,7 +353,11 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         )
         provider = self._provider(mt5)
         order = self._order()
-        object.__setattr__(order, "operational_model", "MODELO_6_ESPELHO_M5")
+        object.__setattr__(
+            order,
+            "operational_model",
+            "MODELO_6_TREND_MOMENTUM_ORIGINAL",
+        )
 
         result = provider.submit_order(order)
 

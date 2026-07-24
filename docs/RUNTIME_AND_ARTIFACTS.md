@@ -30,6 +30,11 @@ codigo e a documentacao; o runtime e os artefatos locais permanecem fora do Git.
 | Templates MT5 | `mt5/templates/*.tpl` |
 | Documentacao | `README.md`, `docs/`, ADRs |
 | Configuracao sem segredo | `.env.example`, `.gitignore`, `.github/` |
+| Manifesto operacional do Lab | `research/alpha_suggested/lab_operational_models_manifest.json` |
+
+O manifesto operacional e versionado porque define quais resultados pesquisados
+podem chegar ao forward Demo. Os artefatos brutos que o geraram permanecem em
+`.traderia/research/` e continuam fora do Git.
 
 ## Variaveis de ambiente
 
@@ -41,7 +46,8 @@ MT5_PASSWORD=
 MT5_SERVER=
 TRADERIA_MT5_VISUAL_SIGNALS_ENABLED=1
 TRADERIA_MT5_FOREX_CYCLE_SECONDS=10
-TRADERIA_MT5_EXTERNAL_MAX_CANDLES=500
+# Opcional: deixe ausente para o Lab receber os 5000 candles configurados.
+TRADERIA_MT5_EXTERNAL_MAX_CANDLES=
 ```
 
 Credenciais reais devem ficar apenas no ambiente local.

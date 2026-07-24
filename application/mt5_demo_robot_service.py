@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from application.demo_execution_service import DemoExecutionService
 from application.market_regime_pipeline import MarketRegimePipeline
+from application.model6_original_trend_momentum import MODEL_6_ID
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
 from domain.contracts.market_snapshot import MarketSnapshot
@@ -27,6 +28,13 @@ STRATEGY_DEFINITION_VERSION = "STRAT v3"
 DEFAULT_BETA_ID = "BETA001"
 DEFAULT_BETA_VERSION = "BETA v1"
 DEFAULT_OPERATIONAL_MODEL = "MODELO_1_ALPHA_ATUAL"
+HARD_TEMPORAL_BLOCK_STATUSES = {
+    "FIM_DE_SEMANA_BLOQUEADO",
+    "DOMINGO_ABERTURA_BLOQUEADO",
+    "SEXTA_FINAL_BLOQUEADO",
+    "ROLLOVER_BLOQUEADO",
+    "ROLLOVER_SERVIDOR_MT5_BLOQUEADO",
+}
 
 
 @dataclass(frozen=True)
@@ -106,6 +114,7 @@ class MT5DemoTradePlan:
     target_reason: str = ""
     exit_model: str = "NONE"
     stop_management: str = "DYNAMIC_POSITION_MANAGER"
+    stop_management_parameters: dict[str, object] = field(default_factory=dict)
     alpha_id: str = DEFAULT_ALPHA_ID
     alpha_version: str = DEFAULT_ALPHA_VERSION
     beta_id: str = DEFAULT_BETA_ID
@@ -113,6 +122,8 @@ class MT5DemoTradePlan:
     beta_mode: str = "PROTECT_ONLY"
     operational_model: str = DEFAULT_OPERATIONAL_MODEL
     trade_plan_version: str = TRADE_PLAN_VERSION
+    mirror_pair_id: str = ""
+    mirror_pair_role: str = ""
 
 
 @dataclass(frozen=True)
@@ -175,8 +186,9 @@ class MT5DemoRobotService:
                 signal,
                 trade_plan,
             )
-        if not self._is_inverse_operational_model_signal(signal):
-            regime_result = self.market_regime_pipeline.evaluate(signal)
+        regime_signal = self._regime_validation_signal(signal)
+        if regime_signal is not None:
+            regime_result = self.market_regime_pipeline.evaluate(regime_signal)
             if not regime_result.authorized:
                 self._mark_candle_evaluated(key, signal.candle_time, current_decision)
                 return self._result(
@@ -185,18 +197,27 @@ class MT5DemoRobotService:
                     signal,
                     trade_plan,
                 )
-            if regime_result.direction != current_decision:
+            expected_regime_direction = str(regime_signal.decision).upper()
+            if regime_result.direction != expected_regime_direction:
                 self._mark_candle_evaluated(key, signal.candle_time, current_decision)
                 return self._result(
                     "REGIME_DIRECTION_MISMATCH",
                     (
                         "Regime autorizou "
-                        f"{regime_result.direction}, mas o sinal atual e {current_decision}."
+                        f"{regime_result.direction}, mas a origem M1 pede "
+                        f"{expected_regime_direction}."
                     ),
                     signal,
                     trade_plan,
                 )
-        if signal.temporal_blocked and signal.session_filter_enabled:
+        hard_temporal_block = (
+            signal.temporal_blocked
+            and str(signal.temporal_status or "").upper()
+            in HARD_TEMPORAL_BLOCK_STATUSES
+        )
+        if signal.temporal_blocked and (
+            signal.session_filter_enabled or hard_temporal_block
+        ):
             self._mark_candle_evaluated(key, signal.candle_time, current_decision)
             return self._result(
                 "TEMPORAL_BLOCKED",
@@ -342,6 +363,31 @@ class MT5DemoRobotService:
             "MODELO_6_ESPELHO_M5",
         }
 
+    def _regime_validation_signal(
+        self,
+        signal: MT5DemoRobotSignal,
+    ) -> MT5DemoRobotSignal | None:
+        """Nao sobrepoe regime legado aos modelos com Alpha canonica completa."""
+        model = str(getattr(signal, "operational_model", "") or "").upper()
+        if model in {
+            "MODELO_2_LAB_ALPHA_SUGERIDA_1_PLUS",
+            "MODELO_3_LAB_ALPHA_SUGERIDA_2_PLUS",
+            "MODELO_4_LAB_CONTEXTUAL_MTF",
+            "MODELO_5_LAB_CONSOLIDADO",
+            MODEL_6_ID,
+        }:
+            # Sessao, regime, momentum, volatilidade e demais indicadores ja
+            # pertencem ao sinal reproduzido pelo adaptador canonico do Lab.
+            return None
+        if model == "MODELO_4_ESPELHO_M1":
+            original_direction = (
+                "BUY" if str(signal.decision).upper() == "SELL" else "SELL"
+            )
+            return replace(signal, decision=original_direction)
+        if self._is_inverse_operational_model_signal(signal):
+            return None
+        return signal
+
     def _trade_plan_validation(
         self,
         signal: MT5DemoRobotSignal,
@@ -352,7 +398,11 @@ class MT5DemoRobotService:
             trade_plan.timeframe,
         ):
             return "Plano do Research Lab pertence a outro simbolo/timeframe."
-        if trade_plan.source not in {"RESEARCH_LAB", "PRICE_ACTION_MODEL"}:
+        if trade_plan.source not in {
+            "RESEARCH_LAB",
+            "PRICE_ACTION_MODEL",
+            "M6_ORIGINAL_MARCO_ZERO",
+        }:
             return "Plano de trade nao veio de fonte operacional autorizada."
         if trade_plan.status != "PLANO_VALIDO":
             return "Plano do Research Lab nao esta com status PLANO_VALIDO."
@@ -413,6 +463,10 @@ class MT5DemoRobotService:
             "entry_setup": signal.active_model,
             "exit_setup": trade_plan.stop_management,
             "exit_model": trade_plan.exit_model,
+            "stop_management": trade_plan.stop_management,
+            "stop_management_parameters": dict(
+                trade_plan.stop_management_parameters
+            ),
             "stop_reason": trade_plan.stop_reason,
             "target_reason": trade_plan.target_reason,
             "alpha_id": trade_plan.alpha_id or signal.alpha_id,
@@ -420,6 +474,8 @@ class MT5DemoRobotService:
             "beta_id": trade_plan.beta_id,
             "beta_version": trade_plan.beta_version,
             "beta_mode": trade_plan.beta_mode,
+            "mirror_pair_id": trade_plan.mirror_pair_id,
+            "mirror_pair_role": trade_plan.mirror_pair_role,
             "lab_configuration_version": signal.lab_configuration_version,
             "indicator_bundle_version": signal.indicator_bundle_version,
             "microstructure_version": signal.microstructure_version,
@@ -494,10 +550,8 @@ class MT5DemoRobotService:
         """Consome candle apenas para rejeicoes logicas, nao falhas transitorias."""
         normalized = str(message or "").lower()
         transient_markers = (
-            "stale",
             "tick indisponivel",
             "preco executavel indisponivel",
-            "preco atual tornou",
             "mt5 retornou resposta vazia",
             "initialize() falhou",
             "autotrading disabled",

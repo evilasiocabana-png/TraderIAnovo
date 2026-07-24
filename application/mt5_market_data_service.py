@@ -284,6 +284,10 @@ class MT5MarketDataService:
     latest_forex_candles: dict[tuple[str, str], list[Candle]] = field(
         default_factory=dict
     )
+    supplemental_forex_refresh_started: dict[str, float] = field(
+        default_factory=dict,
+        repr=False,
+    )
     latest_spread_history: dict[tuple[str, str], list[float]] = field(
         default_factory=dict
     )
@@ -898,10 +902,138 @@ class MT5MarketDataService:
         )
         return self.latest_forex_signal_dashboard
 
+    def refresh_supplemental_forex_candles(
+        self,
+        required: dict[str, set[str]],
+        *,
+        full_count: int = 500,
+    ) -> dict[str, str]:
+        """Warm and increment multi-TF candle caches without feature recalculation."""
+        normalized = {
+            str(pair).upper(): {
+                self._normalize_timeframe(timeframe)
+                for timeframe in set(timeframes or set())
+            }
+            for pair, timeframes in dict(required or {}).items()
+            if str(pair).strip()
+        }
+        if not normalized:
+            return {}
+        primary_keys = {
+            (
+                str(getattr(row, "pair", "") or "").upper(),
+                str(getattr(row, "timeframe", "") or "").upper(),
+            )
+            for row in list(getattr(self.latest_forex_signal_dashboard, "pairs", []) or [])
+        }
+        missing: dict[str, set[str]] = {}
+        warm: dict[str, set[str]] = {}
+        now = perf_counter()
+        intervals = {"M1": 10.0, "M5": 10.0, "M15": 10.0, "M30": 10.0, "H1": 30.0, "H4": 60.0, "D1": 300.0}
+        for pair, timeframes in normalized.items():
+            for timeframe in timeframes:
+                key = (pair, timeframe)
+                if key in primary_keys:
+                    continue
+                cached = list(self.latest_forex_candles.get(key, []) or [])
+                if len(cached) < 260:
+                    missing.setdefault(timeframe, set()).add(pair)
+                    continue
+                last = float(self.supplemental_forex_refresh_started.get(timeframe, 0.0))
+                if now - last >= intervals.get(timeframe, 30.0):
+                    warm.setdefault(timeframe, set()).add(pair)
+        errors: dict[str, str] = {}
+        if missing:
+            errors.update(
+                self._read_supplemental_forex_batch(
+                    missing,
+                    count=max(int(full_count), 260),
+                )
+            )
+        if warm:
+            errors.update(self._read_supplemental_forex_batch(warm, count=3))
+        for timeframe in set(missing) | set(warm):
+            self.supplemental_forex_refresh_started[timeframe] = now
+        return errors
+
+    def _read_supplemental_forex_batch(
+        self,
+        requested: dict[str, set[str]],
+        *,
+        count: int,
+    ) -> dict[str, str]:
+        errors: dict[str, str] = {}
+        labels = {
+            timeframe: self._timeframe_value(timeframe)
+            for timeframe in requested
+        }
+        symbols = sorted({pair for pairs in requested.values() for pair in pairs})
+        batch_reader = getattr(self.provider, "get_research_batch", None)
+        payload: dict[str, dict[str, dict[str, Any]]] = {}
+        try:
+            if callable(batch_reader):
+                payload = batch_reader(symbols, labels, max(int(count), 1))
+            else:
+                for timeframe, timeframe_value in labels.items():
+                    payload[timeframe] = {
+                        pair: {
+                            "exists": True,
+                            "selected": True,
+                            "candles": self.provider.get_candles(
+                                pair,
+                                timeframe_value,
+                                max(int(count), 1),
+                            ),
+                        }
+                        for pair in requested.get(timeframe, set())
+                    }
+        except Exception as exc:  # noqa: BLE001 - external read-only provider
+            return {"BATCH": str(exc)}
+        for timeframe, pairs in requested.items():
+            rows = dict(payload.get(timeframe, {}) or {})
+            for pair in pairs:
+                row = dict(rows.get(pair, {}) or {})
+                if not bool(row.get("exists", False)) or not bool(
+                    row.get("selected", False)
+                ):
+                    errors[f"{pair}|{timeframe}"] = "Simbolo/TF indisponivel no MT5."
+                    continue
+                candles = list(row.get("candles", []) or [])
+                if not candles:
+                    errors[f"{pair}|{timeframe}"] = "MT5 retornou zero candles."
+                    continue
+                self._merge_forex_candle_cache(
+                    pair,
+                    timeframe,
+                    candles,
+                    limit=max(int(count), 500),
+                )
+        return errors
+
+    def _merge_forex_candle_cache(
+        self,
+        pair: str,
+        timeframe: str,
+        candles: list[Candle],
+        *,
+        limit: int,
+    ) -> None:
+        key = (pair.upper(), timeframe.upper())
+        current = list(self.latest_forex_candles.get(key, []) or [])
+        merged = {
+            str(getattr(candle, "data", "")): candle
+            for candle in current + list(candles)
+            if str(getattr(candle, "data", ""))
+        }
+        ordered = [merged[name] for name in sorted(merged)]
+        self.latest_forex_candles[key] = ordered[-max(int(limit), 260) :]
+
     def load_forex_research_snapshot(
         self,
         timeframe: str = "M1",
         count: int | None = None,
+        *,
+        preloaded_market_data: dict[str, dict[str, Any]] | None = None,
     ) -> MT5ForexSignalDashboard:
         """Carrega snapshot MT5 para calibracao sem alterar o painel online."""
         total_started = perf_counter()
@@ -922,7 +1054,11 @@ class MT5MarketDataService:
             "constantes e nao participa do refresh online do MT5 Forex."
         )
 
-        connected = self._provider_connect()
+        connected = (
+            bool(getattr(self.provider, "connected", False))
+            if preloaded_market_data is not None
+            else self._provider_connect()
+        )
         if not connected:
             rows = [
                 self._unavailable_pair_row(
@@ -974,14 +1110,51 @@ class MT5MarketDataService:
         available_pairs: list[str] = []
         unavailable_pairs: list[str] = []
         read_errors: list[str] = []
+        batch_market_data: dict[str, dict[str, Any]] = dict(
+            preloaded_market_data or {}
+        )
+        batch_attempted = preloaded_market_data is not None
+        batch_reader = getattr(self.provider, "get_forex_batch", None)
+        if (
+            preloaded_market_data is None
+            and
+            callable(batch_reader)
+            and os.getenv("TRADERIA_MT5_BATCH_ENABLED", "1").strip() == "1"
+        ):
+            batch_attempted = True
+            try:
+                read_started = perf_counter()
+                batch_market_data = batch_reader(
+                    {
+                        pair: timeframe_value
+                        for pair in SUPPORTED_MT5_SYMBOLS
+                    },
+                    safe_count,
+                )
+                provider_read_ms += self._elapsed_ms(read_started)
+            except Exception as exc:  # noqa: BLE001 - provider externo read-only
+                read_errors.append(f"MT5 batch de pesquisa: {exc}")
+                batch_market_data = {}
         for pair in SUPPORTED_MT5_SYMBOLS:
-            if not self._symbol_exists(pair):
+            batch_row = batch_market_data.get(pair)
+            if batch_market_data:
+                symbol_exists = bool(batch_row and batch_row.get("exists"))
+            elif batch_attempted and self._provider_uses_external_mt5_process():
+                symbol_exists = False
+            else:
+                symbol_exists = self._symbol_exists(pair)
+            if not symbol_exists:
                 unavailable_pairs.append(pair)
                 rows.append(
                     self._unavailable_pair_row(
                         pair,
-                        "INDISPONIVEL NO MT5",
-                        "Par indisponivel no MT5; calibracao rejeitada.",
+                        "ERRO MT5" if batch_attempted and not batch_market_data else "INDISPONIVEL NO MT5",
+                        (
+                            "Leitura MT5 em lote falhou; calibracao preserva o ultimo "
+                            "historico valido sem abrir subprocessos por par."
+                            if batch_attempted and not batch_market_data
+                            else "Par indisponivel no MT5; calibracao rejeitada."
+                        ),
                         timeframe=normalized_timeframe,
                         configured_candles=configured_candles,
                         requested_candles=safe_count,
@@ -990,7 +1163,11 @@ class MT5MarketDataService:
                 )
                 continue
 
-            selected = self.provider.select_symbol(pair)
+            selected = (
+                bool(batch_row and batch_row.get("selected"))
+                if batch_market_data
+                else self.provider.select_symbol(pair)
+            )
             if not selected:
                 unavailable_pairs.append(pair)
                 rows.append(
@@ -1008,7 +1185,11 @@ class MT5MarketDataService:
 
             try:
                 read_started = perf_counter()
-                candles = self.provider.get_candles(pair, timeframe_value, safe_count)
+                candles = (
+                    list(batch_row.get("candles", []))
+                    if batch_row
+                    else self.provider.get_candles(pair, timeframe_value, safe_count)
+                )
                 provider_read_ms += self._elapsed_ms(read_started)
                 self.latest_forex_candles[(pair, normalized_timeframe)] = list(candles)
             except TimeoutError as exc:
@@ -1047,7 +1228,11 @@ class MT5MarketDataService:
                     pair,
                     candles,
                     research_configuration,
-                    microstructure=self._symbol_microstructure(pair),
+                    microstructure=(
+                        dict(batch_row.get("microstructure", {}) or {})
+                        if batch_row
+                        else self._symbol_microstructure(pair)
+                    ),
                     timeframe=normalized_timeframe,
                     configured_candles=configured_candles,
                     requested_candles=safe_count,

@@ -1,5 +1,392 @@
 # Execution Log
 
+## 2026-07-24 - Contrato Original De Saida Do M6 Restaurado
+
+- Auditoria do Git confirmou que a configuracao ALPHA001 foi recuperada do
+  TraderIA original, mas o adaptador M6 criado em 22/23 de julho anexou o
+  wrapper global `BETA001_PROTECT_ONLY_V1` e `DYNAMIC_POSITION_MANAGER`.
+- A partir de agora, M6 usa `BETA001_FIXED_SL_TP_RR2_V1` e
+  `RESEARCH_FIXED_SL_TP`: SL inicial pela maior distancia entre 2 ATR e 0,10%
+  do preco, TP RR2 e encerramento por primeiro toque.
+- Break-even, trailing, `EARLY_EXIT` e `FULL_EXIT` ficam fora do M6.
+- Snapshots antigos do M6 recebem bypass defensivo antes de qualquer comando do
+  Position Manager. Posicoes abertas preservam o SL/TP que ja existe no MT5;
+  nenhum stop e afastado ou restaurado.
+- Validacao: 38 testes M6/Position Manager e 217 testes Dashboard aprovados;
+  processo `traderiaianovo` reiniciado na porta 8532 e health check `ok`.
+
+## 2026-07-23 - Snapshot Atomico Dos Graficos Patrimoniais
+
+- Corrigida a divergencia visual em que o cartao do M6 mostrava 13 operacoes e
+  patrimonio `-12,80`, mas a linha ja representava 20 operacoes e `100,61`.
+- A conta MT5 estava correta; o problema era o reaproveitamento visual de
+  elementos durante rerenders do fragmento da aba Relatorio.
+- Patrimonio final, numero de operacoes e pontos do grafico agora nascem do
+  mesmo snapshot imutavel.
+- Cada painel e grafico possui identidade por modelo e uma versao derivada dos
+  dados. Uma nova operacao substitui o desenho anterior em vez de mistura-lo.
+- A correcao nao adiciona consulta MT5, leitura de JSONL, recalculo do Lab ou
+  trabalho ao ciclo operacional.
+
+## 2026-07-22 - M6 Trend Momentum Original Ativado
+
+- O identificador operacional vigente passou a ser
+  `MODELO_6_TREND_MOMENTUM_ORIGINAL`; o antigo
+  `MODELO_6_ESPELHO_M5` migra no seletor, sem reescrever ordens historicas.
+- A configuracao foi recuperada do marco `a3bc912`: M1, media simples 20/50,
+  momentum 10, volatilidade 20, RSI14, corte de volatilidade `0.00001`, faixa
+  RSI 30/70 e confianca base 55%.
+- O sinal usa o ultimo candle M1 fechado e materializa a entrada no preco vivo
+  seguinte. O risco inicial usa a maior distancia entre 2 ATR e 0,10% do
+  preco, com alvo RR2.
+- A saida declarada e `BETA001_PROTECT_ONLY_V1`: o Position Manager pode
+  manter ou proteger o SL, mas o contrato M6 nao autoriza `FULL_EXIT`.
+- M6 ficou disponivel sozinho e em `TODOS_MODELOS`, com uma posicao por par e
+  comentario `TraderIA M6`. A execucao continua exclusiva em conta Demo.
+- O monitor MT5 exibe MA20, MA50, momentum 10, volatilidade 20, RSI14 e ATR20
+  reutilizando o snapshot do ciclo, sem nova leitura do MT5 nem Lab pesado.
+- Validacao: compilacao aprovada e 263 testes focados de M6, ViewModel,
+  interface, Robo Demo e provider aprovados.
+
+## 2026-07-22 - Funil Visual Rastreavel M1-M5
+
+- A tabela `Entrada Teorica MT5` passou a decompor o caminho de envio em
+  modelo, liberacao Demo, dados do TF, candle fechado, indicadores, sinal,
+  janela, Trade Plan, zona, filtro, regime, preco, tempo, duplicidade, posicao,
+  Robo e MT5 Demo.
+- A coluna `Envio` agora apresenta somente `PRONTO` ou o gargalo com etapa e
+  motivo; as demais celulas permitem acompanhar simultaneamente todo o funil.
+- M2-M5 deixam de herdar visualmente sinal, direcao, candle, entrada, SL e TP da
+  linha M1 quando sua decisao propria ainda nao gerou gatilho.
+- Corrigida a colisao de duas chaves `Zona`: o status permanece em `Zona` e a
+  leitura tecnica passou para `Zona atual`.
+- `NO_THEORETICAL_TRIGGER` no M1 passou a ser exibido como espera amarela, pois
+  representa ausencia momentanea de gatilho e nao falha estrutural do plano.
+- O diagnostico reutiliza o snapshot compacto do ciclo e o log de execucao e
+  nao adiciona leitura MT5, recalculo do Lab ou novo loop.
+- Escopo operacional preservado: a tabela observa o fluxo; Robo Demo,
+  DemoExecutionService e Provider continuam sendo os responsaveis pelo envio.
+- Validacao: `py_compile` aprovado; 236 testes de dashboard, ViewModel,
+  LabOperationalModelService e Robo Demo passaram; navegador confirmou M1-M5,
+  `Envio` amarelo para espera e separacao entre `Zona` e `Zona atual`.
+
+## 2026-07-22 - Liberacao Demo De Todos Os Pares M2-M5
+
+- Os oito pares foram liberados operacionalmente em M2, M3, M4 e M5.
+- A decisao ficou separada em
+  `research/alpha_suggested/lab_demo_forward_policy.json`.
+- O manifesto preserva a evidencia estatistica original nos campos `evidence_*`.
+- O escopo permanece exclusivamente Demo; conta real continua bloqueada.
+- M1 permanece com os oito planos vigentes do Lab e M6 continua inativo.
+
+## 2026-07-22
+
+### Corte Patrimonial Exato Em 22/07/2026 04:30 Brasil
+
+- O grafico principal e as curvas individuais passaram a converter a hora real
+  de fechamento do MT5 para o fuso do Brasil, em vez de comparar a data UTC.
+- O corte padrao e `22/07/2026 04:30` em `America/Sao_Paulo`; uma operacao
+  realizada antes desse instante fica fora e um fechamento a partir dele entra.
+- Timestamps ISO, ISO com `Z` e formato brasileiro sao aceitos. Registros sem
+  horario confiavel ficam fora da curva quando existe corte ativo.
+- Removido o segundo filtro por indice, que podia ocultar ou incluir um trecho
+  diferente do solicitado e deixava a legenda `desde indice` ambigua.
+- A data, a hora e o saldo inicial agora alimentam uma unica janela compartilhada
+  pelo grafico principal e por M1-M6.
+- A chave da hora foi versionada para impedir que uma sessao anterior restaure
+  automaticamente o antigo valor `00:00`.
+
+### Monitor Vivo De Indicadores M1-M5
+
+- A aba MT5 Forex passou a apresentar `M1` a `M5` na primeira coluna e uma
+  linha para cada indicador efetivamente usado pelo modelo em cada par/TF.
+- A coluna `Movimento` compara o valor com o ciclo anterior e informa subida,
+  queda, estabilidade ou mudanca categorica.
+- O M4/M5 transporta tambem o contexto H1/H4 habilitado; paridades bloqueadas
+  exibem somente seu bloqueio.
+- A tela reutiliza o snapshot compacto `mt5_lab_operational_decisions`; o cache
+  bruto de candles permanece no ciclo background e nao e copiado para a sessao.
+- Nenhuma nova leitura MT5, novo loop ou recalculo pesado do Lab foi criado.
+- Perfil real do ciclo quente identificou 113 mil normalizacoes repetidas de
+  candles e montagem desnecessaria do dashboard completo durante o export MT5.
+- O runtime passou a reutilizar candles normalizados pelo candle fechado,
+  exportar diretamente o ViewModel Forex, compartilhar o horario do servidor
+  no ciclo e publicar as decisoes que o Robo ja calculou.
+- Medicao controlada caiu de `3,13 s` para `0,80 s` por ciclo quente, mantendo
+  o intervalo operacional de 10 segundos e todas as leituras de M1 a M5.
+
+### Promocao Dos Planos Do Lab Para Os Modelos MT5 M2-M5
+
+- Os artefatos pesquisados foram confrontados com o contrato executavel e
+  congelados em `research/alpha_suggested/lab_operational_models_manifest.json`.
+- M2, M3, M4 e M5 agora usam as Alphas, timeframes, indicadores, filtros de
+  sessao/dia, ATR, RR, SL e TP da pesquisa; os modelos operacionais antigos
+  espelho/Price Action foram retirados desse caminho.
+- O consolidado deixou de ser M5-P separado e passou a ser somente M5. M6 ficou
+  inativo e fora do seletor, do modo Todos e do envio.
+- M2-M5 operam por ultimo candle fechado e proximo preco vivo, com janela de
+  120 segundos e `RESEARCH_FIXED_SL_TP`. O Position Manager acompanha e audita,
+  mas nao move SL nem executa `FULL_EXIT` nesses planos.
+- O provider passou a bloquear duplicata exata entre modelos no mesmo candle.
+- A leitura suplementar M30/H1/H4 usa cache e atualizacao incremental; o Lab
+  pesado nao entra no ciclo leve.
+- Corrigida a conversao de timestamp do tick para UTC. Fim de semana e rollover
+  agora sao bloqueios duros mesmo com filtro geral de sessao desmarcado.
+- A auditoria visual encontrou e removeu o ultimo monitor M2 espelho e a legenda
+  BETA2/RR1 que ainda eram montados pela UI. As tabelas exibidas agora refletem
+  o manifesto M2-M5; contratos legados aparecem somente em posicoes/historico
+  realmente abertos antes da promocao.
+- Auditoria somente leitura confirmou MT5 Pepperstone Demo conectado, permissao
+  algoritmica ativa, oito pares negociaveis e dados M1/M5/M30/H1/H4 presentes.
+- Validacao: 363 testes aprovados e compilacao Python aprovada. Nenhuma ordem
+  foi enviada durante a auditoria.
+- A tentativa adicional de `unittest discover` global atingiu o timeout de 15
+  minutos sem concluir ou emitir falha. O incidente foi registrado como
+  `FLOW-009`; ele nao substitui os grupos criticos aprovados e exige futura
+  divisao da suite por perfil de custo.
+- Relatorio: `docs/research/LAB_MODELS_MT5_OPERATIONAL_PARITY_2026-07-22.md`.
+
+### Graficos Do Relatorio Reiniciados Em 22/07/2026
+
+- O grafico principal e as curvas individuais M1-M6 passaram a usar
+  `22/07/2026` como data inicial padrao.
+- O corte atua somente nas curvas patrimoniais; historico completo, ultima
+  negociacao e tabelas de auditoria permanecem intactos.
+- O seletor de data continua editavel e recebeu uma nova chave de sessao para
+  nao restaurar o valor anterior de `01/07/2026` apos a atualizacao.
+
+### Consolidacao Dos Melhores M1-M4 Como M5 De Pesquisa
+
+- Criado `MODELO_5_PESQUISA_CONSOLIDADO`, exibido no Lab como M5-P e separado
+  do `MODELO_5_PRICE_ACTION` operacional.
+- O seletor compara uma candidata de M1, M2, M3 e M4-P por par, priorizando
+  certificacao, custo estressado, cobertura de holdout, PF conservador, ICT,
+  amostra e drawdown.
+- Vencedores: M3 em AUDUSD, EURJPY, EURUSD, GBPUSD e NZDUSD; M1 em USDCAD e
+  USDJPY; M4-P em USDCHF. O M2 participou, mas nao venceu nenhum par.
+- O artefato local preserva todos os candidatos comparados e possui
+  `operational=false`; nenhum runtime, gate, ordem ou Position Manager mudou.
+- Relatorio: `docs/research/MODEL_5_BEST_M1_M4_2026-07-22.md`.
+- Validacao inicial: compilacao aprovada e 18 testes focados aprovados.
+
+## 2026-07-21
+
+### Fronteira Contextual Salva Como Modelo 4 De Pesquisa
+
+- Criado `MODELO_4_PESQUISA`, isolado do `MODELO_4_ESPELHO_M1` operacional.
+- Avaliadas 19.065 combinacoes unicas em M30 com H1/H4 concluidos, forca
+  relativa entre moedas, BUY/SELL assimetrico, percentil de volatilidade e
+  entrada na proxima abertura.
+- O contrato usou descoberta 60%, validacao 15%, embargo 5% e holdout 20%, com
+  custo liquido e estresse.
+- Nenhum par passou todos os gates. USDCHF SELL contextual e AUDUSD BUY por
+  Liquidity Reclaim ficaram registrados como hipoteses promissoras com amostra
+  insuficiente.
+- O Lab ganhou tabela M4-P abaixo do M3, com pendencias e status explicitos.
+- Nenhuma ordem, Trade Plan, gate ou componente MT5 foi alterado.
+- Relatorio: `docs/research/MODEL_4_CONTEXTUAL_FRONTIER_2026-07-21.md`.
+
+### Pesquisa Individual Da Alpha Sugerida 002+ Para M3
+
+- Avaliados 144.000 candidatos em oito pares e tres timeframes, sobre 400.000
+  candles cronologicos no total.
+- Desenvolvimento, quatro blocos de estabilidade e holdout foram mantidos
+  separados; custos de 1,5 bps e estresse de 2,5 bps foram descontados.
+- O melhor cenario observado de cada par foi salvo em
+  `.traderia/research/m3_alpha_sugerida_2_plus_best_by_pair.json`, sempre com
+  `operational=false`.
+- EURUSD M30 atingiu ICT B e passou o contrato completo para Replay; AUDUSD,
+  EURJPY, GBPUSD, NZDUSD e USDCAD ficaram como promissores para Replay; USDCHF
+  e USDJPY foram rejeitados por holdout.
+- O Lab passou a exibir a tabela M3 imediatamente abaixo da tabela M2, sem
+  acoplamento ao ciclo MT5 e com cache por data de modificacao.
+- O M3 RR3 operacional, os gates e o envio de ordens permaneceram inalterados.
+- Relatorio: `docs/research/ALPHA_SUGERIDA_002_PLUS_M3_INDIVIDUAL_2026-07-21.md`.
+- Validacao: compilacao e 13 testes focados aprovados.
+
+### Pesquisa Isolada Da Alpha Sugerida 1+
+
+- Criado pesquisador reproduzivel em
+  `research/alpha_suggested/alpha_suggested_1_plus_discovery.py`.
+- A base foi ampliada em modo read-only para 20.000 candles H1 por par, cobrindo
+  oito pares e 160.000 candles, sem alterar o snapshot operacional.
+- Foram pesquisadas familias ineditas de compressao/expansao, impulso,
+  rejeicao de pullback e varredura de liquidez, com sessao, eficiencia,
+  inclinacao e regime ATR.
+- O ranking foi congelado em treino + validacao antes da abertura do holdout.
+- Nenhuma candidata atingiu ICT A no holdout. O identificador
+  `ALPHA_SUGERIDA_001_PLUS` ficou reservado, sem promocao operacional.
+- O M1 e o M2 permaneceram inalterados e nenhuma ordem foi autorizada.
+- O Lab passou a exibir, abaixo da planilha operacional do M1, uma planilha
+  separada com os oito resultados da pesquisa, todas as linhas identificadas
+  como M2 e com qualificacao/ativacao explicitas. A leitura usa cache por data de
+  modificacao do artefato e nao entra no ciclo MT5.
+- Relatorio: `docs/research/ALPHA_SUGERIDA_001_PLUS_DISCOVERY_2026-07-21.md`.
+- Validacao: compilacao do pesquisador, smoke test sobre a base ampliada e dois
+  testes do contrato cronologico aprovados.
+
+### Persistencia Da Ultima Selecao Operacional
+
+- O seletor de modelos grava a ultima escolha explicita em
+  `.traderia/mt5_operational_model.json`.
+- Reinicio do Streamlit, navegador ou ciclo background restaura esse valor e
+  nao impoe `TODOS_MODELOS`.
+- Adicionada gravacao defensiva no render e regressao de partida fria para
+  confirmar a restauracao de M1-M6 ou Todos conforme a ultima escolha.
+
+### Incidente: Configuracoes Do Lab Sumiam No Monitor Do Robo
+
+- Sintoma: o monitor mostrava todos os pares como H1, `TENDENCIA_MOMENTO`,
+  `BETA001` e `PARADA_FIXA`, apesar de o indice runtime conter Alpha, setup e
+  parametros diferentes por par.
+- Causa raiz: os ciclos Forex e Robo Demo em segundo plano publicavam uma
+  leitura MT5 crua em rotas que substituiam o ViewModel enriquecido. A UI entao
+  preenchia defaults tecnicos, escondendo a perda do contrato do Lab.
+- Correcao: ambos os ciclos passaram a publicar exclusivamente
+  `DashboardService.get_mt5_forex_runtime_view_model()`, que combina leitura
+  leve com constantes persistidas do Lab.
+- Correcao visual defensiva: o monitor passou a exibir Alpha, setup, parametros,
+  fonte e referencia ICT. Ausencia real agora aparece como `SEM_CONFIG_LAB`, nunca
+  como uma configuracao generica aparentemente valida.
+- Relacao adicional encontrada: uma sessao Streamlit antiga podia sobrescrever
+  o seletor operacional no rerender. O estado atomico persistido tornou-se a
+  fonte compartilhada; somente uma mudanca real do usuario e gravada.
+- Arquitetura: criado
+  `docs/architecture/END_TO_END_OPERATIONAL_FLOW.md` como mapa canonico e
+  adicionadas invariantes em `docs/ARCHITECTURE.md`.
+- Testes de regressao: enriquecimento do snapshot, publicacao nos dois ciclos,
+  parametros no monitor, ausencia explicita de configuracao e sincronizacao do
+  seletor entre sessoes.
+- Falha relacionada encontrada pela suite completa: o Lab historico recebia o
+  rollover vivo do servidor MT5 e os mesmos testes mudavam conforme a hora real.
+  A classificacao foi separada: Lab/Replay usam o candle; apenas o fluxo ao vivo
+  consulta o relogio do servidor. O caso foi registrado como `FLOW-004`.
+- Correcao de visibilidade `FLOW-005`: o painel principal filtrava os sete pares
+  abaixo de ICT 70 e mostrava somente USDCAD. A tabela agora exibe os oito pares.
+- Correcao semantica `FLOW-006`: a UI chamava a faixa ICT de bloqueio operacional,
+  embora Trade Plan e Robo Demo ja a tratassem como informativa. A tela agora
+  exibe nota/status ICT sem afirmar que ela libera ou bloqueia a ordem.
+
+### Auditoria E Recalculo Integral Do Modelo 1
+
+- O M1 foi restaurado para receber sem alteracao direcao, timeframe, entrada,
+  stop, alvo e RR do Research Lab; somente M4 adapta uma copia para o espelho.
+- A base local foi corrigida e validada com 200.000 candles: 8 pares, 5
+  timeframes e 5.000 candles por mercado.
+- O Lab deixou de contar sinais sobrepostos e de inferir resultado por horizonte
+  fixo. O replay `SCENARIO_TRADE_PLAN_REPLAY_V2` usa o primeiro toque em SL/TP,
+  com ambiguidade resolvida pelo stop.
+- A aprovacao de entrada foi separada da Beta. O snapshot final usa BETA001 como
+  marcador do plano inicial; o Position Manager decide protecao depois da
+  abertura.
+- O historico realizado mostrou 252 M1 fechados, todos registrados em M1, com
+  resultado bruto -157,63, custos -268,01 e liquido -425,64. O novo Lab escolheu
+  H1, evidenciando que pratica e expectativa anteriores nao usavam o mesmo
+  contrato.
+- Recálculo final: somente USDCAD H1 / ALPHA003 / RR1,5 / ATR1,5 passou o gate
+  completo. Os outros sete pares permanecem visiveis e nao executaveis.
+- Relatorio detalhado:
+  `docs/research/MODEL_1_LAB_VS_REAL_AUDIT_2026-07-21.md`.
+- Validacao focada: 169 testes aprovados.
+
+### Restauracao: M1 Volta A Materializar Integralmente O Lab
+
+- Decisao: a normalizacao RR1 aplicada ao M1 foi revertida. M1 volta a receber
+  sem alteracao a entrada, o stop, o alvo e o RR produzidos pelo Lab.
+- Apenas M4 se adapta: inverte a direcao, usa o stop do M1 como alvo e calcula
+  stop proprio equidistante, com `RR=1.0`.
+- O snapshot do Lab permanece fonte da verdade do M1.
+- A secao historica "M1 E M4 Normalizados Para RR1" abaixo registra o estado
+  temporario anterior e esta explicitamente superada por esta restauracao.
+
+### Estado Historico Superado: Preflight Pareado M1/M4
+
+Status: **SUPERADO** pelo contrato independente descrito na auditoria acima.
+
+- Sintoma: historico mostrou resultados M1 `0.00`, `-0.10` e `-0.20`.
+- Causa: havia M4 aberta no mesmo par; o fluxo enviava M1, recebia rejeicao da
+  nova M4 e fechava M1 imediatamente por
+  `MIRROR_PAIR_ROLLBACK_M4_NOT_ACCEPTED`.
+- Impacto final antes do reinicio corrigido: 35 rollbacks, todos negativos apos
+  custos, totalizando `-26.88` liquidos. O `0.00` visual era lucro bruto e escondia `-0.70` de
+  comissao por operacao zerada no preco.
+- A solucao pareada foi removida porque M1 e M4 devem operar de forma
+  independente. Cada modelo consulta apenas seus proprios gates e uma rejeicao
+  M4 nunca pode fechar nem impedir uma M1 ja aceita, e vice-versa.
+- Historico antigo foi preservado; a correcao impede novos custos pela mesma
+  causa sem apagar rastreabilidade.
+- Validacao: 77 testes operacionais e 188 testes completos do dashboard foram
+  aprovados.
+
+### Ajuste Operacional: M1 E M4 Normalizados Para RR1
+
+Status: **SUPERADO** pela restauracao do M1 ao contrato integral do Lab descrita
+acima.
+
+- Objetivo: tornar o resultado bruto do M4 simetrico ao M1 quando as duas pernas
+  forem executadas com mesmo lote e niveis reciprocos.
+- M1 preserva entrada e stop produzidos pelo Research Lab; o alvo operacional e
+  recalculado para a mesma distancia do stop (`RR=1.0`).
+- M4 inverte BUY/SELL do M1 RR1, usa o stop do M1 como alvo e o alvo operacional
+  do M1 como stop; portanto tambem nasce com `RR=1.0`.
+- O snapshot e o calculo pesado do Lab nao foram modificados. O plano enviado
+  registra `rr_lab_original` e `rr_operacional=1.0000` para auditoria.
+- Posicoes ja abertas nao foram alteradas; a regra vale para novas entradas.
+- Validacao: 78 testes operacionais e 188 testes completos do dashboard foram
+  aprovados.
+
+### Incidente De Lentidao: Sessoes Repetindo MT5 E Escrita Concorrente
+
+- Sintoma: porta `8532` responsiva, mas interface lenta; processo Streamlit com
+  aproximadamente 1,2 GB de RAM e um nucleo de CPU ocupado continuamente.
+- Evidencia: quatro conexoes Streamlit simultaneas, ciclo operacional concluindo
+  em cerca de 20 a 27 segundos, 23 posicoes abertas e
+  `.traderia/position_manager_current.json` com byte UTF-8 interrompido.
+- Causa: cada sessao podia executar leitura MT5; o ciclo do Robo Demo contornava
+  o lock do ciclo Forex; instancias concorrentes do Position Manager gravavam o
+  mesmo snapshot diretamente; o JSONL de execucao era relido por inteiro.
+- Correcao: ciclo MT5 com dono unico process-local, lock comum para Forex/Robo
+  Demo, snapshot compartilhado para as abas, estado do Position Manager gravado
+  atomicamente uma vez por lote e leitura incremental do JSONL.
+- Preservado: intervalo de 10 segundos, leitura de mercado, gerenciamento de SL,
+  modelos M1-M6, regras de entrada e envio demo.
+- Aprendizado permanente: conexao de navegador nao e unidade de execucao. A UI
+  observa snapshots; somente o runtime process-local consulta o MT5 e altera
+  estado operacional.
+- Resultado apos reinicio, com cinco conexoes Streamlit: RAM caiu de cerca de
+  1,5 GB para aproximadamente 486 MB; o app consumiu 12,08 segundos de CPU em
+  32,2 segundos observados, em vez de manter um nucleo continuamente ocupado.
+- O ciclo online concluiu normalmente, preservou a espera de 10 segundos e o
+  snapshot do Position Manager voltou a ser JSON UTF-8 valido.
+- Validacao automatizada: suite focada com 80 testes e suite completa de
+  dashboard com 187 testes, ambas aprovadas.
+
+## 2026-07-20
+
+### Incidente De Lentidao: Ciclos Background Duplicados
+
+- Sintoma: TraderIA Novo lento mesmo com apenas um processo Streamlit e cerca
+  de 303 MB de RAM.
+- Fluxo afetado: ciclo automatico do Robo Demo, leitura MT5 e Position Manager
+  na porta `8532`.
+- Evidencia: o processo consumiu 11,72 segundos de CPU em uma janela de 20
+  segundos; o heartbeat concluiu ciclos com apenas 7 segundos de separacao,
+  apesar do `sleep` configurado de 10 segundos apos cada ciclo.
+- Causa: os marcadores `MT5_*_BACKGROUND_THREAD_STARTED` pertenciam ao script
+  rerun do Streamlit e podiam voltar a `False`, permitindo criar novas threads
+  daemon no mesmo processo.
+- Correcao: criado registro singleton process-local em
+  `core/background_runtime_registry.py`; os ciclos Forex e Robo Demo agora
+  reutilizam a thread viva registrada, inclusive apos rerun ou troca de aba.
+- Preservado: intervalo de 10 segundos, leitura MT5, envio demo, estado armado
+  persistido e gerenciamento do Position Manager.
+- Resultado medido apos reinicio: heartbeat regular a cada aproximadamente
+  13,5 segundos (duracao do trabalho mais 10 segundos de espera), RAM em 296 MB
+  e consumo de CPU reduzido para 7,7 segundos em uma janela de 25 segundos.
+- Validacao: testes focados do registro singleton e do estado persistido do
+  Robo Demo passaram; compilacao de `dashboard_app.py` aprovada e health HTTP
+  `200` confirmado.
+
 ## 2026-07-17
 
 ### Modelo Operacional: M6 Espelho Do M5

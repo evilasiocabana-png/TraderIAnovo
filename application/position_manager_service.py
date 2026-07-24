@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -11,11 +12,21 @@ from typing import Any, Protocol
 
 from application.beta_strategies import BETA002_ID, Beta002Strategy
 from application.demo_execution_service import DisabledDemoExecutionProvider
+from application.model6_original_trend_momentum import (
+    MODEL_6_ALPHA_VERSION,
+    MODEL_6_BETA_ID,
+    MODEL_6_BETA_VERSION,
+    MODEL_6_EXIT_POLICY,
+    MODEL_6_ID,
+    MODEL_6_LEGACY_ID,
+)
 from domain.contracts.beta_strategy import BetaDecision, BetaStrategyContext
 
 DEFAULT_BETA_ID = "BETA001"
 DEFAULT_BETA_VERSION = "BETA v1"
 DEFAULT_POSITION_MANAGER_LOG_MAX_MB = 25
+MODEL_1_ID = "MODELO_1_ALPHA_ATUAL"
+_POSITION_MANAGER_STATE_LOCK = threading.RLock()
 
 
 class PositionManagerProvider(Protocol):
@@ -97,6 +108,8 @@ class PositionTradePlan:
     status: str = "PLANO_VALIDO"
     candle_time: str = "N/D"
     source: str = "RESEARCH_LAB"
+    operational_model: str = "N/D"
+    entry_setup: str = "N/D"
 
     @classmethod
     def from_signal(cls, signal: dict[str, Any]) -> "PositionTradePlan | None":
@@ -118,6 +131,9 @@ class PositionTradePlan:
         if is_positioned and plan_status != "PLANO_VALIDO":
             plan_status = "PLANO_VALIDO"
         indicators = signal.get("market_indicators") or {}
+        lab_configuration = signal.get("lab_configuration") or {}
+        if not isinstance(lab_configuration, dict):
+            lab_configuration = {}
         atr = _positive_float(indicators.get("atr"))
         if atr is None:
             atr = _positive_float(signal.get("atr"))
@@ -190,6 +206,17 @@ class PositionTradePlan:
             status=plan_status,
             candle_time=str(signal.get("last_candle_time") or "N/D"),
             source=str(signal.get("lab_configuration_source") or "RESEARCH_LAB"),
+            operational_model=str(
+                signal.get("operational_model")
+                or signal.get("model")
+                or ""
+            ).upper(),
+            entry_setup=str(
+                signal.get("entry_setup")
+                or signal.get("active_model")
+                or lab_configuration.get("model")
+                or ""
+            ).upper(),
         )
 
 
@@ -321,6 +348,28 @@ class PositionManagerService:
     )
     beta002_strategy: Beta002Strategy = field(default_factory=Beta002Strategy)
     log_max_mb: int = DEFAULT_POSITION_MANAGER_LOG_MAX_MB
+    _batch_current_state: dict[str, Any] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+
+    def manage_plans(
+        self,
+        plans: list[PositionTradePlan],
+    ) -> list[PositionManagerResult]:
+        """Gerencia um ciclo inteiro e persiste o estado atual uma unica vez."""
+        with _POSITION_MANAGER_STATE_LOCK:
+            if self._batch_current_state is not None:
+                return [self.manage_plan(plan) for plan in plans]
+            self._batch_current_state = self._load_current_state()
+            try:
+                return [self.manage_plan(plan) for plan in plans]
+            finally:
+                state = self._batch_current_state
+                self._batch_current_state = None
+                if state is not None:
+                    self._write_current_state_document(state)
 
     def manage_signals(
         self,
@@ -403,6 +452,64 @@ class PositionManagerService:
         ticket = int(getattr(position, "ticket", 0) or 0)
         entry = _positive_float(getattr(position, "price_open", None)) or plan.entry
         current_stop = _positive_float(getattr(position, "sl", None))
+        if self._is_m6_original_plan(plan):
+            return self._record(
+                PositionManagerResult(
+                    symbol=plan.symbol,
+                    ticket=ticket,
+                    status="POSITION_HELD",
+                    action="HOLD_POSITION",
+                    message=(
+                        "M6 original com saida fixa: preservar o SL/TP atuais e "
+                        "aguardar o primeiro toque; Position Manager ignorado."
+                    ),
+                    policy=MODEL_6_EXIT_POLICY,
+                    execution_mode="FIXED_SL_TP",
+                    execution_status="NOT_APPLICABLE",
+                    side=side,
+                    old_stop=current_stop,
+                    entry=entry,
+                    position_state="FIXED_EXIT_WAIT",
+                    confidence=1.0,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=MODEL_6_BETA_ID,
+                    beta_version=MODEL_6_BETA_VERSION,
+                    beta_mode="FIXED_SL_TP",
+                    evidence=("M6_ORIGINAL_FIXED_SL_TP_RR2",),
+                    candle_time=plan.candle_time,
+                    audit_tags=("M6_ORIGINAL_FIXED_SL_TP_RR2", "HOLD_POSITION"),
+                )
+            )
+        if self._is_m1_lab_plan(plan):
+            return self._record(
+                PositionManagerResult(
+                    symbol=plan.symbol,
+                    ticket=ticket,
+                    status="POSITION_HELD",
+                    action="HOLD_POSITION",
+                    message=(
+                        "M1 preserva o plano vencedor do Lab: SL e TP permanecem "
+                        "fixos ate o primeiro toque; Position Manager apenas audita."
+                    ),
+                    policy="RESEARCH_FIXED_SL_TP",
+                    execution_mode="FIXED_SL_TP",
+                    execution_status="NOT_APPLICABLE",
+                    side=side,
+                    old_stop=current_stop,
+                    entry=entry,
+                    position_state="FIXED_EXIT_WAIT",
+                    confidence=1.0,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=plan.beta_id,
+                    beta_version=plan.beta_version,
+                    beta_mode="FIXED_SL_TP",
+                    evidence=("M1_LAB_FIXED_SL_TP",),
+                    candle_time=plan.candle_time,
+                    audit_tags=("M1_LAB_FIXED_SL_TP", "HOLD_POSITION"),
+                )
+            )
         if current_stop is None:
             return self._record(
                 PositionManagerResult(
@@ -751,8 +858,6 @@ class PositionManagerService:
         plan: PositionTradePlan,
         snapshot: PositionStateSnapshot,
     ) -> PositionManagerDecision:
-        if _normalize_beta_id(plan.beta_id) == BETA002_ID:
-            return self._decide_beta002(plan, snapshot)
         policy = self._runtime_policy(plan)
         if snapshot.state == "BAD_EXECUTION_CONTEXT":
             return PositionManagerDecision(
@@ -767,6 +872,40 @@ class PositionManagerService:
                 beta_mode=plan.beta_mode,
                 evidence=snapshot.evidence,
             )
+        if policy == "MIRROR_FIXED_STOP":
+            return PositionManagerDecision(
+                symbol=plan.symbol,
+                ticket=snapshot.ticket,
+                state=snapshot.state,
+                action="HOLD_POSITION",
+                reason=(
+                    "Par espelhado M1/M4: preservar SL e TP reciprocos do envio "
+                    "inicial; nenhuma perna pode ser movida isoladamente."
+                ),
+                confidence=1.0,
+                beta_id=plan.beta_id,
+                beta_version=plan.beta_version,
+                beta_mode=plan.beta_mode,
+                evidence=snapshot.evidence + ("M1_M4_MIRROR_FIXED_PAIR",),
+            )
+        if policy == "RESEARCH_FIXED_SL_TP":
+            return PositionManagerDecision(
+                symbol=plan.symbol,
+                ticket=snapshot.ticket,
+                state=snapshot.state,
+                action="HOLD_POSITION",
+                reason=(
+                    "Plano de pesquisa com SL/TP fixos: Position Manager apenas "
+                    "audita; nao move SL e nao executa FULL_EXIT."
+                ),
+                confidence=1.0,
+                beta_id=plan.beta_id,
+                beta_version=plan.beta_version,
+                beta_mode=plan.beta_mode,
+                evidence=snapshot.evidence + ("RESEARCH_FIXED_SL_TP",),
+            )
+        if _normalize_beta_id(plan.beta_id) == BETA002_ID:
+            return self._decide_beta002(plan, snapshot)
         if (
             self.early_exit_enabled
             and snapshot.r_multiple >= self._early_exit_activation_r(plan)
@@ -978,9 +1117,40 @@ class PositionManagerService:
             missing_data=beta_decision.missing_data,
         )
 
+    def _is_m6_original_plan(self, plan: PositionTradePlan) -> bool:
+        """Impede que snapshots M6 antigos reativem gestao dinamica."""
+        operational_model = str(plan.operational_model or "").upper()
+        entry_setup = str(plan.entry_setup or "").upper()
+        source = str(plan.source or "").upper()
+        if operational_model in {MODEL_6_ID, MODEL_6_LEGACY_ID}:
+            return True
+        if entry_setup in {
+            MODEL_6_ID,
+            "M6_TREND_MOMENTUM_ORIGINAL",
+            "TREND_MOMENTUM_ORIGINAL",
+        }:
+            return True
+        return (
+            str(plan.alpha_version or "").upper() == MODEL_6_ALPHA_VERSION
+            and source
+            in {
+                "M6_ORIGINAL_MARCO_ZERO",
+                "HISTORICAL_BASELINE_A3BC912",
+            }
+        )
+
+    def _is_m1_lab_plan(self, plan: PositionTradePlan) -> bool:
+        """Preserva SL/TP do vencedor M1 inclusive em snapshots dinamicos antigos."""
+        return str(plan.operational_model or "").upper() == MODEL_1_ID
+
     def _runtime_policy(self, plan: PositionTradePlan) -> str:
         """Mantem compatibilidade com campo legado sem predefinir a saida."""
         raw_policy = str(plan.stop_management or "DYNAMIC_POSITION_MANAGER").upper()
+        if raw_policy in {
+            "MIRROR_FIXED_PAIR",
+            "FIXED_STOP_MODELO4_ESPELHO_M1",
+        }:
+            return "MIRROR_FIXED_STOP"
         if raw_policy in {"", "N/D", "FIXED_STOP"}:
             return "DYNAMIC_POSITION_MANAGER"
         return raw_policy
@@ -1327,6 +1497,7 @@ class PositionManagerService:
             "STRUCTURE_BASED_STOP_PROTECTION",
             "EARLY_EXIT",
             "FULL_EXIT",
+            "RESEARCH_FIXED_SL_TP",
         }:
             return (
                 "POLICY_BLOCKED_UNSUPPORTED_ACTION",
@@ -1559,18 +1730,18 @@ class PositionManagerService:
             return {}
         try:
             payload = json.loads(self.state_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return {}
         return payload if isinstance(payload, dict) else {}
 
     def _save_beta_state(self, key: str, value: dict[str, Any]) -> None:
-        state = self._load_beta_state()
-        state[key] = value
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        self.state_path.write_text(
-            json.dumps(state, ensure_ascii=True, indent=2),
-            encoding="utf-8",
-        )
+        with _POSITION_MANAGER_STATE_LOCK:
+            state = self._load_beta_state()
+            state[key] = value
+            _atomic_write_text(
+                self.state_path,
+                json.dumps(state, ensure_ascii=True, indent=2),
+            )
 
     def _record(self, result: PositionManagerResult) -> PositionManagerResult:
         payload = {
@@ -1578,17 +1749,28 @@ class PositionManagerService:
             "type": "POSITION_MANAGER",
             **result.__dict__,
         }
-        previous = self._current_state_record(payload)
-        self._write_current_state(payload)
-        should_append = self._should_append_history(payload, previous)
-        if should_append and self._is_low_signal_history_duplicate(payload):
-            should_append = False
-        if should_append:
-            self.log_path.parent.mkdir(parents=True, exist_ok=True)
-            self._rotate_history_if_needed()
-            with self.log_path.open("a", encoding="utf-8") as file:
-                file.write(json.dumps(payload, ensure_ascii=True) + "\n")
-            self._remember_low_signal_history(payload)
+        with _POSITION_MANAGER_STATE_LOCK:
+            if self._batch_current_state is not None:
+                previous = self._current_state_record(
+                    payload,
+                    state=self._batch_current_state,
+                )
+                self._update_current_state_document(
+                    self._batch_current_state,
+                    payload,
+                )
+            else:
+                previous = self._current_state_record(payload)
+                self._write_current_state(payload)
+            should_append = self._should_append_history(payload, previous)
+            if should_append and self._is_low_signal_history_duplicate(payload):
+                should_append = False
+            if should_append:
+                self.log_path.parent.mkdir(parents=True, exist_ok=True)
+                self._rotate_history_if_needed()
+                with self.log_path.open("a", encoding="utf-8") as file:
+                    file.write(json.dumps(payload, ensure_ascii=True) + "\n")
+                self._remember_low_signal_history(payload)
         return result
 
     def _rotate_history_if_needed(self) -> None:
@@ -1614,9 +1796,11 @@ class PositionManagerService:
     def _current_state_record(
         self,
         payload: dict[str, Any],
+        *,
+        state: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
-        state = self._load_current_state()
-        records = state.get("records")
+        current_state = state if state is not None else self._load_current_state()
+        records = current_state.get("records")
         if not isinstance(records, dict):
             return None
         for key in self._current_state_keys(payload):
@@ -1630,26 +1814,38 @@ class PositionManagerService:
             return {}
         try:
             payload = json.loads(self.current_state_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return {}
         return payload if isinstance(payload, dict) else {}
 
     def _write_current_state(self, payload: dict[str, Any]) -> None:
         state = self._load_current_state()
+        self._update_current_state_document(state, payload)
+        self._write_current_state_document(state)
+
+    def _update_current_state_document(
+        self,
+        state: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> None:
         records = state.get("records")
         if not isinstance(records, dict):
             records = {}
         for key in self._current_state_keys(payload):
             records[key] = payload
-        state = {
-            "updated_at": payload.get("timestamp"),
-            "type": "POSITION_MANAGER_CURRENT",
-            "records": records,
-        }
-        self.current_state_path.parent.mkdir(parents=True, exist_ok=True)
-        self.current_state_path.write_text(
+        state.clear()
+        state.update(
+            {
+                "updated_at": payload.get("timestamp"),
+                "type": "POSITION_MANAGER_CURRENT",
+                "records": records,
+            }
+        )
+
+    def _write_current_state_document(self, state: dict[str, Any]) -> None:
+        _atomic_write_text(
+            self.current_state_path,
             json.dumps(state, ensure_ascii=True, indent=2),
-            encoding="utf-8",
         )
 
     def _current_state_keys(self, payload: dict[str, Any]) -> list[str]:
@@ -1727,9 +1923,9 @@ class PositionManagerService:
         history_dedupe_path = self._resolved_history_dedupe_path()
         history_dedupe_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            history_dedupe_path.write_text(
+            _atomic_write_text(
+                history_dedupe_path,
                 json.dumps(dedupe, ensure_ascii=True, indent=2),
-                encoding="utf-8",
             )
         except OSError:
             return
@@ -1742,7 +1938,7 @@ class PositionManagerService:
             payload = json.loads(
                 history_dedupe_path.read_text(encoding="utf-8")
             )
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return {}
         return {
             str(key): str(value)
@@ -1819,6 +2015,22 @@ class PositionManagerService:
 
     def _pip_size(self, symbol: str) -> float:
         return 0.01 if str(symbol).upper().endswith("JPY") else 0.0001
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Grava estado completo sem expor JSON parcial a leitores concorrentes."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(
+        f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
+    try:
+        temporary.write_text(content, encoding="utf-8")
+        os.replace(temporary, path)
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _positive_float(value: object) -> float | None:

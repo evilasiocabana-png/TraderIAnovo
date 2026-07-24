@@ -188,6 +188,47 @@ class MT5MarketDataProviderTest(unittest.TestCase):
         self.assertEqual(len(second), 1)
         self.assertEqual(first[0].fechamento, second[0].fechamento)
 
+    def test_research_batch_nao_fica_em_cache_nem_publica_200_mil_eventos(self) -> None:
+        event_bus = EventBus()
+        published: list[Candle] = []
+        event_bus.subscribe(NEW_CANDLE, published.append)
+        provider = MT5MarketDataProvider(mt5_module=None, event_bus=event_bus)
+        payload = {
+            "ok": True,
+            "account": "123456",
+            "server": "Pepperstone-Demo",
+            "account_type": "DEMO",
+            "timeframes": {
+                "M1": {
+                    "EURUSD": {
+                        "exists": True,
+                        "selected": True,
+                        "rates": [
+                            {
+                                "time": 1719792000,
+                                "open": 1.1,
+                                "high": 1.2,
+                                "low": 1.0,
+                                "close": 1.15,
+                                "tick_volume": 10,
+                                "real_volume": 0,
+                            }
+                        ],
+                    }
+                }
+            },
+        }
+        object.__setattr__(provider, "_external_mt5_call", lambda *_args, **_kwargs: payload)
+
+        result = provider.get_research_batch(["EURUSD"], {"M1": 1}, 5000)
+
+        self.assertEqual(len(result["M1"]["EURUSD"]["candles"]), 1)
+        self.assertEqual(published, [])
+        self.assertEqual(
+            provider._external_call_cache_key({"action": "research_batch"}),
+            "",
+        )
+
     def test_get_symbol_microstructure_importa_spread_read_only(self) -> None:
         fake_mt5 = FakeMT5()
         provider = MT5MarketDataProvider(mt5_module=fake_mt5)

@@ -302,13 +302,16 @@ Identificador: MODELO_4_ESPELHO_M1
 Nome curto: M4
 Origem: plano valido do Modelo 1 / Lab vencedor
 Selecao: copia o plano vigente do M1
+Contrato M1: entrada, stop, alvo e RR permanecem exatamente como vieram do Lab
 Entrada: inverte BUY/SELL do M1
-Stop inicial: alvo original do M1
+Stop inicial: distancia propria de 1R no sentido contrario ao alvo do M4
 Alvo: stop original do M1
+RR operacional M4: 1.0
 Beta/saida: BETA004_ESPELHO_M1
-Coexistencia: independente do M1 para envio; pode operar sozinho se selecionado
-ou se o M1 for rejeitado no mesmo ciclo
-Limite: uma posicao M4 por par; maximo cinco posicoes por par
+Coexistencia: pode operar sozinho quando M4 for selecionado isoladamente; no
+modo Todos, M1 e M4 continuam independentes e podem ser aceitos ou rejeitados
+separadamente
+Limite: uma posicao M4 por par; respeita o limite operacional global vigente
 Comentario MT5: TraderIA M4
 ```
 
@@ -316,9 +319,11 @@ Aprendizado:
 
 ```text
 Modelo espelho nao precisa recalcular Lab quando a fonte e um plano ja aprovado.
-Modelo espelho pode usar o plano do M1 como fonte, mas nao deve depender de M1
-ser aceito no mesmo ciclo. M4 precisa passar por seus proprios gates de
-duplicidade, posicao aberta, provider, MT5 e risco.
+M1 nunca deve ser normalizado depois do Lab. Somente o M4 se adapta: usa o stop
+do M1 como alvo e cria stop proprio de mesma distancia (`RR1`).
+M4 precisa passar por seus proprios gates de duplicidade, posicao aberta,
+provider, MT5 e risco. A aprovacao ou rejeicao do M4 nunca fecha, bloqueia ou
+desfaz o M1; o mesmo vale no sentido contrario.
 Mesmo assim, precisa atravessar tela, backend, provider, relatorio e testes.
 ```
 
@@ -353,33 +358,40 @@ Mesmo sem passar no Lab pesado, M5 precisa expor gates, plano, provider, histori
 
 ## Registro do M6
 
-O M6 nasceu como espelho operacional do M5, sem recalculo pesado de Lab e sem
-alterar o M5 original.
+O M6 operacional atual recupera o primeiro setup Forex do marco zero, sem
+recalculo pesado do Lab e sem alterar M1-M5.
 
 Definicao:
 
 ```text
-Identificador: MODELO_6_ESPELHO_M5
+Identificador: MODELO_6_TREND_MOMENTUM_ORIGINAL
 Nome curto: M6
-Origem: plano valido do Modelo 5 / Price Action simples
-Selecao: calcula o M5 e espelha o plano quando M5 estiver pronto
-Entrada: inverte BUY/SELL do M5
-Stop inicial: alvo original do M5
-Alvo: stop original do M5
-Alpha: ALPHAPRICE6
-Beta/saida: BETAPRICE6_ESPELHO_M5
-Coexistencia: independente do M5 para envio; pode operar sozinho se selecionado
+Origem: configuracao historica congelada no commit a3bc912
+Timeframe: M1
+Entrada: ultimo candle fechado com media 20/50, momentum 10, volatilidade 20 e RSI14
+Stop inicial: maior distancia entre 2 ATR e 0,10% do preco
+Alvo: RR2 sobre a distancia do stop inicial
+Alpha: ALPHA001 / MARCO_ZERO_A3BC912
+Beta/saida: BETA001_FIXED_SL_TP_RR2_V1
+Contrato de saida: primeiro toque no SL inicial ou TP RR2, sem Position Manager
+Coexistencia: independente de M1-M5 para selecao e envio
 Limite: uma posicao M6 por par; maximo seis posicoes por par
 Comentario MT5: TraderIA M6
+Execucao: somente MT5 Demo
 ```
 
 Aprendizado:
 
 ```text
-Modelo espelho de modelo proprio deve preservar a origem do plano base, mas
-ter Alpha/Beta proprios para evitar confusao com o modelo original.
-M6 usa source=PRICE_ACTION_MODEL porque nasce do Price Action M5, mas recebe
-identidade operacional propria: MODELO_6_ESPELHO_M5.
+Uma configuracao historica reativada precisa ser congelada e identificada por
+versao. M6 nao depende de um plano M5 nem falsifica origem de Research Lab:
+usa source `M6_ORIGINAL_MARCO_ZERO`, decisao no candle fechado e Trade Plan
+proprio. O identificador legado `MODELO_6_ESPELHO_M5` migra para o M6 atual
+somente no seletor; ordens historicas preservam a identidade registrada.
+
+Uma configuracao de entrada recuperada do historico nao herda automaticamente
+a politica de saida global vigente. Entrada, risco inicial e saida devem ser
+congelados separadamente e comprovados por testes de nao regressao.
 ```
 
 ### 9. Position Manager e Saida

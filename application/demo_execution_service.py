@@ -81,8 +81,10 @@ class DemoExecutionPolicy:
 
     max_daily_operations: int = 0
     max_daily_loss: float = 500.0
-    allowed_start: str = "09:00"
-    allowed_end: str = "18:00"
+    # A camada ForexTimeLayer decide sessao aberta, fim de semana e rollover.
+    # Esta janela permanece 24h para nao contradizer sessoes Asia/Londres/NY.
+    allowed_start: str = "00:00"
+    allowed_end: str = "23:59"
 
 
 @dataclass(frozen=True)
@@ -277,6 +279,17 @@ class DemoExecutionService:
     def get_open_position(self, symbol: str) -> object | None:
         """Consulta posicao aberta pelo provider demo."""
         return self.provider.get_open_position(symbol)
+
+    def has_open_position_for_model(
+        self,
+        symbol: str,
+        operational_model: str,
+    ) -> bool:
+        """Consulta ocupacao do modelo sem enviar ordem ao provider."""
+        checker = getattr(self.provider, "has_open_position_for_model", None)
+        if callable(checker):
+            return bool(checker(symbol, operational_model))
+        return bool(self.provider.has_open_position(symbol))
 
     def get_open_position_by_ticket(self, symbol: str, ticket: int) -> object | None:
         """Consulta posicao aberta exata pelo ticket."""

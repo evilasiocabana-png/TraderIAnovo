@@ -506,6 +506,70 @@ class DashboardMT5ScenarioViewModel:
 
 
 @dataclass(frozen=True)
+class DashboardMT5LabReplayTradeViewModel:
+    """Operacao fechada reconstruida pelo mesmo replay do Research Lab."""
+
+    trade_number: int = 0
+    entry_index: int = 0
+    exit_index: int = 0
+    entry_time: str = "N/D"
+    exit_time: str = "N/D"
+    direction: str = "WAIT"
+    entry_price: float = 0.0
+    initial_stop: float = 0.0
+    target: float = 0.0
+    exit_price: float = 0.0
+    outcome: str = "N/D"
+    return_fraction: float = 0.0
+    r_multiple: float = 0.0
+    bars_held: int = 0
+
+
+@dataclass(frozen=True)
+class DashboardMT5LabReplayProofViewModel:
+    """Prova reproduzivel do cenario vencedor de um par no Research Lab."""
+
+    status: str = "SEM_PROVA"
+    verification_status: str = "NAO_VERIFICADO"
+    verification_messages: tuple[str, ...] = ()
+    pair: str = "N/D"
+    timeframe: str = "N/D"
+    alpha_id: str = "N/D"
+    alpha_model: str = "N/D"
+    snapshot_beta_id: str = "BETA001"
+    stop_management: str = "FIXED_STOP"
+    scenario_status: str = "REJEITADO"
+    certification_status: str = "REJEITADA"
+    ict_score: float = 0.0
+    parameters: dict[str, str] = field(default_factory=dict)
+    source: str = "SCENARIO_TRADE_PLAN_REPLAY_V2"
+    snapshot_updated_at: str = "N/D"
+    history_updated_at: str = "N/D"
+    generated_at: str = "N/D"
+    expected_candle_count: int = 5000
+    candle_count: int = 0
+    first_candle_time: str = "N/D"
+    last_candle_time: str = "N/D"
+    dataset_sha256: str = "N/D"
+    execution_sha256: str = "N/D"
+    snapshot_sample_size: int = 0
+    snapshot_win_rate: float = 0.0
+    snapshot_profit_factor: float = 0.0
+    snapshot_expectancy: float = 0.0
+    snapshot_max_drawdown: float = 0.0
+    replay_sample_size: int = 0
+    replay_win_rate: float = 0.0
+    replay_profit_factor: float = 0.0
+    replay_expectancy: float = 0.0
+    replay_max_drawdown: float = 0.0
+    candles: list[DashboardMT5CandleViewModel] = field(default_factory=list)
+    trades: list[DashboardMT5LabReplayTradeViewModel] = field(
+        default_factory=list
+    )
+    proof_path: str = "N/D"
+
+
+@dataclass(frozen=True)
 class DashboardMT5SetupSuggestionViewModel:
     """Sugestao read-only de setup gerada a partir do snapshot do Lab."""
 
@@ -794,7 +858,7 @@ class DashboardMT5TradeAuditViewModel:
     total_mismatched: int = 0
     mt5_connection_status: str = "N/D"
     mt5_account_balance: float = 0.0
-    equity_curve_default_start_date: str = "2026-07-01"
+    equity_curve_default_start_date: str = "2026-07-22"
     last_update: str = "N/D"
     source: str = ".traderia/mt5_demo_execution.jsonl"
     mt5_source: str = (
