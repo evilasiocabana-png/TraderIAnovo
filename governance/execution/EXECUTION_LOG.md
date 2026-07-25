@@ -1,5 +1,21 @@
 # Execution Log
 
+## 2026-07-24 - MODEL_7_TREND_MOMENTUM_DYNAMIC
+
+- Status: completed
+- Acao: isolada como M7 a variante ALPHA001 com protecao dinamica, preservando
+  integralmente o contrato fixo do M6.
+- Resultado: M7 independente em entrada, Trade Plan, Robo Demo, provider,
+  Position Manager, MT5 Forex, Relatorio, historico e graficos.
+- Saida: `BETA007_DYNAMIC_PROTECT_ONLY_V1`; HOLD antes de 1,50R, depois
+  break-even/ATR trailing mais protetivo, sem `EARLY_EXIT` ou `FULL_EXIT`.
+- Performance: M6/M7 compartilham a mesma leitura de entrada do ciclo; nao ha
+  nova consulta MT5 nem recalculo pesado do Lab.
+- Seguranca: somente Demo; conta real bloqueada; `.traderia` preservada.
+- Validacao: 214 testes operacionais focados aprovados e contratos M6/M7
+  especificos aprovados.
+- Commit: pendente nesta entrada; consultar o commit que adiciona o M7.
+
 ## 2026-07-06
 
 - Criado fluxo oficial de inbox e governanca do TraderIA.

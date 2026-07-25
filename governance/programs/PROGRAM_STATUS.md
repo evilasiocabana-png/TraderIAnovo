@@ -7,3 +7,4 @@
 | B01 Lab | planned |
 | C01 Reports | planned |
 | TIA Dynamic Exit Runtime Full Execution | accepted |
+| M7 Trend Momentum Dynamic Protect Only | completed |

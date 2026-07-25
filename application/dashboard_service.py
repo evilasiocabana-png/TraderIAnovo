@@ -46,6 +46,20 @@ from application.model6_original_trend_momentum import (
     original_trend_momentum_configuration,
     original_trend_momentum_parameters,
 )
+from application.model7_trend_momentum_dynamic import (
+    MODEL_7_ALPHA_ID,
+    MODEL_7_ALPHA_VERSION,
+    MODEL_7_BETA_ID,
+    MODEL_7_BETA_MODE,
+    MODEL_7_BETA_VERSION,
+    MODEL_7_CANDLES,
+    MODEL_7_CONFIDENCE,
+    MODEL_7_EXIT_POLICY,
+    MODEL_7_ID as MT5_OPERATIONAL_MODEL_7,
+    MODEL_7_RISK_REWARD,
+    MODEL_7_TIMEFRAME,
+    model7_trend_momentum_parameters,
+)
 from application.cost_manager import CostManager
 from application.data_readiness_gate_log import (
     DataReadinessGateLog,
@@ -126,6 +140,7 @@ ENTRY_FILTER_SUPPORTED_INDICATORS = {
 MT5_OPERATIONAL_MODEL_1 = "MODELO_1_ALPHA_ATUAL"
 MT5_OPERATIONAL_MODEL_ALL = "TODOS_MODELOS"
 MT5_OPERATIONAL_MODEL_6_ENABLED = True
+MT5_OPERATIONAL_MODEL_7_ENABLED = True
 LEGACY_MT5_OPERATIONAL_MODELS = {
     "MODELO_2_ESPELHO_BETA2_RR1": MT5_OPERATIONAL_MODEL_2,
     "MODELO_3_RR3": MT5_OPERATIONAL_MODEL_3,
@@ -798,6 +813,7 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_4,
             MT5_OPERATIONAL_MODEL_5,
             MT5_OPERATIONAL_MODEL_6,
+            MT5_OPERATIONAL_MODEL_7,
             MT5_OPERATIONAL_MODEL_ALL,
         }:
             normalized = MT5_OPERATIONAL_MODEL_1
@@ -816,6 +832,7 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_4,
             MT5_OPERATIONAL_MODEL_5,
             MT5_OPERATIONAL_MODEL_6,
+            MT5_OPERATIONAL_MODEL_7,
             MT5_OPERATIONAL_MODEL_ALL,
         }:
             return MT5_OPERATIONAL_MODEL_1
@@ -831,6 +848,7 @@ class DashboardService:
                 MT5_OPERATIONAL_MODEL_4,
                 MT5_OPERATIONAL_MODEL_5,
                 MT5_OPERATIONAL_MODEL_6,
+                MT5_OPERATIONAL_MODEL_7,
             )
         return (selected,)
 
@@ -877,6 +895,27 @@ class DashboardService:
                         candles_by_market=candles_by_market,
                     )
                     refreshed[(MT5_OPERATIONAL_MODEL_6, pair)] = decision
+                continue
+            if model_id == MT5_OPERATIONAL_MODEL_7:
+                for pair in SUPPORTED_MT5_SYMBOLS:
+                    source_row = rows_by_pair.get(pair)
+                    base_decision = refreshed.get(
+                        (MT5_OPERATIONAL_MODEL_6, pair)
+                    )
+                    decision = (
+                        self._mt5_model7_decision_from_base(base_decision)
+                        if base_decision is not None
+                        else self._mt5_model7_dynamic_decision(
+                            pair,
+                            current_price=(
+                                getattr(source_row, "last_price", None)
+                                if source_row is not None
+                                else None
+                            ),
+                            candles_by_market=candles_by_market,
+                        )
+                    )
+                    refreshed[(MT5_OPERATIONAL_MODEL_7, pair)] = decision
                 continue
             for pair in self.lab_operational_model_service.results(model_id):
                 source_row = rows_by_pair.get(pair)
@@ -1195,22 +1234,33 @@ class DashboardService:
         researched_models = tuple(
             model
             for model in selected_models
-            if model not in {MT5_OPERATIONAL_MODEL_1, MT5_OPERATIONAL_MODEL_6}
+            if model
+            not in {
+                MT5_OPERATIONAL_MODEL_1,
+                MT5_OPERATIONAL_MODEL_6,
+                MT5_OPERATIONAL_MODEL_7,
+            }
         )
         required = (
             self.lab_operational_model_service.required_timeframes(researched_models)
             if researched_models
             else {}
         )
-        if MT5_OPERATIONAL_MODEL_6 in selected_models:
+        if (
+            MT5_OPERATIONAL_MODEL_6 in selected_models
+            or MT5_OPERATIONAL_MODEL_7 in selected_models
+        ):
             for pair in SUPPORTED_MT5_SYMBOLS:
                 required.setdefault(pair, set()).add(MODEL_6_TIMEFRAME)
         if required:
             self.mt5_market_data_service.refresh_supplemental_forex_candles(
                 required,
                 full_count=(
-                    MODEL_6_CANDLES
-                    if MT5_OPERATIONAL_MODEL_6 in selected_models
+                    max(MODEL_6_CANDLES, MODEL_7_CANDLES)
+                    if (
+                        MT5_OPERATIONAL_MODEL_6 in selected_models
+                        or MT5_OPERATIONAL_MODEL_7 in selected_models
+                    )
                     else 500
                 ),
             )
@@ -1226,7 +1276,10 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_5,
         }:
             return self.lab_operational_model_service.timeframes_by_pair(selected)
-        if selected == MT5_OPERATIONAL_MODEL_6:
+        if selected in {
+            MT5_OPERATIONAL_MODEL_6,
+            MT5_OPERATIONAL_MODEL_7,
+        }:
             return {pair: MODEL_6_TIMEFRAME for pair in SUPPORTED_MT5_SYMBOLS}
         research = self.get_mt5_research_constants()
         timeframes: dict[str, str] = {}
@@ -3780,7 +3833,7 @@ class DashboardService:
     def _position_manager_plans_from_open_execution_records(
         self,
     ) -> list[PositionTradePlan]:
-        """Usa o plano original de cada ordem aberta para gerir M1-M6 por ticket."""
+        """Usa o plano original de cada ordem aberta para gerir M1-M7 por ticket."""
         list_positions = getattr(self.demo_robot_execution_service, "list_open_positions", None)
         if not callable(list_positions):
             return []
@@ -5486,6 +5539,7 @@ class DashboardService:
                     MT5_OPERATIONAL_MODEL_4,
                     MT5_OPERATIONAL_MODEL_5,
                     MT5_OPERATIONAL_MODEL_6,
+                    MT5_OPERATIONAL_MODEL_7,
                 }
                 for model in selected_models
             ):
@@ -5584,6 +5638,7 @@ class DashboardService:
                         MT5_OPERATIONAL_MODEL_4,
                         MT5_OPERATIONAL_MODEL_5,
                         MT5_OPERATIONAL_MODEL_6,
+                        MT5_OPERATIONAL_MODEL_7,
                     }
                     else getattr(source_row, "last_candle_time", "")
                 )
@@ -5923,6 +5978,7 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_4: 40,
             MT5_OPERATIONAL_MODEL_5: 50,
             MT5_OPERATIONAL_MODEL_6: 60,
+            MT5_OPERATIONAL_MODEL_7: 70,
         }
         return sorted(candidates, key=lambda item: priority.get(item[0], 999))
 
@@ -6000,6 +6056,8 @@ class DashboardService:
             return self._mt5_lab_operational_plan(row, plan, selected_model)
         if selected_model == MT5_OPERATIONAL_MODEL_6:
             return self._mt5_model6_original_plan(row, plan)
+        if selected_model == MT5_OPERATIONAL_MODEL_7:
+            return self._mt5_model7_dynamic_plan(row, plan)
         return row, plan
 
     def _mt5_lab_operational_plan(
@@ -6681,16 +6739,18 @@ class DashboardService:
         self,
         row: DashboardMT5ForexSignalRowViewModel,
         fallback_plan: MT5ResearchTradePlan,
+        *,
+        decision_override: LabOperationalDecision | None = None,
     ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
         """Materializa o M6 original sem depender do plano M1 ou M5."""
         del fallback_plan
-        decision = self._mt5_model6_original_decision(
-            row.pair,
-            current_price=row.last_price,
+        decision = decision_override or self._mt5_model6_original_decision(
+            row.pair, current_price=row.last_price
         )
-        self.lab_operational_decision_cache[
-            (MT5_OPERATIONAL_MODEL_6, str(row.pair).upper())
-        ] = decision
+        if decision_override is None:
+            self.lab_operational_decision_cache[
+                (MT5_OPERATIONAL_MODEL_6, str(row.pair).upper())
+            ] = decision
         parameters = original_trend_momentum_parameters()
         plan = self._mt5_research_trade_plan_for_data(
             symbol=row.pair,
@@ -6827,6 +6887,161 @@ class DashboardService:
             research_plan_expected_trigger=plan.expected_trigger,
             research_plan_rr_current=plan.rr_current,
             research_plan_rr_minimum=plan.rr_minimum,
+            research_plan_diagnostics=plan.diagnostics + decision.diagnostics,
+        )
+        return transformed_row, plan
+
+    def _mt5_model7_dynamic_decision(
+        self,
+        pair: str,
+        *,
+        current_price: object = None,
+        candles_by_market: dict[tuple[str, str], object] | None = None,
+    ) -> LabOperationalDecision:
+        """Reuse the frozen entry reading while giving M7 its own identity."""
+        base = self._mt5_model6_original_decision(
+            pair,
+            current_price=current_price,
+            candles_by_market=candles_by_market,
+        )
+        return self._mt5_model7_decision_from_base(base)
+
+    def _mt5_model7_decision_from_base(
+        self,
+        base: LabOperationalDecision,
+    ) -> LabOperationalDecision:
+        """Clone the shared entry calculation without another MT5/Lab pass."""
+        parameters = {
+            **dict(base.parameters),
+            **model7_trend_momentum_parameters(),
+        }
+        reason = (
+            str(base.reason or "")
+            .replace("M6 original", "M7 dinamico")
+            .replace("M6 ", "M7 ")
+        )
+        return replace(
+            base,
+            model_id=MT5_OPERATIONAL_MODEL_7,
+            timeframe=MODEL_7_TIMEFRAME,
+            risk_reward=MODEL_7_RISK_REWARD,
+            alpha_id=MODEL_7_ALPHA_ID,
+            source_model="M7_DYNAMIC_MARCO_ZERO",
+            reason=reason,
+            parameters=parameters,
+            diagnostics=tuple(base.diagnostics)
+            + ("M7_EXIT_CONTRACT=DYNAMIC_PROTECT_ONLY_1_50R",),
+            parity_status="DEMO_BASELINE_APPROVED",
+        )
+
+    def _mt5_model7_dynamic_plan(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        fallback_plan: MT5ResearchTradePlan,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        """Materialize M7 independently with intentional SL protection."""
+        pair = str(row.pair).upper()
+        decision = self.lab_operational_decision_cache.get(
+            (MT5_OPERATIONAL_MODEL_7, pair)
+        )
+        if decision is None:
+            base_decision = self.lab_operational_decision_cache.get(
+                (MT5_OPERATIONAL_MODEL_6, pair)
+            )
+            decision = (
+                self._mt5_model7_dynamic_decision(
+                    row.pair,
+                    current_price=row.last_price,
+                )
+                if base_decision is None
+                else self._mt5_model7_decision_from_base(base_decision)
+            )
+        self.lab_operational_decision_cache[
+            (MT5_OPERATIONAL_MODEL_7, pair)
+        ] = decision
+        base_row, base_plan = self._mt5_model6_original_plan(
+            row,
+            fallback_plan,
+            decision_override=decision,
+        )
+        parameters = model7_trend_momentum_parameters()
+        plan = replace(
+            base_plan,
+            stop_management=MODEL_7_EXIT_POLICY,
+            stop_management_parameters=parameters,
+            stop_management_reason=(
+                "M7 preserva o SL inicial ate 1.50R. Depois, o Position Manager "
+                "pode proteger por break-even ou ATR trailing, sem FULL_EXIT."
+            ),
+            alpha_id=MODEL_7_ALPHA_ID,
+            alpha_version=MODEL_7_ALPHA_VERSION,
+            exit_model=MODEL_7_BETA_VERSION,
+            beta_id=MODEL_7_BETA_ID,
+            beta_version=MODEL_7_BETA_VERSION,
+            beta_mode=MODEL_7_BETA_MODE,
+            beta_reason=(
+                "Protecao dinamica intencional do M7 por break-even ou ATR "
+                "trailing a partir de 1.50R."
+            ),
+            certification_grade="BASELINE_M7",
+            certification_status="DEMO_BASELINE_APPROVED",
+            certification_usage=(
+                "M7 dinamico liberado exclusivamente para MT5 Demo."
+            ),
+            source="M7_DYNAMIC_MARCO_ZERO",
+            reason=decision.reason,
+            diagnostics=tuple(
+                item
+                for item in base_plan.diagnostics
+                if not str(item).startswith("M6_EXIT_CONTRACT=")
+            )
+            + ("M7_EXIT_CONTRACT=DYNAMIC_PROTECT_ONLY_1_50R",),
+        )
+        transformed_row = replace(
+            base_row,
+            active_model="M7_TREND_MOMENTUM_DYNAMIC",
+            active_model_score=MODEL_7_CONFIDENCE if decision.ready else 0.0,
+            active_model_indicators=decision.diagnostics,
+            lab_alpha_id=MODEL_7_ALPHA_ID,
+            lab_alpha_version=MODEL_7_ALPHA_VERSION,
+            beta_id=MODEL_7_BETA_ID,
+            beta_version=MODEL_7_BETA_VERSION,
+            beta_mode=MODEL_7_BETA_MODE,
+            beta_reason=plan.beta_reason,
+            lab_parameters=parameters,
+            lab_configuration_source="M7_DYNAMIC_MARCO_ZERO",
+            lab_ict_grade="BASELINE_M7",
+            lab_ict_status="DEMO_BASELINE_APPROVED",
+            lab_ict_usage="M7 dinamico liberado exclusivamente para MT5 Demo.",
+            lab_ict_demo_allowed=True,
+            lab_ict_rejection_reasons=(),
+            reason=decision.reason,
+            theoretical_entry_reason=decision.reason,
+            entry_filter_parameter="M7_CONFIGURACAO_ORIGINAL_SEM_FILTRO_NV_V",
+            entry_filter_reading=decision.status,
+            entry_filter_reason=(
+                "O M7 usa a entrada Trend Momentum original e uma politica "
+                "de protecao pos-entrada independente."
+            ),
+            research_plan_source=plan.source,
+            research_plan_exit_model=plan.exit_model,
+            research_plan_stop_management=plan.stop_management,
+            research_plan_stop_management_parameters=dict(
+                plan.stop_management_parameters
+            ),
+            research_plan_stop_management_reason=plan.stop_management_reason,
+            dynamic_exit_policy=MODEL_7_EXIT_POLICY,
+            dynamic_exit_action="HOLD_POSITION",
+            dynamic_exit_reason=(
+                "M7 aguarda 1.50R antes de autorizar break-even ou ATR trailing."
+            ),
+            dynamic_exit_confidence=0.55,
+            dynamic_exit_candidate_stop=None,
+            dynamic_exit_allowed_to_execute_demo=(
+                self._dynamic_exit_demo_sl_assisted_enabled()
+            ),
+            dynamic_exit_source="M7_DYNAMIC_PROTECT_ONLY",
+            research_plan_reason=plan.reason,
             research_plan_diagnostics=plan.diagnostics + decision.diagnostics,
         )
         return transformed_row, plan

@@ -420,6 +420,31 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
         self.assertEqual(result.status, "EXECUTED")
         self.assertEqual(provider.orders[0].plan_snapshot["source"], "M6_ORIGINAL_MARCO_ZERO")
 
+    def test_modelo7_dinamico_aceita_fonte_operacional_propria(self) -> None:
+        provider = _AcceptingProvider()
+        service = MT5DemoRobotService(
+            execution_service=DemoExecutionService(provider=provider),
+            enabled=True,
+        )
+        signal = MT5DemoRobotSignal(
+            **{
+                **self._signal("BUY").__dict__,
+                "operational_model": "MODELO_7_TREND_MOMENTUM_DYNAMIC",
+            }
+        )
+        plan = MT5DemoTradePlan(
+            **{
+                **self._plan("BUY").__dict__,
+                "source": "M7_DYNAMIC_MARCO_ZERO",
+                "operational_model": "MODELO_7_TREND_MOMENTUM_DYNAMIC",
+            }
+        )
+
+        result = service.evaluate_once(signal, plan)
+
+        self.assertEqual(result.status, "EXECUTED")
+        self.assertEqual(provider.orders[0].plan_snapshot["source"], "M7_DYNAMIC_MARCO_ZERO")
+
     def _signal(
         self,
         decision: str,

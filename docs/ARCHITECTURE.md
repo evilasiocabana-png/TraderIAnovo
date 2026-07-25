@@ -101,6 +101,11 @@ Responsabilidade:
   SL e nao executa `FULL_EXIT` nesses modelos.
 - Para M6, o Position Manager possui bypass defensivo inclusive para snapshots
   antigos que ainda declarem `DYNAMIC_POSITION_MANAGER`.
+- M7 preserva a mesma entrada congelada do M6 em um contrato independente:
+  `MODELO_7_TREND_MOMENTUM_DYNAMIC` + `BETA007_DYNAMIC_PROTECT_ONLY_V1`.
+- M7 mede o progresso pelo risco inicial imutavel, mantem o SL antes de 1,50R
+  e, depois, permite somente break-even ou ATR trailing mais protetivo. Ele
+  nunca executa `EARLY_EXIT` ou `FULL_EXIT`.
 - A entrada historica nasce apenas em transicao `WAIT -> BUY/SELL`.
 - Um replay nao pode abrir nova entrada enquanto o trade teorico anterior do
   mesmo cenario estiver ativo.
@@ -129,6 +134,8 @@ Responsabilidade:
   recalcula os 5.000 candles.
 - Modelos sao independentes, mas o provider bloqueia a duplicacao do mesmo
   plano exato e candle entre modelos.
+- O provider permite no maximo uma posicao por modelo e sete posicoes por par
+  no conjunto M1-M7.
 - Conta real permanece bloqueada; a promocao autoriza somente forward Demo.
 
 ### MT5 / Infrastructure

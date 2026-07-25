@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -19,6 +19,14 @@ from application.model6_original_trend_momentum import (
     MODEL_6_EXIT_POLICY,
     MODEL_6_ID,
     MODEL_6_LEGACY_ID,
+)
+from application.model7_trend_momentum_dynamic import (
+    MODEL_7_BETA_ID,
+    MODEL_7_BETA_MODE,
+    MODEL_7_BETA_VERSION,
+    MODEL_7_EXIT_POLICY,
+    MODEL_7_ID,
+    MODEL_7_PROTECTION_ACTIVATION_RR,
 )
 from domain.contracts.beta_strategy import BetaDecision, BetaStrategyContext
 
@@ -564,6 +572,11 @@ class PositionManagerService:
             current_stop=current_stop,
             current_price=float(current_price),
         )
+        if self._is_m7_dynamic_plan(plan):
+            snapshot = replace(
+                snapshot,
+                r_multiple=self._initial_plan_r_multiple(plan, snapshot),
+            )
         decision = self._decide(plan, snapshot)
         if self._is_duplicate_beta_execution(plan, decision):
             return self._record(
@@ -904,6 +917,8 @@ class PositionManagerService:
                 beta_mode=plan.beta_mode,
                 evidence=snapshot.evidence + ("RESEARCH_FIXED_SL_TP",),
             )
+        if self._is_m7_dynamic_plan(plan):
+            return self._decide_model7_dynamic(plan, snapshot)
         if _normalize_beta_id(plan.beta_id) == BETA002_ID:
             return self._decide_beta002(plan, snapshot)
         if (
@@ -1030,6 +1045,103 @@ class PositionManagerService:
             evidence=snapshot.evidence,
         )
 
+    def _decide_model7_dynamic(
+        self,
+        plan: PositionTradePlan,
+        snapshot: PositionStateSnapshot,
+    ) -> PositionManagerDecision:
+        """Protect M7 after 1.50R without ever issuing an early/full exit."""
+        if snapshot.r_multiple < MODEL_7_PROTECTION_ACTIVATION_RR:
+            return PositionManagerDecision(
+                symbol=plan.symbol,
+                ticket=snapshot.ticket,
+                state=snapshot.state,
+                action="HOLD_POSITION",
+                reason=(
+                    "M7 ainda abaixo de 1.50R; preservar SL inicial e TP RR2."
+                ),
+                confidence=0.60,
+                beta_id=MODEL_7_BETA_ID,
+                beta_version=MODEL_7_BETA_VERSION,
+                beta_mode=MODEL_7_BETA_MODE,
+                evidence=snapshot.evidence + ("M7_PROTECTION_WAIT_UNDER_1_50R",),
+            )
+        candidate_sources = (
+            self._break_even_stop(
+                snapshot.side,
+                snapshot.entry_price,
+                snapshot.current_stop,
+                snapshot.current_price,
+                plan,
+            ),
+            self._activated_atr_trailing_stop(
+                snapshot.side,
+                snapshot.entry_price,
+                snapshot.current_stop,
+                snapshot.current_price,
+                plan,
+                snapshot.r_multiple,
+            ),
+        )
+        candidates = [
+            float(candidate)
+            for candidate in candidate_sources
+            if candidate is not None
+            and self._is_better_stop(
+                snapshot.side,
+                float(candidate),
+                snapshot.current_stop,
+            )
+            and self._is_stop_before_market(
+                snapshot.side,
+                float(candidate),
+                snapshot.current_price,
+            )
+        ]
+        if not candidates:
+            return PositionManagerDecision(
+                symbol=plan.symbol,
+                ticket=snapshot.ticket,
+                state=snapshot.state,
+                action="HOLD_POSITION",
+                reason=(
+                    "M7 atingiu a faixa de protecao, mas nenhum novo SL melhora "
+                    "o stop atual com seguranca."
+                ),
+                confidence=0.65,
+                beta_id=MODEL_7_BETA_ID,
+                beta_version=MODEL_7_BETA_VERSION,
+                beta_mode=MODEL_7_BETA_MODE,
+                evidence=snapshot.evidence + ("M7_NO_BETTER_STOP",),
+            )
+        candidate = (
+            max(candidates)
+            if snapshot.side == "BUY"
+            else min(candidates)
+        )
+        return PositionManagerDecision(
+            symbol=plan.symbol,
+            ticket=snapshot.ticket,
+            state=snapshot.state,
+            action="PROTECT_POSITION",
+            reason=(
+                "M7 acima de 1.50R: aplicar o mais protetivo entre break-even "
+                "e ATR trailing, sem fechamento antecipado."
+            ),
+            confidence=0.75,
+            beta_id=MODEL_7_BETA_ID,
+            beta_version=MODEL_7_BETA_VERSION,
+            beta_mode=MODEL_7_BETA_MODE,
+            allowed_to_execute=self.assisted_execution_enabled,
+            execution_mode=(
+                "AUTOMATIC_DEMO"
+                if self.assisted_execution_enabled
+                else "READ_ONLY"
+            ),
+            requested_stop=candidate,
+            evidence=snapshot.evidence + ("M7_DYNAMIC_PROTECT_ONLY",),
+        )
+
     def _decide_beta002(
         self,
         plan: PositionTradePlan,
@@ -1138,6 +1250,30 @@ class PositionManagerService:
                 "HISTORICAL_BASELINE_A3BC912",
             }
         )
+
+    def _is_m7_dynamic_plan(self, plan: PositionTradePlan) -> bool:
+        """Recognize M7 across current and persisted execution snapshots."""
+        return (
+            str(plan.operational_model or "").upper() == MODEL_7_ID
+            or str(plan.stop_management or "").upper() == MODEL_7_EXIT_POLICY
+            or _normalize_beta_id(plan.beta_id) == MODEL_7_BETA_ID
+        )
+
+    def _initial_plan_r_multiple(
+        self,
+        plan: PositionTradePlan,
+        snapshot: PositionStateSnapshot,
+    ) -> float:
+        """Measure M7 progress against its immutable initial risk."""
+        initial_risk = abs(float(plan.entry) - float(plan.stop))
+        if initial_risk <= 0.0:
+            return snapshot.r_multiple
+        favorable = (
+            snapshot.current_price - snapshot.entry_price
+            if snapshot.side == "BUY"
+            else snapshot.entry_price - snapshot.current_price
+        )
+        return favorable / initial_risk
 
     def _is_m1_lab_plan(self, plan: PositionTradePlan) -> bool:
         """Preserva SL/TP do vencedor M1 inclusive em snapshots dinamicos antigos."""

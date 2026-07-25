@@ -1,12 +1,12 @@
 # TraderIA Novo - Fluxo Operacional E Relacoes De Ponta A Ponta
 
 Status: referencia arquitetural canonica
-Atualizado em: 2026-07-22
+Atualizado em: 2026-07-24
 
 ## Finalidade
 
 Este documento e o mapa unico das relacoes operacionais do TraderIA Novo. Ele
-deve ser consultado antes de alterar Lab, Forex, modelos M1-M6, Robo Demo, MT5,
+deve ser consultado antes de alterar Lab, Forex, modelos M1-M7, Robo Demo, MT5,
 Position Manager, Relatorio, persistencia local ou ciclos em segundo plano.
 
 `docs/ARCHITECTURE.md` define camadas e invariantes gerais. Este documento
@@ -30,7 +30,7 @@ DashboardService enriquece leitura MT5 leve
         v
 DashboardMT5ForexSignalViewModel compartilhado
         |
-        +--> Aba MT5 Forex / monitores M1-M6
+        +--> Aba MT5 Forex / monitores M1-M7
         |
         +--> Seletor de modelos para novas entradas
         |
@@ -139,16 +139,18 @@ O snapshot compartilhado precisa transportar, por par:
 - leitura atual necessaria aos gates;
 - estado de posicao e recomendacao do Position Manager quando aplicavel.
 
-### Monitor De Indicadores M1-M6
+### Monitor De Indicadores M1-M7
 
 O monitor da aba MT5 Forex e uma projecao read-only do mesmo ciclo operacional.
-Sua primeira coluna identifica `M1` a `M6`; cada linha seguinte representa um
+Sua primeira coluna identifica `M1` a `M7`; cada linha seguinte representa um
 indicador ou uma condicao efetivamente usada pelo modelo naquele par e TF.
 
 - M1 usa os indicadores declarados pelo setup vencedor do Lab.
 - M2-M5 usam os parametros congelados no manifesto operacional.
 - M6 usa a configuracao historica congelada `ALPHA001/MARCO_ZERO_A3BC912` e
   publica MA20, MA50, momentum 10, volatilidade 20, RSI14 e ATR20.
+- M7 reutiliza a mesma leitura de entrada do M6 sem nova consulta ao MT5 e
+  acrescenta o contrato de protecao `BETA007` para a posicao aberta.
 - M4 e os vencedores M4 dentro do M5 incluem apenas o contexto H1/H4 realmente
   habilitado pelo overlay.
 - `Leitura atual` vem do ultimo candle fechado usado na decisao.
@@ -159,7 +161,7 @@ indicador ou uma condicao efetivamente usada pelo modelo naquele par e TF.
 
 O monitor nao consulta o MT5 de novo, nao recalcula o Lab e nao participa dos
 gates. Ele consome os diagnosticos ja produzidos por
-`LabOperationalModelService` e pelo adaptador M6 original, publicados no snapshot process-local compacto
+`LabOperationalModelService` e pelos adaptadores M6/M7, publicados no snapshot process-local compacto
 `mt5_lab_operational_decisions`. A sessao Streamlit nunca recebe o cache bruto
 de candles. Portanto, uma leitura pode permanecer `ESTAVEL` entre ciclos e
 mudar quando o proximo candle do TF fechar.
@@ -180,16 +182,21 @@ linha reprovada pela evidencia sem apagar o resultado original da auditoria.
 | M4 | Pesquisa contextual MTF | Candle M30 fechado com contexto H1/H4, proximo preco vivo, SL/TP fixos | 8 pares por politica Demo |
 | M5 | Melhor evidencia consolidada M1-M4 | Delega ao contrato vencedor por par, sem recalcular | 8 pares por politica Demo |
 | M6 | Trend Momentum original do marco `a3bc912` | Ultimo candle M1 fechado, proximo preco vivo, SL maximo entre 2 ATR e 0,10% do preco e TP RR2 fixos | 8 pares Demo |
+| M7 | Trend Momentum original isolado com protecao dinamica | Mesma entrada e risco inicial do M6; HOLD antes de 1,50R e depois somente break-even/ATR trailing, sem fechamento antecipado | 8 pares Demo |
 
 O nome operacional do consolidado e somente M5. `M5-P` deixa de ser modelo
-operacional separado. M6 e independente de M1-M5, aparece no seletor, entra em
-`TODOS_MODELOS`, cria Trade Plan proprio e envia somente ao provider MT5 Demo.
+operacional separado. M6 e M7 sao independentes de M1-M5 e entre si, aparecem
+no seletor, entram em `TODOS_MODELOS`, criam Trade Plans proprios e enviam
+somente ao provider MT5 Demo.
 
 M1-M5 obedecem `RESEARCH_FIXED_SL_TP`. O Position Manager continua observando
 e auditando suas posicoes, mas nao move SL nem executa `FULL_EXIT`. Assim, o
 resultado forward pode ser confrontado diretamente com a hipotese historica.
 M6 tambem usa `RESEARCH_FIXED_SL_TP`, mas possui bypass adicional por identidade
 do modelo para neutralizar snapshots antigos criados com politica dinamica.
+M7 usa `M7_DYNAMIC_PROTECT_ONLY`: mede o progresso pelo risco inicial imutavel,
+preserva SL/TP antes de 1,50R e, depois, pode somente melhorar o SL por
+break-even ou ATR trailing. `EARLY_EXIT` e `FULL_EXIT` sao proibidos para M7.
 
 Cada linha do manifesto possui `demo_forward_enabled`. A politica vigente deixa
 as oito linhas de M2, M3, M4 e M5 verdadeiras. O resultado cientifico anterior
@@ -271,10 +278,10 @@ Trocar aba, recarregar pagina, abrir Safari/Chrome ou reconectar nao pode:
 - apagar o snapshot valido;
 - interromper o Position Manager.
 
-## Funil Visual De Entrada M1-M6
+## Funil Visual De Entrada M1-M7
 
 A tabela `Entrada Teorica MT5` deve decompor, para cada par e para cada modelo
-M1-M6, as mesmas condicoes que antecedem o envio ao Robo Demo. A coluna
+M1-M7, as mesmas condicoes que antecedem o envio ao Robo Demo. A coluna
 `Envio` e o resumo operacional: ela exibe `PRONTO` quando todas as etapas estao
 aptas ou apresenta o gargalo mais relevante, no formato
 `BLOQ/AGUARDA: etapa - motivo`.
@@ -306,6 +313,8 @@ Regras de integridade:
 - M2-M5 nunca herdam direcao, candle, entrada, SL ou TP da linha M1 quando a
   decisao propria estiver sem sinal;
 - M2-M5 reutilizam a decisao compacta publicada pelo ciclo de 10 segundos;
+- M6 e M7 compartilham uma unica leitura ALPHA001 por par/candle, mas
+  materializam planos e saidas independentes;
 - a tabela nao abre leitura MT5, nao recalcula o Lab e nao cria gate novo;
 - bloqueios duros tem prioridade no resumo `Envio`; sem bloqueio duro, aparece
   a primeira etapa ainda aguardando;
@@ -332,12 +341,13 @@ Toda falha que atravesse mais de um componente deve entrar nesta secao e no
 | FLOW-009 | `unittest discover` global permaneceu mais de 15 minutos sem concluir nem publicar progresso | A suite agregada mistura testes leves, pesquisa pesada e rotinas com ciclos/threads; o teste global ainda nao possui particionamento e timeout por grupo | Testes, pesquisa, dashboard e runtime background | Gates de entrega usam suites focadas com tempo limitado; a suite global deve ser particionada e nunca pode ser executada dentro do ciclo operacional |
 | FLOW-010 | O monitor nao permitia rastrear quais indicadores M2-M5 estavam mudando | A execucao calculava os indicadores, mas a UI exibia apenas o resumo textual do modelo | LabOperationalModelService, manifesto, ciclo compartilhado e aba MT5 Forex | Projetar uma linha por indicador usado, com modelo na primeira coluna e movimento entre ciclos, reutilizando o snapshot sem leitura MT5 adicional |
 | FLOW-011 | O novo monitor estava correto, mas o ciclo quente ainda consumia CPU por varios segundos | As mesmas velas eram normalizadas dezenas de vezes, o ViewModel visual montava dados alheios ao MT5 e o horario do servidor era consultado por candidato | LabOperationalModelService, DashboardService, ciclo Robo e exportador visual | Uma vela fechada deve ser normalizada uma vez por par/TF; o exportador recebe o ViewModel Forex direto; o horario do servidor e compartilhado no ciclo; o ciclo Robo publica a decisao ja calculada |
-| FLOW-012 | Graficos configurados para 22/07 ainda mostravam resultados realizados em 21/07 no Brasil e legenda `desde indice` | O filtro comparava somente a data UTC de fechamento, aceitava horario desconhecido e depois aplicava outro corte por indice | Historico MT5, aba Relatorio, graficos M1-M6 e testes | A janela patrimonial converte o fechamento MT5 para `America/Sao_Paulo`; resultado anterior fica fora; horario desconhecido nao entra; nao existe segundo corte por indice |
+| FLOW-012 | Graficos configurados para 22/07 ainda mostravam resultados realizados em 21/07 no Brasil e legenda `desde indice` | O filtro comparava somente a data UTC de fechamento, aceitava horario desconhecido e depois aplicava outro corte por indice | Historico MT5, aba Relatorio, graficos M1-M7 e testes | A janela patrimonial converte o fechamento MT5 para `America/Sao_Paulo`; resultado anterior fica fora; horario desconhecido nao entra; nao existe segundo corte por indice |
 | FLOW-013 | A tabela M2-M5 podia mostrar sinal/zonas herdados do M1 e duas colunas `Plano` sem revelar o gargalo real | A projecao clonava a linha M1 sem limpar campos operacionais e uma chave `Zona` duplicada sobrescrevia o status do gate | Snapshot compartilhado, projecao M1-M5, tabela MT5 Forex e testes | Cada modelo limpa campos herdados, usa sua decisao compartilhada e expoe um funil unico; `Envio` mostra `PRONTO` ou o motivo do gargalo sem executar logica propria |
 | FLOW-014 | O seletor e o historico ainda tratavam M6 como espelho inativo do M5 depois da recuperacao do setup original | Identificador, visual, Robo Demo e comentario MT5 nao compartilhavam o novo contrato | Configuracao M6, DashboardService, snapshot, UI, Robo Demo, provider, testes e documentos | M6 e independente, usa `MODELO_6_TREND_MOMENTUM_ORIGINAL`, candle M1 fechado, risco maximo entre 2 ATR e 0,10% do preco, TP RR2 fixo e provider Demo |
-| FLOW-015 | O cartao M6 mostrava 13 operacoes e `-12,80`, enquanto a linha ja desenhava 20 operacoes e `100,61` | Elementos sem identidade explicita eram reaproveitados durante rerenders do fragmento do Relatorio | Cache do Relatorio, fragmento Streamlit, cartoes e graficos M1-M6 | Cartao, contagem e pontos devem nascer de um snapshot unico; painel e grafico recebem chave por modelo e versao dos dados, sem nova leitura MT5 |
+| FLOW-015 | O cartao M6 mostrava 13 operacoes e `-12,80`, enquanto a linha ja desenhava 20 operacoes e `100,61` | Elementos sem identidade explicita eram reaproveitados durante rerenders do fragmento do Relatorio | Cache do Relatorio, fragmento Streamlit, cartoes e graficos M1-M7 | Cartao, contagem e pontos devem nascer de um snapshot unico; painel e grafico recebem chave por modelo e versao dos dados, sem nova leitura MT5 |
 | FLOW-016 | M6 moveu SL apesar de ter sido concebido para reproduzir entrada e saida fixas do marco zero | Ao criar o adaptador M6, a configuracao de entrada ALPHA001 recebeu por heranca o wrapper global `BETA001_PROTECT_ONLY_V1` e `DYNAMIC_POSITION_MANAGER` | Configuracao M6, Trade Plan, reconstrucao de snapshots, Position Manager, UI, testes e documentacao | M6 declara `BETA001_FIXED_SL_TP_RR2_V1`; snapshots antigos sao identificados pelo modelo/origem e bloqueados antes de qualquer leitura ou comando de gestao |
 | FLOW-017 | M1 recebia SL/TP do Lab, mas o runtime ainda podia mover o SL | `FIXED_STOP` era reinterpretado como `DYNAMIC_POSITION_MANAGER` depois da abertura | Research Lab, Trade Plan M1, registro de execucao, Position Manager, UI, testes e documentacao | M1 publica `RESEARCH_FIXED_SL_TP`; snapshots M1 antigos sao bloqueados pela identidade `MODELO_1_ALPHA_ATUAL`; o PM somente audita |
+| FLOW-018 | A versao dinamica historica do ALPHA001 poderia voltar a contaminar o M6 fixo | Entrada e politica de saida compartilhavam identidade, permitindo heranca de `DYNAMIC_POSITION_MANAGER` | Configuracao M6/M7, Trade Plan, Robo Demo, provider, Position Manager, MT5 Forex, Relatorio e testes | M6 continua `BETA001_FIXED_SL_TP_RR2_V1`; a variante dinamica vira M7 independente com `BETA007`, risco inicial imutavel, protecao somente apos 1,50R e nenhum fechamento antecipado |
 
 ## Regra De Mudanca Interligada
 
@@ -375,6 +385,10 @@ Os testes devem garantir no minimo:
 - M2-M5 usam exatamente Alpha, TF, filtros e SL/TP do manifesto promovido;
 - M6 aparece, calcula somente com candles ja carregados e envia exclusivamente
   ao MT5 Demo quando selecionado, armado e com todos os gates aprovados;
+- M7 compartilha a leitura de entrada M6 sem duplicar consulta, envia como
+  `TraderIA M7` e nunca executa `EARLY_EXIT` ou `FULL_EXIT`;
+- M7 somente move o SL depois de 1,50R, nunca afasta o stop e nunca redefine R
+  a partir de um SL ja movido;
 - Position Manager continua administrando posicoes abertas fora da aba MT5;
 - Relatorio nao participa da decisao nem torna o ciclo leve pesado.
 - Lab e Replay permanecem deterministas mesmo durante rollover vivo do MT5.

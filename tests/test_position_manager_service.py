@@ -15,6 +15,13 @@ from application.position_manager_service import (
     PositionManagerService,
     PositionTradePlan,
 )
+from application.model7_trend_momentum_dynamic import (
+    MODEL_7_BETA_ID,
+    MODEL_7_BETA_VERSION,
+    MODEL_7_EXIT_POLICY,
+    MODEL_7_ID,
+    model7_trend_momentum_parameters,
+)
 
 
 class PositionManagerServiceTest(unittest.TestCase):
@@ -82,6 +89,63 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertEqual(result.beta_mode, "FIXED_SL_TP")
         self.assertEqual(result.old_stop, 1.0980)
         self.assertEqual(provider.modify_calls, 0)
+        self.assertEqual(provider.close_calls, 0)
+
+    def test_m7_antes_de_1_50r_preserva_stop_inicial(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1040),
+            price=1.1028,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._m7_plan("EURUSD", "BUY")
+        )
+
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertIn("M7_PROTECTION_WAIT_UNDER_1_50R", result.evidence)
+        self.assertEqual(provider.modify_calls, 0)
+        self.assertEqual(provider.close_calls, 0)
+
+    def test_m7_depois_de_1_50r_move_sl_sem_full_exit(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1040),
+            price=1.1032,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._m7_plan("EURUSD", "BUY")
+        )
+
+        self.assertEqual(result.status, "STOP_MOVED")
+        self.assertEqual(result.beta_id, MODEL_7_BETA_ID)
+        self.assertEqual(result.beta_version, MODEL_7_BETA_VERSION)
+        self.assertAlmostEqual(provider.modified_stop or 0.0, 1.1012)
+        self.assertEqual(provider.modify_calls, 1)
+        self.assertEqual(provider.close_calls, 0)
+
+    def test_m7_bloqueia_full_exit_mesmo_se_global_estiver_ligado(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1040),
+            price=1.1032,
+        )
+        manager = PositionManagerService(
+            provider=provider,
+            assisted_execution_enabled=True,
+            early_exit_enabled=True,
+            log_path=Path(tempfile.gettempdir()) / "traderia-m7-pm-test.jsonl",
+            state_path=Path(tempfile.gettempdir()) / "traderia-m7-pm-state-test.json",
+            current_state_path=(
+                Path(tempfile.gettempdir()) / "traderia-m7-pm-current-test.json"
+            ),
+        )
+
+        result = manager.manage_plan(
+            self._m7_plan("EURUSD", "BUY", momentum=-0.0010)
+        )
+
+        self.assertNotIn(result.action, {"EARLY_EXIT", "FULL_EXIT"})
         self.assertEqual(provider.close_calls, 0)
 
     def test_buy_move_stop_para_cima_por_atr_trailing(self) -> None:
@@ -986,6 +1050,36 @@ class PositionManagerServiceTest(unittest.TestCase):
             beta_id=beta_id,
             ticket=ticket,
             operational_model=operational_model,
+        )
+
+    def _m7_plan(
+        self,
+        symbol: str,
+        side: str,
+        *,
+        momentum: float | None = None,
+    ) -> PositionTradePlan:
+        return PositionTradePlan(
+            symbol=symbol,
+            side=side,
+            entry=1.1000,
+            stop=1.0980,
+            target=1.1040,
+            stop_management=MODEL_7_EXIT_POLICY,
+            stop_management_parameters=model7_trend_momentum_parameters(),
+            alpha_id="ALPHA001",
+            alpha_version="MARCO_ZERO_A3BC912",
+            beta_id=MODEL_7_BETA_ID,
+            beta_version=MODEL_7_BETA_VERSION,
+            beta_mode="PROTECT_ONLY",
+            risk_reward=2.0,
+            atr=0.0010,
+            momentum=momentum,
+            timeframe="M1",
+            status="PLANO_VALIDO",
+            source="M7_DYNAMIC_MARCO_ZERO",
+            operational_model=MODEL_7_ID,
+            entry_setup="M7_TREND_MOMENTUM_DYNAMIC",
         )
 
 

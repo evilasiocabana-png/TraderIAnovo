@@ -3,7 +3,7 @@
 Data: 2026-07-16
 Projeto: TraderIA Novo
 Status: protocolo operacional e retrospectiva de aprendizado
-Referencia de origem: criacao do Modelo 3 / M3 RR3 e Modelo 4 / M4 espelho do M1
+Referencia de origem: criacao dos Modelos 3 a 7
 
 ## Objetivo
 
@@ -280,16 +280,16 @@ Checklist:
 - testes de envio;
 - testes de bloqueio.
 
-Regra atual apos M6:
+Regra atual apos M7:
 
 ```text
-Maximo por par: 6 posicoes
-Regra: uma posicao por modelo M1, M2, M3, M4, M5 e M6
-Setima posicao no mesmo par: bloqueada
+Maximo por par: 7 posicoes
+Regra: uma posicao por modelo M1, M2, M3, M4, M5, M6 e M7
+Oitava posicao no mesmo par: bloqueada
 Mesmo modelo no mesmo par: bloqueado
 ```
 
-Para M7 ou modelos futuros, o limite precisa ser reavaliado explicitamente. Nao aumentar automaticamente sem decisao.
+Para M8 ou modelos futuros, o limite precisa ser reavaliado explicitamente. Nao aumentar automaticamente sem decisao.
 
 ## Registro do M4
 
@@ -344,7 +344,7 @@ Alvo: nivel estrutural ou projecao minima de 1.5R
 Alpha: ALPHAPRICE5
 Beta/saida: BETAPRICE5_PRICE_ACTION_STRUCTURE_EXIT
 Coexistencia: pode operar junto com M1, M2, M3 e M4
-Limite: uma posicao M5 por par; maximo seis posicoes por par apos M6
+Limite: uma posicao M5 por par; maximo sete posicoes por par apos M7
 Comentario MT5: TraderIA M5
 ```
 
@@ -375,7 +375,7 @@ Alpha: ALPHA001 / MARCO_ZERO_A3BC912
 Beta/saida: BETA001_FIXED_SL_TP_RR2_V1
 Contrato de saida: primeiro toque no SL inicial ou TP RR2, sem Position Manager
 Coexistencia: independente de M1-M5 para selecao e envio
-Limite: uma posicao M6 por par; maximo seis posicoes por par
+Limite: uma posicao M6 por par; maximo sete posicoes por par apos M7
 Comentario MT5: TraderIA M6
 Execucao: somente MT5 Demo
 ```
@@ -392,6 +392,41 @@ somente no seletor; ordens historicas preservam a identidade registrada.
 Uma configuracao de entrada recuperada do historico nao herda automaticamente
 a politica de saida global vigente. Entrada, risco inicial e saida devem ser
 congelados separadamente e comprovados por testes de nao regressao.
+```
+
+## Registro do M7
+
+O M7 preserva a entrada original do M6, mas isola a versao historica que havia
+recebido protecao dinamica. Ele nao altera nem depende operacionalmente do M6.
+
+Definicao:
+
+```text
+Identificador: MODELO_7_TREND_MOMENTUM_DYNAMIC
+Nome curto: M7
+Origem: configuracao historica congelada no commit a3bc912
+Timeframe: M1
+Entrada: ultimo candle fechado com media 20/50, momentum 10, volatilidade 20 e RSI14
+Stop inicial: maior distancia entre 2 ATR e 0,10% do preco
+Alvo inicial: RR2 sobre a distancia do stop inicial
+Alpha: ALPHA001 / MARCO_ZERO_A3BC912
+Beta/saida: BETA007_DYNAMIC_PROTECT_ONLY_V1
+Contrato de saida: HOLD antes de 1,50R; depois permite break-even ou ATR trailing 2,0
+Fechamento antecipado: EARLY_EXIT e FULL_EXIT proibidos
+Coexistencia: independente de M1-M6 para selecao, envio e gestao
+Limite: uma posicao M7 por par; maximo sete posicoes por par
+Comentario MT5: TraderIA M7
+Execucao: somente MT5 Demo
+```
+
+Aprendizado:
+
+```text
+Quando uma versao "contaminada" possui valor experimental, ela vira um modelo
+novo e explicitamente versionado. Nao se reintroduz o comportamento no modelo
+original. O R de ativacao do M7 sempre usa entrada e stop iniciais imutaveis;
+um SL ja movido nao pode redefinir o risco original. O Position Manager pode
+somente manter ou melhorar o SL e nunca pode encerrar a posicao antecipadamente.
 ```
 
 ### 9. Position Manager e Saida

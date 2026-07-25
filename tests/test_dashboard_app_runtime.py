@@ -2165,6 +2165,41 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(row["Alvo Research"], "1.105")
         self.assertNotIn("ESPELHO", " ".join(str(value) for value in row.values()))
 
+    def test_modelo7_visual_expoe_beta007_e_protecao_dinamica(self) -> None:
+        decision = SimpleNamespace(
+            signal_candle_time="2026-07-22T12:00:00+00:00",
+            current_bar_time="2026-07-22T12:01:00+00:00",
+            status="READY",
+            ready=True,
+            reason="Trend Momentum original alinhado para M7.",
+            direction="BUY",
+            diagnostics=("TREND=ALTA", "MOMENTUM10=0.002", "ATR20=0.001"),
+            entry_price=1.101,
+            stop=1.099,
+            target=1.105,
+            risk_reward=2.0,
+        )
+
+        row = dashboard_app._model7_dynamic_entry_row(
+            {"Par": "EURUSD", "Modelo Ativo": "MODELO_M1"},
+            evaluate_live=True,
+            decision_snapshot={
+                (dashboard_app.MT5_OPERATIONAL_MODEL_7, "EURUSD"): decision
+            },
+        )
+
+        self.assertEqual(row["Modelo Ativo"], "M7_TREND_MOMENTUM_DYNAMIC")
+        self.assertEqual(row["Alpha Lab"], "ALPHA001")
+        self.assertEqual(row["Beta Lab"], "BETA007")
+        self.assertEqual(
+            row["Modelo Saida"],
+            "BETA007_DYNAMIC_PROTECT_ONLY_V1",
+        )
+        self.assertEqual(row["Gestao Stop"], "M7_DYNAMIC_PROTECT_ONLY")
+        self.assertEqual(row["Periodo de tempo"], "M1")
+        self.assertEqual(row["Direcao Teorica"], "BUY")
+        self.assertEqual(row["Plano Research"], "PLANO_VALIDO")
+
     def test_ciclos_background_publicam_forex_enriquecido_pelo_lab(self) -> None:
         forex_source = inspect.getsource(dashboard_app._mt5_forex_background_cycle)
         robot_source = inspect.getsource(dashboard_app._demo_robot_background_cycle)

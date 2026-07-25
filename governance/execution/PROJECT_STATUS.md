@@ -12,6 +12,18 @@ Status: pronto para fluxo de inbox.
 - Camada 1 de governanca operacional criada em `docs/`.
 - Nenhuma funcionalidade de produto foi criada por esta infraestrutura.
 
+## Estado Operacional M7 - 2026-07-24
+
+- M6 permanece baseline fixo `ALPHA001/BETA001`.
+- M7 esta implementado como modelo independente
+  `MODELO_7_TREND_MOMENTUM_DYNAMIC`.
+- M7 usa `BETA007_DYNAMIC_PROTECT_ONLY_V1`: protege somente depois de 1,50R e
+  nunca executa fechamento antecipado.
+- Seletor, MT5 Forex, Robo Demo, provider, Position Manager, Relatorio,
+  historico e graficos reconhecem M7.
+- Limite vigente: uma posicao por modelo e sete posicoes por par.
+- Execucao continua exclusiva em MT5 Demo; conta real permanece bloqueada.
+
 ## Camada 1 - Mapa Operacional
 
 Arquivos de referencia:

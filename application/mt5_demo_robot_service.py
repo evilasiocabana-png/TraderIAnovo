@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, replace
 from application.demo_execution_service import DemoExecutionService
 from application.market_regime_pipeline import MarketRegimePipeline
 from application.model6_original_trend_momentum import MODEL_6_ID
+from application.model7_trend_momentum_dynamic import MODEL_7_ID
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
 from domain.contracts.market_snapshot import MarketSnapshot
@@ -375,6 +376,7 @@ class MT5DemoRobotService:
             "MODELO_4_LAB_CONTEXTUAL_MTF",
             "MODELO_5_LAB_CONSOLIDADO",
             MODEL_6_ID,
+            MODEL_7_ID,
         }:
             # Sessao, regime, momentum, volatilidade e demais indicadores ja
             # pertencem ao sinal reproduzido pelo adaptador canonico do Lab.
@@ -402,6 +404,7 @@ class MT5DemoRobotService:
             "RESEARCH_LAB",
             "PRICE_ACTION_MODEL",
             "M6_ORIGINAL_MARCO_ZERO",
+            "M7_DYNAMIC_MARCO_ZERO",
         }:
             return "Plano de trade nao veio de fonte operacional autorizada."
         if trade_plan.status != "PLANO_VALIDO":

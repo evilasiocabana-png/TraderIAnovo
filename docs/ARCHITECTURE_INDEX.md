@@ -35,8 +35,11 @@ aplicação e não duplica o conteúdo dos documentos referenciados.
     retrospectiva do M3 RR3, cobrindo snapshot, Trade Plan, gates, Robo Demo,
     Provider MT5, Position Manager, relatorio e testes.
 - [architecture/END_TO_END_OPERATIONAL_FLOW.md](architecture/END_TO_END_OPERATIONAL_FLOW.md)
-  - Mapa canonico das relacoes entre Lab, ciclo Forex, modelos M1-M6, Trade
+  - Mapa canonico das relacoes entre Lab, ciclo Forex, modelos M1-M7, Trade
     Plan, Robo Demo, MT5, Position Manager, Relatorio, estados e testes.
+- [research/MODEL_7_TREND_MOMENTUM_DYNAMIC_2026-07-24.md](research/MODEL_7_TREND_MOMENTUM_DYNAMIC_2026-07-24.md)
+  - Contrato operacional do M7: entrada ALPHA001 congelada, risco RR2,
+    protecao somente apos 1,50R e proibicao de fechamento antecipado.
 - [research/LAB_MODELS_MT5_OPERATIONAL_PARITY_2026-07-22.md](research/LAB_MODELS_MT5_OPERATIONAL_PARITY_2026-07-22.md)
   - Certificacao da promocao dos planos pesquisados para M2-M5, matriz de pares,
     contrato de candle fechado, SL/TP fixos e gates MT5 Demo. O estado inativo

@@ -1,5 +1,26 @@
 # Execution Log
 
+## 2026-07-24 - Modelo 7 Trend Momentum Dinamico
+
+- Criado `MODELO_7_TREND_MOMENTUM_DYNAMIC` como modelo independente, sem
+  alterar o M6 fixo.
+- A entrada preserva `ALPHA001/MARCO_ZERO_A3BC912`, M1, medias 20/50,
+  momentum 10, volatilidade 20, RSI14, SL inicial por 2 ATR ou 0,10% e TP RR2.
+- A saida possui identidade `BETA007_DYNAMIC_PROTECT_ONLY_V1`: abaixo de
+  1,50R mantem o plano; depois permite somente break-even ou ATR trailing mais
+  protetivo. `EARLY_EXIT` e `FULL_EXIT` permanecem proibidos.
+- M7 foi integrado ao seletor individual/Todos, funil MT5 Forex, monitor,
+  Robo Demo, provider `TraderIA M7`, Position Manager, Relatorio, historico e
+  curvas patrimoniais.
+- O limite passou a sete posicoes por par, no maximo uma por modelo M1-M7.
+- A leitura de entrada M6/M7 e compartilhada por par/candle para nao duplicar
+  consulta ao MT5 nem tornar o ciclo leve mais pesado.
+- Validacao focada: 214 testes operacionais aprovados, mais contratos
+  especificos M6/M7 aprovados.
+- Os gates arquiteturais legados continuam com divergencias anteriores ao M7
+  em imports da UI, persistencia direta, scripts de pesquisa e API freeze; o
+  M7 nao adiciona acesso a conta real e permanece somente Demo.
+
 ## 2026-07-24 - Contrato Original De Saida Do M6 Restaurado
 
 - Auditoria do Git confirmou que a configuracao ALPHA001 foi recuperada do

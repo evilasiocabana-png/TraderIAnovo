@@ -60,7 +60,7 @@ class MT5DemoExecutionProvider:
         if initialize_check is not None:
             return True
         positions = list(self.mt5.positions_get(symbol=symbol) or [])
-        if len(positions) >= 6:
+        if len(positions) >= 7:
             return True
         expected = self._model_comment(operational_model)
         for position in positions:
@@ -75,6 +75,7 @@ class MT5DemoExecutionProvider:
                 and " M4" not in comment
                 and " M5" not in comment
                 and " M6" not in comment
+                and " M7" not in comment
             ):
                 return True
         return False
@@ -1201,14 +1202,14 @@ class MT5DemoExecutionProvider:
         self,
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
-        """Bloqueia mais de uma posicao por modelo e mais de seis por par."""
+        """Bloqueia mais de uma posicao por modelo e mais de sete por par."""
         positions = list(self.mt5.positions_get(symbol=order.symbol) or [])
-        if len(positions) >= 6:
+        if len(positions) >= 7:
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
                 message=(
-                    "Limite de seis posicionamentos por par atingido. "
+                    "Limite de sete posicionamentos por par atingido. "
                     "Permitido no maximo um por modelo operacional."
                 ),
             )
@@ -1231,6 +1232,7 @@ class MT5DemoExecutionProvider:
                 and " M4" not in comment
                 and " M5" not in comment
                 and " M6" not in comment
+                and " M7" not in comment
             ):
                 return ExecutionResult(
                     accepted=False,
@@ -1511,6 +1513,8 @@ class MT5DemoExecutionProvider:
             "MODELO_6_ESPELHO_M5",
         }:
             return "M6"
+        if model == "MODELO_7_TREND_MOMENTUM_DYNAMIC":
+            return "M7"
         return "M1"
 
     def _write_management_log(self, payload: dict[str, Any]) -> None:
