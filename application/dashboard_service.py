@@ -928,6 +928,7 @@ class DashboardService:
                         if source_row is not None
                         else None
                     ),
+                    server_timestamp=self._mt5_server_timestamp(pair),
                 )
                 refreshed[(str(model_id).upper(), pair)] = decision
         self.lab_operational_decision_cache.clear()
@@ -6104,6 +6105,7 @@ class DashboardService:
                 candles_by_market if isinstance(candles_by_market, dict) else {}
             ),
             current_price=row.last_price,
+            server_timestamp=self._mt5_server_timestamp(row.pair),
         )
         self.lab_operational_decision_cache[
             (str(model_id).upper(), str(row.pair).upper())

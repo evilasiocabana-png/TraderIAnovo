@@ -12,6 +12,15 @@ Status: pronto para fluxo de inbox.
 - Camada 1 de governanca operacional criada em `docs/`.
 - Nenhuma funcionalidade de produto foi criada por esta infraestrutura.
 
+## Correcao Operacional M2-M4 - 2026-07-26
+
+- MT5 e os timeframes H1/M30/H4 foram auditados online para os oito pares.
+- A janela de entrada dos modelos promovidos M2-M4 passou a usar o relogio do
+  servidor MT5, evitando bloqueio incorreto de barras marcadas como futuras
+  pelo deslocamento entre Pepperstone e UTC da maquina.
+- O ciclo permanece em 10 segundos e a janela executavel em 120 segundos.
+- Nenhum indicador, setup, SL/TP ou candle historico foi alterado.
+
 ## Estado Operacional M7 - 2026-07-24
 
 - M6 permanece baseline fixo `ALPHA001/BETA001`.

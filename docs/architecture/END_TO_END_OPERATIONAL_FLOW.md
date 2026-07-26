@@ -203,6 +203,11 @@ as oito linhas de M2, M3, M4 e M5 verdadeiras. O resultado cientifico anterior
 continua nos campos `evidence_*`; por isso, liberacao operacional nao deve ser
 interpretada como certificacao estatistica. A entrada usa somente o ultimo
 candle fechado e pode ser solicitada no proximo preco vivo durante 120 segundos.
+Essa janela deve comparar o inicio da barra atual com o horario vivo do servidor
+MT5, pois ambos pertencem ao mesmo relogio da corretora. O relogio UTC da
+maquina e apenas fallback quando o servidor estiver indisponivel. O ciclo
+continua em 10 segundos, oferecendo varias avaliacoes dentro da janela sem
+alterar indicadores nem timestamps historicos.
 
 Os modelos sao independentes. A excecao de seguranca e a deduplicacao: mesma
 direcao, entrada, stop, alvo e candle de sinal nao podem criar duas posicoes,
@@ -348,6 +353,7 @@ Toda falha que atravesse mais de um componente deve entrar nesta secao e no
 | FLOW-016 | M6 moveu SL apesar de ter sido concebido para reproduzir entrada e saida fixas do marco zero | Ao criar o adaptador M6, a configuracao de entrada ALPHA001 recebeu por heranca o wrapper global `BETA001_PROTECT_ONLY_V1` e `DYNAMIC_POSITION_MANAGER` | Configuracao M6, Trade Plan, reconstrucao de snapshots, Position Manager, UI, testes e documentacao | M6 declara `BETA001_FIXED_SL_TP_RR2_V1`; snapshots antigos sao identificados pelo modelo/origem e bloqueados antes de qualquer leitura ou comando de gestao |
 | FLOW-017 | M1 recebia SL/TP do Lab, mas o runtime ainda podia mover o SL | `FIXED_STOP` era reinterpretado como `DYNAMIC_POSITION_MANAGER` depois da abertura | Research Lab, Trade Plan M1, registro de execucao, Position Manager, UI, testes e documentacao | M1 publica `RESEARCH_FIXED_SL_TP`; snapshots M1 antigos sao bloqueados pela identidade `MODELO_1_ALPHA_ATUAL`; o PM somente audita |
 | FLOW-018 | A versao dinamica historica do ALPHA001 poderia voltar a contaminar o M6 fixo | Entrada e politica de saida compartilhavam identidade, permitindo heranca de `DYNAMIC_POSITION_MANAGER` | Configuracao M6/M7, Trade Plan, Robo Demo, provider, Position Manager, MT5 Forex, Relatorio e testes | M6 continua `BETA001_FIXED_SL_TP_RR2_V1`; a variante dinamica vira M7 independente com `BETA007`, risco inicial imutavel, protecao somente apos 1,50R e nenhum fechamento antecipado |
+| FLOW-019 | M2, M3 e M4 produziram sinais historicos, mas nenhum plano novo chegou ao executor | A janela de 120 segundos comparava barras marcadas no relogio do servidor Pepperstone com o UTC da maquina; a diferenca de aproximadamente tres horas classificava a barra viva como futura | Provider MT5, LabOperationalModelService, ciclo de 10 segundos, Trade Plan, Robo Demo, funil visual e testes | Frescor de entrada compara barra atual e `server_timestamp` no mesmo relogio MT5; UTC local e fallback; candles historicos e parametros pesquisados permanecem inalterados |
 
 ## Regra De Mudanca Interligada
 
@@ -394,6 +400,9 @@ Os testes devem garantir no minimo:
 - Lab e Replay permanecem deterministas mesmo durante rollover vivo do MT5.
 - a mesma colecao de candles nao e normalizada novamente enquanto o candle
   fechado e o timestamp da barra atual permanecerem iguais.
+- a janela viva M2-M5 usa o relogio do servidor MT5 e aceita o sinal durante
+  120 segundos; o ciclo permanece em 10 segundos e o UTC da maquina so entra
+  como fallback.
 
 ## Documentos Complementares
 

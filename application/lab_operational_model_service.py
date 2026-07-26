@@ -143,6 +143,7 @@ class LabOperationalModelService:
         pair: str,
         candles_by_market: Mapping[tuple[str, str], Iterable[object]],
         current_price: float | None,
+        server_timestamp: str | None = None,
     ) -> LabOperationalDecision:
         normalized_model = str(model_id or "").upper()
         normalized_pair = str(pair or "").upper()
@@ -185,6 +186,7 @@ class LabOperationalModelService:
                 winner=winner,
                 candles_by_market=candles_by_market,
                 current_price=current_price,
+                server_timestamp=server_timestamp,
                 signal_builder=build_m2_signal,
                 enrich=False,
             )
@@ -196,6 +198,7 @@ class LabOperationalModelService:
                 winner=winner,
                 candles_by_market=candles_by_market,
                 current_price=current_price,
+                server_timestamp=server_timestamp,
                 signal_builder=build_m3_signal,
                 enrich=True,
             )
@@ -206,6 +209,7 @@ class LabOperationalModelService:
                 winner=winner,
                 candles_by_market=candles_by_market,
                 current_price=current_price,
+                server_timestamp=server_timestamp,
             )
         return self._wait(
             normalized_model,
@@ -225,6 +229,7 @@ class LabOperationalModelService:
         winner: dict[str, Any],
         candles_by_market: Mapping[tuple[str, str], Iterable[object]],
         current_price: float | None,
+        server_timestamp: str | None,
         signal_builder: Callable[[object, dict[str, Any]], object],
         enrich: bool,
     ) -> LabOperationalDecision:
@@ -244,7 +249,12 @@ class LabOperationalModelService:
         cache_key = (model_id, pair, timeframe, signal_time)
         cached = self._decision_cache.get(cache_key)
         if cached is not None:
-            return self._decision_with_live_entry(cached, current_price, current_time)
+            return self._decision_with_live_entry(
+                cached,
+                current_price,
+                current_time,
+                server_timestamp=server_timestamp,
+            )
         parameters = dict(winner.get("parameters") or {})
         try:
             market = engineer_features(pair, candles[:-1])
@@ -294,7 +304,12 @@ class LabOperationalModelService:
             )
         self._decision_cache[cache_key] = decision
         self._trim_caches()
-        return self._decision_with_live_entry(decision, current_price, current_time)
+        return self._decision_with_live_entry(
+            decision,
+            current_price,
+            current_time,
+            server_timestamp=server_timestamp,
+        )
 
     def _evaluate_m4(
         self,
@@ -304,6 +319,7 @@ class LabOperationalModelService:
         winner: dict[str, Any],
         candles_by_market: Mapping[tuple[str, str], Iterable[object]],
         current_price: float | None,
+        server_timestamp: str | None,
     ) -> LabOperationalDecision:
         common = self._winner_values(winner)
         primary_rows: dict[str, list[dict[str, Any]]] = {}
@@ -333,7 +349,12 @@ class LabOperationalModelService:
         cache_key = (model_id, pair, "M30", signal_time)
         cached = self._decision_cache.get(cache_key)
         if cached is not None:
-            return self._decision_with_live_entry(cached, current_price, current_time)
+            return self._decision_with_live_entry(
+                cached,
+                current_price,
+                current_time,
+                server_timestamp=server_timestamp,
+            )
         market_key = tuple(
             (market_pair, str(rows[-1]["data"]))
             for market_pair, rows in sorted(primary_rows.items())
@@ -415,17 +436,27 @@ class LabOperationalModelService:
             )
         self._decision_cache[cache_key] = decision
         self._trim_caches()
-        return self._decision_with_live_entry(decision, current_price, current_time)
+        return self._decision_with_live_entry(
+            decision,
+            current_price,
+            current_time,
+            server_timestamp=server_timestamp,
+        )
 
     def _decision_with_live_entry(
         self,
         frozen: LabOperationalDecision,
         current_price: float | None,
         current_bar_time: str,
+        *,
+        server_timestamp: str | None = None,
     ) -> LabOperationalDecision:
         if not frozen.ready:
             return frozen
-        age_seconds = self._bar_age_seconds(current_bar_time)
+        age_seconds = self._bar_age_seconds(
+            current_bar_time,
+            reference_timestamp=server_timestamp,
+        )
         if age_seconds is None or age_seconds < -60.0:
             return self._replace_wait(
                 frozen,
@@ -469,6 +500,11 @@ class LabOperationalModelService:
                 "diagnostics": frozen.diagnostics
                 + (
                     f"CURRENT_BAR_AGE_SECONDS={age_seconds:.1f}",
+                    (
+                        "ENTRY_CLOCK_SOURCE=MT5_SERVER"
+                        if self._parse_datetime(server_timestamp) is not None
+                        else "ENTRY_CLOCK_SOURCE=SYSTEM_UTC_FALLBACK"
+                    ),
                     f"STOP_FACTOR={stop_factor:.4f}",
                     f"RISK_REWARD={frozen.risk_reward:.4f}",
                     f"FIXED_EXIT_POLICY={FIXED_EXIT_POLICY}",
@@ -716,11 +752,18 @@ class LabOperationalModelService:
         self._candle_rows_cache.clear()
         return self._manifest_cache
 
-    def _bar_age_seconds(self, value: str) -> float | None:
+    def _bar_age_seconds(
+        self,
+        value: str,
+        *,
+        reference_timestamp: str | None = None,
+    ) -> float | None:
         parsed = self._parse_datetime(value)
         if parsed is None:
             return None
-        now = self.now_provider()
+        now = self._parse_datetime(reference_timestamp)
+        if now is None:
+            now = self.now_provider()
         if now.tzinfo is None:
             now = now.replace(tzinfo=timezone.utc)
         return (now.astimezone(timezone.utc) - parsed).total_seconds()

@@ -249,6 +249,10 @@ Guardrails:
   pode alterar resultado historico conforme a hora de execucao do teste.
 - Timestamp Unix recebido do MT5 deve ser convertido diretamente para UTC. Ele
   nunca pode passar pelo fuso local e depois ser rotulado como UTC.
+- A validacao viva da janela de entrada deve comparar a barra atual com
+  `TimeTradeServer`/timestamp do tick MT5, mantendo os dois valores no mesmo
+  relogio da corretora. O UTC da maquina e apenas fallback; ele nao pode
+  invalidar como futura uma barra correta do servidor.
 - Fim de semana, domingo antes da abertura, sexta no fechamento e rollover sao
   bloqueios operacionais duros, mesmo quando o filtro geral de sessao estiver
   desmarcado.

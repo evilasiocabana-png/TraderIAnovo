@@ -1,5 +1,16 @@
 # Execution Log
 
+## 2026-07-26 - CORRECAO_RELOGIO_JANELA_ENTRADA_M2_M4
+
+- Status: completed
+- Diagnostico: M2-M4 possuíam sinais historicos, mas a janela viva comparava
+  horario do servidor MT5 com UTC da maquina e bloqueava a barra como futura.
+- Acao: o frescor do sinal passou a usar `server_timestamp` do MT5, com UTC
+  local apenas como fallback.
+- Preservado: ciclo de 10 segundos, janela de 120 segundos, indicadores,
+  modelos, candles historicos, SL/TP, conta Demo e `.traderia`.
+- Validacao: 101 testes focados aprovados.
+
 ## 2026-07-24 - MODEL_7_TREND_MOMENTUM_DYNAMIC
 
 - Status: completed

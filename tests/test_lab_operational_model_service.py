@@ -134,6 +134,48 @@ class LabOperationalModelServiceTest(unittest.TestCase):
         self.assertFalse(decision.ready)
         self.assertEqual(decision.status, "STALE_SIGNAL_WINDOW")
 
+    def test_mt5_server_clock_validates_broker_offset_entry_window(self) -> None:
+        system_now = datetime(2026, 7, 22, 12, 0, tzinfo=timezone.utc)
+        server_current_bar = system_now + timedelta(hours=3)
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "manifest.json"
+            self._write_manifest(manifest, enabled=True)
+            service = LabOperationalModelService(
+                manifest_path=manifest,
+                now_provider=lambda: system_now,
+                max_entry_delay_seconds=120.0,
+            )
+            candles = self._candles(server_current_bar)
+
+            with patch(
+                "application.lab_operational_model_service.build_m2_signal",
+                side_effect=self._buy_signal,
+            ):
+                system_clock_decision = service.evaluate(
+                    model_id=MODEL_2_ID,
+                    pair="EURUSD",
+                    candles_by_market={("EURUSD", "H1"): candles},
+                    current_price=1.2,
+                )
+                server_clock_decision = service.evaluate(
+                    model_id=MODEL_2_ID,
+                    pair="EURUSD",
+                    candles_by_market={("EURUSD", "H1"): candles},
+                    current_price=1.2,
+                    server_timestamp=(
+                        server_current_bar + timedelta(seconds=10)
+                    ).isoformat(),
+                )
+
+        self.assertFalse(system_clock_decision.ready)
+        self.assertEqual(system_clock_decision.status, "INVALID_CURRENT_BAR_TIME")
+        self.assertTrue(server_clock_decision.ready)
+        self.assertEqual(server_clock_decision.status, "READY")
+        self.assertIn(
+            "ENTRY_CLOCK_SOURCE=MT5_SERVER",
+            server_clock_decision.diagnostics,
+        )
+
     def test_reuses_normalized_candles_within_the_same_closed_bar(self) -> None:
         now = datetime(2026, 7, 22, 12, 0, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as directory:

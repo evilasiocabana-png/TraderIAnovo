@@ -1,5 +1,24 @@
 # Execution Log
 
+## 2026-07-26 - Janela De Entrada M2-M4 Alinhada Ao Relogio MT5
+
+- Auditoria confirmou que os modelos novos M2, M3 e M4 nao chegaram ao
+  `mt5_demo_execution.jsonl`, embora o replay dos candles da semana tenha
+  encontrado 12 sinais depois da promocao: 6 em M2, 4 em M3 e 2 em M4.
+- MT5, oito pares e timeframes H1/M30/H4 estavam online e sem erro de leitura.
+- Causa raiz: a janela viva de 120 segundos comparava a barra marcada no
+  relogio Pepperstone com o UTC da maquina. A diferenca observada de cerca de
+  tres horas classificava a barra correta como futura antes da criacao do
+  Trade Plan.
+- Correcao: `LabOperationalModelService` recebe o timestamp vivo do servidor
+  MT5 e usa esse mesmo relogio para medir a idade da barra. UTC local permanece
+  somente como fallback.
+- O ciclo continua em 10 segundos; indicadores, manifestos, candles historicos,
+  SL/TP e regras dos modelos nao foram alterados.
+- Validacao: 101 testes de LabOperationalModelService e DashboardService
+  aprovados, incluindo regressao explicita para servidor MT5 com deslocamento
+  de tres horas.
+
 ## 2026-07-24 - Modelo 7 Trend Momentum Dinamico
 
 - Criado `MODELO_7_TREND_MOMENTUM_DYNAMIC` como modelo independente, sem
