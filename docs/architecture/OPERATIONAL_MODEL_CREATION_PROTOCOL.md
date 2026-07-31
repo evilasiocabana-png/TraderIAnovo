@@ -13,6 +13,28 @@ Este protocolo existe para que proximos modelos sejam criados com menos retrabal
 
 Um modelo operacional e um fluxo completo de entrada e saida que pode coexistir com outros modelos no mesmo par, desde que respeite os contratos do sistema.
 
+## Pesquisa de Stop e Alvo Antes da Promocao
+
+Para variantes de timeframe de um modelo existente, a entrada pode ser copiada
+como contrato, mas stop e alvo devem permanecer em pesquisa ate existir replay
+reproduzivel. O protocolo aplicado aos M8, M9 e M10 e:
+
+```text
+1. Fixar a regra de entrada e os dois timeframes do modelo.
+2. Usar os 5.000 candles locais de cada par.
+3. Entrar na abertura posterior ao candle fechado de confirmacao.
+4. Testar a grade de stop ATR x alvo R sem alterar o runtime.
+5. Permitir apenas uma posicao por modelo/par no replay.
+6. Em colisao intrabar de stop e alvo, assumir stop primeiro.
+7. Persistir vencedor agregado, vencedor por par e ranking completo.
+8. Exibir o artefato na aba Replay, selecionado primeiro por modelo.
+9. Promover parametros operacionais somente em uma missao posterior e explicita.
+```
+
+O calculo pesado nunca roda no ciclo leve Forex. A Replay le o artefato
+`.traderia/research/model8_10_stop_target_research.json` e informa claramente
+que o resultado e bruto, sem spread, comissao ou swap.
+
 ## Principio Central
 
 Novo modelo nao e apenas uma nova coluna na tela.
@@ -280,16 +302,16 @@ Checklist:
 - testes de envio;
 - testes de bloqueio.
 
-Regra atual apos M7:
+Regra atual apos M10:
 
 ```text
-Maximo por par: 7 posicoes
-Regra: uma posicao por modelo M1, M2, M3, M4, M5, M6 e M7
-Oitava posicao no mesmo par: bloqueada
+Maximo por par: 10 posicoes
+Regra: uma posicao por modelo M1 a M10
+Decima primeira posicao no mesmo par: bloqueada
 Mesmo modelo no mesmo par: bloqueado
 ```
 
-Para M8 ou modelos futuros, o limite precisa ser reavaliado explicitamente. Nao aumentar automaticamente sem decisao.
+Para M11 ou modelos futuros, o limite precisa ser reavaliado explicitamente. Nao aumentar automaticamente sem decisao.
 
 ## Registro do M4
 
@@ -428,6 +450,50 @@ original. O R de ativacao do M7 sempre usa entrada e stop iniciais imutaveis;
 um SL ja movido nao pode redefinir o risco original. O Position Manager pode
 somente manter ou melhorar o SL e nunca pode encerrar a posicao antecipadamente.
 ```
+
+## Substituicao Robusta do M3 em 2026-07-29
+
+O M3 anterior escolhia um vencedor diferente por par usando desenvolvimento e
+um unico holdout final. A auditoria encontrou pares liberados por politica
+manual apesar de resultado negativo no holdout, criando divergencia entre
+evidencia e operacao.
+
+O novo M3 usa tres janelas cronologicas sem embaralhamento:
+
+1. treino nos 60% mais antigos;
+2. validacao nos 20% seguintes;
+3. holdout final nos 20% mais recentes, aberto somente depois de congelar
+   candidato e timeframe.
+
+Foram comparados M30 e H1 com custos de 1,5 bps e estresse de 2,5 bps. Somente
+USDCAD/H1 com `STRUCTURE_CONTINUATION` passou todos os gates. Portanto, o M3
+tem certificacao historica individual somente para USDCAD.
+
+Em 2026-07-29, o usuario autorizou a expansao do mesmo contrato M3 para os oito
+pares em conta Demo. Essa expansao nao equivale a nova pesquisa: os outros sete
+pares devem permanecer identificados como
+`USER_APPROVED_DEMO_EXPANSION_UNVALIDATED`, sem herdar metricas do USDCAD.
+
+O contrato operacional permanece:
+
+`candle H1 fechado -> sinal congelado -> proximo preco vivo -> SL 1,75 ATR -> TP 2,5R`
+
+O Position Manager nao altera esse plano. Conta real permanece bloqueada.
+
+## Substituicao Experimental do M4 em 2026-07-29
+
+O M4 passou a usar um unico contrato `LIQUIDITY_RECLAIM` derivado do candidato
+AUDUSD BUY. A escolha considerou amostra completa de 100 trades, PF 1,468,
+holdout de 14 trades com PF 2,121 e custo estressado com PF 2,017.
+
+O contrato congelado usa M30, EMA34/144, ADX entre 28 e 35, lookback 40, wick
+minimo 0,5, RSI extremo 40, exclui segunda-feira, SL 2,5 ATR e TP 3R. O mesmo
+contrato foi autorizado nos oito pares somente em Demo.
+
+Como o holdout possui apenas 14 trades, AUDUSD permanece
+`BEST_AVAILABLE_DEMO_CANDIDATE_UNCERTIFIED`. Os outros sete pares permanecem
+`USER_APPROVED_DEMO_EXPANSION_UNVALIDATED`. A expansao nao pode copiar metricas
+historicas do AUDUSD nem autorizar conta real.
 
 ### 9. Position Manager e Saida
 
@@ -619,4 +685,23 @@ O caminho seguro e:
 configuracao vencedora -> Trade Plan -> gates -> Robo -> Provider -> Relatorio -> testes
 ```
 
-Esse protocolo passa a ser a referencia para qualquer M4, M5 ou variante futura.
+Esse protocolo passa a ser a referencia para qualquer modelo ou variante futura.
+
+## Registro dos M8, M9 e M10
+
+Os tres modelos sao variantes independentes do contrato mecanico M2 Trend
+Pullback. A formula nao muda: EMA9/21 no timeframe de entrada, ADX14 maior que
+20, pullback na faixa das medias, candle fechado de continuacao e direcao pela
+EMA20/50 do timeframe superior. SL inicial e fixo em 1,25 ATR e o TP em 2R.
+
+| Modelo | Direcao/contexto | Entrada | Identificador | Comentario MT5 |
+|---|---|---|---|---|
+| M8 | H1 | M5 | `MODELO_8_TREND_PULLBACK_H1_M5` | `TraderIA M8` |
+| M9 | M15 | M1 | `MODELO_9_TREND_PULLBACK_M15_M1` | `TraderIA M9` |
+| M10 | D1 | M15 | `MODELO_10_TREND_PULLBACK_D1_M15` | `TraderIA M10` |
+
+Todos cobrem os oito pares, entram somente em Demo, possuem cache por modelo,
+par, timeframe e candle fechado, preservam SL/TP fixos e permanecem separados
+do M2 e entre si. O limite deliberado passa a dez posicoes por par, no maximo
+uma de cada M1-M10. A aprovacao operacional nao equivale a certificacao de
+desempenho: replay e forward test continuam pendentes por par.

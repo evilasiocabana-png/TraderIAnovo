@@ -6,6 +6,7 @@ import os
 import json
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -14,7 +15,25 @@ from typing import Any
 from core.configuration_manager import ConfigurationManager
 from core.event_bus import EventBus
 from core.events import NEW_CANDLE
+from core.mt5_process_probe import resolve_mt5_terminal_path
 from domain.candle import Candle
+
+_EXTERNAL_MT5_PROCESS_LOCK = threading.Lock()
+
+
+def _external_mt5_timeout_seconds(action: str) -> float:
+    configured = os.getenv("TRADERIA_MT5_EXTERNAL_TIMEOUT_SECONDS", "").strip()
+    if configured:
+        try:
+            return max(float(configured), 1.0)
+        except ValueError:
+            pass
+    return {
+        "research_batch": 20.0,
+        "forex_batch": 12.0,
+        "connect": 8.0,
+        "server_time": 5.0,
+    }.get(action, 8.0)
 
 
 @dataclass
@@ -62,10 +81,17 @@ class MT5MarketDataProvider:
             self.last_error = f"Biblioteca MT5 indisponivel: {exc}"
             return False
 
+        if self.connected:
+            terminal_info = self._safe_call(mt5, "terminal_info")
+            if terminal_info is not None:
+                return True
+
         login = self._credential("MT5_LOGIN", self.login)
         password = self._credential("MT5_PASSWORD", self.password)
         server = self._credential("MT5_SERVER", self.server)
-        terminal_path = self._credential("MT5_PATH", self.terminal_path)
+        terminal_path = resolve_mt5_terminal_path(
+            self._credential("MT5_PATH", self.terminal_path)
+        )
 
         connection_arguments = {}
         if login and password and server:
@@ -508,7 +534,13 @@ class MT5MarketDataProvider:
         return self.mt5_module is None
 
     def _external_mt5_call(self, action: str, **kwargs: Any) -> dict[str, Any]:
-        request = {"action": action, **kwargs}
+        request = {
+            "action": action,
+            "terminal_path": resolve_mt5_terminal_path(
+                self._credential("MT5_PATH", self.terminal_path)
+            ),
+            **kwargs,
+        }
         cache_key = self._external_call_cache_key(request)
         if cache_key:
             cached = self.external_call_cache.get(cache_key)
@@ -530,7 +562,9 @@ def emit(payload):
     print(json.dumps(payload, default=str))
 
 try:
-    if not mt5.initialize():
+    terminal_path = request.get("terminal_path")
+    initialize_arguments = {"path": str(terminal_path)} if terminal_path else {}
+    if not mt5.initialize(**initialize_arguments):
         emit({"ok": False, "message": f"MT5 initialize() falhou: {mt5.last_error()}"})
         raise SystemExit(0)
     action = request.get("action")
@@ -737,24 +771,49 @@ finally:
     except Exception:
         pass
 '''
-        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform.startswith("win") else 0
+        creationflags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            if sys.platform.startswith("win")
+            else 0
+        )
+        timeout_seconds = _external_mt5_timeout_seconds(action)
+        if not _EXTERNAL_MT5_PROCESS_LOCK.acquire(timeout=min(timeout_seconds, 2.0)):
+            return {
+                "ok": False,
+                "message": "Leitura MT5 ocupada; mantendo o ultimo dado valido.",
+            }
+        process: subprocess.Popen[str] | None = None
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 [sys.executable, "-c", code, json.dumps(request)],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=float(os.getenv("TRADERIA_MT5_EXTERNAL_TIMEOUT_SECONDS", "120")),
                 creationflags=creationflags,
             )
+            stdout, stderr = process.communicate(timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
-            return {"ok": False, "message": "Timeout no processo externo MT5."}
+            if process is not None:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+            return {
+                "ok": False,
+                "message": (
+                    f"Timeout de {timeout_seconds:g}s no processo externo MT5; "
+                    "ultimo dado valido preservado."
+                ),
+            }
         except OSError as exc:
             return {"ok": False, "message": f"Falha ao executar processo MT5: {exc}"}
-        output = (completed.stdout or "").strip().splitlines()
+        finally:
+            _EXTERNAL_MT5_PROCESS_LOCK.release()
+        output = (stdout or "").strip().splitlines()
         if not output:
             return {
                 "ok": False,
-                "message": (completed.stderr or "Processo MT5 sem resposta.").strip(),
+                "message": (stderr or "Processo MT5 sem resposta.").strip(),
             }
         try:
             payload = json.loads(output[-1])

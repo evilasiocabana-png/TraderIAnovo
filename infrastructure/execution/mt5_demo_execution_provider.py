@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -13,6 +14,7 @@ from typing import Any
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
 from domain.contracts.dynamic_exit_demo_sl import DynamicExitDemoSLExecutionResult
+from core.mt5_process_probe import resolve_mt5_terminal_path
 
 
 _MT5_ORDER_SEND_LOCK = threading.Lock()
@@ -60,7 +62,7 @@ class MT5DemoExecutionProvider:
         if initialize_check is not None:
             return True
         positions = list(self.mt5.positions_get(symbol=symbol) or [])
-        if len(positions) >= 7:
+        if len(positions) >= 10:
             return True
         expected = self._model_comment(operational_model)
         for position in positions:
@@ -76,6 +78,9 @@ class MT5DemoExecutionProvider:
                 and " M5" not in comment
                 and " M6" not in comment
                 and " M7" not in comment
+                and " M8" not in comment
+                and " M9" not in comment
+                and " M10" not in comment
             ):
                 return True
         return False
@@ -992,8 +997,31 @@ class MT5DemoExecutionProvider:
         return 0.01 if str(symbol).upper().endswith("JPY") else 0.0001
 
     def _initialize_check(self) -> ExecutionResult | None:
+        terminal_info = getattr(self.mt5, "terminal_info", None)
+        account_info = getattr(self.mt5, "account_info", None)
+        if callable(terminal_info) and callable(account_info):
+            try:
+                terminal = terminal_info()
+                account = account_info()
+            except (OSError, RuntimeError, ValueError, TypeError):
+                terminal = None
+                account = None
+            if (
+                terminal is not None
+                and account is not None
+                and getattr(terminal, "connected", None) is True
+            ):
+                return None
         initialize = getattr(self.mt5, "initialize", None)
-        if callable(initialize) and not bool(initialize()):
+        terminal_path = resolve_mt5_terminal_path(os.getenv("MT5_PATH"))
+        arguments = {"path": terminal_path} if terminal_path else {}
+        initialized = True
+        if callable(initialize):
+            try:
+                initialized = bool(initialize(**arguments))
+            except TypeError:
+                initialized = bool(initialize())
+        if not initialized:
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
@@ -1202,14 +1230,14 @@ class MT5DemoExecutionProvider:
         self,
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
-        """Bloqueia mais de uma posicao por modelo e mais de sete por par."""
+        """Bloqueia mais de uma posicao por modelo e mais de dez por par."""
         positions = list(self.mt5.positions_get(symbol=order.symbol) or [])
-        if len(positions) >= 7:
+        if len(positions) >= 10:
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
                 message=(
-                    "Limite de sete posicionamentos por par atingido. "
+                    "Limite de dez posicionamentos por par atingido. "
                     "Permitido no maximo um por modelo operacional."
                 ),
             )
@@ -1233,6 +1261,9 @@ class MT5DemoExecutionProvider:
                 and " M5" not in comment
                 and " M6" not in comment
                 and " M7" not in comment
+                and " M8" not in comment
+                and " M9" not in comment
+                and " M10" not in comment
             ):
                 return ExecutionResult(
                     accepted=False,
@@ -1515,6 +1546,12 @@ class MT5DemoExecutionProvider:
             return "M6"
         if model == "MODELO_7_TREND_MOMENTUM_DYNAMIC":
             return "M7"
+        if model == "MODELO_8_TREND_PULLBACK_H1_M5":
+            return "M8"
+        if model == "MODELO_9_TREND_PULLBACK_M15_M1":
+            return "M9"
+        if model == "MODELO_10_TREND_PULLBACK_D1_M15":
+            return "M10"
         return "M1"
 
     def _write_management_log(self, payload: dict[str, Any]) -> None:

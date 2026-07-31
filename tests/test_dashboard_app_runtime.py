@@ -1643,6 +1643,28 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "modelo_6",
         )
 
+    def test_resumo_do_setup_identifica_os_dez_modelos(self) -> None:
+        summaries = [
+            dashboard_app._mt5_equity_model_setup_summary(f"MODELO {index}")
+            for index in range(1, 11)
+        ]
+
+        self.assertTrue(all(summaries))
+        self.assertIn("Lab vencedor", summaries[0])
+        self.assertIn("Trend Pullback", summaries[1])
+        self.assertIn("Continuacao de estrutura", summaries[2])
+        self.assertIn("Liquidity Reclaim", summaries[3])
+        self.assertIn("consolidado", summaries[4])
+        self.assertIn("RR2 fixo", summaries[5])
+        self.assertIn("protecao dinamica", summaries[6])
+        self.assertIn("H1 -> M5", summaries[7])
+        self.assertIn("M15 -> M1", summaries[8])
+        self.assertIn("D1 -> M15", summaries[9])
+        self.assertEqual(
+            dashboard_app._mt5_equity_model_setup_summary("M1 + M2"),
+            "",
+        )
+
     def test_resumo_em_negociacao_soma_lucros_das_operacoes_abertas(self) -> None:
         rows = [
             SimpleNamespace(

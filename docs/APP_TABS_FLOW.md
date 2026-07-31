@@ -77,12 +77,12 @@ continuam ativas para impedir empilhamento indevido no mesmo ativo.
 Regra de modelos simultaneos:
 
 Quando a opcao `TODOS_MODELOS` estiver ativa, o ciclo deve avaliar Modelo 1 e
-Modelo 2 no mesmo ciclo, sem prioridade artificial. Se ambos estiverem prontos,
-ambos podem enviar ordem, respeitando a trava de no maximo uma posicao por
-modelo no mesmo par. O Modelo 2 e uma regra espelhada: usa plano valido do Lab,
-exige ADX < 20, inverte BUY/SELL, usa TP no stop original da Alpha/BETA2 e stop
-em RR1. Por ser espelhado, ele nao deve ser bloqueado pelo regime direcional do
-Modelo 1 depois que seu proprio filtro ADX ja autorizou a entrada.
+Modelo 2 no mesmo ciclo, sem prioridade artificial. Se ambos estiverem
+prontos, ambos podem enviar ordem, respeitando a trava de no maximo uma
+posicao por modelo no mesmo par. O Modelo 2 atual e independente: usa M15 para
+entrada, H1 para direcao, EMA9/21, ADX14 > 20, pullback entre as medias e
+confirmacao por candle fechado. O stop nasce em 1,25 ATR14 e o alvo em 2R.
+Ele nao herda nem inverte plano, direcao, SL ou TP do Modelo 1.
 
 ## Aba Laboratorio de Pesquisa
 

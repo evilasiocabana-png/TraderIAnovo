@@ -34,9 +34,27 @@ aplicação e não duplica o conteúdo dos documentos referenciados.
   - Protocolo oficial para criar novos modelos operacionais, baseado na
     retrospectiva do M3 RR3, cobrindo snapshot, Trade Plan, gates, Robo Demo,
     Provider MT5, Position Manager, relatorio e testes.
+- [architecture/MODEL_8_10_STOP_TARGET_RESEARCH.md](architecture/MODEL_8_10_STOP_TARGET_RESEARCH.md)
+  - Pesquisa reproduzivel de stop ATR x alvo R para M8, M9 e M10, exibida por
+    modelo na aba Replay e isolada do ciclo leve Forex.
+- [architecture/MODEL_2_TREND_PULLBACK.md](architecture/MODEL_2_TREND_PULLBACK.md)
+  - Contrato operacional atual do M2 nos oito pares: direcao H1, entrada M15,
+    EMA9/21, ADX14, pullback, confirmacao por candle fechado, SL 1,25 ATR e
+    alvo fixo 2R.
+- [architecture/MODEL_3_NESTED_STRUCTURE_CONTINUATION.md](architecture/MODEL_3_NESTED_STRUCTURE_CONTINUATION.md)
+  - Contrato operacional do M3 robusto: Structure Continuation H1, SL 1,75
+    ATR e alvo fixo 2,5R nos oito pares Demo; somente USDCAD possui
+    certificacao historica individual.
+- [architecture/MODEL_4_LIQUIDITY_RECLAIM.md](architecture/MODEL_4_LIQUIDITY_RECLAIM.md)
+  - Contrato experimental do M4 nos oito pares Demo: Liquidity Reclaim M30
+    BUY_ONLY, EMA34/144, ADX 28-35, stop 2,5 ATR e alvo fixo 3R; AUDUSD
+    preserva a melhor evidencia disponivel, ainda sem certificacao final.
 - [architecture/END_TO_END_OPERATIONAL_FLOW.md](architecture/END_TO_END_OPERATIONAL_FLOW.md)
-  - Mapa canonico das relacoes entre Lab, ciclo Forex, modelos M1-M7, Trade
+  - Mapa canonico das relacoes entre Lab, ciclo Forex, modelos M1-M10, Trade
     Plan, Robo Demo, MT5, Position Manager, Relatorio, estados e testes.
+- [architecture/WEEKLY_ROBOT_SCHEDULE.md](architecture/WEEKLY_ROBOT_SCHEDULE.md)
+  - Agenda obrigatoria em Brasilia: robo Demo sempre ON de domingo 23:30 a
+    sexta 17:30; fora da janela, OFF e todas as posicoes Demo encerradas.
 - [research/MODEL_7_TREND_MOMENTUM_DYNAMIC_2026-07-24.md](research/MODEL_7_TREND_MOMENTUM_DYNAMIC_2026-07-24.md)
   - Contrato operacional do M7: entrada ALPHA001 congelada, risco RR2,
     protecao somente apos 1,50R e proibicao de fechamento antecipado.

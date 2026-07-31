@@ -1,5 +1,45 @@
 # Execution Log
 
+## 2026-07-31 - Agenda semanal obrigatoria do Robo Demo
+
+- Definida janela `America/Sao_Paulo`: domingo 23:30 ate sexta 17:30.
+- Dentro da janela, o robo e mantido sempre ligado.
+- Sexta 17:30, o robo e desarmado e todas as posicoes MT5 Demo sao encerradas.
+- Domingo 23:30, o robo e rearmado automaticamente.
+- Thread semanal independe do estado online anterior e persiste auditoria.
+- Conta real permanece bloqueada pelo provider.
+- Testes de fronteira temporal e zeramento Demo adicionados.
+- Validacao real em 2026-07-31: transicao executada as 17:30 BRT, 11 posicoes
+  Demo encontradas, 11 fechadas, 0 rejeitadas e 0 remanescentes.
+- Estado final confirmado: robo offline, ciclo auxiliar offline, conta Demo
+  zerada e Streamlit saudavel na porta 8532.
+- Commit: pendente.
+
+## 2026-07-31 - Pesquisa de stop/alvo M8-M10 na Replay
+
+- Executada grade de 30 combinacoes de stop ATR x alvo R para M8, M9 e M10.
+- Base: 5.000 candles locais por par, oito pares por modelo.
+- A Replay passou a selecionar primeiro o modelo e exibir vencedor agregado,
+  vencedor por par, mapa de calor e ranking completo.
+- O calculo pesado gera JSON uma vez; a Replay faz somente leitura leve.
+- Nenhum parametro foi promovido ao runtime porque todos os vencedores globais
+  tiveram resultado agregado negativo.
+- Testes: 3 testes do motor e 126 testes do dashboard aprovados.
+- Commit: pendente.
+
+## 2026-07-31 - Modelos 8, 9 e 10 por pares de timeframe
+
+- Criados M8 H1->M5, M9 M15->M1 e M10 D1->M15 com a mesma formula mecanica do
+  M2 Trend Pullback, sem alterar M2 nem os demais modelos.
+- Cada modelo cobre os oito pares, usa candle fechado, SL fixo 1,25 ATR, TP 2R
+  e identidade propria no Trade Plan, provider, MT5, funil visual e Relatorio.
+- A coleta usa o cache compartilhado dos timeframes M1, M5, M15, H1 e D1; nao
+  adiciona recalculo pesado do Lab por ciclo.
+- O limite foi deliberadamente ampliado para dez posicoes por par, uma por
+  modelo M1-M10. Execucao continua exclusiva em MT5 Demo.
+- A liberacao operacional nao afirma vantagem estatistica. Replay e forward
+  test por par permanecem como evidencia pendente.
+
 ## 2026-07-26 - Janela De Entrada M2-M4 Alinhada Ao Relogio MT5
 
 - Auditoria confirmou que os modelos novos M2, M3 e M4 nao chegaram ao

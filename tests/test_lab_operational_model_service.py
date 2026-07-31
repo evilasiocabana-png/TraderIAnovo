@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -19,6 +20,33 @@ from application.lab_operational_model_service import (
 
 
 class LabOperationalModelServiceTest(unittest.TestCase):
+    def test_mt5_english_candle_fields_are_normalized_for_lab_models(self) -> None:
+        service = LabOperationalModelService()
+        candles = [
+            SimpleNamespace(
+                timestamp=f"2026-07-29T{i:02d}:00:00+00:00",
+                open=1.40,
+                high=1.41,
+                low=1.39,
+                close=1.405,
+                volume=100,
+            )
+            for i in range(3)
+        ]
+
+        normalized = service._candles(
+            {("USDCAD", "H1"): candles},
+            "USDCAD",
+            "H1",
+        )
+
+        self.assertEqual(3, len(normalized))
+        self.assertEqual("2026-07-29T00:00:00+00:00", normalized[0]["data"])
+        self.assertEqual(1.40, normalized[0]["abertura"])
+        self.assertEqual(1.41, normalized[0]["maxima"])
+        self.assertEqual(1.39, normalized[0]["minima"])
+        self.assertEqual(1.405, normalized[0]["fechamento"])
+
     def test_production_manifest_exposes_all_demo_forward_pairs_by_policy(self) -> None:
         service = LabOperationalModelService()
 
@@ -50,6 +78,38 @@ class LabOperationalModelServiceTest(unittest.TestCase):
             with self.subTest(model_id=model_id):
                 self.assertEqual(pairs, expected)
 
+        m3_results = service.results(
+            "MODELO_3_LAB_ALPHA_SUGERIDA_2_PLUS"
+        )
+        self.assertTrue(m3_results["USDCAD"]["research_qualified"])
+        self.assertEqual(
+            "QUALIFIED_FOR_DEMO_REPLAY",
+            m3_results["USDCAD"]["research_status"],
+        )
+        for pair in expected - {"USDCAD"}:
+            with self.subTest(m3_expansion_pair=pair):
+                self.assertFalse(m3_results[pair]["research_qualified"])
+                self.assertEqual(
+                    "USER_APPROVED_DEMO_EXPANSION_UNVALIDATED",
+                    m3_results[pair]["research_status"],
+                )
+                self.assertTrue(m3_results[pair]["demo_forward_enabled"])
+
+        m4_results = service.results("MODELO_4_LAB_CONTEXTUAL_MTF")
+        self.assertFalse(m4_results["AUDUSD"]["research_qualified"])
+        self.assertEqual(
+            "BEST_AVAILABLE_DEMO_CANDIDATE_UNCERTIFIED",
+            m4_results["AUDUSD"]["research_status"],
+        )
+        for pair in expected - {"AUDUSD"}:
+            with self.subTest(m4_expansion_pair=pair):
+                self.assertFalse(m4_results[pair]["research_qualified"])
+                self.assertEqual(
+                    "USER_APPROVED_DEMO_EXPANSION_UNVALIDATED",
+                    m4_results[pair]["research_status"],
+                )
+                self.assertTrue(m4_results[pair]["demo_forward_enabled"])
+
         formerly_blocked = service.winner(MODEL_2_ID, "GBPUSD") or {}
         self.assertTrue(formerly_blocked["demo_forward_enabled"])
         self.assertEqual(
@@ -57,7 +117,10 @@ class LabOperationalModelServiceTest(unittest.TestCase):
             "DEMO_FORWARD_OPERATIONALLY_APPROVED",
         )
         self.assertFalse(formerly_blocked["evidence_demo_forward_enabled"])
-        self.assertEqual(formerly_blocked["evidence_parity_status"], "BLOCKED_PARITY")
+        self.assertEqual(
+            formerly_blocked["evidence_parity_status"],
+            "REPLAY_VALIDATION_PENDING",
+        )
 
     def test_closed_candle_signal_builds_fixed_sl_tp_at_live_price(self) -> None:
         now = datetime(2026, 7, 22, 12, 0, tzinfo=timezone.utc)

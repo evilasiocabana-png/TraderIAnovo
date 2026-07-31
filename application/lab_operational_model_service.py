@@ -17,6 +17,13 @@ from research.alpha_suggested.alpha_suggested_2_plus_individual import (
     build_signal as build_m3_signal,
     enrich_market,
 )
+from research.alpha_suggested.model2_trend_pullback import (
+    MODEL_2_CONTEXT_TIMEFRAME,
+    MODEL_2_FAMILY,
+    evaluate_trend_pullback,
+    model2_operational_results,
+    trend_pullback_operational_results,
+)
 from research.alpha_suggested.model4_contextual_frontier import (
     apply_context_overlay,
     build_contexts,
@@ -27,11 +34,17 @@ MODEL_2_ID = "MODELO_2_LAB_ALPHA_SUGERIDA_1_PLUS"
 MODEL_3_ID = "MODELO_3_LAB_ALPHA_SUGERIDA_2_PLUS"
 MODEL_4_ID = "MODELO_4_LAB_CONTEXTUAL_MTF"
 MODEL_5_ID = "MODELO_5_LAB_CONSOLIDADO"
+MODEL_8_ID = "MODELO_8_TREND_PULLBACK_H1_M5"
+MODEL_9_ID = "MODELO_9_TREND_PULLBACK_M15_M1"
+MODEL_10_ID = "MODELO_10_TREND_PULLBACK_D1_M15"
 MODEL_IDS = {
     "M2": MODEL_2_ID,
     "M3": MODEL_3_ID,
     "M4": MODEL_4_ID,
     "M5": MODEL_5_ID,
+    "M8": MODEL_8_ID,
+    "M9": MODEL_9_ID,
+    "M10": MODEL_10_ID,
 }
 MODEL_LABELS = {value: key for key, value in MODEL_IDS.items()}
 FIXED_EXIT_POLICY = "RESEARCH_FIXED_SL_TP"
@@ -42,6 +55,26 @@ DEFAULT_MANIFEST_PATH = (
     / "lab_operational_models_manifest.json"
 )
 MINIMUM_DISTANCE_PERCENT = 0.0005
+TREND_PULLBACK_MODEL_SPECS = {
+    "M8": {
+        "alpha_id": "ALPHA_M8_TREND_PULLBACK_H1_M5",
+        "family": "TREND_PULLBACK_M5_H1",
+        "entry_timeframe": "M5",
+        "context_timeframe": "H1",
+    },
+    "M9": {
+        "alpha_id": "ALPHA_M9_TREND_PULLBACK_M15_M1",
+        "family": "TREND_PULLBACK_M1_M15",
+        "entry_timeframe": "M1",
+        "context_timeframe": "M15",
+    },
+    "M10": {
+        "alpha_id": "ALPHA_M10_TREND_PULLBACK_D1_M15",
+        "family": "TREND_PULLBACK_M15_D1",
+        "entry_timeframe": "M15",
+        "context_timeframe": "D1",
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -98,6 +131,19 @@ class LabOperationalModelService:
 
     def results(self, model_id: str) -> dict[str, dict[str, Any]]:
         label = self.model_label(model_id)
+        if (
+            label == "M2"
+            and self.manifest_path.resolve() == DEFAULT_MANIFEST_PATH.resolve()
+        ):
+            return model2_operational_results()
+        if (
+            label in TREND_PULLBACK_MODEL_SPECS
+            and self.manifest_path.resolve() == DEFAULT_MANIFEST_PATH.resolve()
+        ):
+            return trend_pullback_operational_results(
+                model_label=label,
+                **TREND_PULLBACK_MODEL_SPECS[label],
+            )
         model = dict(self._load_manifest().get("models", {}).get(label) or {})
         rows = model.get("results") or {}
         return {
@@ -128,9 +174,13 @@ class LabOperationalModelService:
         )
         for model_id in normalized_models:
             for pair, row in self.results(model_id).items():
-                required.setdefault(pair, set()).add(
-                    str(row.get("timeframe") or "M1").upper()
-                )
+                market_timeframes = required.setdefault(pair, set())
+                market_timeframes.add(str(row.get("timeframe") or "M1").upper())
+                context_timeframe = str(
+                    (row.get("parameters") or {}).get("context_timeframe") or ""
+                ).upper()
+                if context_timeframe:
+                    market_timeframes.add(context_timeframe)
         if needs_m4_context:
             for pair in self.results(MODEL_4_ID):
                 required.setdefault(pair, set()).update({"M30", "H1", "H4"})
@@ -178,7 +228,19 @@ class LabOperationalModelService:
                 "M5 usa o Trade Plan M1 vigente quando Alpha e TF coincidem.",
                 **common,
             )
-        if label == "M2":
+        if label in {"M2", "M8", "M9", "M10"}:
+            if (
+                str((winner.get("parameters") or {}).get("family") or "").upper()
+                .startswith("TREND_PULLBACK_")
+            ):
+                return self._evaluate_trend_pullback(
+                    model_id=normalized_model,
+                    pair=normalized_pair,
+                    winner=winner,
+                    candles_by_market=candles_by_market,
+                    current_price=current_price,
+                    server_timestamp=server_timestamp,
+                )
             return self._evaluate_standard(
                 model_id=normalized_model,
                 pair=normalized_pair,
@@ -218,6 +280,110 @@ class LabOperationalModelService:
             "UNSUPPORTED_LAB_RUNTIME_ADAPTER",
             f"Adaptador runtime ausente para {label}/{source_model}.",
             **common,
+        )
+
+    def _evaluate_trend_pullback(
+        self,
+        *,
+        model_id: str,
+        pair: str,
+        winner: dict[str, Any],
+        candles_by_market: Mapping[tuple[str, str], Iterable[object]],
+        current_price: float | None,
+        server_timestamp: str | None,
+    ) -> LabOperationalDecision:
+        timeframe = str(winner.get("timeframe") or "M15").upper()
+        parameters = dict(winner.get("parameters") or {})
+        context_timeframe = str(
+            parameters.get("context_timeframe") or MODEL_2_CONTEXT_TIMEFRAME
+        ).upper()
+        model_label = self.model_label(model_id)
+        candles = self._candles(candles_by_market, pair, timeframe)
+        context = self._candles(candles_by_market, pair, context_timeframe)
+        common = self._winner_values(winner)
+        if len(candles) < 60 or len(context) < 60:
+            return self._wait(
+                model_id,
+                pair,
+                timeframe,
+                "INSUFFICIENT_LIVE_CANDLES",
+                (
+                    f"{model_label} exige pelo menos 60 candles em {timeframe} "
+                    f"e {context_timeframe}; recebeu {timeframe}={len(candles)}, "
+                    f"{context_timeframe}={len(context)}."
+                ),
+                **common,
+            )
+
+        signal_time = str(candles[-2]["data"])
+        current_time = str(candles[-1]["data"])
+        cache_key = (model_id, pair, timeframe, signal_time)
+        cached = self._decision_cache.get(cache_key)
+        if cached is not None:
+            return self._decision_with_live_entry(
+                cached,
+                current_price,
+                current_time,
+                server_timestamp=server_timestamp,
+            )
+        try:
+            reading = evaluate_trend_pullback(
+                candles[:-1],
+                context[:-1],
+                parameters,
+                model_label=model_label,
+            )
+        except (KeyError, TypeError, ValueError, IndexError) as exc:
+            return self._wait(
+                model_id,
+                pair,
+                timeframe,
+                "FEATURE_EVALUATION_ERROR",
+                f"Falha ao calcular {model_label} Trend Pullback: {exc}",
+                signal_candle_time=signal_time,
+                current_bar_time=current_time,
+                **common,
+            )
+
+        if reading.direction == 0:
+            decision = self._wait(
+                model_id,
+                pair,
+                timeframe,
+                "NO_CLOSED_CANDLE_SIGNAL",
+                (
+                    f"{model_label} aguarda {context_timeframe} direcional, "
+                    "EMA9/21 alinhadas, ADX14 > 20, pullback na faixa das "
+                    f"medias e candle {timeframe} de confirmacao."
+                ),
+                signal_candle_time=signal_time,
+                current_bar_time=current_time,
+                atr=reading.atr,
+                diagnostics=reading.diagnostics,
+                **common,
+            )
+        else:
+            decision = LabOperationalDecision(
+                model_id=model_id,
+                pair=pair,
+                timeframe=timeframe,
+                status="SIGNAL_FROZEN",
+                ready=True,
+                direction="BUY" if reading.direction > 0 else "SELL",
+                signal_candle_time=signal_time,
+                current_bar_time=current_time,
+                atr=reading.atr,
+                risk_reward=float(parameters.get("risk_reward", 2.0) or 2.0),
+                diagnostics=reading.diagnostics,
+                **common,
+            )
+        self._decision_cache[cache_key] = decision
+        self._trim_caches()
+        return self._decision_with_live_entry(
+            decision,
+            current_price,
+            current_time,
+            server_timestamp=server_timestamp,
         )
 
     def _evaluate_standard(
@@ -604,23 +770,38 @@ class LabOperationalModelService:
         return normalized
 
     def _raw_candle_value(self, candle: object, name: str) -> object:
+        aliases = {
+            "data": ("data", "timestamp"),
+            "abertura": ("abertura", "open"),
+            "maxima": ("maxima", "high"),
+            "minima": ("minima", "low"),
+            "fechamento": ("fechamento", "close"),
+            "volume": ("volume",),
+        }
+        candidates = aliases.get(name, (name,))
         if isinstance(candle, dict):
-            return candle.get(name)
-        return getattr(candle, name, None)
+            for candidate in candidates:
+                if candle.get(candidate) is not None:
+                    return candle[candidate]
+            return None
+        for candidate in candidates:
+            value = getattr(candle, candidate, None)
+            if value is not None:
+                return value
+        return None
 
     def _candle_dict(self, candle: object) -> dict[str, Any] | None:
-        data = (
-            dict(candle)
-            if isinstance(candle, dict)
-            else {
-                "data": getattr(candle, "data", None),
-                "abertura": getattr(candle, "abertura", None),
-                "maxima": getattr(candle, "maxima", None),
-                "minima": getattr(candle, "minima", None),
-                "fechamento": getattr(candle, "fechamento", None),
-                "volume": getattr(candle, "volume", None),
-            }
-        )
+        data = {
+            name: self._raw_candle_value(candle, name)
+            for name in (
+                "data",
+                "abertura",
+                "maxima",
+                "minima",
+                "fechamento",
+                "volume",
+            )
+        }
         required = ("data", "abertura", "maxima", "minima", "fechamento")
         if any(data.get(name) is None for name in required):
             return None

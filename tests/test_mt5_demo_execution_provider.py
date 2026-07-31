@@ -396,7 +396,7 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertIsNotNone(mt5.last_request)
         self.assertEqual(mt5.last_request["comment"], "TraderIA M7")
 
-    def test_submit_order_bloqueia_oitava_posicao_no_par(self) -> None:
+    def test_submit_order_permite_oitava_posicao_m8_no_par(self) -> None:
         mt5 = _FakeMT5(
             open_positions=[
                 SimpleNamespace(comment="TraderIA M1"),
@@ -409,11 +409,38 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
             ]
         )
         provider = self._provider(mt5)
+        order = self._order()
+        object.__setattr__(
+            order,
+            "operational_model",
+            "MODELO_8_TREND_PULLBACK_H1_M5",
+        )
+
+        result = provider.submit_order(order)
+
+        self.assertTrue(result.accepted)
+        self.assertEqual(mt5.last_request["comment"], "TraderIA M8")
+
+    def test_comments_identify_m8_m9_and_m10_independently(self) -> None:
+        provider = self._provider(_FakeMT5())
+
+        self.assertEqual(provider._model_comment("MODELO_8_TREND_PULLBACK_H1_M5"), "M8")
+        self.assertEqual(provider._model_comment("MODELO_9_TREND_PULLBACK_M15_M1"), "M9")
+        self.assertEqual(provider._model_comment("MODELO_10_TREND_PULLBACK_D1_M15"), "M10")
+
+    def test_submit_order_bloqueia_decima_primeira_posicao_no_par(self) -> None:
+        mt5 = _FakeMT5(
+            open_positions=[
+                SimpleNamespace(comment=f"TraderIA M{index}")
+                for index in range(1, 11)
+            ]
+        )
+        provider = self._provider(mt5)
 
         result = provider.submit_order(self._order())
 
         self.assertFalse(result.accepted)
-        self.assertIn("Limite de sete posicionamentos por par", result.message)
+        self.assertIn("Limite de dez posicionamentos por par", result.message)
         self.assertIsNone(mt5.last_request)
 
     def test_get_recent_candles_aceita_array_like_do_mt5(self) -> None:

@@ -35,6 +35,7 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                                 'application.research_lab_service.ParameterGridData '
                                                                 '| None',
                                   'clear_research_experiments': '(self) -> None',
+                                  'close_all_demo_positions': "(self, reason: str = 'WEEKLY_FRIDAY_CLOSE') -> dict[str, typing.Any]",
                                   'compare_research_benchmarks': '(self) -> '
                                                                  'application.research_lab_service.BenchmarkComparisonData',
                                   'delete_configuration_preset': '(self, name: str) -> None',
@@ -95,6 +96,8 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                                            'application.dashboard_service.HistoricalDatasetHealthSummary',
                                   'get_historical_provider_metrics': '(self) -> dict[str, '
                                                                      'dict[str, object]]',
+                                  'get_lab_operational_decision_snapshot': '(self) -> '
+                                                                           'dict[tuple[str, str], object]',
                                   'get_light_dashboard_view_model': '(self) -> '
                                                                     'application.dashboard_view_model.DashboardViewModel',
                                   'get_live_experiment_summary': '(self) -> '
@@ -112,6 +115,8 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                                    'application.dashboard_view_model.DashboardMT5AlphaResearchReportViewModel',
                                   'get_mt5_forex_signals': '(self) -> '
                                                            'application.mt5_market_data_service.MT5ForexSignalDashboard',
+                                  'get_mt5_forex_runtime_view_model': '(self) -> '
+                                                                      'application.dashboard_view_model.DashboardMT5ForexSignalViewModel',
                                   'get_mt5_market_data': '(self) -> '
                                                          'application.mt5_market_data_service.MT5DashboardMarketData',
                                   'get_mt5_operational_model': '(self) -> str',
@@ -120,8 +125,11 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'get_mt5_research_history_candle_count': '(self) -> int',
                                   'get_mt5_research_history_database_path': '(self) -> str',
                                   'get_mt5_research_history_last_update': '(self) -> str',
+                                  'get_model_exit_research': '(self) -> dict[str, typing.Any]',
                                   'get_mt5_research_report_snapshot': '(self) -> '
                                                                       'application.dashboard_view_model.DashboardMT5HeuristicResearchViewModel',
+                                  'get_mt5_research_replay_proof': '(self, pair: str) -> '
+                                                                   'application.dashboard_view_model.DashboardMT5LabReplayProofViewModel',
                                   'get_mt5_trade_audit_report': '(self) -> '
                                                                 'application.dashboard_view_model.DashboardMT5TradeAuditViewModel',
                                   'get_research_layer_definitions': '(self) -> list[dict[str, '
@@ -282,9 +290,16 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                          'application.mt5_market_data_service.MT5ConnectionDiagnostic',
                                   'update_configuration': '(self, **kwargs: object) -> '
                                                           'application.configuration_service.ConfigurationData',
+                                  'list_mt5_research_replay_scenarios': '(self) -> '
+                                                                        'list[application.dashboard_view_model.DashboardMT5ScenarioViewModel]',
+                                  'refresh_lab_operational_decision_snapshot': '(self) -> '
+                                                                               'dict[tuple[str, str], object]',
                                   'update_mt5_research_calculations': '(self, timeframe: str = '
                                                                       "'M1') -> "
                                                                       'application.dashboard_view_model.DashboardMT5HeuristicResearchViewModel',
+                                  'update_mt5_research_calculations_rr3_experimental': "(self, timeframe: str = 'M1', "
+                                                                                      'progress_callback: object | None = None) -> '
+                                                                                      'application.dashboard_view_model.DashboardMT5HeuristicResearchViewModel',
                                   'update_mt5_research_history': "(self, timeframe: str = 'M1') -> "
                                                                  'application.mt5_market_data_service.MT5ForexSignalDashboard',
                                   'validate_research_benchmarks': '(self) -> '
@@ -301,11 +316,16 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                            "'float | None'",
                                       'get_open_position': "(self, symbol: 'str') -> "
                                                            "'object | None'",
+                                      'get_open_position_by_ticket': "(self, symbol: 'str', ticket: "
+                                                                     "'int') -> 'object | None'",
+                                      'has_open_position_for_model': "(self, symbol: 'str', "
+                                                                     "operational_model: 'str') -> 'bool'",
                                       'get_recent_candles': "(self, symbol: 'str', "
                                                             "timeframe: 'str', limit: "
                                                             "'int') -> 'list[object]'",
                                       'list_audit_log': '(self) -> '
                                                         "'list[DemoExecutionAuditRecord]'",
+                                      'list_open_positions': "(self) -> 'list[object]'",
                                       'modify_position_sl': "(self, symbol: 'str', ticket: "
                                                             "'int', new_stop: 'float') -> "
                                                             "'object'",
@@ -360,6 +380,17 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                 "'list[ForexSignal]'",
                                  'get_status': "(self) -> 'MT5Status'"},
                      'module': 'application.forex_mt5_service'},
+ 'LabOperationalModelService': {
+     'methods': {
+         'evaluate': "(self, *, model_id: 'str', pair: 'str', candles_by_market: 'Mapping[tuple[str, str], Iterable[object]]', current_price: 'float | None', server_timestamp: 'str | None' = None) -> 'LabOperationalDecision'",
+         'model_label': "(self, model_id: 'str') -> 'str'",
+         'required_timeframes': "(self, model_ids: 'Iterable[str]') -> 'dict[str, set[str]]'",
+         'results': "(self, model_id: 'str') -> 'dict[str, dict[str, Any]]'",
+         'timeframes_by_pair': "(self, model_id: 'str') -> 'dict[str, str]'",
+         'winner': "(self, model_id: 'str', pair: 'str') -> 'dict[str, Any] | None'",
+     },
+     'module': 'application.lab_operational_model_service',
+ },
  'LabService': {'methods': {'get_latest_result': "(self) -> 'LabResult'"},
                 'module': 'application.lab_service'},
  'LiveResearchService': {'methods': {'get_latest_data': "(self) -> 'LiveResearchData | None'",
@@ -403,6 +434,8 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                                     "'MT5DashboardMarketData'",
                                       'load_forex_research_snapshot': "(self, timeframe: 'str' = "
                                                                       "'M1', count: 'int | None' = "
+                                                                      "None, *, preloaded_market_data: "
+                                                                      "'dict[str, dict[str, Any]] | None' = "
                                                                       'None) -> '
                                                                       "'MT5ForexSignalDashboard'",
                                       'load_forex_signal_dashboard': "(self, timeframe: 'str' = "
@@ -419,7 +452,10 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                                                     "'MT5ForexSignalDashboard'",
                                       'load_timeframe_optimization_results': "(self, count: 'int | "
                                                                              "None' = None) -> "
-                                                                             "'list[TimeframeOptimizationResult]'"},
+                                                                             "'list[TimeframeOptimizationResult]'",
+                                      'refresh_supplemental_forex_candles': "(self, required: 'dict[str, set[str]]', "
+                                                                            "*, full_count: 'int' = 500) -> "
+                                                                            "'dict[str, str]'"},
                           'module': 'application.mt5_market_data_service'},
  'MT5TradeAuditService': {'methods': {'build_report': "(self, *, signals: 'list[ForexSignal]', "
                                                       "lab: 'LabResult', positions: "
@@ -449,7 +485,9 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                        'application.paper_trading_service.PaperTradingResult'},
                          'module': 'application.paper_trading_service'},
  'PositionManagerService': {'methods': {'manage_plan': "(self, plan: 'PositionTradePlan') -> "
-                                                        "'PositionManagerResult'",
+                                                         "'PositionManagerResult'",
+                                        'manage_plans': "(self, plans: 'list[PositionTradePlan]') -> "
+                                                        "'list[PositionManagerResult]'",
                                         'manage_signals': "(self, signals: 'list[dict[str, "
                                                           "Any]]') -> "
                                                           "'list[PositionManagerResult]'"},

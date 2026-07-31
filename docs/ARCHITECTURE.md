@@ -134,8 +134,8 @@ Responsabilidade:
   recalcula os 5.000 candles.
 - Modelos sao independentes, mas o provider bloqueia a duplicacao do mesmo
   plano exato e candle entre modelos.
-- O provider permite no maximo uma posicao por modelo e sete posicoes por par
-  no conjunto M1-M7.
+- O provider permite no maximo uma posicao por modelo e dez posicoes por par
+  no conjunto M1-M10.
 - Conta real permanece bloqueada; a promocao autoriza somente forward Demo.
 
 ### MT5 / Infrastructure
@@ -279,6 +279,20 @@ de arquivos `.traderia`.
 - GitHub nao armazena runtime local.
 - Recalculo pesado precisa ser explicito.
 - Execucao real nao e autorizada por padrao.
+
+## Variantes Trend Pullback M8-M10
+
+M8, M9 e M10 sao modelos operacionais independentes derivados da formula M2,
+sem copiar ou alterar o estado do M2. M8 usa H1 para direcao e M5 para entrada;
+M9 usa M15 e M1; M10 usa D1 e M15. Todos usam EMA20/50 no contexto, EMA9/21,
+ADX14 e pullback no timeframe de entrada, com SL fixo 1,25 ATR e TP fixo 2R.
+
+O Market Data coleta somente os timeframes requeridos e reaproveita o cache
+compartilhado. O Lab operacional congela a decisao por candle fechado; o Robo
+Demo materializa o Trade Plan; o provider grava `TraderIA M8`, `TraderIA M9`
+ou `TraderIA M10`; o Position Manager nao move o SL desses contratos fixos; o
+Relatorio identifica cada modelo separadamente. O limite e uma posicao por
+modelo e dez por par. Conta real permanece bloqueada.
 
 ## Regra De Correcao Interligada
 

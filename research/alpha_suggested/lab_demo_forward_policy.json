@@ -8,7 +8,17 @@
       "approve_all_pairs": true
     },
     "M3": {
-      "approve_all_pairs": true
+      "approve_all_pairs": false,
+      "approved_pairs": [
+        "AUDUSD",
+        "EURJPY",
+        "EURUSD",
+        "GBPUSD",
+        "NZDUSD",
+        "USDCAD",
+        "USDCHF",
+        "USDJPY"
+      ]
     },
     "M4": {
       "approve_all_pairs": true

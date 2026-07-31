@@ -719,11 +719,13 @@ class MT5MarketDataService:
         unavailable_pairs: list[str] = []
         read_errors: list[str] = []
         batch_market_data: dict[str, dict[str, Any]] = {}
+        batch_attempted = False
         batch_reader = getattr(self.provider, "get_forex_batch", None)
         if (
             callable(batch_reader)
             and os.getenv("TRADERIA_MT5_BATCH_ENABLED", "1").strip() == "1"
         ):
+            batch_attempted = True
             try:
                 batch_market_data = batch_reader(
                     {
@@ -735,12 +737,32 @@ class MT5MarketDataService:
             except Exception as exc:  # noqa: BLE001 - provider externo read-only
                 batch_market_data = {}
                 read_errors.append(f"MT5 batch: {exc}")
+        batch_failed = batch_attempted and not batch_market_data
+        if batch_failed:
+            read_errors.append(
+                self._provider_error_message(
+                    "Leitura MT5 em lote indisponivel; cache preservado."
+                )
+            )
         for pair in SUPPORTED_MT5_SYMBOLS:
             normalized_timeframe = normalized_map.get(pair, fallback)
             timeframe_value = self._timeframe_value(normalized_timeframe)
             batch_row = batch_market_data.get(pair)
+            cached_candles = (
+                list(
+                    self.latest_forex_candles.get(
+                        (pair, normalized_timeframe),
+                        [],
+                    )
+                    or []
+                )
+                if batch_failed
+                else []
+            )
             if batch_market_data:
                 symbol_exists = bool(batch_row and batch_row.get("exists"))
+            elif batch_failed and self._provider_uses_external_mt5_process():
+                symbol_exists = bool(cached_candles)
             elif self._provider_uses_external_mt5_process():
                 symbol_exists = True
             else:
@@ -750,8 +772,13 @@ class MT5MarketDataService:
                 rows.append(
                     self._unavailable_pair_row(
                         pair,
-                        "INDISPONIVEL NO MT5",
-                        "Par indisponivel no MT5; decisao WAIT.",
+                        "ERRO MT5" if batch_failed else "INDISPONIVEL NO MT5",
+                        (
+                            "Lote MT5 indisponivel e ainda sem cache valido; "
+                            "decisao WAIT sem abrir consultas individuais."
+                            if batch_failed
+                            else "Par indisponivel no MT5; decisao WAIT."
+                        ),
                         timeframe=normalized_timeframe,
                         configured_candles=configured_candles,
                         requested_candles=safe_count,
@@ -762,6 +789,8 @@ class MT5MarketDataService:
 
             if batch_market_data:
                 selected = bool(batch_row and batch_row.get("selected"))
+            elif cached_candles:
+                selected = True
             elif self._provider_uses_external_mt5_process():
                 selected = True
             else:
@@ -785,6 +814,8 @@ class MT5MarketDataService:
                 read_started = perf_counter()
                 if batch_market_data:
                     candles = list(batch_row.get("candles", [])) if batch_row else []
+                elif cached_candles:
+                    candles = cached_candles
                 else:
                     candles = self.provider.get_candles(pair, timeframe_value, safe_count)
                 provider_read_ms += self._elapsed_ms(read_started)
@@ -2759,4 +2790,17 @@ class MT5MarketDataService:
 def _create_default_provider() -> ReadOnlyCandleProvider:
     from infrastructure.market_data import MT5MarketDataProvider
 
+    if os.getenv("TRADERIA_MT5_INPROCESS_ENABLED", "0").strip() == "1":
+        try:
+            import MetaTrader5 as mt5
+        except (ImportError, ModuleNotFoundError):
+            pass
+        else:
+            return MT5MarketDataProvider(
+                mt5_module=mt5,
+                terminal_path=os.getenv(
+                    "MT5_PATH",
+                    r"C:\Program Files\MetaTrader 5\terminal64.exe",
+                ),
+            )
     return MT5MarketDataProvider()

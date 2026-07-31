@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 from application.demo_execution_service import DemoExecutionService
+from application.lab_operational_model_service import (
+    MODEL_8_ID,
+    MODEL_9_ID,
+    MODEL_10_ID,
+)
 from application.market_regime_pipeline import MarketRegimePipeline
 from application.model6_original_trend_momentum import MODEL_6_ID
 from application.model7_trend_momentum_dynamic import MODEL_7_ID
@@ -377,6 +382,9 @@ class MT5DemoRobotService:
             "MODELO_5_LAB_CONSOLIDADO",
             MODEL_6_ID,
             MODEL_7_ID,
+            MODEL_8_ID,
+            MODEL_9_ID,
+            MODEL_10_ID,
         }:
             # Sessao, regime, momentum, volatilidade e demais indicadores ja
             # pertencem ao sinal reproduzido pelo adaptador canonico do Lab.

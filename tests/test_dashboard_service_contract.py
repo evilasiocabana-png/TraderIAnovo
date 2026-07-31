@@ -136,7 +136,7 @@ class DashboardServiceContractTest(unittest.TestCase):
                     history, status, message = service._load_mt5_trade_history()
 
         self.assertEqual(history, {})
-        self.assertEqual(status, "OFFLINE")
+        self.assertEqual(status, "AQUECENDO")
         self.assertIn("Timeout", message)
         fake_mt5.initialize.assert_not_called()
 

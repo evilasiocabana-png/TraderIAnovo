@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import inspect
+import os
+import subprocess
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from core.event_bus import EventBus
 from core.events import NEW_CANDLE
@@ -129,6 +131,15 @@ class MT5MarketDataProviderTest(unittest.TestCase):
             r"C:\Program Files\MetaTrader 5\terminal64.exe",
         )
 
+    def test_connect_reutiliza_sessao_mt5_ativa(self) -> None:
+        fake_mt5 = FakeMT5()
+        provider = MT5MarketDataProvider(mt5_module=fake_mt5)
+
+        self.assertTrue(provider.connect())
+        self.assertTrue(provider.connect())
+
+        self.assertEqual(len(fake_mt5.initialize_calls), 1)
+
     def test_select_symbol_somente_habilita_leitura_do_ativo(self) -> None:
         fake_mt5 = FakeMT5()
         provider = MT5MarketDataProvider(mt5_module=fake_mt5)
@@ -166,27 +177,50 @@ class MT5MarketDataProviderTest(unittest.TestCase):
 
     def test_get_candles_externo_deduplica_requisicao_identica(self) -> None:
         provider = MT5MarketDataProvider(mt5_module=None)
-        completed = SimpleNamespace(
-            stdout=(
+        process = Mock()
+        process.communicate.return_value = (
+            (
                 '{"ok": true, "rates": ['
                 '{"time": 1719792000, "open": 1.1, "high": 1.2, '
                 '"low": 1.0, "close": 1.15, "tick_volume": 10, "real_volume": 0}'
                 ']}'
             ),
-            stderr="",
+            "",
         )
 
         with patch(
-            "infrastructure.market_data.mt5_market_data_provider.subprocess.run",
-            return_value=completed,
-        ) as run:
+            "infrastructure.market_data.mt5_market_data_provider.subprocess.Popen",
+            return_value=process,
+        ) as popen:
             first = provider.get_candles("EURUSD", 1, 1)
             second = provider.get_candles("EURUSD", 1, 1)
 
-        self.assertEqual(run.call_count, 1)
+        self.assertEqual(popen.call_count, 1)
         self.assertEqual(len(first), 1)
         self.assertEqual(len(second), 1)
         self.assertEqual(first[0].fechamento, second[0].fechamento)
+
+    def test_processo_externo_mt5_e_encerrado_ao_exceder_timeout(self) -> None:
+        provider = MT5MarketDataProvider(mt5_module=None)
+        process = Mock()
+        process.communicate.side_effect = subprocess.TimeoutExpired(
+            cmd="mt5",
+            timeout=1.0,
+        )
+
+        with patch.dict(
+            os.environ,
+            {"TRADERIA_MT5_EXTERNAL_TIMEOUT_SECONDS": "1"},
+        ):
+            with patch(
+                "infrastructure.market_data.mt5_market_data_provider.subprocess.Popen",
+                return_value=process,
+            ):
+                result = provider._external_mt5_call("server_time", symbol="EURUSD")
+
+        process.kill.assert_called_once_with()
+        self.assertFalse(result["ok"])
+        self.assertIn("Timeout de 1s", result["message"])
 
     def test_research_batch_nao_fica_em_cache_nem_publica_200_mil_eventos(self) -> None:
         event_bus = EventBus()

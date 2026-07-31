@@ -22,7 +22,7 @@ DEFAULT_M2_INPUT = Path(
     ".traderia/research/alpha_sugerida_1_plus_session_regime_h1_20000.json"
 )
 DEFAULT_M3_INPUT = Path(
-    ".traderia/research/m3_alpha_sugerida_2_plus_best_by_pair.json"
+    ".traderia/research/m3_nested_robusta_003_usdcad_6000.json"
 )
 DEFAULT_M4_INPUT = Path(
     ".traderia/research/modelo_4_pesquisa_contextual_mtf.json"
@@ -216,6 +216,7 @@ def normalize_m2(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 def normalize_m3(payload: dict[str, Any]) -> list[dict[str, Any]]:
     status_tiers = {
+        "QUALIFIED_FOR_DEMO_REPLAY": 4,
         "APROVADA_B_PARA_REPLAY": 4,
         "PROMISSORA_PARA_REPLAY": 3,
     }

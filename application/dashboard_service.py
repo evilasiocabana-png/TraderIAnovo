@@ -28,6 +28,9 @@ from application.lab_operational_model_service import (
     MODEL_3_ID as MT5_OPERATIONAL_MODEL_3,
     MODEL_4_ID as MT5_OPERATIONAL_MODEL_4,
     MODEL_5_ID as MT5_OPERATIONAL_MODEL_5,
+    MODEL_8_ID as MT5_OPERATIONAL_MODEL_8,
+    MODEL_9_ID as MT5_OPERATIONAL_MODEL_9,
+    MODEL_10_ID as MT5_OPERATIONAL_MODEL_10,
 )
 from application.model6_original_trend_momentum import (
     MODEL_6_ALPHA_ID,
@@ -141,6 +144,15 @@ MT5_OPERATIONAL_MODEL_1 = "MODELO_1_ALPHA_ATUAL"
 MT5_OPERATIONAL_MODEL_ALL = "TODOS_MODELOS"
 MT5_OPERATIONAL_MODEL_6_ENABLED = True
 MT5_OPERATIONAL_MODEL_7_ENABLED = True
+MT5_LAB_OPERATIONAL_MODELS = {
+    MT5_OPERATIONAL_MODEL_2,
+    MT5_OPERATIONAL_MODEL_3,
+    MT5_OPERATIONAL_MODEL_4,
+    MT5_OPERATIONAL_MODEL_5,
+    MT5_OPERATIONAL_MODEL_8,
+    MT5_OPERATIONAL_MODEL_9,
+    MT5_OPERATIONAL_MODEL_10,
+}
 LEGACY_MT5_OPERATIONAL_MODELS = {
     "MODELO_2_ESPELHO_BETA2_RR1": MT5_OPERATIONAL_MODEL_2,
     "MODELO_3_RR3": MT5_OPERATIONAL_MODEL_3,
@@ -210,7 +222,10 @@ from application.session_service import (
     empty_session_snapshot,
 )
 from application.system_service import SystemService, SystemStatus
-from core.mt5_process_probe import probe_mt5_initialize
+from core.mt5_process_probe import (
+    probe_mt5_initialize,
+    resolve_mt5_terminal_path,
+)
 from core.operation_session import OperationSession
 from domain.contracts.decision_context import DecisionContext
 from domain.contracts.dynamic_exit import (
@@ -283,8 +298,45 @@ def _import_mt5_module() -> Any:
 
 def _probe_mt5_before_inline_initialize() -> tuple[bool, str]:
     timeout_seconds = float(os.getenv("TRADERIA_MT5_PROBE_TIMEOUT_SECONDS", "3"))
-    result = probe_mt5_initialize(timeout_seconds)
+    result = probe_mt5_initialize(
+        timeout_seconds,
+        terminal_path=resolve_mt5_terminal_path(),
+    )
     return result.ok, result.message
+
+
+def _mt5_inline_session_ready(mt5: Any) -> bool:
+    """Reutiliza a sessao ativa sem repetir initialize() a cada leitura."""
+    terminal_info = getattr(mt5, "terminal_info", None)
+    account_info = getattr(mt5, "account_info", None)
+    if not callable(terminal_info) or not callable(account_info):
+        return False
+    try:
+        terminal = terminal_info()
+        account = account_info()
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return False
+    if terminal is None or account is None:
+        return False
+    return getattr(terminal, "connected", None) is True
+
+
+def _ensure_mt5_inline_session(mt5: Any) -> tuple[bool, str]:
+    """Confirma sessao MT5 com sonda limitada somente quando necessario."""
+    if _mt5_inline_session_ready(mt5):
+        return True, "Sessao MT5 ativa reutilizada."
+    probe_ok, probe_message = _probe_mt5_before_inline_initialize()
+    if not probe_ok:
+        return False, probe_message
+    initialize = getattr(mt5, "initialize", None)
+    if not callable(initialize):
+        return False, "MetaTrader5.initialize indisponivel."
+    terminal_path = resolve_mt5_terminal_path()
+    arguments = {"path": terminal_path} if terminal_path else {}
+    if not bool(initialize(**arguments)):
+        error = getattr(mt5, "last_error", lambda: ("N/D", "N/D"))()
+        return False, f"MT5 initialize() falhou: {error}"
+    return True, "MT5 inicializado."
 
 
 @dataclass(frozen=True)
@@ -814,6 +866,9 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_5,
             MT5_OPERATIONAL_MODEL_6,
             MT5_OPERATIONAL_MODEL_7,
+            MT5_OPERATIONAL_MODEL_8,
+            MT5_OPERATIONAL_MODEL_9,
+            MT5_OPERATIONAL_MODEL_10,
             MT5_OPERATIONAL_MODEL_ALL,
         }:
             normalized = MT5_OPERATIONAL_MODEL_1
@@ -833,6 +888,9 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_5,
             MT5_OPERATIONAL_MODEL_6,
             MT5_OPERATIONAL_MODEL_7,
+            MT5_OPERATIONAL_MODEL_8,
+            MT5_OPERATIONAL_MODEL_9,
+            MT5_OPERATIONAL_MODEL_10,
             MT5_OPERATIONAL_MODEL_ALL,
         }:
             return MT5_OPERATIONAL_MODEL_1
@@ -849,6 +907,9 @@ class DashboardService:
                 MT5_OPERATIONAL_MODEL_5,
                 MT5_OPERATIONAL_MODEL_6,
                 MT5_OPERATIONAL_MODEL_7,
+                MT5_OPERATIONAL_MODEL_8,
+                MT5_OPERATIONAL_MODEL_9,
+                MT5_OPERATIONAL_MODEL_10,
             )
         return (selected,)
 
@@ -1275,6 +1336,9 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_3,
             MT5_OPERATIONAL_MODEL_4,
             MT5_OPERATIONAL_MODEL_5,
+            MT5_OPERATIONAL_MODEL_8,
+            MT5_OPERATIONAL_MODEL_9,
+            MT5_OPERATIONAL_MODEL_10,
         }:
             return self.lab_operational_model_service.timeframes_by_pair(selected)
         if selected in {
@@ -2238,6 +2302,21 @@ class DashboardService:
     def get_mt5_research_history_database_path(self) -> str:
         """Retorna o caminho absoluto do banco local do historico MT5."""
         return str(self.mt5_research_history_database_path().resolve())
+
+    def get_model_exit_research(self) -> dict[str, Any]:
+        """Load the precomputed M8-M10 stop/target study for Replay only."""
+        target = (
+            Path(".traderia")
+            / "research"
+            / "model8_10_stop_target_research.json"
+        )
+        if not target.exists():
+            return {}
+        try:
+            payload = json.loads(target.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return payload if isinstance(payload, dict) else {}
 
     def list_mt5_research_replay_scenarios(
         self,
@@ -3834,7 +3913,7 @@ class DashboardService:
     def _position_manager_plans_from_open_execution_records(
         self,
     ) -> list[PositionTradePlan]:
-        """Usa o plano original de cada ordem aberta para gerir M1-M7 por ticket."""
+        """Usa o plano original de cada ordem aberta para gerir M1-M10 por ticket."""
         list_positions = getattr(self.demo_robot_execution_service, "list_open_positions", None)
         if not callable(list_positions):
             return []
@@ -4174,26 +4253,48 @@ class DashboardService:
             record for record in local_records if bool(record.get("accepted"))
         ]
         mt5_history, mt5_status, mt5_message = self._load_mt5_trade_history()
+        audit_available = mt5_status in {"CONNECTED", "SEM_HISTORICO"}
         position_manager_audit = self._read_position_manager_audit_index()
         rows = [
             self._mt5_trade_audit_row(record, mt5_history, position_manager_audit)
             for record in accepted_records
         ]
         rows.extend(self._mt5_only_trade_audit_rows(rows, mt5_history))
+        if not audit_available:
+            rows = [
+                replace(
+                    row,
+                    operation_status="AGUARDANDO_MT5",
+                    audit_status="PENDENTE",
+                    audit_message=(
+                        "Auditoria pendente: fonte MT5 temporariamente "
+                        f"indisponivel ({mt5_message})."
+                    ),
+                )
+                for row in rows
+            ]
         rows.sort(key=lambda row: str(row.timestamp), reverse=True)
         total_matched = sum(1 for row in rows if row.audit_status == "CONFERE")
-        total_mismatched = sum(
-            1 for row in rows if row.audit_status not in {"CONFERE", "PENDENTE"}
+        total_mismatched = (
+            sum(
+                1
+                for row in rows
+                if row.audit_status not in {"CONFERE", "PENDENTE"}
+            )
+            if audit_available
+            else 0
         )
         return DashboardMT5TradeAuditViewModel(
             rows=rows,
             total_local_records=len(local_records),
             total_accepted_local=len(accepted_records),
-            total_audited=len(rows),
+            total_audited=len(rows) if audit_available else 0,
             total_matched=total_matched,
             total_mismatched=total_mismatched,
             mt5_connection_status=mt5_status,
-            mt5_account_balance=self._load_mt5_account_balance(),
+            mt5_account_balance=(
+                self._load_mt5_account_balance() if audit_available else 0.0
+            ),
             equity_curve_default_start_date="2026-07-22",
             last_update=datetime.now(timezone.utc).isoformat(),
             message=mt5_message,
@@ -4206,11 +4307,8 @@ class DashboardService:
             return 0.0
         except Exception:
             return 0.0
-        probe_ok, _probe_message = _probe_mt5_before_inline_initialize()
-        if not probe_ok:
-            return 0.0
-        initialize = getattr(mt5, "initialize", None)
-        if callable(initialize) and not bool(initialize()):
+        session_ok, _session_message = _ensure_mt5_inline_session(mt5)
+        if not session_ok:
             return 0.0
         account_info = getattr(mt5, "account_info", None)
         if not callable(account_info):
@@ -4263,13 +4361,13 @@ class DashboardService:
             return {}, "INDISPONIVEL", "Biblioteca MetaTrader5 indisponivel."
         except Exception as exc:
             return {}, "INDISPONIVEL", f"Falha ao carregar MetaTrader5: {exc}"
-        probe_ok, probe_message = _probe_mt5_before_inline_initialize()
-        if not probe_ok:
-            return {}, "OFFLINE", f"Sonda MT5 falhou antes do historico: {probe_message}"
-        initialize = getattr(mt5, "initialize", None)
-        if callable(initialize) and not bool(initialize()):
-            error = getattr(mt5, "last_error", lambda: ("N/D", "N/D"))()
-            return {}, "OFFLINE", f"MT5 initialize() falhou: {error}"
+        session_ok, session_message = _ensure_mt5_inline_session(mt5)
+        if not session_ok:
+            return (
+                {},
+                "AQUECENDO",
+                f"Sessao MT5 ainda indisponivel: {session_message}",
+            )
         start, end = self._mt5_trade_history_query_window()
         current_trades: dict[int, dict[str, Any]] = {}
         self._merge_mt5_current_positions(mt5, current_trades)
@@ -5454,6 +5552,87 @@ class DashboardService:
         )
         return self.last_demo_robot_status
 
+    def close_all_demo_positions(
+        self,
+        reason: str = "WEEKLY_FRIDAY_CLOSE",
+    ) -> dict[str, Any]:
+        """Fecha todas as posicoes da conta MT5 Demo de forma auditavel."""
+        if not self._mt5_demo_execution_enabled():
+            return {
+                "status": "DISABLED",
+                "message": "Execucao MT5 Demo desabilitada; nenhuma posicao alterada.",
+                "positions_found": 0,
+                "closed": 0,
+                "rejected": 0,
+                "remaining": 0,
+                "results": [],
+            }
+        self._enable_mt5_demo_provider()
+        positions = list(self.demo_robot_execution_service.list_open_positions() or [])
+        results: list[dict[str, Any]] = []
+        for position in positions:
+            ticket = int(getattr(position, "ticket", 0) or 0)
+            symbol = str(getattr(position, "symbol", "") or "").upper()
+            volume = float(getattr(position, "volume", 0.0) or 0.0)
+            position_type = int(getattr(position, "type", -1) or 0)
+            side = "BUY" if position_type == 0 else "SELL" if position_type == 1 else "N/D"
+            if ticket <= 0 or not symbol or volume <= 0.0 or side == "N/D":
+                results.append(
+                    {
+                        "ticket": ticket,
+                        "symbol": symbol or "N/D",
+                        "accepted": False,
+                        "status": "INVALID_POSITION",
+                        "message": "Posicao MT5 sem ticket, simbolo, volume ou lado valido.",
+                    }
+                )
+                continue
+            response = self.demo_robot_execution_service.close_position(
+                symbol=symbol,
+                ticket=ticket,
+                side=side,
+                volume=volume,
+                reason=str(reason or "WEEKLY_FRIDAY_CLOSE"),
+            )
+            results.append(
+                {
+                    "ticket": ticket,
+                    "symbol": symbol,
+                    "accepted": bool(getattr(response, "accepted", False)),
+                    "status": str(getattr(response, "status", "N/D") or "N/D"),
+                    "message": str(getattr(response, "message", "") or ""),
+                }
+            )
+        remaining = len(
+            list(self.demo_robot_execution_service.list_open_positions() or [])
+        )
+        closed = sum(bool(item["accepted"]) for item in results)
+        rejected = len(results) - closed
+        status = (
+            "NO_POSITIONS"
+            if not positions and remaining == 0
+            else "CLOSED"
+            if remaining == 0 and rejected == 0
+            else "PARTIAL"
+            if closed > 0
+            else "BLOCKED"
+        )
+        return {
+            "status": status,
+            "message": (
+                "Todas as posicoes MT5 Demo foram encerradas."
+                if status == "CLOSED"
+                else "Nenhuma posicao MT5 Demo estava aberta."
+                if status == "NO_POSITIONS"
+                else "Ainda existem posicoes abertas; o agendador tentara novamente."
+            ),
+            "positions_found": len(positions),
+            "closed": closed,
+            "rejected": rejected,
+            "remaining": remaining,
+            "results": results,
+        }
+
     def evaluate_armed_demo_robot_once(
         self,
         pair: str = "TODOS",
@@ -5541,6 +5720,9 @@ class DashboardService:
                     MT5_OPERATIONAL_MODEL_5,
                     MT5_OPERATIONAL_MODEL_6,
                     MT5_OPERATIONAL_MODEL_7,
+                    MT5_OPERATIONAL_MODEL_8,
+                    MT5_OPERATIONAL_MODEL_9,
+                    MT5_OPERATIONAL_MODEL_10,
                 }
                 for model in selected_models
             ):
@@ -5640,6 +5822,9 @@ class DashboardService:
                         MT5_OPERATIONAL_MODEL_5,
                         MT5_OPERATIONAL_MODEL_6,
                         MT5_OPERATIONAL_MODEL_7,
+                        MT5_OPERATIONAL_MODEL_8,
+                        MT5_OPERATIONAL_MODEL_9,
+                        MT5_OPERATIONAL_MODEL_10,
                     }
                     else getattr(source_row, "last_candle_time", "")
                 )
@@ -5980,6 +6165,9 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_5: 50,
             MT5_OPERATIONAL_MODEL_6: 60,
             MT5_OPERATIONAL_MODEL_7: 70,
+            MT5_OPERATIONAL_MODEL_8: 80,
+            MT5_OPERATIONAL_MODEL_9: 90,
+            MT5_OPERATIONAL_MODEL_10: 100,
         }
         return sorted(candidates, key=lambda item: priority.get(item[0], 999))
 
@@ -6048,12 +6236,7 @@ class DashboardService:
         selected_model = str(
             operational_model or self.get_mt5_operational_model()
         ).upper()
-        if selected_model in {
-            MT5_OPERATIONAL_MODEL_2,
-            MT5_OPERATIONAL_MODEL_3,
-            MT5_OPERATIONAL_MODEL_4,
-            MT5_OPERATIONAL_MODEL_5,
-        }:
+        if selected_model in MT5_LAB_OPERATIONAL_MODELS:
             return self._mt5_lab_operational_plan(row, plan, selected_model)
         if selected_model == MT5_OPERATIONAL_MODEL_6:
             return self._mt5_model6_original_plan(row, plan)

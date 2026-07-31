@@ -33,6 +33,25 @@ class MT5ProcessProbeTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("Timeout na sonda MT5", result.message)
 
+    def test_probe_encaminha_caminho_resolvido_do_terminal(self) -> None:
+        process = Mock()
+        process.communicate.return_value = ("OK", "")
+        process.returncode = 0
+        terminal_path = r"C:\Program Files\MetaTrader 5\terminal64.exe"
+
+        with patch(
+            "core.mt5_process_probe.resolve_mt5_terminal_path",
+            return_value=terminal_path,
+        ):
+            with patch(
+                "core.mt5_process_probe.subprocess.Popen",
+                return_value=process,
+            ) as popen:
+                result = probe_mt5_initialize(0.1)
+
+        self.assertTrue(result.ok)
+        self.assertEqual(popen.call_args.args[0][-1], terminal_path)
+
 
 if __name__ == "__main__":
     unittest.main()

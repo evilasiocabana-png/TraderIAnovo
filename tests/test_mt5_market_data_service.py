@@ -179,6 +179,19 @@ class BatchForexProvider(ForexProvider):
         ]
 
 
+class EmptyExternalBatchProvider(BatchForexProvider):
+    def _use_external_mt5_process(self) -> bool:
+        return True
+
+    def get_forex_batch(
+        self,
+        symbols_timeframes: dict[str, str],
+        count: int,
+    ) -> dict[str, dict[str, object]]:
+        self.batch_requests.append((dict(symbols_timeframes), count))
+        return {}
+
+
 class DynamicForexProvider(ForexProvider):
     def __init__(self) -> None:
         super().__init__()
@@ -660,6 +673,21 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         self.assertEqual(requested_count, 1000)
         self.assertIn("EURUSD", requested_symbols)
         self.assertIn("USDCAD", requested_symbols)
+
+    def test_falha_do_batch_externo_nao_dispara_oito_subprocessos(self) -> None:
+        provider = EmptyExternalBatchProvider()
+        service = MT5MarketDataService(provider=provider, event_bus=EventBus())
+
+        data = service.load_forex_signal_dashboard_for_timeframes(
+            {"EURUSD": "M1"},
+            fallback_timeframe="M1",
+        )
+
+        self.assertEqual(data.connection_status, "CONNECTED")
+        self.assertEqual(len(data.pairs), len(SUPPORTED_MT5_SYMBOLS))
+        self.assertEqual(len(provider.batch_requests), 1)
+        self.assertEqual(provider.requests, [])
+        self.assertTrue(all(row.decision == "WAIT" for row in data.pairs))
 
     def test_refresh_id_incrementa_em_safe_mode(self) -> None:
         provider = ForexProvider()

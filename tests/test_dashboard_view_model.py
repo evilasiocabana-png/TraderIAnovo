@@ -30,6 +30,9 @@ from application.lab_operational_model_service import (
     MODEL_3_ID,
     MODEL_4_ID,
     MODEL_5_ID,
+    MODEL_8_ID,
+    MODEL_9_ID,
+    MODEL_10_ID,
 )
 from application.mt5_market_data_service import MT5ForexSignalDashboard, MT5ForexSignalRow
 from application.model6_original_trend_momentum import MODEL_6_ID, MODEL_6_LEGACY_ID
@@ -681,10 +684,12 @@ class DashboardViewModelContractTest(unittest.TestCase):
         )
 
         self.assertEqual(transformed_row.decision, "WAIT")
-        self.assertIn("260 candles", transformed_row.reason)
+        self.assertIn("60 candles", transformed_row.reason)
+        self.assertIn("M15", transformed_row.reason)
+        self.assertIn("H1", transformed_row.reason)
         self.assertIs(transformed_plan, plan)
 
-    def test_chaveamento_todos_expande_modelos_m1_a_m7(self) -> None:
+    def test_chaveamento_todos_expande_modelos_m1_a_m10(self) -> None:
         service = DashboardService()
         service.set_mt5_operational_model("TODOS_MODELOS")
 
@@ -698,6 +703,9 @@ class DashboardViewModelContractTest(unittest.TestCase):
                 "MODELO_5_LAB_CONSOLIDADO",
                 MODEL_6_ID,
                 MODEL_7_ID,
+                MODEL_8_ID,
+                MODEL_9_ID,
+                MODEL_10_ID,
             ),
         )
 
@@ -3965,6 +3973,35 @@ class DashboardViewModelContractTest(unittest.TestCase):
             )
             for index in range(61)
         ]
+
+    def test_auditoria_mt5_indisponivel_fica_pendente_sem_divergencia(self) -> None:
+        class UnavailableAuditDashboardService(DashboardService):
+            def _read_mt5_demo_execution_jsonl(self):
+                return [
+                    {
+                        "timestamp": "2026-07-30T21:48:00-03:00",
+                        "symbol": "EURUSD",
+                        "side": "BUY",
+                        "quantity": 0.1,
+                        "entry_price": 1.1,
+                        "stop": 1.09,
+                        "target": 1.12,
+                        "accepted": True,
+                        "status": "ACCEPTED",
+                        "ticket": 123,
+                    }
+                ]
+
+            def _load_mt5_trade_history(self):
+                return {}, "AQUECENDO", "Terminal MT5 aquecendo."
+
+        report = UnavailableAuditDashboardService().get_mt5_trade_audit_report()
+
+        self.assertEqual(report.total_audited, 0)
+        self.assertEqual(report.total_matched, 0)
+        self.assertEqual(report.total_mismatched, 0)
+        self.assertEqual(report.rows[0].audit_status, "PENDENTE")
+        self.assertEqual(report.rows[0].operation_status, "AGUARDANDO_MT5")
 
 
 if __name__ == "__main__":

@@ -64,6 +64,7 @@ function Start-TraderIAStreamlit {
     $script = @"
 `$env:TRADERIA_DEMO_EXECUTION_ENABLED='1'
 `$env:TRADERIA_MT5_INPROCESS_ENABLED='1'
+`$env:MT5_PATH='C:\Program Files\MetaTrader 5\terminal64.exe'
 Set-Location '$ProjectRoot'
 & '$python' -m streamlit run '$DashboardPath' --server.port $Port --server.headless true
 "@
@@ -78,10 +79,35 @@ Set-Location '$ProjectRoot'
     Write-GuardLog -Event "started" -Payload @{ port = $Port; memory_limit_mb = $MemoryLimitMB }
 }
 
+function Test-TraderIAStreamlitHealth {
+    try {
+        $response = Invoke-WebRequest `
+            -Uri "http://127.0.0.1:$Port/_stcore/health" `
+            -UseBasicParsing `
+            -TimeoutSec 5 `
+            -ErrorAction Stop
+        return [int]$response.StatusCode -eq 200
+    } catch {
+        return $false
+    }
+}
+
 function Invoke-GuardCycle {
     $processes = @(Get-TraderIAStreamlitProcess)
     if ($processes.Count -eq 0) {
         Write-GuardLog -Event "not_running" -Payload @{ port = $Port }
+        Start-TraderIAStreamlit
+        return
+    }
+    if (-not (Test-TraderIAStreamlitHealth)) {
+        Write-GuardLog -Event "health_check_failed" -Payload @{
+            port = $Port
+            process_ids = @($processes | Select-Object -ExpandProperty ProcessId)
+        }
+        foreach ($proc in $processes) {
+            Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+        Start-Sleep -Seconds 3
         Start-TraderIAStreamlit
         return
     }

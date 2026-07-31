@@ -518,6 +518,35 @@ class PositionManagerService:
                     audit_tags=("M1_LAB_FIXED_SL_TP", "HOLD_POSITION"),
                 )
             )
+        if str(plan.stop_management or "").upper() == "RESEARCH_FIXED_SL_TP":
+            return self._record(
+                PositionManagerResult(
+                    symbol=plan.symbol,
+                    ticket=ticket,
+                    status="POSITION_HELD",
+                    action="HOLD_POSITION",
+                    message=(
+                        "Modelo do Lab com saida fixa: preservar SL/TP ate o "
+                        "primeiro toque; Position Manager apenas audita."
+                    ),
+                    policy="RESEARCH_FIXED_SL_TP",
+                    execution_mode="FIXED_SL_TP",
+                    execution_status="NOT_APPLICABLE",
+                    side=side,
+                    old_stop=current_stop,
+                    entry=entry,
+                    position_state="FIXED_EXIT_WAIT",
+                    confidence=1.0,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=plan.beta_id,
+                    beta_version=plan.beta_version,
+                    beta_mode="FIXED_SL_TP",
+                    evidence=("RESEARCH_FIXED_SL_TP",),
+                    candle_time=plan.candle_time,
+                    audit_tags=("RESEARCH_FIXED_SL_TP", "HOLD_POSITION"),
+                )
+            )
         if current_stop is None:
             return self._record(
                 PositionManagerResult(

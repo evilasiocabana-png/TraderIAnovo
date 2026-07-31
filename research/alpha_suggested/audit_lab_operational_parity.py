@@ -33,13 +33,13 @@ ROOT = Path(__file__).resolve().parents[2]
 RESEARCH_ROOT = ROOT / ".traderia" / "research"
 M2_SOURCE = RESEARCH_ROOT / "alpha_sugerida_1_plus_session_regime_h1_20000.json"
 M2_SNAPSHOT = RESEARCH_ROOT / "alpha_sugerida_h1_20000_snapshot.json"
-M3_SOURCE = RESEARCH_ROOT / "m3_alpha_sugerida_2_plus_best_by_pair.json"
+M3_SOURCE = RESEARCH_ROOT / "m3_nested_robusta_003_all_pairs_demo.json"
 M3_SNAPSHOTS = {
     "H1": RESEARCH_ROOT / "alpha_sugerida_h1_20000_snapshot.json",
     "M30": RESEARCH_ROOT / "m3_alpha_sugerida_m30_20000_snapshot.json",
     "H4": RESEARCH_ROOT / "m3_alpha_sugerida_h4_10000_snapshot.json",
 }
-M4_SOURCE = RESEARCH_ROOT / "modelo_4_pesquisa_contextual_mtf.json"
+M4_SOURCE = RESEARCH_ROOT / "modelo_4_liquidity_reclaim_all_pairs_demo.json"
 M5_SOURCE = RESEARCH_ROOT / "modelo_5_pesquisa_best_m1_m4.json"
 MANIFEST_PATH = (
     ROOT / "research" / "alpha_suggested" / "lab_operational_models_manifest.json"
@@ -301,10 +301,13 @@ def _build_m3() -> dict[str, Any]:
             "alpha_id": str(result.get("alpha_id") or "ALPHA_SUGERIDA_002_PLUS"),
             "timeframe": timeframe,
             "parameters": parameters,
-            "research_qualified": (
-                str(result.get("selection_status") or "").upper()
-                == "APROVADA_B_PARA_REPLAY"
-            ),
+            "research_qualified": str(
+                result.get("selection_status") or ""
+            ).upper()
+            in {
+                "APROVADA_B_PARA_REPLAY",
+                "QUALIFIED_FOR_DEMO_REPLAY",
+            },
             "research_status": str(result.get("selection_status") or "N/D"),
             "entry_contract": "CLOSED_CANDLE_SIGNAL_NEXT_LIVE_PRICE",
             "exit_contract": FIXED_EXIT_POLICY,
