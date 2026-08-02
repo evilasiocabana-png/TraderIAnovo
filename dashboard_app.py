@@ -9,6 +9,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 import sys
@@ -23,6 +24,9 @@ import streamlit.components.v1 as components
 
 from application.dashboard_service import DashboardService
 from application.lab_operational_model_service import (
+    MODEL_IDS as LAB_OPERATIONAL_MODEL_IDS_BY_LABEL,
+    OFFICIAL_ALPHA_MODEL_IDS,
+    OFFICIAL_ALPHA_MODEL_SPECS,
     MODEL_2_ID as MT5_OPERATIONAL_MODEL_2,
     MODEL_3_ID as MT5_OPERATIONAL_MODEL_3,
     MODEL_4_ID as MT5_OPERATIONAL_MODEL_4,
@@ -173,7 +177,21 @@ MT5_LAB_OPERATIONAL_MODELS = {
     MT5_OPERATIONAL_MODEL_8,
     MT5_OPERATIONAL_MODEL_9,
     MT5_OPERATIONAL_MODEL_10,
+    *OFFICIAL_ALPHA_MODEL_IDS,
 }
+MT5_OPERATIONAL_MODEL_IDS = (
+    MT5_OPERATIONAL_MODEL_1,
+    MT5_OPERATIONAL_MODEL_2,
+    MT5_OPERATIONAL_MODEL_3,
+    MT5_OPERATIONAL_MODEL_4,
+    MT5_OPERATIONAL_MODEL_5,
+    MT5_OPERATIONAL_MODEL_6,
+    MT5_OPERATIONAL_MODEL_7,
+    MT5_OPERATIONAL_MODEL_8,
+    MT5_OPERATIONAL_MODEL_9,
+    MT5_OPERATIONAL_MODEL_10,
+    *OFFICIAL_ALPHA_MODEL_IDS,
+)
 LEGACY_MT5_OPERATIONAL_MODELS = {
     "MODELO_2_ESPELHO_BETA2_RR1": MT5_OPERATIONAL_MODEL_2,
     "MODELO_3_RR3": MT5_OPERATIONAL_MODEL_3,
@@ -2072,7 +2090,7 @@ def _render_mt5_entry_filter_mode_selector() -> str:
 
 
 def _mt5_operational_model_labels() -> dict[str, str]:
-    return {
+    labels = {
         MT5_OPERATIONAL_MODEL_1: "Modelo 1 - Lab oficial",
         MT5_OPERATIONAL_MODEL_2: "Modelo 2 - Trend Pullback M15/H1",
         MT5_OPERATIONAL_MODEL_3: "Modelo 3 - melhores cenarios individuais",
@@ -2083,8 +2101,13 @@ def _mt5_operational_model_labels() -> dict[str, str]:
         MT5_OPERATIONAL_MODEL_8: "Modelo 8 - Trend Pullback H1/M5",
         MT5_OPERATIONAL_MODEL_9: "Modelo 9 - Trend Pullback M15/M1",
         MT5_OPERATIONAL_MODEL_10: "Modelo 10 - Trend Pullback D1/M15",
-        MT5_OPERATIONAL_MODEL_ALL: "Todos - M1 a M10",
     }
+    for label, spec in OFFICIAL_ALPHA_MODEL_SPECS.items():
+        labels[LAB_OPERATIONAL_MODEL_IDS_BY_LABEL[label]] = (
+            f"Modelo {int(label[1:])} - {spec['alpha_id']} {str(spec['family']).replace('_', ' ').title()}"
+        )
+    labels[MT5_OPERATIONAL_MODEL_ALL] = "Todos - M1 a M20"
+    return labels
 
 
 def _persist_mt5_operational_model_widget_selection() -> None:
@@ -2154,7 +2177,7 @@ def _render_mt5_operational_model_selector() -> str:
             "O M6 usa saida fixa; o M7 protege o SL a partir de 1,5R. M2-M5 "
             "entram no preco vivo depois do candle fechado e usam SL/TP fixos. "
             "Pares reprovados ficam bloqueados e visiveis. "
-            "Em TODOS, M1-M10 podem enviar uma posicao "
+            "Em TODOS, M1-M20 podem enviar uma posicao "
             "por modelo e par."
         )
     st.session_state[MT5_OPERATIONAL_MODEL_KEY] = selected
@@ -2172,7 +2195,7 @@ def _render_mt5_operational_model_selector() -> str:
         )
     if selected == MT5_OPERATIONAL_MODEL_ALL:
         st.warning(
-            "Todos os modelos ativos: M1-M10 podem enviar ordem. "
+            "Todos os modelos ativos: M1-M20 podem enviar ordem. "
             "O mesmo par pode ter uma posicao por modelo."
         )
     if selected == MT5_OPERATIONAL_MODEL_3:
@@ -2220,6 +2243,22 @@ def _render_mt5_operational_model_selector() -> str:
             "M10 ativo: direcao D1, entrada M15 e mesma regra Trend Pullback do M2. "
             "SL inicial 1,25 ATR e TP fixo 2R."
         )
+    selected_label = next(
+        (
+            label
+            for label, model_id in LAB_OPERATIONAL_MODEL_IDS_BY_LABEL.items()
+            if model_id == selected and label in OFFICIAL_ALPHA_MODEL_SPECS
+        ),
+        None,
+    )
+    if selected_label is not None:
+        spec = OFFICIAL_ALPHA_MODEL_SPECS[selected_label]
+        evidence = dict(spec.get("evidence") or {})
+        st.warning(
+            f"{selected_label} ativo em Demo: {spec['alpha_id']} / "
+            f"{str(spec['family']).replace('_', ' ')} em {spec['timeframe']}. "
+            f"SL/TP fixos. Amostra de origem: {evidence.get('sample_size', 0)}."
+        )
     return selected
 
 
@@ -2249,19 +2288,7 @@ def _resolve_mt5_operational_model_for_render(
 def _valid_mt5_operational_model(model: object) -> str:
     normalized = str(model or MT5_OPERATIONAL_MODEL_1).upper()
     normalized = LEGACY_MT5_OPERATIONAL_MODELS.get(normalized, normalized)
-    if normalized in {
-        MT5_OPERATIONAL_MODEL_1,
-        MT5_OPERATIONAL_MODEL_2,
-        MT5_OPERATIONAL_MODEL_3,
-        MT5_OPERATIONAL_MODEL_4,
-        MT5_OPERATIONAL_MODEL_5,
-        MT5_OPERATIONAL_MODEL_6,
-        MT5_OPERATIONAL_MODEL_7,
-        MT5_OPERATIONAL_MODEL_8,
-        MT5_OPERATIONAL_MODEL_9,
-        MT5_OPERATIONAL_MODEL_10,
-        MT5_OPERATIONAL_MODEL_ALL,
-    }:
+    if normalized in {*MT5_OPERATIONAL_MODEL_IDS, MT5_OPERATIONAL_MODEL_ALL}:
         return normalized
     return MT5_OPERATIONAL_MODEL_1
 
@@ -2341,6 +2368,9 @@ def _mt5_operational_model_short_label(model: str) -> str:
         return "M9"
     if normalized == MT5_OPERATIONAL_MODEL_10:
         return "M10"
+    for label, model_id in LAB_OPERATIONAL_MODEL_IDS_BY_LABEL.items():
+        if normalized == model_id:
+            return label
     if normalized == MT5_OPERATIONAL_MODEL_ALL:
         return "TODOS"
     return "MODELO 1"
@@ -3081,24 +3111,14 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
         initial_balance=float(initial_balance),
         start_at=start_at,
     )
+    visible_individual_models = [f"MODELO {index}" for index in range(1, 11)]
     model_curves = {
         model: _mt5_realized_equity_curve(
             _mt5_rows_for_equity_model_filter(rows, model),
             initial_balance=float(initial_balance),
             start_at=start_at,
         )
-        for model in [
-            "MODELO 1",
-            "MODELO 2",
-            "MODELO 3",
-            "MODELO 4",
-            "MODELO 5",
-            "MODELO 6",
-            "MODELO 7",
-            "MODELO 8",
-            "MODELO 9",
-            "MODELO 10",
-        ]
+        for model in visible_individual_models
     }
     st.caption(
         "Curvas calculadas pelos resultados realizados no MT5 a partir de "
@@ -3117,18 +3137,7 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
         start_at=start_at,
         model_filter=str(main_chart_selection),
     )
-    for model_filter in [
-        "MODELO 1",
-        "MODELO 2",
-        "MODELO 3",
-        "MODELO 4",
-        "MODELO 5",
-        "MODELO 6",
-        "MODELO 7",
-        "MODELO 8",
-        "MODELO 9",
-        "MODELO 10",
-    ]:
+    for model_filter in visible_individual_models:
         _render_mt5_equity_chart(
             model_filter,
             model_curves[model_filter],
@@ -3139,27 +3148,26 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
 
 def _mt5_equity_main_chart_model_selection() -> str:
     st.caption("Grafico principal")
-    first_row = st.columns(6)
-    all_selected = first_row[0].checkbox(
+    all_column = st.columns(5)[0]
+    all_selected = all_column.checkbox(
         "Todos",
         value=True,
         key="mt5_report_equity_main_all",
-        help="Marca M1 a M10 no grafico principal.",
+        help="Marca M1 a M20 no grafico principal.",
     )
     selected_models: list[str] = []
-    model_columns = list(first_row[1:]) + list(st.columns(5))
-    for column, model in zip(
-        model_columns,
-        ("M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9", "M10"),
-    ):
-        checked = column.checkbox(
-            model,
-            value=all_selected,
-            disabled=all_selected,
-            key=f"mt5_report_equity_main_{model.lower()}",
-        )
-        if all_selected or checked:
-            selected_models.append(model)
+    for start in range(1, 21, 5):
+        columns = st.columns(5)
+        for column, index in zip(columns, range(start, start + 5)):
+            model = f"M{index}"
+            checked = column.checkbox(
+                model,
+                value=all_selected,
+                disabled=all_selected,
+                key=f"mt5_report_equity_main_{model.lower()}",
+            )
+            if all_selected or checked:
+                selected_models.append(model)
     if not selected_models:
         st.warning("Selecione pelo menos um modelo para o grafico principal.")
         return "TODOS"
@@ -3174,52 +3182,13 @@ def _mt5_rows_for_equity_model_selection(
     if normalized == "TODOS":
         return list(rows)
     selected_keys = {
-        part
-        for part in normalized.split("+")
-        if part in {
-            "M1",
-            "M2",
-            "M3",
-            "M4",
-            "M5",
-            "M6",
-            "M7",
-            "M8",
-            "M9",
-            "M10",
-            "MODELO1",
-            "MODELO2",
-            "MODELO3",
-            "MODELO4",
-            "MODELO5",
-            "MODELO6",
-            "MODELO7",
-            "MODELO8",
-            "MODELO9",
-            "MODELO10",
-        }
+        part for part in normalized.split("+")
+        if re.fullmatch(r"(?:M|MODELO)(?:[1-9]|1\d|20)", part)
     }
     model_keys = {
-        "M1": "MODELO1",
-        "M2": "MODELO2",
-        "M3": "MODELO3",
-        "M4": "MODELO4",
-        "M5": "MODELO5",
-        "M6": "MODELO6",
-        "M7": "MODELO7",
-        "M8": "MODELO8",
-        "M9": "MODELO9",
-        "M10": "MODELO10",
-        "MODELO1": "MODELO1",
-        "MODELO2": "MODELO2",
-        "MODELO3": "MODELO3",
-        "MODELO4": "MODELO4",
-        "MODELO5": "MODELO5",
-        "MODELO6": "MODELO6",
-        "MODELO7": "MODELO7",
-        "MODELO8": "MODELO8",
-        "MODELO9": "MODELO9",
-        "MODELO10": "MODELO10",
+        alias: f"MODELO{index}"
+        for index in range(1, 21)
+        for alias in (f"M{index}", f"MODELO{index}")
     }
     targets = {model_keys[key] for key in selected_keys}
     if not targets:
@@ -3339,7 +3308,19 @@ def _mt5_equity_model_setup_summary(model_filter: str) -> str:
             "Trend Pullback D1 -> M15 | ADX > 20 | SL 1,25 ATR | alvo 2R"
         ),
     }
-    return summaries.get(normalized, "")
+    if normalized in summaries:
+        return summaries[normalized]
+    match = re.fullmatch(r"MODELO (1[1-9]|20)", normalized)
+    if match is None:
+        return ""
+    label = f"M{match.group(1)}"
+    spec = OFFICIAL_ALPHA_MODEL_SPECS.get(label, {})
+    if not spec:
+        return ""
+    return (
+        f"{spec['alpha_id']} | {str(spec['family']).replace('_', ' ')} | "
+        f"TF {spec['timeframe']} | SL/TP fixos"
+    )
 
 
 def _mt5_equity_chart_snapshot(curve: list[float]) -> dict[str, object]:
@@ -3398,30 +3379,16 @@ def _mt5_equity_model_filter_caption(
     filtered_rows: list[object],
     model_filter: str,
 ) -> str:
-    counts = {
-        "MODELO0": 0,
-        "MODELO1": 0,
-        "MODELO2": 0,
-        "MODELO3": 0,
-        "MODELO4": 0,
-        "MODELO5": 0,
-        "MODELO6": 0,
-        "MODELO7": 0,
-        "MODELO8": 0,
-        "MODELO9": 0,
-        "MODELO10": 0,
-    }
+    counts = {f"MODELO{index}": 0 for index in range(0, 21)}
     for row in rows:
         key = _mt5_equity_row_model_key(row)
         counts[key if key in counts else "MODELO0"] += 1
+    details = " | ".join(
+        f"M{index}: {counts[f'MODELO{index}']}" for index in range(0, 21)
+    )
     return (
         f"Filtro aplicado: {model_filter} | linhas na curva: {len(filtered_rows)} | "
-        f"M0: {counts['MODELO0']} | M1: {counts['MODELO1']} | "
-        f"M2: {counts['MODELO2']} | M3: {counts['MODELO3']} | "
-        f"M4: {counts['MODELO4']} | M5: {counts['MODELO5']} | "
-        f"M6: {counts['MODELO6']} | M7: {counts['MODELO7']} | "
-        f"M8: {counts['MODELO8']} | M9: {counts['MODELO9']} | "
-        f"M10: {counts['MODELO10']}"
+        f"{details}"
     )
 
 
@@ -3444,6 +3411,11 @@ def _mt5_equity_row_model_key(row: object) -> str:
         or model in {"M5P", "M5-P", "MODELO5P"}
     ):
         return "MODELO5"
+    match = re.search(r"(?:MODELO[_ ]?|\bM)(\d{1,2})(?:_|\b)", model)
+    if match is not None:
+        number = int(match.group(1))
+        if 1 <= number <= 20:
+            return f"MODELO{number}"
     if "MODELO_10" in model or "MODELO 10" in model or model == "M10":
         return "MODELO10"
     if "MODELO_9" in model or "MODELO 9" in model or model == "M9":
@@ -4665,6 +4637,19 @@ def _exibir_entradas_teoricas_mt5(
             "Modelo 10 - Trend Pullback D1/M15",
             "Confirma direcao D1 e procura o gatilho Trend Pullback em M15.",
         ),
+    ) + tuple(
+        (
+            LAB_OPERATIONAL_MODEL_IDS_BY_LABEL[label],
+            (
+                f"Modelo {int(label[1:])} - {spec['alpha_id']} / "
+                f"{str(spec['family']).replace('_', ' ')}"
+            ),
+            (
+                f"Le {spec['timeframe']} no ultimo candle fechado usando o "
+                "contrato congelado e SL/TP fixos."
+            ),
+        )
+        for label, spec in OFFICIAL_ALPHA_MODEL_SPECS.items()
     )
     shared_decisions = get_background_snapshot(
         MT5_LAB_OPERATIONAL_DECISIONS_SHARED_SNAPSHOT_KEY,
@@ -5187,18 +5172,7 @@ def _mt5_model_indicator_monitor_rows(
 ) -> tuple[list[dict[str, object]], dict[str, str]]:
     selected = _valid_mt5_operational_model(operational_model)
     selected_models = (
-        (
-            MT5_OPERATIONAL_MODEL_1,
-            MT5_OPERATIONAL_MODEL_2,
-            MT5_OPERATIONAL_MODEL_3,
-            MT5_OPERATIONAL_MODEL_4,
-            MT5_OPERATIONAL_MODEL_5,
-            MT5_OPERATIONAL_MODEL_6,
-            MT5_OPERATIONAL_MODEL_7,
-            MT5_OPERATIONAL_MODEL_8,
-            MT5_OPERATIONAL_MODEL_9,
-            MT5_OPERATIONAL_MODEL_10,
-        )
+        MT5_OPERATIONAL_MODEL_IDS
         if selected == MT5_OPERATIONAL_MODEL_ALL
         else (selected,)
     )
@@ -5405,6 +5379,20 @@ def _mt5_expected_model_indicators(
     parameters = dict(row.get("_Parametros Lab Raw", {}) or {})
     overlay = dict(row.get("_Context Overlay Raw", {}) or {})
     family = str(parameters.get("family") or "").upper()
+    official_indicators = {
+        "TREND_MOMENTUM": ("EMA9", "EMA21", "MOMENTUM10", "VOLATILITY20", "RSI14", "ATR14"),
+        "DONCHIAN_BREAKOUT": ("DONCHIAN_HIGH", "DONCHIAN_LOW", "MOMENTUM10", "ATR14"),
+        "ADX_TREND_STRENGTH": ("EMA20", "EMA100", "ADX14", "MOMENTUM10", "ATR14"),
+        "MACD_MOMENTUM_SHIFT": ("MACD", "MACD_SIGNAL", "EMA9", "EMA21", "ATR14"),
+        "PIVOT_REJECTION": ("PIVOT", "LOWER_WICK", "UPPER_WICK", "RSI14", "ATR14"),
+        "VWAP_MEAN_REVERSION": ("VWAP", "Z_SCORE", "RSI14", "ATR14"),
+        "SUPPORT_RESISTANCE_REACTION": ("SUPPORT", "RESISTANCE", "RSI14", "ATR14"),
+        "MULTI_TIMEFRAME_ALIGNMENT": ("EMA50", "EMA200", "MOMENTUM10", "CONTEXT_EMA50", "CONTEXT_EMA200", "CONTEXT_MOMENTUM10", "ATR14"),
+        "LIQUIDITY_SPREAD_FILTER": ("SPREAD", "SPREAD_AVERAGE", "TICK_VOLUME", "TICK_VOLUME_AVERAGE", "EMA20", "EMA50", "MOMENTUM10", "ATR14"),
+        "BETA002_REVERSAL_SIGNAL": ("EMA9", "EMA21", "MOMENTUM10", "VOLATILITY20", "ATR14"),
+    }
+    if family in official_indicators:
+        return official_indicators[family]
     if family == "TREND_MOMENTUM_ORIGINAL":
         return ("TREND", "MA20", "MA50", "MOMENTUM10", "VOLATILITY20", "RSI14", "ATR20")
     if family == "TREND_PULLBACK_M15_H1":
@@ -5953,7 +5941,7 @@ def _exibir_saidas_teoricas_mt5(
     st.subheader("Saida Teorica MT5")
     st.caption(
         "Somente leitura: acompanha posicoes abertas usando o modelo registrado "
-        "na ordem. M1 e M6 preservam SL/TP fixos; M2-M5 e M8-M10 preservam os contratos "
+        "na ordem. M1 e M6 preservam SL/TP fixos; os modelos do Lab M2-M5, M8-M20 preservam os contratos "
         "da pesquisa; M7 protege o SL depois de 1,5R sem FULL_EXIT. Posicoes "
         "legadas continuam identificadas pelo contrato gravado quando abertas."
     )
@@ -5970,6 +5958,16 @@ def _exibir_saidas_teoricas_mt5(
             "<span class='traderia-legend-model8'>Modelo 8 / M8</span>"
             "<span class='traderia-legend-model9'>Modelo 9 / M9</span>"
             "<span class='traderia-legend-model10'>Modelo 10 / M10</span>"
+            "<span class='traderia-legend-model11'>M11</span>"
+            "<span class='traderia-legend-model12'>M12</span>"
+            "<span class='traderia-legend-model13'>M13</span>"
+            "<span class='traderia-legend-model14'>M14</span>"
+            "<span class='traderia-legend-model15'>M15</span>"
+            "<span class='traderia-legend-model16'>M16</span>"
+            "<span class='traderia-legend-model17'>M17</span>"
+            "<span class='traderia-legend-model18'>M18</span>"
+            "<span class='traderia-legend-model19'>M19</span>"
+            "<span class='traderia-legend-model20'>M20</span>"
             "</div>"
         ),
         unsafe_allow_html=True,
@@ -6196,18 +6194,7 @@ def _mt5_trade_row_price(
 
 def _mt5_theoretical_exit_has_recorded_model(row: object) -> bool:
     model = str(getattr(row, "operational_model", "") or "").upper()
-    return model in {
-        MT5_OPERATIONAL_MODEL_1,
-        MT5_OPERATIONAL_MODEL_2,
-        MT5_OPERATIONAL_MODEL_3,
-        MT5_OPERATIONAL_MODEL_4,
-        MT5_OPERATIONAL_MODEL_5,
-        MT5_OPERATIONAL_MODEL_6,
-        MT5_OPERATIONAL_MODEL_7,
-        MT5_OPERATIONAL_MODEL_8,
-        MT5_OPERATIONAL_MODEL_9,
-        MT5_OPERATIONAL_MODEL_10,
-    } or model in LEGACY_MT5_OPERATIONAL_MODELS
+    return model in set(MT5_OPERATIONAL_MODEL_IDS) or model in LEGACY_MT5_OPERATIONAL_MODELS
 
 
 def _mt5_theoretical_exit_effective_model(
@@ -6218,32 +6205,10 @@ def _mt5_theoretical_exit_effective_model(
     row_model = str(getattr(row, "operational_model", "") or "").upper()
     if row_model in LEGACY_MT5_OPERATIONAL_MODELS:
         return row_model
-    if row_model in {
-        MT5_OPERATIONAL_MODEL_1,
-        MT5_OPERATIONAL_MODEL_2,
-        MT5_OPERATIONAL_MODEL_3,
-        MT5_OPERATIONAL_MODEL_4,
-        MT5_OPERATIONAL_MODEL_5,
-        MT5_OPERATIONAL_MODEL_6,
-        MT5_OPERATIONAL_MODEL_7,
-        MT5_OPERATIONAL_MODEL_8,
-        MT5_OPERATIONAL_MODEL_9,
-        MT5_OPERATIONAL_MODEL_10,
-    }:
+    if row_model in set(MT5_OPERATIONAL_MODEL_IDS):
         return row_model
     fallback = str(fallback_model or MT5_OPERATIONAL_MODEL_1).upper()
-    if fallback in {
-        MT5_OPERATIONAL_MODEL_1,
-        MT5_OPERATIONAL_MODEL_2,
-        MT5_OPERATIONAL_MODEL_3,
-        MT5_OPERATIONAL_MODEL_4,
-        MT5_OPERATIONAL_MODEL_5,
-        MT5_OPERATIONAL_MODEL_6,
-        MT5_OPERATIONAL_MODEL_7,
-        MT5_OPERATIONAL_MODEL_8,
-        MT5_OPERATIONAL_MODEL_9,
-        MT5_OPERATIONAL_MODEL_10,
-    }:
+    if fallback in set(MT5_OPERATIONAL_MODEL_IDS):
         return fallback
     return MT5_OPERATIONAL_MODEL_1
 
@@ -6258,15 +6223,7 @@ def _mt5_theoretical_exit_display_signal(
         return _model4_inverse_entry_row(signal)
     if display_model == "MODELO_5_PRICE_ACTION" and signal:
         return _model5_price_action_entry_row(signal)
-    if display_model in {
-        MT5_OPERATIONAL_MODEL_2,
-        MT5_OPERATIONAL_MODEL_3,
-        MT5_OPERATIONAL_MODEL_4,
-        MT5_OPERATIONAL_MODEL_5,
-        MT5_OPERATIONAL_MODEL_8,
-        MT5_OPERATIONAL_MODEL_9,
-        MT5_OPERATIONAL_MODEL_10,
-    }:
+    if display_model in MT5_LAB_OPERATIONAL_MODELS:
         return signal
     if display_model in {
         MT5_OPERATIONAL_MODEL_6,
@@ -6384,15 +6341,7 @@ def _mt5_theoretical_exit_stop_management_label(
         return "FIXO_ESPELHO_M1"
     if display_model == "MODELO_5_PRICE_ACTION":
         return "ESTRUTURAL_PRICE_ACTION"
-    if display_model in {
-        MT5_OPERATIONAL_MODEL_2,
-        MT5_OPERATIONAL_MODEL_3,
-        MT5_OPERATIONAL_MODEL_4,
-        MT5_OPERATIONAL_MODEL_5,
-        MT5_OPERATIONAL_MODEL_8,
-        MT5_OPERATIONAL_MODEL_9,
-        MT5_OPERATIONAL_MODEL_10,
-    }:
+    if display_model in MT5_LAB_OPERATIONAL_MODELS:
         return "RESEARCH_FIXED_SL_TP"
     if display_model == MT5_OPERATIONAL_MODEL_6:
         return "FIXO_SL_TP_RR2"
@@ -6422,15 +6371,7 @@ def _mt5_theoretical_exit_stop_movement_label(
         "MODELO_4_ESPELHO_M1",
     }:
         return "FIXO"
-    if display_model in {
-        MT5_OPERATIONAL_MODEL_2,
-        MT5_OPERATIONAL_MODEL_3,
-        MT5_OPERATIONAL_MODEL_4,
-        MT5_OPERATIONAL_MODEL_5,
-        MT5_OPERATIONAL_MODEL_8,
-        MT5_OPERATIONAL_MODEL_9,
-        MT5_OPERATIONAL_MODEL_10,
-    }:
+    if display_model in MT5_LAB_OPERATIONAL_MODELS:
         return "FIXO"
     if display_model == MT5_OPERATIONAL_MODEL_6:
         return "FIXO_ATUAL"
@@ -6455,15 +6396,7 @@ def _mt5_theoretical_exit_beta_label(
     row_beta = _mt5_trade_row_text(row, "beta_id", "beta_id", "beta")
     if row_beta and _mt5_theoretical_exit_has_recorded_model(row):
         return row_beta.upper()
-    if display_model in {
-        MT5_OPERATIONAL_MODEL_2,
-        MT5_OPERATIONAL_MODEL_3,
-        MT5_OPERATIONAL_MODEL_4,
-        MT5_OPERATIONAL_MODEL_5,
-        MT5_OPERATIONAL_MODEL_8,
-        MT5_OPERATIONAL_MODEL_9,
-        MT5_OPERATIONAL_MODEL_10,
-    }:
+    if display_model in MT5_LAB_OPERATIONAL_MODELS:
         return f"BETA_LAB_{_mt5_operational_model_short_label(display_model).replace('MODELO ', 'M')}_FIXED"
     if display_model == MT5_OPERATIONAL_MODEL_6:
         return MODEL_6_BETA_ID
@@ -6522,15 +6455,7 @@ def _mt5_theoretical_exit_model_label(
             text = str(value or "").strip()
             if text and text.upper() not in {"N/D", "NONE"}:
                 return text
-    if display_model in {
-        MT5_OPERATIONAL_MODEL_2,
-        MT5_OPERATIONAL_MODEL_3,
-        MT5_OPERATIONAL_MODEL_4,
-        MT5_OPERATIONAL_MODEL_5,
-        MT5_OPERATIONAL_MODEL_8,
-        MT5_OPERATIONAL_MODEL_9,
-        MT5_OPERATIONAL_MODEL_10,
-    }:
+    if display_model in MT5_LAB_OPERATIONAL_MODELS:
         label = _mt5_operational_model_short_label(display_model).replace("MODELO ", "M")
         return f"BETA_LAB_{label}_FIXED_V1"
     for value in (
@@ -6568,6 +6493,11 @@ def _mt5_sender_model_label(
         or getattr(row, "operational_model", "N/D")
         or "N/D"
     ).upper()
+    model_key = _mt5_equity_row_model_key(
+        SimpleNamespace(operational_model=model, plan_snapshot={})
+    )
+    if model_key != "MODELO0":
+        return model_key.replace("MODELO", "MODELO ")
     if "MODELO_10" in model or model in {"M10", "MODELO 10"}:
         return "MODELO 10"
     if "MODELO_9" in model or model in {"M9", "MODELO 9"}:
@@ -6659,9 +6589,12 @@ def _mt5_theoretical_exit_programming_label(row: object) -> str:
 
 
 def _mt5_theoretical_exit_cell_class(row: dict[str, object], column: str) -> str:
-    """Destaca apenas a celula do modelo; a linha ja comunica M1-M10."""
+    """Destaca apenas a celula do modelo; a linha ja comunica M1-M20."""
     if column == "Modelo envio":
         model = str(row.get(column, "") or "").upper()
+        match = re.fullmatch(r"MODELO (\d{1,2})", model)
+        if match is not None and 11 <= int(match.group(1)) <= 20:
+            return f"traderia-cell-model{match.group(1)}"
         if model == "MODELO 4":
             return "traderia-cell-model4"
         if model == "MODELO 5":
@@ -6724,6 +6657,11 @@ def _mt5_theoretical_exit_model_row_class(row: dict[str, object]) -> str:
         str(row.get(column, "") or "").upper()
         for column in ("Modelo envio", "Modelo entrada", "Modelo saida")
     )
+    model_key = _mt5_equity_row_model_key(
+        SimpleNamespace(operational_model=model_text, plan_snapshot={})
+    )
+    if model_key != "MODELO0":
+        return f"traderia-row-model{model_key.replace('MODELO', '')}"
     if "MODELO 10" in model_text or "MODELO10" in model_text or "M10" in model_text:
         return "traderia-row-model10"
     if "MODELO 9" in model_text or "MODELO9" in model_text or "M9" in model_text:
@@ -7110,6 +7048,10 @@ def _mt5_open_position_context_by_model(
         "MODELO8": MT5_OPERATIONAL_MODEL_8,
         "MODELO9": MT5_OPERATIONAL_MODEL_9,
         "MODELO10": MT5_OPERATIONAL_MODEL_10,
+        **{
+            f"MODELO{index}": LAB_OPERATIONAL_MODEL_IDS_BY_LABEL[f"M{index}"]
+            for index in range(11, 21)
+        },
     }
     index: dict[tuple[str, str], dict[str, object]] = {}
     for position in list(getattr(report, "rows", []) or []):
@@ -8132,6 +8074,11 @@ def _render_stable_readonly_table(
 
 def _mt5_trade_audit_model_row_class(row: dict[str, object]) -> str:
     model = str(row.get("Modelo", row.get("Modelo envio", "")) or "").upper()
+    model_key = _mt5_equity_row_model_key(
+        SimpleNamespace(operational_model=model, plan_snapshot={})
+    )
+    if model_key != "MODELO0":
+        return f"traderia-row-model{model_key.replace('MODELO', '')}"
     if "MODELO 10" in model or "MODELO10" in model or model == "M10":
         return "traderia-row-model10"
     if "MODELO 9" in model or "MODELO9" in model or model == "M9":
@@ -8368,6 +8315,16 @@ def _inject_dashboard_css() -> None:
             color: #1F2937 !important;
             font-weight: 800;
         }
+        .traderia-row-model11 td { background: #DCFCE7 !important; color: #14532D !important; font-weight: 800; }
+        .traderia-row-model12 td { background: #FEF9C3 !important; color: #713F12 !important; font-weight: 800; }
+        .traderia-row-model13 td { background: #FFE4E6 !important; color: #881337 !important; font-weight: 800; }
+        .traderia-row-model14 td { background: #DBEAFE !important; color: #1E3A8A !important; font-weight: 800; }
+        .traderia-row-model15 td { background: #F3E8FF !important; color: #581C87 !important; font-weight: 800; }
+        .traderia-row-model16 td { background: #CFFAFE !important; color: #155E75 !important; font-weight: 800; }
+        .traderia-row-model17 td { background: #FFEDD5 !important; color: #7C2D12 !important; font-weight: 800; }
+        .traderia-row-model18 td { background: #E0E7FF !important; color: #312E81 !important; font-weight: 800; }
+        .traderia-row-model19 td { background: #D1FAE5 !important; color: #064E3B !important; font-weight: 800; }
+        .traderia-row-model20 td { background: #FCE7F3 !important; color: #831843 !important; font-weight: 800; }
         .traderia-stable-table td.traderia-cell-active {
             background: #DBEAFE !important;
             color: #0F172A !important;
@@ -8428,6 +8385,16 @@ def _inject_dashboard_css() -> None:
             color: #1F2937 !important;
             font-weight: 900;
         }
+        .traderia-stable-table td.traderia-cell-model11 { background: #BBF7D0 !important; color: #14532D !important; font-weight: 900; }
+        .traderia-stable-table td.traderia-cell-model12 { background: #FEF08A !important; color: #713F12 !important; font-weight: 900; }
+        .traderia-stable-table td.traderia-cell-model13 { background: #FECDD3 !important; color: #881337 !important; font-weight: 900; }
+        .traderia-stable-table td.traderia-cell-model14 { background: #BFDBFE !important; color: #1E3A8A !important; font-weight: 900; }
+        .traderia-stable-table td.traderia-cell-model15 { background: #E9D5FF !important; color: #581C87 !important; font-weight: 900; }
+        .traderia-stable-table td.traderia-cell-model16 { background: #A5F3FC !important; color: #155E75 !important; font-weight: 900; }
+        .traderia-stable-table td.traderia-cell-model17 { background: #FED7AA !important; color: #7C2D12 !important; font-weight: 900; }
+        .traderia-stable-table td.traderia-cell-model18 { background: #C7D2FE !important; color: #312E81 !important; font-weight: 900; }
+        .traderia-stable-table td.traderia-cell-model19 { background: #A7F3D0 !important; color: #064E3B !important; font-weight: 900; }
+        .traderia-stable-table td.traderia-cell-model20 { background: #FBCFE8 !important; color: #831843 !important; font-weight: 900; }
         .traderia-stable-table td.traderia-cell-result-positive {
             background: #DDF7E3 !important;
             color: #0F3D24 !important;
@@ -8510,6 +8477,16 @@ def _inject_dashboard_css() -> None:
             background: #E5E7EB;
             color: #1F2937;
         }
+        .traderia-legend-model11 { background: #DCFCE7; color: #14532D; }
+        .traderia-legend-model12 { background: #FEF9C3; color: #713F12; }
+        .traderia-legend-model13 { background: #FFE4E6; color: #881337; }
+        .traderia-legend-model14 { background: #DBEAFE; color: #1E3A8A; }
+        .traderia-legend-model15 { background: #F3E8FF; color: #581C87; }
+        .traderia-legend-model16 { background: #CFFAFE; color: #155E75; }
+        .traderia-legend-model17 { background: #FFEDD5; color: #7C2D12; }
+        .traderia-legend-model18 { background: #E0E7FF; color: #312E81; }
+        .traderia-legend-model19 { background: #D1FAE5; color: #064E3B; }
+        .traderia-legend-model20 { background: #FCE7F3; color: #831843; }
         .traderia-legend-wait {
             background: #FEF3C7;
             color: #78350F;

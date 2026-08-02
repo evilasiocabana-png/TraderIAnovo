@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import re
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -18,6 +19,8 @@ from core.mt5_process_probe import resolve_mt5_terminal_path
 
 
 _MT5_ORDER_SEND_LOCK = threading.Lock()
+MAX_OPERATIONAL_MODELS_PER_SYMBOL = 20
+KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 21))
 
 
 @dataclass(frozen=True)
@@ -62,25 +65,15 @@ class MT5DemoExecutionProvider:
         if initialize_check is not None:
             return True
         positions = list(self.mt5.positions_get(symbol=symbol) or [])
-        if len(positions) >= 10:
+        if len(positions) >= MAX_OPERATIONAL_MODELS_PER_SYMBOL:
             return True
         expected = self._model_comment(operational_model)
         for position in positions:
             comment = str(getattr(position, "comment", "") or "").upper()
             if expected in comment.split():
                 return True
-            if (
-                "TRADERIA" in comment
-                and " M1" not in comment
-                and " M2" not in comment
-                and " M3" not in comment
-                and " M4" not in comment
-                and " M5" not in comment
-                and " M6" not in comment
-                and " M7" not in comment
-                and " M8" not in comment
-                and " M9" not in comment
-                and " M10" not in comment
+            if "TRADERIA" in comment and not (
+                KNOWN_MODEL_COMMENTS & set(comment.split())
             ):
                 return True
         return False
@@ -1230,14 +1223,14 @@ class MT5DemoExecutionProvider:
         self,
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
-        """Bloqueia mais de uma posicao por modelo e mais de dez por par."""
+        """Bloqueia mais de uma posicao por modelo e mais de vinte por par."""
         positions = list(self.mt5.positions_get(symbol=order.symbol) or [])
-        if len(positions) >= 10:
+        if len(positions) >= MAX_OPERATIONAL_MODELS_PER_SYMBOL:
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
                 message=(
-                    "Limite de dez posicionamentos por par atingido. "
+                    "Limite de vinte posicionamentos por par atingido. "
                     "Permitido no maximo um por modelo operacional."
                 ),
             )
@@ -1252,18 +1245,8 @@ class MT5DemoExecutionProvider:
                         "Ja existe uma posicao aberta para este simbolo neste modelo."
                     ),
                 )
-            if (
-                "TRADERIA" in comment
-                and " M1" not in comment
-                and " M2" not in comment
-                and " M3" not in comment
-                and " M4" not in comment
-                and " M5" not in comment
-                and " M6" not in comment
-                and " M7" not in comment
-                and " M8" not in comment
-                and " M9" not in comment
-                and " M10" not in comment
+            if "TRADERIA" in comment and not (
+                KNOWN_MODEL_COMMENTS & set(comment.split())
             ):
                 return ExecutionResult(
                     accepted=False,
@@ -1518,6 +1501,11 @@ class MT5DemoExecutionProvider:
 
     def _model_comment(self, operational_model: object) -> str:
         model = str(operational_model or "").upper()
+        match = re.search(r"(?:MODELO[_ ]?|^M)(\d{1,2})(?:_|\b)", model)
+        if match is not None:
+            number = int(match.group(1))
+            if 1 <= number <= MAX_OPERATIONAL_MODELS_PER_SYMBOL:
+                return f"M{number}"
         if model in {
             "MODELO_2_ESPELHO_BETA2_RR1",
             "MODELO_2_LAB_ALPHA_SUGERIDA_1_PLUS",

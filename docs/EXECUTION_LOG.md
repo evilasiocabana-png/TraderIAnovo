@@ -1,5 +1,20 @@
 # Execution Log
 
+## 2026-08-01 - Modelos 11 a 20 para as Alphas oficiais restantes
+
+- Criados dez modelos independentes, em sequencia, de M11/ALPHA001 ate
+  M20/ALPHA016, cobrindo as Alphas ainda sem fluxo operacional proprio.
+- Cada modelo cobre os oito pares, usa somente candle fechado e preserva SL/TP
+  fixos do contrato congelado.
+- Seletor, funil MT5 Forex, monitor de indicadores, Robo Demo, provider,
+  comentarios MT5 e Relatorio foram ampliados ate M20.
+- O limite passou a vinte posicoes por par, no maximo uma por modelo.
+- Features sao compartilhadas por par/timeframe/candle; decisoes continuam
+  independentes por modelo.
+- Benchmark sintetico: 80 avaliacoes em 1,35 segundo, abaixo do gate de 3 s.
+- Execucao continua exclusiva em MT5 Demo; conta real permanece bloqueada.
+- Commit: pendente.
+
 ## 2026-07-31 - Agenda semanal obrigatoria do Robo Demo
 
 - Definida janela `America/Sao_Paulo`: domingo 23:30 ate sexta 17:30.

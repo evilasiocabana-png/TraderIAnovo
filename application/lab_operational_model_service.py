@@ -1,4 +1,4 @@
-"""Light runtime adapters for the researched Lab models M2 through M5."""
+"""Light runtime adapters for the researched operational Lab models."""
 
 from __future__ import annotations
 
@@ -37,6 +37,16 @@ MODEL_5_ID = "MODELO_5_LAB_CONSOLIDADO"
 MODEL_8_ID = "MODELO_8_TREND_PULLBACK_H1_M5"
 MODEL_9_ID = "MODELO_9_TREND_PULLBACK_M15_M1"
 MODEL_10_ID = "MODELO_10_TREND_PULLBACK_D1_M15"
+MODEL_11_ID = "MODELO_11_ALPHA001_TREND_MOMENTUM"
+MODEL_12_ID = "MODELO_12_ALPHA005_DONCHIAN_BREAKOUT"
+MODEL_13_ID = "MODELO_13_ALPHA006_ADX_TREND_STRENGTH"
+MODEL_14_ID = "MODELO_14_ALPHA007_MACD_MOMENTUM_SHIFT"
+MODEL_15_ID = "MODELO_15_ALPHA011_PIVOT_REJECTION"
+MODEL_16_ID = "MODELO_16_ALPHA012_VWAP_MEAN_REVERSION"
+MODEL_17_ID = "MODELO_17_ALPHA013_SUPPORT_RESISTANCE"
+MODEL_18_ID = "MODELO_18_ALPHA014_MULTI_TIMEFRAME"
+MODEL_19_ID = "MODELO_19_ALPHA015_LIQUIDITY_SPREAD"
+MODEL_20_ID = "MODELO_20_ALPHA016_REVERSAL"
 MODEL_IDS = {
     "M2": MODEL_2_ID,
     "M3": MODEL_3_ID,
@@ -45,6 +55,16 @@ MODEL_IDS = {
     "M8": MODEL_8_ID,
     "M9": MODEL_9_ID,
     "M10": MODEL_10_ID,
+    "M11": MODEL_11_ID,
+    "M12": MODEL_12_ID,
+    "M13": MODEL_13_ID,
+    "M14": MODEL_14_ID,
+    "M15": MODEL_15_ID,
+    "M16": MODEL_16_ID,
+    "M17": MODEL_17_ID,
+    "M18": MODEL_18_ID,
+    "M19": MODEL_19_ID,
+    "M20": MODEL_20_ID,
 }
 MODEL_LABELS = {value: key for key, value in MODEL_IDS.items()}
 FIXED_EXIT_POLICY = "RESEARCH_FIXED_SL_TP"
@@ -75,6 +95,198 @@ TREND_PULLBACK_MODEL_SPECS = {
         "context_timeframe": "D1",
     },
 }
+
+SUPPORTED_FOREX_PAIRS = (
+    "AUDUSD",
+    "EURJPY",
+    "EURUSD",
+    "GBPUSD",
+    "NZDUSD",
+    "USDCAD",
+    "USDCHF",
+    "USDJPY",
+)
+
+# Frozen from the 2026-07-21 Lab snapshot after discarding samples below 50.
+# These are Demo hypotheses, not a promise of profitability. ALPHA015 is a gate,
+# so M19 uses EMA/momentum only as the directional carrier.
+OFFICIAL_ALPHA_MODEL_SPECS: dict[str, dict[str, Any]] = {
+    "M11": {
+        "alpha_id": "ALPHA001",
+        "family": "TREND_MOMENTUM",
+        "timeframe": "H1",
+        "parameters": {
+            "ema_curta": 9,
+            "ema_longa": 21,
+            "rsi_sobrevenda": 30.0,
+            "rsi_sobrecompra": 70.0,
+            "stop_factor": 1.5,
+            "risk_reward": 1.5,
+            "momentum_threshold": 0.0,
+            "volatility_threshold": 0.0003,
+        },
+        "evidence": {"pair": "EURUSD", "sample_size": 145, "ict_score": 61.72},
+    },
+    "M12": {
+        "alpha_id": "ALPHA005",
+        "family": "DONCHIAN_BREAKOUT",
+        "timeframe": "M30",
+        "parameters": {
+            "donchian_period": 20,
+            "stop_factor": 1.5,
+            "risk_reward": 1.5,
+            "momentum_threshold": 0.0,
+            "breakout_buffer": 0.0001,
+        },
+        "evidence": {"pair": "AUDUSD", "sample_size": 102, "ict_score": 52.71},
+    },
+    "M13": {
+        "alpha_id": "ALPHA006",
+        "family": "ADX_TREND_STRENGTH",
+        "timeframe": "M15",
+        "parameters": {
+            "ema_curta": 20,
+            "ema_longa": 100,
+            "adx_min": 30.0,
+            "stop_factor": 2.5,
+            "risk_reward": 2.0,
+            "momentum_threshold": 0.0,
+        },
+        "evidence": {"pair": "USDCAD", "sample_size": 57, "ict_score": 61.31},
+    },
+    "M14": {
+        "alpha_id": "ALPHA007",
+        "family": "MACD_MOMENTUM_SHIFT",
+        "timeframe": "M30",
+        "parameters": {
+            "ema_curta": 9,
+            "ema_longa": 21,
+            "stop_factor": 1.5,
+            "risk_reward": 1.5,
+        },
+        "evidence": {"pair": "NZDUSD", "sample_size": 213, "ict_score": 47.08},
+    },
+    "M15": {
+        "alpha_id": "ALPHA011",
+        "family": "PIVOT_REJECTION",
+        "timeframe": "M30",
+        "parameters": {
+            "rsi_sobrevenda": 40.0,
+            "rsi_sobrecompra": 60.0,
+            "stop_factor": 1.5,
+            "risk_reward": 2.0,
+        },
+        "evidence": {"pair": "EURUSD", "sample_size": 241, "ict_score": 49.11},
+    },
+    "M16": {
+        "alpha_id": "ALPHA012",
+        "family": "VWAP_MEAN_REVERSION",
+        "timeframe": "M30",
+        "parameters": {
+            "rsi_sobrevenda": 30.0,
+            "rsi_sobrecompra": 70.0,
+            "z_threshold": 1.0,
+            "stop_factor": 2.0,
+            "risk_reward": 2.0,
+        },
+        "evidence": {"pair": "EURJPY", "sample_size": 82, "ict_score": 61.10},
+    },
+    "M17": {
+        "alpha_id": "ALPHA013",
+        "family": "SUPPORT_RESISTANCE_REACTION",
+        "timeframe": "H1",
+        "parameters": {
+            "rsi_sobrevenda": 40.0,
+            "rsi_sobrecompra": 60.0,
+            "stop_factor": 2.5,
+            "risk_reward": 2.0,
+        },
+        "evidence": {"pair": "NZDUSD", "sample_size": 107, "ict_score": 62.25},
+    },
+    "M18": {
+        "alpha_id": "ALPHA014",
+        "family": "MULTI_TIMEFRAME_ALIGNMENT",
+        "timeframe": "M30",
+        "parameters": {
+            "ema_curta": 50,
+            "ema_longa": 200,
+            "context_timeframe": "H4",
+            "stop_factor": 2.0,
+            "risk_reward": 2.0,
+            "momentum_threshold": 0.0,
+        },
+        "evidence": {"pair": "USDCAD", "sample_size": 71, "ict_score": 66.41},
+    },
+    "M19": {
+        "alpha_id": "ALPHA015",
+        "family": "LIQUIDITY_SPREAD_FILTER",
+        "timeframe": "M1",
+        "parameters": {
+            "ema_curta": 20,
+            "ema_longa": 50,
+            "volume_factor": 1.0,
+            "stop_factor": 2.0,
+            "risk_reward": 2.0,
+            "momentum_threshold": 0.0,
+        },
+        "evidence": {"pair": "N/D", "sample_size": 0, "ict_score": 15.0},
+    },
+    "M20": {
+        "alpha_id": "ALPHA016",
+        "family": "BETA002_REVERSAL_SIGNAL",
+        "timeframe": "M30",
+        "parameters": {
+            "ema_curta": 9,
+            "ema_longa": 21,
+            "reversal_strength": 0.0006,
+            "volatility_threshold": 0.0001,
+            "stop_factor": 2.5,
+            "risk_reward": 2.0,
+        },
+        "evidence": {"pair": "USDCAD", "sample_size": 63, "ict_score": 57.97},
+    },
+}
+OFFICIAL_ALPHA_MODEL_IDS = tuple(MODEL_IDS[label] for label in OFFICIAL_ALPHA_MODEL_SPECS)
+
+
+def official_alpha_operational_results(model_label: str) -> dict[str, dict[str, Any]]:
+    """Materialize one immutable Demo contract per pair for M11-M20."""
+    label = str(model_label or "").upper()
+    spec = OFFICIAL_ALPHA_MODEL_SPECS.get(label)
+    if spec is None:
+        return {}
+    parameters = {
+        **dict(spec["parameters"]),
+        "alpha": spec["alpha_id"],
+        "family": spec["family"],
+        "beta_id": "BETA_FIXED_SL_TP",
+        "exit_policy": FIXED_EXIT_POLICY,
+    }
+    evidence = dict(spec.get("evidence") or {})
+    return {
+        pair: {
+            "pair": pair,
+            "alpha_id": spec["alpha_id"],
+            "timeframe": spec["timeframe"],
+            "source_model": label,
+            "demo_forward_enabled": True,
+            "exit_policy": FIXED_EXIT_POLICY,
+            "position_manager_enabled": False,
+            "research_qualified": bool(evidence.get("sample_size", 0) >= 50),
+            "research_status": (
+                "FROZEN_FROM_ROBUST_LAB_SAMPLE"
+                if evidence.get("sample_size", 0) >= 50
+                else "USER_APPROVED_DEMO_HYPOTHESIS_UNCERTIFIED"
+            ),
+            "parity_status": "DEMO_FORWARD_OPERATIONALLY_APPROVED",
+            "parity_reason": (
+                "Contrato congelado para Demo; conta real continua bloqueada."
+            ),
+            "parameters": dict(parameters),
+            "evidence": dict(evidence),
+        }
+        for pair in SUPPORTED_FOREX_PAIRS
+    }
 
 
 @dataclass(frozen=True)
@@ -125,6 +337,10 @@ class LabOperationalModelService:
         default_factory=dict,
         repr=False,
     )
+    _official_feature_cache: dict[tuple[str, str, str], dict[str, Any]] = field(
+        default_factory=dict,
+        repr=False,
+    )
 
     def model_label(self, model_id: str) -> str:
         return MODEL_LABELS.get(str(model_id or "").upper(), "N/D")
@@ -144,6 +360,11 @@ class LabOperationalModelService:
                 model_label=label,
                 **TREND_PULLBACK_MODEL_SPECS[label],
             )
+        if (
+            label in OFFICIAL_ALPHA_MODEL_SPECS
+            and self.manifest_path.resolve() == DEFAULT_MANIFEST_PATH.resolve()
+        ):
+            return official_alpha_operational_results(label)
         model = dict(self._load_manifest().get("models", {}).get(label) or {})
         rows = model.get("results") or {}
         return {
@@ -194,6 +415,7 @@ class LabOperationalModelService:
         candles_by_market: Mapping[tuple[str, str], Iterable[object]],
         current_price: float | None,
         server_timestamp: str | None = None,
+        market_row: object | None = None,
     ) -> LabOperationalDecision:
         normalized_model = str(model_id or "").upper()
         normalized_pair = str(pair or "").upper()
@@ -219,6 +441,16 @@ class LabOperationalModelService:
             )
         label = self.model_label(normalized_model)
         source_model = str(winner.get("source_model") or label).upper().replace("-P", "")
+        if label in OFFICIAL_ALPHA_MODEL_SPECS:
+            return self._evaluate_official_alpha_model(
+                model_id=normalized_model,
+                pair=normalized_pair,
+                winner=winner,
+                candles_by_market=candles_by_market,
+                current_price=current_price,
+                server_timestamp=server_timestamp,
+                market_row=market_row,
+            )
         if label == "M5" and source_model == "M1":
             return self._wait(
                 normalized_model,
@@ -280,6 +512,128 @@ class LabOperationalModelService:
             "UNSUPPORTED_LAB_RUNTIME_ADAPTER",
             f"Adaptador runtime ausente para {label}/{source_model}.",
             **common,
+        )
+
+    def _evaluate_official_alpha_model(
+        self,
+        *,
+        model_id: str,
+        pair: str,
+        winner: dict[str, Any],
+        candles_by_market: Mapping[tuple[str, str], Iterable[object]],
+        current_price: float | None,
+        server_timestamp: str | None,
+        market_row: object | None,
+    ) -> LabOperationalDecision:
+        """Evaluate M11-M20 once per closed candle using shared features."""
+        timeframe = str(winner.get("timeframe") or "M1").upper()
+        candles = self._candles(candles_by_market, pair, timeframe)
+        common = self._winner_values(winner)
+        if len(candles) < 220:
+            return self._wait(
+                model_id,
+                pair,
+                timeframe,
+                "INSUFFICIENT_LIVE_CANDLES",
+                f"Alpha oficial exige 220 candles; recebeu {len(candles)}.",
+                **common,
+            )
+        signal_time = str(candles[-2]["data"])
+        current_time = str(candles[-1]["data"])
+        cache_key = (model_id, pair, timeframe, signal_time)
+        cached = self._decision_cache.get(cache_key)
+        if cached is not None:
+            return self._decision_with_live_entry(
+                cached,
+                current_price,
+                current_time,
+                server_timestamp=server_timestamp,
+            )
+        parameters = dict(winner.get("parameters") or {})
+        try:
+            features = self._official_features(pair, timeframe, candles[:-1])
+            context_features: dict[str, Any] | None = None
+            context_timeframe = str(parameters.get("context_timeframe") or "").upper()
+            if context_timeframe:
+                context_candles = self._candles(
+                    candles_by_market,
+                    pair,
+                    context_timeframe,
+                )
+                if len(context_candles) < 220:
+                    return self._wait(
+                        model_id,
+                        pair,
+                        timeframe,
+                        "INSUFFICIENT_CONTEXT_CANDLES",
+                        (
+                            f"{common['alpha_id']} exige 220 candles em "
+                            f"{context_timeframe}; recebeu {len(context_candles)}."
+                        ),
+                        signal_candle_time=signal_time,
+                        current_bar_time=current_time,
+                        **common,
+                    )
+                context_features = self._official_features(
+                    pair,
+                    context_timeframe,
+                    context_candles[:-1],
+                )
+            direction, reason, diagnostics = self._official_alpha_direction(
+                alpha_id=str(winner.get("alpha_id") or ""),
+                features=features,
+                parameters=parameters,
+                context_features=context_features,
+                market_row=market_row,
+            )
+            atr = self._positive_float(features.get("atr"))
+        except (KeyError, TypeError, ValueError, IndexError, ZeroDivisionError) as exc:
+            return self._wait(
+                model_id,
+                pair,
+                timeframe,
+                "FEATURE_EVALUATION_ERROR",
+                f"Falha ao calcular {common['alpha_id']}: {exc}",
+                signal_candle_time=signal_time,
+                current_bar_time=current_time,
+                **common,
+            )
+        if direction == "WAIT":
+            decision = self._wait(
+                model_id,
+                pair,
+                timeframe,
+                "NO_CLOSED_CANDLE_SIGNAL",
+                reason,
+                signal_candle_time=signal_time,
+                current_bar_time=current_time,
+                atr=atr,
+                diagnostics=diagnostics,
+                **common,
+            )
+        else:
+            decision = LabOperationalDecision(
+                model_id=model_id,
+                pair=pair,
+                timeframe=timeframe,
+                status="SIGNAL_FROZEN",
+                ready=True,
+                direction=direction,
+                signal_candle_time=signal_time,
+                current_bar_time=current_time,
+                atr=atr,
+                risk_reward=float(parameters.get("risk_reward", 0.0) or 0.0),
+                reason=reason,
+                diagnostics=diagnostics,
+                **common,
+            )
+        self._decision_cache[cache_key] = decision
+        self._trim_caches()
+        return self._decision_with_live_entry(
+            decision,
+            current_price,
+            current_time,
+            server_timestamp=server_timestamp,
         )
 
     def _evaluate_trend_pullback(
@@ -699,6 +1053,323 @@ class LabOperationalModelService:
         )
         return LabOperationalDecision(**values)
 
+    def _official_features(
+        self,
+        pair: str,
+        timeframe: str,
+        closed_candles: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        signal_time = str(closed_candles[-1]["data"])
+        cache_key = (pair.upper(), timeframe.upper(), signal_time)
+        cached = self._official_feature_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        market = engineer_features(pair, closed_candles)
+        frame = market.frame.copy()
+        for period in (9, 20, 21, 40, 50, 100, 200):
+            name = f"ema{period}"
+            if name not in frame:
+                frame[name] = frame["close"].ewm(
+                    span=period,
+                    adjust=False,
+                    min_periods=period,
+                ).mean()
+        returns = frame["close"].pct_change()
+        frame["momentum10"] = frame["close"] / frame["close"].shift(10) - 1.0
+        frame["volatility20"] = returns.rolling(20, min_periods=20).std()
+        ema12 = frame["close"].ewm(span=12, adjust=False, min_periods=12).mean()
+        ema26 = frame["close"].ewm(span=26, adjust=False, min_periods=26).mean()
+        frame["macd"] = ema12 - ema26
+        frame["macd_signal"] = frame["macd"].ewm(
+            span=9,
+            adjust=False,
+            min_periods=9,
+        ).mean()
+        typical = (frame["high"] + frame["low"] + frame["close"]) / 3.0
+        volume = frame["volume"].clip(lower=0.0)
+        volume_sum = volume.rolling(20, min_periods=20).sum()
+        frame["vwap20"] = (typical * volume).rolling(
+            20,
+            min_periods=20,
+        ).sum() / volume_sum.replace(0.0, math.nan)
+        average20 = frame["close"].rolling(20, min_periods=20).mean()
+        deviation20 = frame["close"].rolling(20, min_periods=20).std()
+        frame["zscore20"] = (
+            (frame["close"] - average20) / deviation20.replace(0.0, math.nan)
+        )
+        frame["donchian_high20"] = frame["high"].shift(1).rolling(
+            20,
+            min_periods=20,
+        ).max()
+        frame["donchian_low20"] = frame["low"].shift(1).rolling(
+            20,
+            min_periods=20,
+        ).min()
+        frame["donchian_high40"] = frame["high"].shift(1).rolling(
+            40,
+            min_periods=40,
+        ).max()
+        frame["donchian_low40"] = frame["low"].shift(1).rolling(
+            40,
+            min_periods=40,
+        ).min()
+        frame["support20"] = frame["low"].shift(1).rolling(
+            20,
+            min_periods=20,
+        ).min()
+        frame["resistance20"] = frame["high"].shift(1).rolling(
+            20,
+            min_periods=20,
+        ).max()
+        frame["volume_average20"] = frame["volume"].shift(1).rolling(
+            20,
+            min_periods=20,
+        ).mean()
+        last = frame.iloc[-1]
+        previous = frame.iloc[-2]
+        candle_range = max(float(last["high"] - last["low"]), 0.0)
+        lower_wick = (
+            float(min(last["open"], last["close"]) - last["low"])
+            / candle_range
+            if candle_range > 0.0
+            else 0.0
+        )
+        upper_wick = (
+            float(last["high"] - max(last["open"], last["close"]))
+            / candle_range
+            if candle_range > 0.0
+            else 0.0
+        )
+        pivot = float(
+            (previous["high"] + previous["low"] + previous["close"]) / 3.0
+        )
+
+        def number(name: str, default: float = 0.0) -> float:
+            try:
+                value = float(last[name])
+            except (KeyError, TypeError, ValueError):
+                return default
+            return value if math.isfinite(value) else default
+
+        features = {
+            "time": signal_time,
+            "open": number("open"),
+            "high": number("high"),
+            "low": number("low"),
+            "close": number("close"),
+            "atr": number("atr14"),
+            "adx": number("adx"),
+            "rsi": number("rsi", 50.0),
+            "momentum": number("momentum10"),
+            "volatility": abs(number("volatility20")),
+            "macd": number("macd"),
+            "macd_signal": number("macd_signal"),
+            "previous_macd_histogram": float(
+                previous.get("macd", 0.0) - previous.get("macd_signal", 0.0)
+            ),
+            "pivot": pivot,
+            "vwap": number("vwap20"),
+            "z_score": number("zscore20"),
+            "support": number("support20"),
+            "resistance": number("resistance20"),
+            "donchian_high20": number("donchian_high20"),
+            "donchian_low20": number("donchian_low20"),
+            "donchian_high40": number("donchian_high40"),
+            "donchian_low40": number("donchian_low40"),
+            "tick_volume": number("volume"),
+            "tick_volume_average": number("volume_average20"),
+            "lower_wick": lower_wick,
+            "upper_wick": upper_wick,
+        }
+        for period in (9, 20, 21, 40, 50, 100, 200):
+            features[f"ema{period}"] = number(f"ema{period}")
+        self._official_feature_cache[cache_key] = features
+        self._trim_caches()
+        return features
+
+    def _official_alpha_direction(
+        self,
+        *,
+        alpha_id: str,
+        features: Mapping[str, Any],
+        parameters: Mapping[str, Any],
+        context_features: Mapping[str, Any] | None,
+        market_row: object | None,
+    ) -> tuple[str, str, tuple[str, ...]]:
+        alpha = str(alpha_id or "").upper()
+        close = float(features["close"])
+        atr = float(features["atr"])
+        momentum = float(features["momentum"])
+        volatility = float(features["volatility"])
+        fast_period = int(parameters.get("ema_curta", 20) or 20)
+        slow_period = int(parameters.get("ema_longa", 50) or 50)
+        fast = float(features.get(f"ema{fast_period}", 0.0) or 0.0)
+        slow = float(features.get(f"ema{slow_period}", 0.0) or 0.0)
+        direction = "WAIT"
+        reason = "Ultimo candle fechado ainda nao confirmou todos os parametros."
+
+        if alpha == "ALPHA001":
+            threshold = float(parameters.get("momentum_threshold", 0.0) or 0.0)
+            vol_min = float(parameters.get("volatility_threshold", 0.0) or 0.0)
+            if fast > slow and momentum > threshold and volatility >= vol_min:
+                direction = "BUY"
+            elif fast < slow and momentum < -threshold and volatility >= vol_min:
+                direction = "SELL"
+            reason = "EMA, momentum e volatilidade confirmados no candle fechado."
+        elif alpha == "ALPHA005":
+            period = int(parameters.get("donchian_period", 20) or 20)
+            high = float(features.get(f"donchian_high{period}", 0.0) or 0.0)
+            low = float(features.get(f"donchian_low{period}", 0.0) or 0.0)
+            buffer = float(parameters.get("breakout_buffer", 0.0) or 0.0)
+            threshold = float(parameters.get("momentum_threshold", 0.0) or 0.0)
+            if high > 0.0 and close >= high * (1.0 - buffer) and momentum > threshold:
+                direction = "BUY"
+            elif low > 0.0 and close <= low * (1.0 + buffer) and momentum < -threshold:
+                direction = "SELL"
+            reason = "Canal Donchian anterior e momentum avaliados no candle fechado."
+        elif alpha == "ALPHA006":
+            adx_min = float(parameters.get("adx_min", 25.0) or 25.0)
+            if float(features["adx"]) >= adx_min and fast > slow and momentum > 0.0:
+                direction = "BUY"
+            elif float(features["adx"]) >= adx_min and fast < slow and momentum < 0.0:
+                direction = "SELL"
+            reason = "ADX, EMA e momentum avaliados no candle fechado."
+        elif alpha == "ALPHA007":
+            histogram = float(features["macd"]) - float(features["macd_signal"])
+            previous_histogram = float(features["previous_macd_histogram"])
+            if previous_histogram <= 0.0 < histogram and fast >= slow:
+                direction = "BUY"
+            elif previous_histogram >= 0.0 > histogram and fast <= slow:
+                direction = "SELL"
+            reason = "Virada do histograma MACD com EMA alinhada no candle fechado."
+        elif alpha == "ALPHA011":
+            pivot = float(features["pivot"])
+            rsi = float(features["rsi"])
+            near = pivot > 0.0 and abs(close - pivot) <= atr
+            if near and close > pivot and float(features["lower_wick"]) >= 0.35 and rsi <= float(parameters.get("rsi_sobrecompra", 60.0)):
+                direction = "BUY"
+            elif near and close < pivot and float(features["upper_wick"]) >= 0.35 and rsi >= float(parameters.get("rsi_sobrevenda", 40.0)):
+                direction = "SELL"
+            reason = "Pivot, rejeicao do candle e RSI avaliados no candle fechado."
+        elif alpha == "ALPHA012":
+            vwap = float(features["vwap"])
+            z_score = float(features["z_score"])
+            rsi = float(features["rsi"])
+            threshold = float(parameters.get("z_threshold", 1.0) or 1.0)
+            if vwap > 0.0 and close < vwap and z_score <= -threshold and rsi <= float(parameters.get("rsi_sobrevenda", 30.0)):
+                direction = "BUY"
+            elif vwap > 0.0 and close > vwap and z_score >= threshold and rsi >= float(parameters.get("rsi_sobrecompra", 70.0)):
+                direction = "SELL"
+            reason = "VWAP, Z-Score e RSI avaliados no candle fechado."
+        elif alpha == "ALPHA013":
+            support = float(features["support"])
+            resistance = float(features["resistance"])
+            rsi = float(features["rsi"])
+            if support > 0.0 and abs(close - support) <= atr and close > float(features["open"]) and rsi <= float(parameters.get("rsi_sobrecompra", 60.0)):
+                direction = "BUY"
+            elif resistance > 0.0 and abs(close - resistance) <= atr and close < float(features["open"]) and rsi >= float(parameters.get("rsi_sobrevenda", 40.0)):
+                direction = "SELL"
+            reason = "Suporte/resistencia, candle de reacao e RSI avaliados."
+        elif alpha == "ALPHA014":
+            context = dict(context_features or {})
+            context_fast = float(context.get(f"ema{fast_period}", 0.0) or 0.0)
+            context_slow = float(context.get(f"ema{slow_period}", 0.0) or 0.0)
+            context_momentum = float(context.get("momentum", 0.0) or 0.0)
+            if fast > slow and momentum > 0.0 and context_fast > context_slow and context_momentum > 0.0:
+                direction = "BUY"
+            elif fast < slow and momentum < 0.0 and context_fast < context_slow and context_momentum < 0.0:
+                direction = "SELL"
+            reason = "EMA e momentum alinhados no timeframe de entrada e no contexto."
+        elif alpha == "ALPHA015":
+            spread = self._market_row_float(market_row, "spread")
+            spread_average = self._market_row_float(market_row, "spread_average")
+            volume = float(features["tick_volume"])
+            volume_average = float(features["tick_volume_average"])
+            volume_factor = float(parameters.get("volume_factor", 1.0) or 1.0)
+            liquid = (
+                spread is not None
+                and spread_average is not None
+                and spread <= spread_average
+                and volume_average > 0.0
+                and volume >= volume_average * volume_factor
+            )
+            if liquid and fast > slow and momentum > 0.0:
+                direction = "BUY"
+            elif liquid and fast < slow and momentum < 0.0:
+                direction = "SELL"
+            reason = "ALPHA015 liberou liquidez/spread; EMA e momentum carregam a direcao."
+        elif alpha == "ALPHA016":
+            reversal = float(parameters.get("reversal_strength", 0.0006) or 0.0006)
+            vol_min = float(parameters.get("volatility_threshold", 0.0001) or 0.0001)
+            if fast < slow and momentum > reversal and volatility >= vol_min:
+                direction = "BUY"
+            elif fast > slow and momentum < -reversal and volatility >= vol_min:
+                direction = "SELL"
+            reason = "Fluxo anterior e reversao de momentum/volatilidade avaliados."
+
+        diagnostics = (
+            f"ALPHA={alpha}",
+            f"CLOSE={close:.8f}",
+            f"EMA{fast_period}={fast:.8f}",
+            f"EMA{slow_period}={slow:.8f}",
+            f"MOMENTUM10={momentum:.8f}",
+            f"VOLATILITY20={volatility:.8f}",
+            f"RSI14={float(features['rsi']):.4f}",
+            f"ADX14={float(features['adx']):.4f}",
+            f"ATR14={atr:.8f}",
+            f"DECISION={direction}",
+        )
+        if alpha == "ALPHA005":
+            period = int(parameters.get("donchian_period", 20) or 20)
+            diagnostics += (
+                f"DONCHIAN_HIGH={float(features.get(f'donchian_high{period}', 0.0)):.8f}",
+                f"DONCHIAN_LOW={float(features.get(f'donchian_low{period}', 0.0)):.8f}",
+            )
+        elif alpha == "ALPHA007":
+            diagnostics += (
+                f"MACD={float(features['macd']):.8f}",
+                f"MACD_SIGNAL={float(features['macd_signal']):.8f}",
+            )
+        elif alpha == "ALPHA011":
+            diagnostics += (
+                f"PIVOT={float(features['pivot']):.8f}",
+                f"LOWER_WICK={float(features['lower_wick']):.4f}",
+                f"UPPER_WICK={float(features['upper_wick']):.4f}",
+            )
+        elif alpha == "ALPHA012":
+            diagnostics += (
+                f"VWAP={float(features['vwap']):.8f}",
+                f"Z_SCORE={float(features['z_score']):.4f}",
+            )
+        elif alpha == "ALPHA013":
+            diagnostics += (
+                f"SUPPORT={float(features['support']):.8f}",
+                f"RESISTANCE={float(features['resistance']):.8f}",
+            )
+        elif alpha == "ALPHA014" and context_features is not None:
+            diagnostics += (
+                f"CONTEXT_EMA{fast_period}={float(context_features.get(f'ema{fast_period}', 0.0)):.8f}",
+                f"CONTEXT_EMA{slow_period}={float(context_features.get(f'ema{slow_period}', 0.0)):.8f}",
+                f"CONTEXT_MOMENTUM10={float(context_features.get('momentum', 0.0)):.8f}",
+            )
+        elif alpha == "ALPHA015":
+            diagnostics += (
+                f"SPREAD={float(spread or 0.0):.8f}",
+                f"SPREAD_AVERAGE={float(spread_average or 0.0):.8f}",
+                f"TICK_VOLUME={float(features['tick_volume']):.2f}",
+                f"TICK_VOLUME_AVERAGE={float(features['tick_volume_average']):.2f}",
+            )
+        if direction == "WAIT":
+            reason = f"AGUARDA: {reason}"
+        return direction, reason, diagnostics
+
+    def _market_row_float(self, market_row: object | None, name: str) -> float | None:
+        try:
+            value = float(getattr(market_row, name))
+        except (AttributeError, TypeError, ValueError):
+            return None
+        return value if math.isfinite(value) and value >= 0.0 else None
+
     def _winner_values(self, winner: dict[str, Any]) -> dict[str, Any]:
         parameters = dict(winner.get("parameters") or {})
         return {
@@ -931,6 +1602,7 @@ class LabOperationalModelService:
         self._decision_cache.clear()
         self._m4_market_cache.clear()
         self._candle_rows_cache.clear()
+        self._official_feature_cache.clear()
         return self._manifest_cache
 
     def _bar_age_seconds(
@@ -975,3 +1647,5 @@ class LabOperationalModelService:
             self._m4_market_cache.pop(next(iter(self._m4_market_cache)))
         while len(self._candle_rows_cache) > 128:
             self._candle_rows_cache.pop(next(iter(self._candle_rows_cache)))
+        while len(self._official_feature_cache) > 128:
+            self._official_feature_cache.pop(next(iter(self._official_feature_cache)))

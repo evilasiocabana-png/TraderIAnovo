@@ -687,6 +687,25 @@ configuracao vencedora -> Trade Plan -> gates -> Robo -> Provider -> Relatorio -
 
 Esse protocolo passa a ser a referencia para qualquer modelo ou variante futura.
 
+## Registro dos M11 ao M20
+
+Em 2026-08-01, as dez Alphas oficiais ainda sem fluxo proprio foram promovidas
+sequencialmente para M11-M20. A promocao confirmou novos requisitos do
+protocolo:
+
+- uma Alpha por modelo, sem alterar M1-M10;
+- contrato congelado e versionado, sem pesquisa pesada no runtime;
+- indicadores compartilhados por par, timeframe e candle fechado;
+- decisao, duplicidade, comentario e historico independentes por modelo;
+- limite global derivado da quantidade de modelos ativos, hoje vinte;
+- Alpha originalmente definida como filtro precisa declarar explicitamente
+  quem fornece a direcao;
+- amostra historica e aprovacao Demo sao campos separados;
+- o teste de aceite mede o ciclo completo, nao apenas uma funcao isolada.
+
+O inventario e os parametros estao em
+`docs/architecture/OPERATIONAL_MODELS_M11_M20.md`.
+
 ## Registro dos M8, M9 e M10
 
 Os tres modelos sao variantes independentes do contrato mecanico M2 Trend

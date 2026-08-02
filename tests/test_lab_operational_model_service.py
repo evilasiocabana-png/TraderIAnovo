@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -16,6 +17,9 @@ from application.lab_operational_model_service import (
     LabOperationalModelService,
     MODEL_2_ID,
     MODEL_5_ID,
+    MODEL_IDS,
+    OFFICIAL_ALPHA_MODEL_SPECS,
+    SUPPORTED_FOREX_PAIRS,
 )
 
 
@@ -317,6 +321,97 @@ class LabOperationalModelServiceTest(unittest.TestCase):
 
         self.assertFalse(decision.ready)
         self.assertEqual(decision.status, "DELEGATE_TO_LAB_M1")
+
+    def test_m11_to_m20_materialize_one_official_alpha_for_all_pairs(self) -> None:
+        service = LabOperationalModelService()
+
+        for label, spec in OFFICIAL_ALPHA_MODEL_SPECS.items():
+            with self.subTest(model=label):
+                rows = service.results(MODEL_IDS[label])
+                self.assertEqual(set(rows), set(SUPPORTED_FOREX_PAIRS))
+                for row in rows.values():
+                    self.assertEqual(row["alpha_id"], spec["alpha_id"])
+                    self.assertEqual(row["timeframe"], spec["timeframe"])
+                    self.assertTrue(row["demo_forward_enabled"])
+                    self.assertEqual(row["exit_policy"], "RESEARCH_FIXED_SL_TP")
+                    self.assertFalse(row["position_manager_enabled"])
+
+    def test_m11_to_m20_evaluate_only_closed_candles_without_heavy_lab(self) -> None:
+        now = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        service = LabOperationalModelService(now_provider=lambda: now)
+        candles = self._candles(now)
+        sources = {
+            (pair, timeframe): candles
+            for pair in SUPPORTED_FOREX_PAIRS
+            for timeframe in {"M1", "M15", "M30", "H1", "H4"}
+        }
+        market_row = SimpleNamespace(spread=0.0001, spread_average=0.0002)
+
+        for label, spec in OFFICIAL_ALPHA_MODEL_SPECS.items():
+            with self.subTest(model=label, alpha=spec["alpha_id"]):
+                decision = service.evaluate(
+                    model_id=MODEL_IDS[label],
+                    pair="EURUSD",
+                    candles_by_market=sources,
+                    current_price=1.2,
+                    server_timestamp=(now + timedelta(seconds=10)).isoformat(),
+                    market_row=market_row,
+                )
+                self.assertNotIn(
+                    decision.status,
+                    {
+                        "FEATURE_EVALUATION_ERROR",
+                        "INSUFFICIENT_LIVE_CANDLES",
+                        "INSUFFICIENT_CONTEXT_CANDLES",
+                        "UNSUPPORTED_LAB_RUNTIME_ADAPTER",
+                    },
+                )
+                self.assertEqual(decision.alpha_id, spec["alpha_id"])
+                self.assertEqual(decision.signal_candle_time, candles[-2]["data"])
+
+    def test_official_models_share_features_for_the_same_pair_timeframe(self) -> None:
+        now = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        service = LabOperationalModelService(now_provider=lambda: now)
+        candles = self._candles(now)
+        source = {("EURUSD", "H1"): candles}
+
+        for label in ("M11", "M17"):
+            service.evaluate(
+                model_id=MODEL_IDS[label],
+                pair="EURUSD",
+                candles_by_market=source,
+                current_price=1.2,
+                server_timestamp=(now + timedelta(seconds=10)).isoformat(),
+            )
+
+        self.assertEqual(len(service._official_feature_cache), 1)
+
+    def test_complete_m11_to_m20_cycle_stays_below_three_seconds(self) -> None:
+        now = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+        service = LabOperationalModelService(now_provider=lambda: now)
+        candles = self._candles(now)
+        sources = {
+            (pair, timeframe): candles
+            for pair in SUPPORTED_FOREX_PAIRS
+            for timeframe in {"M1", "M15", "M30", "H1", "H4"}
+        }
+        market_row = SimpleNamespace(spread=0.0001, spread_average=0.0002)
+
+        started = time.perf_counter()
+        for label in OFFICIAL_ALPHA_MODEL_SPECS:
+            for pair in SUPPORTED_FOREX_PAIRS:
+                service.evaluate(
+                    model_id=MODEL_IDS[label],
+                    pair=pair,
+                    candles_by_market=sources,
+                    current_price=1.2,
+                    server_timestamp=(now + timedelta(seconds=10)).isoformat(),
+                    market_row=market_row,
+                )
+        elapsed = time.perf_counter() - started
+
+        self.assertLess(elapsed, 3.0)
+        self.assertEqual(len(service._official_feature_cache), 40)
 
     def _buy_signal(self, market: object, parameters: object) -> np.ndarray:
         del parameters

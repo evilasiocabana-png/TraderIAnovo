@@ -24,6 +24,7 @@ from application.lab_operational_model_service import (
     FIXED_EXIT_POLICY as LAB_FIXED_EXIT_POLICY,
     LabOperationalDecision,
     LabOperationalModelService,
+    OFFICIAL_ALPHA_MODEL_IDS,
     MODEL_2_ID as MT5_OPERATIONAL_MODEL_2,
     MODEL_3_ID as MT5_OPERATIONAL_MODEL_3,
     MODEL_4_ID as MT5_OPERATIONAL_MODEL_4,
@@ -152,7 +153,21 @@ MT5_LAB_OPERATIONAL_MODELS = {
     MT5_OPERATIONAL_MODEL_8,
     MT5_OPERATIONAL_MODEL_9,
     MT5_OPERATIONAL_MODEL_10,
+    *OFFICIAL_ALPHA_MODEL_IDS,
 }
+MT5_OPERATIONAL_MODEL_IDS = (
+    MT5_OPERATIONAL_MODEL_1,
+    MT5_OPERATIONAL_MODEL_2,
+    MT5_OPERATIONAL_MODEL_3,
+    MT5_OPERATIONAL_MODEL_4,
+    MT5_OPERATIONAL_MODEL_5,
+    MT5_OPERATIONAL_MODEL_6,
+    MT5_OPERATIONAL_MODEL_7,
+    MT5_OPERATIONAL_MODEL_8,
+    MT5_OPERATIONAL_MODEL_9,
+    MT5_OPERATIONAL_MODEL_10,
+    *OFFICIAL_ALPHA_MODEL_IDS,
+)
 LEGACY_MT5_OPERATIONAL_MODELS = {
     "MODELO_2_ESPELHO_BETA2_RR1": MT5_OPERATIONAL_MODEL_2,
     "MODELO_3_RR3": MT5_OPERATIONAL_MODEL_3,
@@ -858,19 +873,7 @@ class DashboardService:
         """Seleciona qual modelo pode enviar ordem demo MT5 neste ciclo."""
         normalized = str(model or MT5_OPERATIONAL_MODEL_1).upper()
         normalized = LEGACY_MT5_OPERATIONAL_MODELS.get(normalized, normalized)
-        if normalized not in {
-            MT5_OPERATIONAL_MODEL_1,
-            MT5_OPERATIONAL_MODEL_2,
-            MT5_OPERATIONAL_MODEL_3,
-            MT5_OPERATIONAL_MODEL_4,
-            MT5_OPERATIONAL_MODEL_5,
-            MT5_OPERATIONAL_MODEL_6,
-            MT5_OPERATIONAL_MODEL_7,
-            MT5_OPERATIONAL_MODEL_8,
-            MT5_OPERATIONAL_MODEL_9,
-            MT5_OPERATIONAL_MODEL_10,
-            MT5_OPERATIONAL_MODEL_ALL,
-        }:
+        if normalized not in {*MT5_OPERATIONAL_MODEL_IDS, MT5_OPERATIONAL_MODEL_ALL}:
             normalized = MT5_OPERATIONAL_MODEL_1
         object.__setattr__(self, "mt5_operational_model", normalized)
 
@@ -880,37 +883,14 @@ class DashboardService:
             or MT5_OPERATIONAL_MODEL_1
         ).upper()
         migrated = LEGACY_MT5_OPERATIONAL_MODELS.get(selected, selected)
-        if migrated not in {
-            MT5_OPERATIONAL_MODEL_1,
-            MT5_OPERATIONAL_MODEL_2,
-            MT5_OPERATIONAL_MODEL_3,
-            MT5_OPERATIONAL_MODEL_4,
-            MT5_OPERATIONAL_MODEL_5,
-            MT5_OPERATIONAL_MODEL_6,
-            MT5_OPERATIONAL_MODEL_7,
-            MT5_OPERATIONAL_MODEL_8,
-            MT5_OPERATIONAL_MODEL_9,
-            MT5_OPERATIONAL_MODEL_10,
-            MT5_OPERATIONAL_MODEL_ALL,
-        }:
+        if migrated not in {*MT5_OPERATIONAL_MODEL_IDS, MT5_OPERATIONAL_MODEL_ALL}:
             return MT5_OPERATIONAL_MODEL_1
         return migrated
 
     def _mt5_operational_models_to_evaluate(self) -> tuple[str, ...]:
         selected = self.get_mt5_operational_model()
         if selected == MT5_OPERATIONAL_MODEL_ALL:
-            return (
-                MT5_OPERATIONAL_MODEL_1,
-                MT5_OPERATIONAL_MODEL_2,
-                MT5_OPERATIONAL_MODEL_3,
-                MT5_OPERATIONAL_MODEL_4,
-                MT5_OPERATIONAL_MODEL_5,
-                MT5_OPERATIONAL_MODEL_6,
-                MT5_OPERATIONAL_MODEL_7,
-                MT5_OPERATIONAL_MODEL_8,
-                MT5_OPERATIONAL_MODEL_9,
-                MT5_OPERATIONAL_MODEL_10,
-            )
+            return MT5_OPERATIONAL_MODEL_IDS
         return (selected,)
 
     def get_lab_operational_decision_snapshot(self) -> dict[tuple[str, str], object]:
@@ -990,6 +970,7 @@ class DashboardService:
                         else None
                     ),
                     server_timestamp=self._mt5_server_timestamp(pair),
+                    market_row=source_row,
                 )
                 refreshed[(str(model_id).upper(), pair)] = decision
         self.lab_operational_decision_cache.clear()
@@ -1331,15 +1312,7 @@ class DashboardService:
 
     def _mt5_lab_timeframes_by_pair(self) -> dict[str, str]:
         selected = self.get_mt5_operational_model()
-        if selected in {
-            MT5_OPERATIONAL_MODEL_2,
-            MT5_OPERATIONAL_MODEL_3,
-            MT5_OPERATIONAL_MODEL_4,
-            MT5_OPERATIONAL_MODEL_5,
-            MT5_OPERATIONAL_MODEL_8,
-            MT5_OPERATIONAL_MODEL_9,
-            MT5_OPERATIONAL_MODEL_10,
-        }:
+        if selected in MT5_LAB_OPERATIONAL_MODELS:
             return self.lab_operational_model_service.timeframes_by_pair(selected)
         if selected in {
             MT5_OPERATIONAL_MODEL_6,
@@ -3913,7 +3886,7 @@ class DashboardService:
     def _position_manager_plans_from_open_execution_records(
         self,
     ) -> list[PositionTradePlan]:
-        """Usa o plano original de cada ordem aberta para gerir M1-M10 por ticket."""
+        """Usa o plano original de cada ordem aberta para gerir M1-M20 por ticket."""
         list_positions = getattr(self.demo_robot_execution_service, "list_open_positions", None)
         if not callable(list_positions):
             return []
@@ -5712,18 +5685,10 @@ class DashboardService:
             plan = self._mt5_research_trade_plan_for_view_row(row)
             selected_models = self._mt5_operational_models_to_evaluate()
             if plan.status != "PLANO_VALIDO" and not any(
-                model
-                in {
-                    MT5_OPERATIONAL_MODEL_2,
-                    MT5_OPERATIONAL_MODEL_3,
-                    MT5_OPERATIONAL_MODEL_4,
-                    MT5_OPERATIONAL_MODEL_5,
+                model in (MT5_LAB_OPERATIONAL_MODELS | {
                     MT5_OPERATIONAL_MODEL_6,
                     MT5_OPERATIONAL_MODEL_7,
-                    MT5_OPERATIONAL_MODEL_8,
-                    MT5_OPERATIONAL_MODEL_9,
-                    MT5_OPERATIONAL_MODEL_10,
-                }
+                })
                 for model in selected_models
             ):
                 last_waiting = self._demo_robot_view_model(
@@ -5814,18 +5779,10 @@ class DashboardService:
             for operational_model, model_row, model_plan in model_candidates:
                 signal_candle_time = str(
                     getattr(model_row, "theoretical_entry_candle", "")
-                    if operational_model
-                    in {
-                        MT5_OPERATIONAL_MODEL_2,
-                        MT5_OPERATIONAL_MODEL_3,
-                        MT5_OPERATIONAL_MODEL_4,
-                        MT5_OPERATIONAL_MODEL_5,
+                    if operational_model in (MT5_LAB_OPERATIONAL_MODELS | {
                         MT5_OPERATIONAL_MODEL_6,
                         MT5_OPERATIONAL_MODEL_7,
-                        MT5_OPERATIONAL_MODEL_8,
-                        MT5_OPERATIONAL_MODEL_9,
-                        MT5_OPERATIONAL_MODEL_10,
-                    }
+                    })
                     else getattr(source_row, "last_candle_time", "")
                 )
                 time_context = self.forex_time_layer.classify(
@@ -6168,6 +6125,10 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_8: 80,
             MT5_OPERATIONAL_MODEL_9: 90,
             MT5_OPERATIONAL_MODEL_10: 100,
+            **{
+                model_id: 110 + (index * 10)
+                for index, model_id in enumerate(OFFICIAL_ALPHA_MODEL_IDS)
+            },
         }
         return sorted(candidates, key=lambda item: priority.get(item[0], 999))
 
@@ -6289,6 +6250,7 @@ class DashboardService:
             ),
             current_price=row.last_price,
             server_timestamp=self._mt5_server_timestamp(row.pair),
+            market_row=row,
         )
         self.lab_operational_decision_cache[
             (str(model_id).upper(), str(row.pair).upper())

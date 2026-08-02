@@ -421,18 +421,20 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertTrue(result.accepted)
         self.assertEqual(mt5.last_request["comment"], "TraderIA M8")
 
-    def test_comments_identify_m8_m9_and_m10_independently(self) -> None:
+    def test_comments_identify_m8_to_m20_independently(self) -> None:
         provider = self._provider(_FakeMT5())
 
         self.assertEqual(provider._model_comment("MODELO_8_TREND_PULLBACK_H1_M5"), "M8")
         self.assertEqual(provider._model_comment("MODELO_9_TREND_PULLBACK_M15_M1"), "M9")
         self.assertEqual(provider._model_comment("MODELO_10_TREND_PULLBACK_D1_M15"), "M10")
+        self.assertEqual(provider._model_comment("MODELO_11_ALPHA001_TREND_MOMENTUM"), "M11")
+        self.assertEqual(provider._model_comment("MODELO_20_ALPHA016_REVERSAL"), "M20")
 
-    def test_submit_order_bloqueia_decima_primeira_posicao_no_par(self) -> None:
+    def test_submit_order_bloqueia_vigesima_primeira_posicao_no_par(self) -> None:
         mt5 = _FakeMT5(
             open_positions=[
                 SimpleNamespace(comment=f"TraderIA M{index}")
-                for index in range(1, 11)
+                for index in range(1, 21)
             ]
         )
         provider = self._provider(mt5)
@@ -440,7 +442,7 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         result = provider.submit_order(self._order())
 
         self.assertFalse(result.accepted)
-        self.assertIn("Limite de dez posicionamentos por par", result.message)
+        self.assertIn("Limite de vinte posicionamentos por par", result.message)
         self.assertIsNone(mt5.last_request)
 
     def test_get_recent_candles_aceita_array_like_do_mt5(self) -> None:

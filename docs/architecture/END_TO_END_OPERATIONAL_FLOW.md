@@ -1,12 +1,12 @@
 # TraderIA Novo - Fluxo Operacional E Relacoes De Ponta A Ponta
 
 Status: referencia arquitetural canonica
-Atualizado em: 2026-07-24
+Atualizado em: 2026-08-01
 
 ## Finalidade
 
 Este documento e o mapa unico das relacoes operacionais do TraderIA Novo. Ele
-deve ser consultado antes de alterar Lab, Forex, modelos M1-M10, Robo Demo, MT5,
+deve ser consultado antes de alterar Lab, Forex, modelos M1-M20, Robo Demo, MT5,
 Position Manager, Relatorio, persistencia local ou ciclos em segundo plano.
 
 `docs/ARCHITECTURE.md` define camadas e invariantes gerais. Este documento
@@ -30,7 +30,7 @@ DashboardService enriquece leitura MT5 leve
         v
 DashboardMT5ForexSignalViewModel compartilhado
         |
-        +--> Aba MT5 Forex / monitores M1-M10
+        +--> Aba MT5 Forex / monitores M1-M20
         |
         +--> Seletor de modelos para novas entradas
         |
@@ -141,7 +141,7 @@ O snapshot compartilhado precisa transportar, por par:
 - leitura atual necessaria aos gates;
 - estado de posicao e recomendacao do Position Manager quando aplicavel.
 
-### Monitor De Indicadores M1-M10
+### Monitor De Indicadores M1-M20
 
 O monitor da aba MT5 Forex e uma projecao read-only do mesmo ciclo operacional.
 Sua primeira coluna identifica `M1` a `M7`; cada linha seguinte representa um
@@ -155,6 +155,9 @@ indicador ou uma condicao efetivamente usada pelo modelo naquele par e TF.
   publica MA20, MA50, momentum 10, volatilidade 20, RSI14 e ATR20.
 - M7 reutiliza a mesma leitura de entrada do M6 sem nova consulta ao MT5 e
   acrescenta o contrato de protecao `BETA007` para a posicao aberta.
+- M11-M20 usam o contrato congelado da Alpha oficial correspondente e
+  compartilham o calculo dos indicadores quando par, timeframe e candle fechado
+  forem iguais.
 - M4 e os vencedores M4 dentro do M5 incluem apenas o contexto H1/H4 realmente
   habilitado pelo overlay.
 - `Leitura atual` vem do ultimo candle fechado usado na decisao.
@@ -189,6 +192,7 @@ O M2 possui contrato operacional proprio, aprovado em 2026-07-29.
 | M5 | Melhor evidencia consolidada M1-M4 | Delega ao contrato vencedor por par, sem recalcular | 8 pares por politica Demo |
 | M6 | Trend Momentum original do marco `a3bc912` | Ultimo candle M1 fechado, proximo preco vivo, SL maximo entre 2 ATR e 0,10% do preco e TP RR2 fixos | 8 pares Demo |
 | M7 | Trend Momentum original isolado com protecao dinamica | Mesma entrada e risco inicial do M6; HOLD antes de 1,50R e depois somente break-even/ATR trailing, sem fechamento antecipado | 8 pares Demo |
+| M11-M20 | Dez Alphas oficiais restantes | Ultimo candle fechado, decisao independente, SL/TP fixos e cache compartilhado de indicadores | 8 pares Demo por modelo |
 
 O nome operacional do consolidado e somente M5. `M5-P` deixa de ser modelo
 operacional separado. M6 e M7 sao independentes de M1-M5 e entre si, aparecem
@@ -289,10 +293,10 @@ Trocar aba, recarregar pagina, abrir Safari/Chrome ou reconectar nao pode:
 - apagar o snapshot valido;
 - interromper o Position Manager.
 
-## Funil Visual De Entrada M1-M10
+## Funil Visual De Entrada M1-M20
 
 A tabela `Entrada Teorica MT5` deve decompor, para cada par e para cada modelo
-M1-M10, as mesmas condicoes que antecedem o envio ao Robo Demo. A coluna
+M1-M20, as mesmas condicoes que antecedem o envio ao Robo Demo. A coluna
 `Envio` e o resumo operacional: ela exibe `PRONTO` quando todas as etapas estao
 aptas ou apresenta o gargalo mais relevante, no formato
 `BLOQ/AGUARDA: etapa - motivo`.
@@ -416,8 +420,11 @@ Os testes devem garantir no minimo:
   comentario MT5, duplicidade e historico independentes.
 - M8-M10 usam somente candles do lote/cache compartilhado. O ciclo leve nao
   recalcula o Lab pesado e o Position Manager apenas audita seus SL/TP fixos.
-- Em `TODOS_MODELOS`, M1-M10 podem coexistir no mesmo par, com no maximo uma
-  posicao por modelo e dez posicoes totais por par.
+- M11-M20 usam somente candles e indicadores do lote/cache compartilhado. O
+  ciclo leve nao recalcula o Lab pesado e o Position Manager apenas audita seus
+  SL/TP fixos.
+- Em `TODOS_MODELOS`, M1-M20 podem coexistir no mesmo par, com no maximo uma
+  posicao por modelo e vinte posicoes totais por par.
 
 ## Documentos Complementares
 
@@ -427,6 +434,7 @@ Os testes devem garantir no minimo:
 - `docs/architecture/TRADE_ENTRY_EXIT_CONTRACT_AUDIT.md`
 - `docs/architecture/POSITION_MANAGER_OFFICIAL_CONTRACT.md`
 - `docs/architecture/OPERATIONAL_MODEL_CREATION_PROTOCOL.md`
+- `docs/architecture/OPERATIONAL_MODELS_M11_M20.md`
 - `docs/RUNTIME_AND_ARTIFACTS.md`
 ## Protecao contra travamento da ponte MT5
 

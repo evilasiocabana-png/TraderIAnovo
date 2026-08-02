@@ -382,7 +382,7 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                      'module': 'application.forex_mt5_service'},
  'LabOperationalModelService': {
      'methods': {
-         'evaluate': "(self, *, model_id: 'str', pair: 'str', candles_by_market: 'Mapping[tuple[str, str], Iterable[object]]', current_price: 'float | None', server_timestamp: 'str | None' = None) -> 'LabOperationalDecision'",
+         'evaluate': "(self, *, model_id: 'str', pair: 'str', candles_by_market: 'Mapping[tuple[str, str], Iterable[object]]', current_price: 'float | None', server_timestamp: 'str | None' = None, market_row: 'object | None' = None) -> 'LabOperationalDecision'",
          'model_label': "(self, model_id: 'str') -> 'str'",
          'required_timeframes': "(self, model_ids: 'Iterable[str]') -> 'dict[str, set[str]]'",
          'results': "(self, model_id: 'str') -> 'dict[str, dict[str, Any]]'",

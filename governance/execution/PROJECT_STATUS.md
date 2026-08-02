@@ -12,6 +12,18 @@ Status: pronto para fluxo de inbox.
 - Camada 1 de governanca operacional criada em `docs/`.
 - Nenhuma funcionalidade de produto foi criada por esta infraestrutura.
 
+## Estado Operacional M11-M20 - 2026-08-01
+
+- M11-M20 materializam, uma por vez, as dez Alphas oficiais ainda sem modelo.
+- Todos cobrem oito pares e permanecem restritos ao MT5 Demo.
+- Entradas usam candle fechado; SL/TP sao fixos; Position Manager somente
+  observa e audita essas posicoes.
+- Indicadores sao calculados uma vez por par/timeframe/candle e compartilhados.
+- O seletor `TODOS_MODELOS` inclui M1-M20 e o provider aceita no maximo uma
+  posicao por modelo/par, vinte por par no total.
+- Teste sintetico do ciclo M11-M20 ficou abaixo do gate de tres segundos.
+- Fonte canonica: `docs/architecture/OPERATIONAL_MODELS_M11_M20.md`.
+
 ## Correcao Operacional M2-M4 - 2026-07-26
 
 - MT5 e os timeframes H1/M30/H4 foram auditados online para os oito pares.

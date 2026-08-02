@@ -33,6 +33,7 @@ from application.lab_operational_model_service import (
     MODEL_8_ID,
     MODEL_9_ID,
     MODEL_10_ID,
+    OFFICIAL_ALPHA_MODEL_IDS,
 )
 from application.mt5_market_data_service import MT5ForexSignalDashboard, MT5ForexSignalRow
 from application.model6_original_trend_momentum import MODEL_6_ID, MODEL_6_LEGACY_ID
@@ -689,7 +690,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertIn("H1", transformed_row.reason)
         self.assertIs(transformed_plan, plan)
 
-    def test_chaveamento_todos_expande_modelos_m1_a_m10(self) -> None:
+    def test_chaveamento_todos_expande_modelos_m1_a_m20(self) -> None:
         service = DashboardService()
         service.set_mt5_operational_model("TODOS_MODELOS")
 
@@ -706,6 +707,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
                 MODEL_8_ID,
                 MODEL_9_ID,
                 MODEL_10_ID,
+                *OFFICIAL_ALPHA_MODEL_IDS,
             ),
         )
 
