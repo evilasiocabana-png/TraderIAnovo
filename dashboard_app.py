@@ -1217,7 +1217,7 @@ def ensure_mt5_forex_initial_load(service: DashboardService) -> None:
     shared = get_background_snapshot(MT5_FOREX_SHARED_SNAPSHOT_KEY)
     if shared is not None:
         return
-    if os.getenv("TRADERIA_MT5_INITIAL_LOAD_ENABLED", "0").strip() != "1":
+    if os.getenv("TRADERIA_MT5_INITIAL_LOAD_ENABLED", "1").strip() != "1":
         return
     forex = service.get_mt5_forex_signals()
     if int(getattr(forex, "refresh_id", 0) or 0) > 0:
@@ -1227,6 +1227,17 @@ def ensure_mt5_forex_initial_load(service: DashboardService) -> None:
             service,
             timeframe=str(getattr(forex, "timeframe", "H1") or "H1"),
         )
+        decisions = service.refresh_lab_operational_decision_snapshot()
+        runtime_snapshot = service.get_mt5_forex_runtime_view_model()
+        if _forex_pairs_count(runtime_snapshot) > 0:
+            publish_background_snapshot(
+                MT5_FOREX_SHARED_SNAPSHOT_KEY,
+                runtime_snapshot,
+            )
+            publish_background_snapshot(
+                MT5_LAB_OPERATIONAL_DECISIONS_SHARED_SNAPSHOT_KEY,
+                decisions,
+            )
         st.session_state[MT5_FOREX_LAST_AUTO_LOAD_KEY] = time.monotonic()
         st.session_state.pop(MT5_FOREX_INITIAL_LOAD_ERROR_KEY, None)
     except Exception as exc:  # noqa: BLE001 - falha externa MT5 nao deve quebrar UI

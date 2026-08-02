@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import dashboard_app
 from core.background_runtime_registry import (
@@ -1918,6 +1918,33 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(
             dashboard_app.datetime_time(4, 30),
             dashboard_app.MT5_REPORT_EQUITY_DEFAULT_START_TIME,
+        )
+
+    def test_carga_inicial_publica_snapshot_mesmo_sem_ciclo_de_fim_de_semana(self) -> None:
+        forex = SimpleNamespace(refresh_id=0, timeframe="H1")
+        runtime_snapshot = SimpleNamespace(pairs=[SimpleNamespace(pair="EURUSD")])
+        service = Mock()
+        service.get_mt5_forex_signals.return_value = forex
+        service.refresh_lab_operational_decision_snapshot.return_value = {
+            ("MODELO_11_ALPHA001_TREND_MOMENTUM", "EURUSD"): "WAIT"
+        }
+        service.get_mt5_forex_runtime_view_model.return_value = runtime_snapshot
+
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch.object(dashboard_app, "get_background_snapshot", return_value=None),
+            patch.object(dashboard_app, "_load_mt5_forex_signals_locked") as load,
+            patch.object(dashboard_app, "publish_background_snapshot") as publish,
+        ):
+            os.environ.pop("TRADERIA_MT5_INITIAL_LOAD_ENABLED", None)
+            dashboard_app.ensure_mt5_forex_initial_load(service)
+
+        load.assert_called_once_with(service, timeframe="H1")
+        published_keys = [call.args[0] for call in publish.call_args_list]
+        self.assertIn(dashboard_app.MT5_FOREX_SHARED_SNAPSHOT_KEY, published_keys)
+        self.assertIn(
+            dashboard_app.MT5_LAB_OPERATIONAL_DECISIONS_SHARED_SNAPSHOT_KEY,
+            published_keys,
         )
 
     def test_evolucao_patrimonial_filtra_por_modelo_operacional(self) -> None:
