@@ -3111,7 +3111,7 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
         initial_balance=float(initial_balance),
         start_at=start_at,
     )
-    visible_individual_models = [f"MODELO {index}" for index in range(1, 11)]
+    visible_individual_models = [f"MODELO {index}" for index in range(1, 21)]
     model_curves = {
         model: _mt5_realized_equity_curve(
             _mt5_rows_for_equity_model_filter(rows, model),

@@ -1643,10 +1643,10 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "modelo_6",
         )
 
-    def test_resumo_do_setup_identifica_os_dez_modelos(self) -> None:
+    def test_resumo_do_setup_identifica_os_vinte_modelos(self) -> None:
         summaries = [
             dashboard_app._mt5_equity_model_setup_summary(f"MODELO {index}")
-            for index in range(1, 11)
+            for index in range(1, 21)
         ]
 
         self.assertTrue(all(summaries))
@@ -1660,10 +1660,17 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertIn("H1 -> M5", summaries[7])
         self.assertIn("M15 -> M1", summaries[8])
         self.assertIn("D1 -> M15", summaries[9])
+        self.assertIn("ALPHA001", summaries[10])
+        self.assertIn("ALPHA016", summaries[19])
         self.assertEqual(
             dashboard_app._mt5_equity_model_setup_summary("M1 + M2"),
             "",
         )
+
+    def test_relatorio_renderiza_paineis_individuais_m1_a_m20(self) -> None:
+        source = inspect.getsource(dashboard_app._exibir_evolucao_patrimonial_mt5)
+
+        self.assertIn("range(1, 21)", source)
 
     def test_resumo_em_negociacao_soma_lucros_das_operacoes_abertas(self) -> None:
         rows = [
