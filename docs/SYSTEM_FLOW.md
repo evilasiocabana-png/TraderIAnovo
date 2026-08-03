@@ -25,7 +25,7 @@ application/dashboard_service.py
   |
   +--> Aba Forex MT5: leitura leve online com parametros do Lab
   |
-  +--> Aba Lab: baixa historico MT5 e calcula Alpha001-Alpha015 sob demanda
+  +--> Aba Lab: baixa historico MT5 e calcula Alpha001-Alpha017 sob demanda
   |
   +--> Aba Relatorio: audita registros locais contra historico MT5
   |

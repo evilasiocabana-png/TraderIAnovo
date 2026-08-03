@@ -387,6 +387,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
                 "ALPHA014",
                 "ALPHA015",
                 "ALPHA016",
+                "ALPHA017",
             },
         )
         self.assertEqual(
@@ -422,6 +423,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
                 "MULTI_TIMEFRAME_ALIGNMENT",
                 "LIQUIDITY_SPREAD_FILTER",
                 "BETA002_REVERSAL_SIGNAL",
+                "MULTI_CURRENCY_GRID_MEAN_REVERSION",
             },
         )
         self.assertGreater(len(grid), 600)
@@ -1872,7 +1874,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
 
         ranking = RankingDashboardService().get_mt5_alpha_research_ranking()
 
-        self.assertEqual(len(ranking), 16)
+        self.assertEqual(len(ranking), 17)
         self.assertEqual(ranking[0].alpha_id, "ALPHA002")
         self.assertEqual(ranking[0].status, "APROVADA")
         alpha006 = next(report for report in ranking if report.alpha_id == "ALPHA006")
@@ -1896,6 +1898,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
                 "ALPHA014",
                 "ALPHA015",
                 "ALPHA016",
+                "ALPHA017",
             },
         )
 

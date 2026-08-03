@@ -44,6 +44,8 @@ Alpha + modelo + par + timeframe + parametros de entrada
 | SUPPORT_RESISTANCE_REACTION | ALPHA013 | reacao em suporte/resistencia | suporte, resistencia, swing, RSI, ATR | Lab escolhe `stop_management` |
 | MULTI_TIMEFRAME_ALIGNMENT | ALPHA014 | alinhamento do timeframe ativo | EMAs, trend, momentum | Lab escolhe `stop_management` |
 | LIQUIDITY_SPREAD_FILTER | ALPHA015 | filtro de liquidez/spread | spread, spread medio, tick volume | Lab escolhe `stop_management` |
+| BETA002_REVERSAL_SIGNAL | ALPHA016 | reversao do fluxo anterior | EMAs, momentum, volatilidade, ATR | Pesquisa existente |
+| MULTI_CURRENCY_GRID_MEAN_REVERSION | ALPHA017 | reversao a media em extremo nao tendencial | Bollinger, Z-Score, RSI, `adx_max`, ATR | Somente Replay; sem grade operacional |
 
 ## Stop management suportado
 

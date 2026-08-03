@@ -53,7 +53,7 @@ aplicação e não duplica o conteúdo dos documentos referenciados.
   - Mapa canonico das relacoes entre Lab, ciclo Forex, modelos M1-M10, Trade
     Plan, Robo Demo, MT5, Position Manager, Relatorio, estados e testes.
 - [architecture/WEEKLY_ROBOT_SCHEDULE.md](architecture/WEEKLY_ROBOT_SCHEDULE.md)
-  - Agenda obrigatoria em Brasilia: robo Demo sempre ON de domingo 23:30 a
+  - Agenda obrigatoria em Brasilia: robo Demo sempre ON de domingo 18:01 a
     sexta 17:30; fora da janela, OFF e todas as posicoes Demo encerradas.
 - [research/MODEL_7_TREND_MOMENTUM_DYNAMIC_2026-07-24.md](research/MODEL_7_TREND_MOMENTUM_DYNAMIC_2026-07-24.md)
   - Contrato operacional do M7: entrada ALPHA001 congelada, risco RR2,

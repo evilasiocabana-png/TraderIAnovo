@@ -31,6 +31,11 @@ application/dashboard_service.py
 | ALPHA013 | SUPPORT_RESISTANCE_REACTION | Preco perto de suporte/resistencia relevante altera a probabilidade de entrada. | Suporte, Resistencia, Swing, RSI, ATR | `_support_resistance_reaction_parameterized_candidate` |
 | ALPHA014 | MULTI_TIMEFRAME_ALIGNMENT | Sinais alinhados em multiplos timeframes tem maior qualidade. | EMA, Trend, Momentum, Timeframe ativo | `_multi_timeframe_alignment_parameterized_candidate` |
 | ALPHA015 | LIQUIDITY_SPREAD_FILTER | Sinais com spread baixo e tick volume suficiente tem execucao mais confiavel. | Spread, Spread medio, Tick Volume | `_liquidity_spread_filter_parameterized_candidate` |
+| ALPHA016 | BETA002_REVERSAL_SIGNAL | Reversao contra o fluxo anterior confirmada por momentum e volatilidade. | EMA, Momentum, Volatilidade, ATR, Candle fechado | `_beta002_reversal_signal_parameterized_candidate` |
+| ALPHA017 | MULTI_CURRENCY_GRID_MEAN_REVERSION | Extremo estatistico em mercado sem tendencia pode retornar a media. | Bollinger, Z-Score, RSI, ADX, ATR | `_multi_currency_grid_mean_reversion_parameterized_candidate` |
+
+ALPHA017 permanece `RESEARCH_ONLY`; nao possui modelo operacional nem permissao
+de gerar grade, progressao de lote ou ordem MT5.
 
 ## Saidas esperadas
 

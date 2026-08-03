@@ -25,20 +25,27 @@ class WeeklyRobotScheduleTest(unittest.TestCase):
             datetime(2026, 7, 31, 17, 30, tzinfo=BRT)
         )
         self.assertFalse(decision.operating)
-        self.assertIn("2026-08-02T23:30:00", decision.next_transition_brt)
+        self.assertIn("2026-08-02T18:01:00", decision.next_transition_brt)
 
-    def test_sunday_before_2330_is_closed(self) -> None:
+    def test_sunday_before_1801_is_closed(self) -> None:
         decision = weekly_robot_schedule_decision(
-            datetime(2026, 8, 2, 23, 29, 59, tzinfo=BRT)
+            datetime(2026, 8, 2, 18, 0, 59, tzinfo=BRT)
         )
         self.assertFalse(decision.operating)
 
-    def test_sunday_at_2330_is_operating(self) -> None:
+    def test_sunday_at_1801_is_operating(self) -> None:
         decision = weekly_robot_schedule_decision(
-            datetime(2026, 8, 2, 23, 30, tzinfo=BRT)
+            datetime(2026, 8, 2, 18, 1, tzinfo=BRT)
         )
         self.assertTrue(decision.operating)
         self.assertIn("2026-08-07T17:30:00", decision.next_transition_brt)
+
+    def test_starting_late_on_sunday_keeps_window_operating(self) -> None:
+        decision = weekly_robot_schedule_decision(
+            datetime(2026, 8, 2, 22, 45, tzinfo=BRT)
+        )
+        self.assertTrue(decision.operating)
+        self.assertEqual(decision.status, "WEEKLY_WINDOW_OPEN")
 
     def test_close_all_demo_positions_closes_each_ticket(self) -> None:
         execution = _FakeExecutionService()

@@ -301,3 +301,12 @@ Todo erro encontrado deve ser avaliado no fluxo completo descrito em
 origem, contratos, consumidores, persistencia, telas e testes aplicaveis. Um
 ajuste somente visual nao encerra um erro de fluxo, e toda causa estrutural deve
 ser registrada tambem em `docs/EXECUTION_LOG.md`.
+
+## Pesquisa De Grade Multiativos
+
+`ALPHA017_MULTI_CURRENCY_GRID_MEAN_REVERSION` e uma hipotese `RESEARCH_ONLY`.
+Ela pode usar o Replay de posicao unica para selecionar entradas candidatas,
+mas isso nao valida uma grade. Grade, progressao de lote, exposicao correlacionada
+e encerramento por cesta exigem contratos proprios de portfolio e uma missao
+Demo posterior. A simples inclusao da Alpha no Lab nunca cria modelo operacional,
+Trade Plan, ordem MT5 ou permissao de conta real.

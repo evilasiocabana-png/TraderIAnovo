@@ -399,7 +399,7 @@ def _enforce_weekly_robot_schedule(
                 timeframe=timeframe,
                 message=(
                     "Robo ligado automaticamente pela agenda semanal "
-                    "domingo 23:30 -> sexta 17:30 BRT."
+                    "domingo 18:01 -> sexta 17:30 BRT."
                 ),
             )
             _start_demo_robot_background_cycle_once(force=True)
@@ -427,7 +427,7 @@ def _enforce_weekly_robot_schedule(
             timeframe=timeframe,
             message=(
                 "Robo desligado automaticamente na sexta 17:30 BRT; "
-                "retorno domingo 23:30 BRT."
+                "retorno domingo 18:01 BRT."
             ),
         )
         _write_demo_robot_background_state(

@@ -17,10 +17,11 @@
 
 ## 2026-07-31 - Agenda semanal obrigatoria do Robo Demo
 
-- Definida janela `America/Sao_Paulo`: domingo 23:30 ate sexta 17:30.
+- Definida janela `America/Sao_Paulo`: domingo 18:01 ate sexta 17:30.
 - Dentro da janela, o robo e mantido sempre ligado.
 - Sexta 17:30, o robo e desarmado e todas as posicoes MT5 Demo sao encerradas.
-- Domingo 23:30, o robo e rearmado automaticamente.
+- Domingo 18:01, o robo e rearmado automaticamente; se o app iniciar depois
+  desse horario, ele rearma no primeiro ciclo da agenda.
 - Thread semanal independe do estado online anterior e persiste auditoria.
 - Conta real permanece bloqueada pelo provider.
 - Testes de fronteira temporal e zeramento Demo adicionados.
@@ -836,3 +837,10 @@ Novas entradas devem registrar:
 - validacao executada;
 - commit gerado;
 - pendencias.
+## 2026-08-03 - ALPHA017 experimental de reversao multiativos
+
+- adicionada `ALPHA017_MULTI_CURRENCY_GRID_MEAN_REVERSION` ao Lab/Replay;
+- entrada exige Bollinger, Z-Score, RSI, ADX baixo e ATR valido;
+- Replay usa SL/TP substitutos de posicao unica e nao representa uma grade;
+- Alpha permanece `RESEARCH_ONLY`, sem modelo operacional e sem envio MT5;
+- documentados limites de correlacao, exposicao de cesta e progressao de lote.

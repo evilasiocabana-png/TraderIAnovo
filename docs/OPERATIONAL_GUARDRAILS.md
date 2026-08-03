@@ -17,7 +17,7 @@ o estado operacional atual.
 ## Regras do Lab
 
 - Lab pesado roda sob demanda.
-- Ciclo leve Forex nao recalcula Alpha001-Alpha015.
+- Ciclo leve Forex nao recalcula Alpha001-Alpha017.
 - Timeframe vencedor vem do Lab e deve ser preservado.
 - Melhor saida/stop management vem do Lab.
 - Toda alteracao de Alpha deve atualizar rastreabilidade.

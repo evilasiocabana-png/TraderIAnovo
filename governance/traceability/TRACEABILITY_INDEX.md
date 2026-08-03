@@ -8,7 +8,7 @@ Alpha -> setup -> entrada -> saida -> timeframe -> Forex -> MT5 -> Relatorio
 
 ## Indices
 
-- `ALPHA_INDEX.md`: catalogo Alpha001-Alpha015.
+- `ALPHA_INDEX.md`: catalogo Alpha001-Alpha017.
 - `SETUP_INDEX.md`: modelos/setups e suas fontes de decisao.
 - `LAB_TO_FOREX_CONTRACT.md`: como o Lab entrega parametros ao Forex.
 - `FOREX_TO_MT5_CONTRACT.md`: como o Forex vira JSON/visual/execucao demo.

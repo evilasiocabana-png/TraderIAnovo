@@ -10401,6 +10401,28 @@ class DashboardService:
                                 reversal_strength=reversal_strength,
                             )
                         )
+        for rsi_oversold, rsi_overbought in ((25.0, 75.0), (30.0, 70.0)):
+            for z_threshold in (1.5, 2.0, 2.5):
+                for adx_max in (18.0, 22.0, 25.0):
+                    for rr in (0.5, 0.75, 1.0):
+                        grid.append(
+                            self._mt5_grid_parameters(
+                                "ALPHA017",
+                                "MULTI_CURRENCY_GRID_MEAN_REVERSION",
+                                20,
+                                50,
+                                rsi_oversold,
+                                rsi_overbought,
+                                2.5,
+                                rr,
+                                0.0,
+                                vol_low,
+                                z_threshold=z_threshold,
+                                adx_max=adx_max,
+                                band_width_atr_max=6.0,
+                                research_only=True,
+                            )
+                        )
         if expand_exits:
             return self._mt5_expand_position_management_grid(grid)
         return grid
@@ -10596,6 +10618,7 @@ class DashboardService:
             "ALPHA014": "Multi-Timeframe Alignment",
             "ALPHA015": "Liquidity Spread Filter",
             "ALPHA016": "BETA002 Reversal Signal",
+            "ALPHA017": "Multi-Currency Grid Mean Reversion",
         }
 
     def _mt5_alpha_definitions(self) -> dict[str, dict[str, object]]:
@@ -10663,6 +10686,10 @@ class DashboardService:
             "ALPHA016": {
                 "hypothesis": "Leitura semelhante ao BETA002 contra o fluxo anterior pode virar entrada de reversao.",
                 "indicators": ("EMA", "Momentum", "Volatilidade", "ATR", "Candle fechado"),
+            },
+            "ALPHA017": {
+                "hypothesis": "Extremos estatisticos em mercado sem tendencia podem retornar a media; exposicao em grade permanece fora do runtime.",
+                "indicators": ("Bollinger Bands", "Z-Score", "RSI", "ADX", "ATR"),
             },
         }
 
@@ -11066,8 +11093,10 @@ class DashboardService:
     ) -> tuple[tuple[str, str], ...]:
         entry_keys = {
             "adx_min",
+            "adx_max",
             "alpha",
             "atr_regime",
+            "band_width_atr_max",
             "bollinger_width_threshold",
             "breakout_buffer",
             "donchian_period",
@@ -11738,6 +11767,11 @@ class DashboardService:
             return self._liquidity_spread_filter_parameterized_candidate(row, parameters)
         if alpha_id == "ALPHA016":
             return self._beta002_reversal_signal_parameterized_candidate(row, parameters)
+        if alpha_id == "ALPHA017":
+            return self._multi_currency_grid_mean_reversion_parameterized_candidate(
+                row,
+                parameters,
+            )
         if model == "MA_RSI_FILTER":
             return self._ma_rsi_parameterized_candidate(row, parameters)
         if model == "RSI_REVERSAL":
@@ -12195,6 +12229,79 @@ class DashboardService:
             "decision": decision,
             "score": score,
             "reason": "Distancia extrema da VWAP sugere reversao a media." if decision != "WAIT" else "VWAP/Z-Score sem extremo suficiente.",
+        }
+
+    def _multi_currency_grid_mean_reversion_parameterized_candidate(
+        self,
+        row: object,
+        parameters: dict[str, object],
+    ) -> dict[str, object]:
+        missing = self._missing_indicators(
+            row,
+            "bollinger_upper",
+            "bollinger_lower",
+            "z_score",
+            "rsi",
+            "adx",
+            "atr",
+        )
+        if missing:
+            return self._indicator_unavailable_candidate(*missing)
+        price = float(getattr(row, "last_price", 0.0) or 0.0)
+        upper = float(getattr(row, "bollinger_upper") or 0.0)
+        lower = float(getattr(row, "bollinger_lower") or 0.0)
+        z_score = float(getattr(row, "z_score") or 0.0)
+        rsi = float(getattr(row, "rsi") or 50.0)
+        adx = float(getattr(row, "adx") or 0.0)
+        atr = float(getattr(row, "atr") or 0.0)
+        z_threshold = float(parameters.get("z_threshold", 2.0) or 2.0)
+        adx_max = float(parameters.get("adx_max", 22.0) or 22.0)
+        band_width_atr_max = float(
+            parameters.get("band_width_atr_max", 6.0) or 6.0
+        )
+        if price <= 0.0 or upper <= lower or atr <= 0.0:
+            return self._indicator_unavailable_candidate(
+                "last_price",
+                "bollinger_bands",
+                "atr",
+            )
+        if adx > adx_max:
+            return {
+                "decision": "WAIT",
+                "score": 0.0,
+                "reason": "ADX alto: grade de reversao bloqueada em mercado tendencial.",
+            }
+        band_width_atr = (upper - lower) / atr
+        if band_width_atr > band_width_atr_max:
+            return {
+                "decision": "WAIT",
+                "score": 0.0,
+                "reason": "Bandas largas demais em relacao ao ATR para reversao controlada.",
+            }
+        buy = (
+            price <= lower
+            and z_score <= -z_threshold
+            and rsi <= float(parameters["rsi_sobrevenda"])
+        )
+        sell = (
+            price >= upper
+            and z_score >= z_threshold
+            and rsi >= float(parameters["rsi_sobrecompra"])
+        )
+        decision = "BUY" if buy else "SELL" if sell else "WAIT"
+        score = 0.0
+        if decision != "WAIT":
+            z_component = min((abs(z_score) - z_threshold) / 4.0, 0.20)
+            adx_component = min(max((adx_max - adx) / max(adx_max, 1.0), 0.0), 0.20)
+            score = min(1.0, 0.50 + z_component + adx_component)
+        return {
+            "decision": decision,
+            "score": score,
+            "reason": (
+                "Extremo Bollinger/Z-Score com RSI e ADX favoraveis a reversao."
+                if decision != "WAIT"
+                else "Sem extremo estatistico completo para reversao a media."
+            ),
         }
 
     def _support_resistance_reaction_parameterized_candidate(

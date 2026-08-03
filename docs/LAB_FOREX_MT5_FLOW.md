@@ -48,7 +48,7 @@ pesado durante o refresh leve:
 
 | Acao | O que faz | O que nao faz |
 |---|---|---|
-| Atualizar historico MT5 | Baixa candles do MT5 e salva `.traderia/mt5_research_history_snapshot.json`. | Nao recalcula Alpha001-Alpha015 e nao envia ordens. |
+| Atualizar historico MT5 | Baixa candles do MT5 e salva `.traderia/mt5_research_history_snapshot.json`. | Nao recalcula Alpha001-Alpha017 e nao envia ordens. |
 | Atualizar calculos | Recalcula o Lab usando o historico salvo quando disponivel. | Nao baixa historico pesado a cada ciclo e nao envia ordens. |
 
 O ciclo leve Forex/MT5 deve usar parametros ja definidos pelo Lab. Ele nao deve

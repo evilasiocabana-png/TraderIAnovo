@@ -11,7 +11,7 @@ O fluxo correto e separado em duas acoes manuais:
 1. `Atualizar histórico MT5`
    - Le candles do MT5 em modo read-only.
    - Salva o historico bruto em `.traderia/mt5_research_history_snapshot.json`.
-   - Nao recalcula Alpha001-Alpha015.
+   - Nao recalcula Alpha001-Alpha017.
    - Nao envia ordens.
 
 2. `Atualizar cálculos`

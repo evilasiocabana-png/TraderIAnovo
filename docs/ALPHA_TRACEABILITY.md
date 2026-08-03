@@ -5,7 +5,7 @@ avaliadas e como devem ser rastreadas em missoes futuras.
 
 ## Fonte principal
 
-Hoje a biblioteca Alpha001-Alpha015 do fluxo MT5 Forex esta concentrada em:
+Hoje a biblioteca Alpha001-Alpha017 do fluxo MT5 Forex esta concentrada em:
 
 ```text
 application/dashboard_service.py
@@ -46,6 +46,11 @@ governance/traceability/ALPHA_INDEX.md
 | ALPHA013 | SUPPORT_RESISTANCE_REACTION | `_support_resistance_reaction_parameterized_candidate` |
 | ALPHA014 | MULTI_TIMEFRAME_ALIGNMENT | `_multi_timeframe_alignment_parameterized_candidate` |
 | ALPHA015 | LIQUIDITY_SPREAD_FILTER | `_liquidity_spread_filter_parameterized_candidate` |
+| ALPHA016 | BETA002_REVERSAL_SIGNAL | `_beta002_reversal_signal_parameterized_candidate` |
+| ALPHA017 | MULTI_CURRENCY_GRID_MEAN_REVERSION | `_multi_currency_grid_mean_reversion_parameterized_candidate` |
+
+`ALPHA017` e exclusivamente experimental. Sua presenca na biblioteca de
+pesquisa nao autoriza grade de ordens, promocao operacional ou envio ao MT5.
 
 ## Fluxo de avaliacao
 

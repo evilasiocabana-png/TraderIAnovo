@@ -131,3 +131,104 @@ class DashboardServiceTest(unittest.TestCase):
 
         self.assertEqual(candidate["decision"], "SELL")
         self.assertGreater(candidate["score"], 0.0)
+
+    def test_alpha017_entra_na_biblioteca_e_grade_de_pesquisa(self) -> None:
+        service = DashboardService()
+
+        self.assertEqual(
+            service._mt5_alpha_library()["ALPHA017"],
+            "Multi-Currency Grid Mean Reversion",
+        )
+        grid = service._mt5_scenario_parameter_grid(None, expand_exits=False)
+        alpha017 = [item for item in grid if item.get("alpha") == "ALPHA017"]
+
+        self.assertTrue(alpha017)
+        self.assertTrue(all(item.get("research_only") is True for item in alpha017))
+        self.assertEqual(
+            {item.get("modelo") for item in alpha017},
+            {"MULTI_CURRENCY_GRID_MEAN_REVERSION"},
+        )
+
+    def test_alpha017_compra_extremo_inferior_em_regime_lateral(self) -> None:
+        service = DashboardService()
+        row = SimpleNamespace(
+            last_price=1.0950,
+            bollinger_upper=1.1050,
+            bollinger_lower=1.0960,
+            z_score=-2.3,
+            rsi=24.0,
+            adx=16.0,
+            atr=0.0020,
+        )
+
+        candidate = service._mt5_parameterized_candidate(
+            row,
+            "MULTI_CURRENCY_GRID_MEAN_REVERSION",
+            {
+                "alpha": "ALPHA017",
+                "z_threshold": 2.0,
+                "adx_max": 22.0,
+                "band_width_atr_max": 6.0,
+                "rsi_sobrevenda": 25.0,
+                "rsi_sobrecompra": 75.0,
+            },
+        )
+
+        self.assertEqual(candidate["decision"], "BUY")
+        self.assertGreater(candidate["score"], 0.0)
+
+    def test_alpha017_vende_extremo_superior_em_regime_lateral(self) -> None:
+        service = DashboardService()
+        row = SimpleNamespace(
+            last_price=1.1060,
+            bollinger_upper=1.1050,
+            bollinger_lower=1.0960,
+            z_score=2.4,
+            rsi=78.0,
+            adx=17.0,
+            atr=0.0020,
+        )
+
+        candidate = service._mt5_parameterized_candidate(
+            row,
+            "MULTI_CURRENCY_GRID_MEAN_REVERSION",
+            {
+                "alpha": "ALPHA017",
+                "z_threshold": 2.0,
+                "adx_max": 22.0,
+                "band_width_atr_max": 6.0,
+                "rsi_sobrevenda": 25.0,
+                "rsi_sobrecompra": 75.0,
+            },
+        )
+
+        self.assertEqual(candidate["decision"], "SELL")
+        self.assertGreater(candidate["score"], 0.0)
+
+    def test_alpha017_bloqueia_grade_quando_adx_indica_tendencia(self) -> None:
+        service = DashboardService()
+        row = SimpleNamespace(
+            last_price=1.0950,
+            bollinger_upper=1.1050,
+            bollinger_lower=1.0960,
+            z_score=-2.5,
+            rsi=22.0,
+            adx=31.0,
+            atr=0.0020,
+        )
+
+        candidate = service._mt5_parameterized_candidate(
+            row,
+            "MULTI_CURRENCY_GRID_MEAN_REVERSION",
+            {
+                "alpha": "ALPHA017",
+                "z_threshold": 2.0,
+                "adx_max": 22.0,
+                "band_width_atr_max": 6.0,
+                "rsi_sobrevenda": 25.0,
+                "rsi_sobrecompra": 75.0,
+            },
+        )
+
+        self.assertEqual(candidate["decision"], "WAIT")
+        self.assertIn("ADX alto", candidate["reason"])

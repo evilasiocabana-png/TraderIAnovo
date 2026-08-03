@@ -90,7 +90,7 @@ Responsabilidade:
 
 - baixar historico MT5 sob demanda;
 - salvar banco/snapshot local do historico;
-- recalcular biblioteca Alpha001-Alpha015 sob demanda;
+- recalcular biblioteca Alpha001-Alpha017 sob demanda;
 - consolidar setup, timeframe, direcao, parametros e stop management por par;
 - expor recomendacoes para o Forex.
 
