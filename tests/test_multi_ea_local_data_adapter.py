@@ -13,6 +13,7 @@ import unittest
 
 from infrastructure.research.multi_ea_local_data_adapter import (
     MultiEALocalDataAdapter,
+    canonicalize_multi_ea_symbol,
 )
 from research.multi_ea_trading_lab import MultiEACandle, MultiEATradePosition
 
@@ -45,6 +46,10 @@ class MultiEALocalDataAdapterTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
+
+    def test_alias_btcusd_preserva_bitcoin_como_simbolo_do_extrato(self) -> None:
+        self.assertEqual(canonicalize_multi_ea_symbol("BTCUSD"), "BITCOIN")
+        self.assertEqual(canonicalize_multi_ea_symbol("BITCOIN"), "BITCOIN")
 
     def test_parseia_csv_posicional_com_headers_duplicados_e_ignora_balance(
         self,

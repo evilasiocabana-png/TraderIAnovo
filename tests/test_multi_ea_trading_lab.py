@@ -112,6 +112,115 @@ class MultiEATradingLabEngineTest(unittest.TestCase):
         self.assertFalse(result["operational_eligible"])
         self.assertIn("FUSO_NAO_INFORMADO", " ".join(result["warnings"]))
 
+    def test_replay_oraculo_contabil_cobre_322_de_322_sem_ser_setup(self) -> None:
+        start = datetime(2026, 1, 1)
+        positions = [
+            self._position(
+                f"p{index}",
+                "XAUUSD",
+                "BUY" if index % 2 == 0 else "SELL",
+                start + timedelta(hours=index * 2),
+                start + timedelta(hours=index * 2 + 1),
+            )
+            for index in range(322)
+        ]
+
+        result = MultiEATradingLabEngine().analyze(positions, [])
+        replay = result["entry_oracle_replay"]
+
+        self.assertEqual(replay["coverage"]["source_entries"], 322)
+        self.assertEqual(replay["coverage"]["replayed_entries"], 322)
+        self.assertEqual(replay["coverage"]["omitted_entries"], 0)
+        self.assertEqual(replay["coverage"]["percent"], 100.0)
+        self.assertTrue(replay["coverage"]["complete"])
+        self.assertEqual(replay["fidelity"]["symbol_matches"], 322)
+        self.assertEqual(replay["fidelity"]["timestamp_matches"], 322)
+        self.assertEqual(replay["fidelity"]["direction_matches"], 322)
+        self.assertEqual(replay["fidelity"]["entry_price_matches"], 322)
+        self.assertEqual(replay["fidelity"]["fully_matched_entries"], 322)
+        self.assertEqual(len(replay["records"]), 322)
+        self.assertFalse(replay["predictive_setup"])
+        self.assertFalse(replay["uses_exit_data"])
+        self.assertFalse(replay["uses_observed_outcomes"])
+        self.assertTrue(replay["research_only"])
+        self.assertFalse(replay["operational_eligible"])
+        self.assertIn("nao mede acerto preditivo", " ".join(result["warnings"]))
+
+    def test_replay_oraculo_preserva_campos_e_reconcilia_resultado(self) -> None:
+        start = datetime(2026, 4, 5, 10, 15)
+        positions = [
+            MultiEATradePosition(
+                source_symbol="GOLD",
+                symbol="XAUUSD",
+                direction="buy",
+                volume=0.02,
+                open_time=start,
+                open_price=2321.45,
+                close_time=start + timedelta(minutes=45),
+                close_price=2328.75,
+                commission=-0.12,
+                swap=-0.03,
+                profit=14.60,
+                source_row=17,
+                position_id="gold-17",
+            ),
+            MultiEATradePosition(
+                source_symbol="EURUSD",
+                symbol="EURUSD",
+                direction="SELL",
+                volume=0.01,
+                open_time=start + timedelta(hours=1),
+                open_price=1.0845,
+                close_time=start + timedelta(hours=2),
+                close_price=1.0855,
+                commission=-0.06,
+                swap=0.0,
+                profit=-1.00,
+                source_row=18,
+                position_id="eurusd-18",
+            ),
+        ]
+
+        result = MultiEATradingLabEngine().analyze(positions, [])
+        replay = result["entry_oracle_replay"]
+        first = replay["records"][0]
+        observed = first["observed_entry"]
+        reconciliation = result["accounting_reconciliation"]["reconciliation"]
+
+        self.assertEqual(first["source_row"], 17)
+        self.assertEqual(first["position_id"], "gold-17")
+        self.assertEqual(first["source_symbol"], "GOLD")
+        self.assertEqual(observed["symbol"], "XAUUSD")
+        self.assertEqual(observed["direction"], "BUY")
+        self.assertEqual(observed["timestamp"], start.isoformat())
+        self.assertEqual(observed["price"], 2321.45)
+        self.assertEqual(first["observed_entry"], first["replayed_entry"])
+        self.assertTrue(all(first["matches"].values()))
+        self.assertNotIn("close_time", observed)
+        self.assertNotIn("close_price", observed)
+        self.assertNotIn("profit_usd", observed)
+        self.assertEqual(
+            reconciliation["recorded"],
+            {
+                "profit_usd": 13.60,
+                "commission_usd": -0.18,
+                "swap_usd": -0.03,
+                "net_usd": 13.39,
+            },
+        )
+        self.assertEqual(reconciliation["recorded"], reconciliation["replayed"])
+        self.assertEqual(
+            reconciliation["difference"],
+            {
+                "profit_usd": 0.0,
+                "commission_usd": 0.0,
+                "swap_usd": 0.0,
+                "net_usd": 0.0,
+            },
+        )
+        self.assertTrue(reconciliation["balanced"])
+        self.assertIn("nao descobre", replay["interpretation"])
+
     def test_ranking_expoe_parametros_e_holdout_sem_claim_de_identificacao(self) -> None:
         start = datetime(2025, 1, 1)
         candles = [

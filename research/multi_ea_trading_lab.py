@@ -185,6 +185,11 @@ class MultiEATradingLabEngine:
         warnings = [
             "RESEARCH_ONLY: o resultado nao pode alimentar operacao Demo ou real.",
             (
+                "REPLAY_ORACULO_DE_ENTRADAS: a cobertura de 100% apenas reproduz "
+                "simbolo, horario, direcao e preco de entrada ja observados no CSV; "
+                "nao mede acerto preditivo e nao constitui setup de negociacao."
+            ),
+            (
                 "AMOSTRA_EXPLORATORIA: aproximacao estatistica nao identifica "
                 "o codigo ou os parametros proprietarios do EA."
             ),
@@ -213,6 +218,10 @@ class MultiEATradingLabEngine:
             "warnings": warnings,
             "reported_profile": dict(reported_profile or DEFAULT_REPORTED_PROFILE),
             "sample": self._sample(ordered_positions),
+            "entry_oracle_replay": self._entry_oracle_replay(ordered_positions),
+            "accounting_reconciliation": self._accounting_reconciliation(
+                ordered_positions
+            ),
             "behavior": self._behavior(ordered_positions),
             "coverage": coverage,
             "split": {
@@ -582,6 +591,145 @@ class MultiEATradingLabEngine:
             "last_entry": positions[-1].open_time.isoformat() if positions else "N/D",
             "lot_distribution": lots,
             "position_distribution": dict(sorted(markets.items())),
+        }
+
+    def _entry_oracle_replay(
+        self,
+        positions: Sequence[MultiEATradePosition],
+    ) -> dict[str, object]:
+        """Reproduz somente entradas ex post, sem inferir regra preditiva."""
+
+        records: list[dict[str, object]] = []
+        for sequence, position in enumerate(positions, start=1):
+            observed_entry = {
+                "symbol": position.symbol,
+                "timestamp": position.open_time.isoformat(),
+                "direction": str(position.direction).upper(),
+                "price": float(position.open_price),
+            }
+            replayed_entry = dict(observed_entry)
+            records.append(
+                {
+                    "sequence": sequence,
+                    "source_row": position.source_row,
+                    "position_id": position.position_id,
+                    "source_symbol": position.source_symbol,
+                    "observed_entry": observed_entry,
+                    "replayed_entry": replayed_entry,
+                    "matches": {
+                        field: observed_entry[field] == replayed_entry[field]
+                        for field in ("symbol", "timestamp", "direction", "price")
+                    },
+                }
+            )
+
+        total = len(positions)
+        matched_by_field = {
+            field: sum(bool(record["matches"][field]) for record in records)
+            for field in ("symbol", "timestamp", "direction", "price")
+        }
+        fully_matched = sum(all(record["matches"].values()) for record in records)
+
+        return {
+            "mode": "REPLAY_ORACULO_DE_ENTRADAS_EX_POST",
+            "target": "ENTRADAS_SOMENTE",
+            "classification": "REPRODUCAO_DE_ENTRADAS_NAO_PREDITIVA",
+            "research_only": True,
+            "operational_eligible": False,
+            "predictive_setup": False,
+            "uses_observed_entries": True,
+            "uses_exit_data": False,
+            "uses_observed_outcomes": False,
+            "coverage": {
+                "source_entries": total,
+                "replayed_entries": len(records),
+                "omitted_entries": total - len(records),
+                "ratio": round(len(records) / total, 6) if total else 0.0,
+                "percent": round(100.0 * len(records) / total, 2) if total else 0.0,
+                "complete": len(records) == total,
+            },
+            "fidelity": {
+                "symbol_matches": matched_by_field["symbol"],
+                "timestamp_matches": matched_by_field["timestamp"],
+                "direction_matches": matched_by_field["direction"],
+                "entry_price_matches": matched_by_field["price"],
+                "fully_matched_entries": fully_matched,
+                "percent": round(100.0 * fully_matched / total, 2) if total else 0.0,
+                "complete": fully_matched == total,
+            },
+            "records": records,
+            "interpretation": (
+                "A fidelidade integral decorre da copia ex post das entradas "
+                "observadas no CSV. Ela valida cobertura dos dados de entrada, "
+                "mas nao descobre nem valida uma regra capaz de prever novas entradas."
+            ),
+        }
+
+    def _accounting_reconciliation(
+        self,
+        positions: Sequence[MultiEATradePosition],
+    ) -> dict[str, object]:
+        """Reconcilia P&L observado fora do alvo da engenharia reversa."""
+
+        recorded_raw = {
+            "profit_usd": sum(float(position.profit) for position in positions),
+            "commission_usd": sum(
+                float(position.commission or 0.0) for position in positions
+            ),
+            "swap_usd": sum(float(position.swap or 0.0) for position in positions),
+        }
+        recorded_raw["net_usd"] = (
+            recorded_raw["profit_usd"]
+            + recorded_raw["commission_usd"]
+            + recorded_raw["swap_usd"]
+        )
+        replayed_raw = {
+            "profit_usd": sum(float(position.profit) for position in positions),
+            "commission_usd": sum(
+                float(position.commission or 0.0) for position in positions
+            ),
+            "swap_usd": sum(float(position.swap or 0.0) for position in positions),
+        }
+        replayed_raw["net_usd"] = (
+            replayed_raw["profit_usd"]
+            + replayed_raw["commission_usd"]
+            + replayed_raw["swap_usd"]
+        )
+        differences = {
+            field: replayed_raw[field] - recorded_raw[field]
+            for field in recorded_raw
+        }
+        tolerance_usd = 1e-8
+        reconciled = all(
+            math.isclose(value, 0.0, abs_tol=tolerance_usd)
+            for value in differences.values()
+        )
+        return {
+            "mode": "RECONCILIACAO_CONTABIL_SEPARADA",
+            "part_of_reverse_engineering_target": False,
+            "positions": len(positions),
+            "research_only": True,
+            "operational_eligible": False,
+            "reconciliation": {
+                "currency": "USD",
+                "formula": "net_usd = profit_usd + commission_usd + swap_usd",
+                "recorded": {
+                    field: round(value, 2) for field, value in recorded_raw.items()
+                },
+                "replayed": {
+                    field: round(value, 2) for field, value in replayed_raw.items()
+                },
+                "difference": {
+                    field: round(value, 8) for field, value in differences.items()
+                },
+                "tolerance_usd": tolerance_usd,
+                "balanced": reconciled,
+            },
+            "interpretation": (
+                "Lucro, comissao, swap e resultado liquido sao apenas conferidos "
+                "contra o extrato. Saidas e P&L nao sao alvos da engenharia reversa "
+                "de entradas."
+            ),
         }
 
     def _behavior(

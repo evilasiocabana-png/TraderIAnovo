@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -24,7 +25,16 @@ class _FakeAdapter:
             "H1": 5000,
         }
         self.persisted_download_counts = dict(self.download_counts)
-        self.positions = [SimpleNamespace(symbol="XAUUSD")]
+        self.positions = [
+            SimpleNamespace(
+                symbol="XAUUSD",
+                open_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            ),
+            SimpleNamespace(
+                symbol="XAUUSD",
+                open_time=datetime(2026, 3, 1, tzinfo=timezone.utc),
+            ),
+        ]
 
     def read_fit_result(self) -> dict[str, object]:
         return dict(self.fit)
@@ -36,7 +46,16 @@ class _FakeAdapter:
     def import_positions_csv(self, source_path: object, *, strict: bool) -> object:
         self.imported_source = source_path
         if not self.positions:
-            self.positions = [SimpleNamespace(symbol="XAUUSD")]
+            self.positions = [
+                SimpleNamespace(
+                    symbol="XAUUSD",
+                    open_time=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                ),
+                SimpleNamespace(
+                    symbol="XAUUSD",
+                    open_time=datetime(2026, 3, 1, tzinfo=timezone.utc),
+                ),
+            ]
         return SimpleNamespace(
             source_sha256="abc",
             total_rows=2,
@@ -54,7 +73,7 @@ class _FakeAdapter:
         symbol: str,
         timeframe: str,
         *,
-        limit: int,
+        limit: int | None,
     ) -> list[object]:
         if timeframe != "H1":
             return []
@@ -69,12 +88,17 @@ class _FakeAdapter:
         symbol: str,
         timeframe: str,
         *,
-        limit: int,
+        limit: int | None,
     ) -> list[object]:
-        return [object()] * min(
-            int(self.persisted_download_counts.get(timeframe, 0)),
-            limit,
-        )
+        available = int(self.persisted_download_counts.get(timeframe, 0))
+        count = available if limit is None else min(available, limit)
+        if count <= 0:
+            return []
+        start = datetime(2025, 12, 1, tzinfo=timezone.utc)
+        return [
+            SimpleNamespace(timestamp=start + timedelta(minutes=15 * index))
+            for index in range(count)
+        ]
 
     def get_history_metadata(self) -> dict[str, object]:
         return {"positions_import": {"trade_rows": 1}}
@@ -87,6 +111,8 @@ class _FakeAdapter:
         source: str,
     ) -> dict[str, object]:
         self.stored_batch = batch
+        if source == "MT5_READ_ONLY_FULL_M15":
+            self.persisted_download_counts["M15"] = requested_count
         return {
             "received_by_timeframe": dict(self.download_counts),
             "total_candles": sum(self.download_counts.values()),
@@ -126,7 +152,17 @@ class _FakeProvider:
         count: object,
     ) -> dict[str, object]:
         self.calls.append((symbols, timeframes, count))
-        return {"H1": {"XAUUSD": {"candles": [object()]}}}
+        return {
+            str(label): {
+                str(symbol): {
+                    "exists": True,
+                    "selected": True,
+                    "candles": [object()],
+                }
+                for symbol in list(symbols)  # type: ignore[arg-type]
+            }
+            for label in dict(timeframes)  # type: ignore[arg-type]
+        }
 
 
 class MultiEATradingLabUseCaseTest(unittest.TestCase):
@@ -143,6 +179,17 @@ class MultiEATradingLabUseCaseTest(unittest.TestCase):
         self.assertTrue(result["research_only"])
         self.assertFalse(result["operational_eligible"])
         self.assertEqual(result["candle_limit_per_series"], 5000)
+        self.assertIn("entry_architecture", result)
+        self.assertFalse(result["entry_architecture"]["uses_exit_data"])
+        self.assertFalse(
+            result["reverse_engineering_audit"][
+                "full_source_row_causal_replication"
+            ]
+        )
+        self.assertIn(
+            "UNIDADES_NAO_COMPARAVEIS",
+            " ".join(result["warnings"]),
+        )
         self.assertEqual(adapter.fit["status"], "OK")
 
     def test_download_ouro_usa_somente_batch_read_only_e_base_separada(self) -> None:
@@ -180,6 +227,99 @@ class MultiEATradingLabUseCaseTest(unittest.TestCase):
             use_case.download_gold(_FakeProvider())
 
         self.assertEqual(adapter.fit, {})
+
+    def test_download_m15_completo_cobre_periodo_do_csv_em_base_separada(self) -> None:
+        adapter = _FakeAdapter()
+        adapter.persisted_download_counts["M15"] = 0
+        provider = _FakeProvider()
+        use_case = MultiEATradingLabUseCase(
+            adapter=adapter,  # type: ignore[arg-type]
+            engine=_FakeEngine(),  # type: ignore[arg-type]
+        )
+
+        result = use_case.download_full_m15_history(provider)
+
+        self.assertEqual(len(provider.calls), 1)
+        symbols, timeframes, count = provider.calls[0]
+        self.assertEqual(symbols, ["XAUUSD"])
+        self.assertEqual(timeframes, {"M15": 15})
+        self.assertGreaterEqual(int(count), 5000)
+        summary = result["full_m15_download"]
+        self.assertEqual(summary["status"], "OK")
+        self.assertEqual(summary["symbols_complete"], 1)
+        self.assertTrue(summary["read_only"])
+        self.assertFalse(summary["operational_database_modified"])
+
+    def test_download_m15_reutiliza_serie_completa_sem_consultar_provider(self) -> None:
+        adapter = _FakeAdapter()
+        adapter.persisted_download_counts["M15"] = 10_000
+        provider = _FakeProvider()
+        use_case = MultiEATradingLabUseCase(
+            adapter=adapter,  # type: ignore[arg-type]
+            engine=_FakeEngine(),  # type: ignore[arg-type]
+        )
+
+        result = use_case.download_full_m15_history(provider)
+
+        self.assertEqual(provider.calls, [])
+        row = result["full_m15_download"]["by_symbol"][0]
+        self.assertEqual(row["source"], "CACHE")
+        self.assertTrue(row["covers_csv_period_with_warmup"])
+
+    def test_m15_ancora_no_csv_e_detecta_gap_interno_grande(self) -> None:
+        use_case = MultiEATradingLabUseCase(
+            adapter=_FakeAdapter(),  # type: ignore[arg-type]
+            engine=_FakeEngine(),  # type: ignore[arg-type]
+        )
+        required_start = datetime(2025, 12, 25, tzinfo=timezone.utc)
+        required_end = datetime(2026, 1, 3, tzinfo=timezone.utc)
+        candles = [
+            SimpleNamespace(timestamp=required_start - timedelta(days=1)),
+            SimpleNamespace(timestamp=required_start - timedelta(minutes=15)),
+            SimpleNamespace(timestamp=required_start),
+            SimpleNamespace(timestamp=required_end),
+            SimpleNamespace(timestamp=required_end + timedelta(days=30)),
+        ]
+
+        filtered = use_case._filter_m15_analysis_window(
+            candles,
+            required_start=required_start,
+            required_end=required_end,
+        )
+
+        self.assertEqual(
+            [item.timestamp for item in filtered],
+            [
+                required_start - timedelta(minutes=15),
+                required_start,
+                required_end,
+            ],
+        )
+        diagnostics = use_case._m15_gap_diagnostics(filtered)
+        self.assertEqual(diagnostics["large_internal_gaps"], 1)
+
+        mostly_outside = [
+            SimpleNamespace(timestamp=required_start - timedelta(days=30))
+            for _ in range(10_000)
+        ] + [
+            SimpleNamespace(timestamp=required_start),
+            SimpleNamespace(timestamp=required_start + timedelta(minutes=15)),
+            SimpleNamespace(timestamp=required_end - timedelta(minutes=15)),
+            SimpleNamespace(timestamp=required_end),
+        ]
+        period_only = use_case._filter_m15_analysis_window(
+            mostly_outside,
+            required_start=required_start,
+            required_end=required_end,
+        )
+        _, _, coverage_ok = use_case._m15_coverage(
+            period_only,
+            required_start=required_start,
+            required_end=required_end,
+            minimum_candles=5_000,
+        )
+        self.assertEqual(len(period_only), 4)
+        self.assertFalse(coverage_ok)
 
     def test_sem_csv_retorna_falha_fechada_sem_escrever_fit(self) -> None:
         adapter = _FakeAdapter()

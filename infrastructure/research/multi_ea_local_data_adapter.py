@@ -43,7 +43,12 @@ CSV_COLUMNS = (
     "SWAP",
     "PROFIT",
 )
-SYMBOL_ALIASES = {"GOLD": "XAUUSD"}
+SYMBOL_ALIASES = {
+    "GOLD": "XAUUSD",
+    # O extrato publico usa BITCOIN, enquanto o terminal local oferece BTCUSD.
+    # Preservamos BITCOIN como nome canonico da auditoria.
+    "BTCUSD": "BITCOIN",
+}
 
 
 @dataclass(frozen=True)

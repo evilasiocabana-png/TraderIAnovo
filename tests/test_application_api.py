@@ -290,6 +290,7 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'test_mt5_connection': "(self, symbol: str = 'EURUSD', "
                                                          "timeframe: str = 'H1') -> "
                                                          'application.mt5_market_data_service.MT5ConnectionDiagnostic',
+                                  'download_multi_ea_trading_full_m15': '(self) -> dict[str, typing.Any]',
                                   'download_multi_ea_trading_gold': '(self) -> dict[str, typing.Any]',
                                   'update_configuration': '(self, **kwargs: object) -> '
                                                           'application.configuration_service.ConfigurationData',

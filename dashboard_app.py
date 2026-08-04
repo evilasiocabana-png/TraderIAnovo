@@ -12302,6 +12302,11 @@ def exibir_multi_ea_trading_lab(service: DashboardService) -> None:
     getter = getattr(service, "get_multi_ea_trading_lab_report", None)
     runner = getattr(service, "run_multi_ea_trading_lab", None)
     gold_downloader = getattr(service, "download_multi_ea_trading_gold", None)
+    full_m15_downloader = getattr(
+        service,
+        "download_multi_ea_trading_full_m15",
+        None,
+    )
     report = (
         dict(st.session_state.get(MULTI_EA_TRADING_LAB_RESULT_KEY, {}) or {})
         if hasattr(st, "session_state")
@@ -12320,23 +12325,26 @@ def exibir_multi_ea_trading_lab(service: DashboardService) -> None:
     with st.container(border=True):
         st.subheader("Multi EA Trading")
         st.caption(
-            "Amostra exploratoria com ate 5.000 candles por ativo e timeframe. "
-            "O extrato permite comparar hipoteses, mas nao revela o codigo nem "
-            "os parametros proprietarios do EA original."
+            "Amostra exploratoria com 5.000 candles por serie e extensao M15 "
+            "para todo o periodo do CSV. O extrato permite comparar hipoteses, "
+            "mas nao revela o codigo proprietario do EA original."
         )
         st.warning(
             "RESEARCH_ONLY: este sublab nao envia ordens, nao altera o modelo "
             "Demo e nao promove configuracoes para operacao."
         )
-        controls = st.columns(2)
+        controls = st.columns(3)
         if controls[0].button(
-            "Executar amostra salva",
+            "▶ Rodar engenharia reversa",
             key="multi_ea_trading_run_saved_sample",
             use_container_width=True,
             disabled=not callable(runner),
         ):
             try:
-                with st.spinner("Comparando hipoteses sem lookahead..."):
+                with st.spinner(
+                    "Testando mais de 1.300 hipoteses com treino e validacao "
+                    "cronologicos..."
+                ):
                     report = dict(runner() or {})
                 st.session_state[MULTI_EA_TRADING_LAB_RESULT_KEY] = report
                 st.success("Amostra Multi EA Trading recalculada.")
@@ -12357,6 +12365,32 @@ def exibir_multi_ea_trading_lab(service: DashboardService) -> None:
                 st.success("Historico separado do ouro salvo e amostra recalculada.")
             except (OSError, RuntimeError, ValueError) as exc:
                 st.error(f"Nao foi possivel baixar o ouro: {exc}")
+        if controls[2].button(
+            "Baixar M15 do periodo completo",
+            key="multi_ea_trading_download_full_m15",
+            use_container_width=True,
+            disabled=not callable(full_m15_downloader),
+        ):
+            try:
+                with st.spinner(
+                    "Baixando M15 dos 18 ativos para cobrir todo o CSV..."
+                ):
+                    report = dict(full_m15_downloader() or {})
+                st.session_state[MULTI_EA_TRADING_LAB_RESULT_KEY] = report
+                status = str(
+                    dict(report.get("full_m15_download", {}) or {}).get(
+                        "status",
+                        "N/D",
+                    )
+                )
+                if status == "OK":
+                    st.success("Historico M15 completo salvo em base separada.")
+                else:
+                    st.warning(
+                        "Download M15 terminou parcialmente; consulte a cobertura."
+                    )
+            except (OSError, RuntimeError, ValueError) as exc:
+                st.error(f"Nao foi possivel baixar o M15 completo: {exc}")
 
         status = str(report.get("status", "SEM_RESULTADO") or "SEM_RESULTADO")
         if status in {"SEM_RESULTADO", "SEM_FONTE", "NO_RESULT"}:
@@ -12405,6 +12439,351 @@ def _render_multi_ea_trading_summary(report: dict[str, object]) -> None:
                 for timeframe in ("M1", "M5", "M15", "M30", "H1")
             )
             + ". Banco operacional preservado."
+        )
+    full_m15_download = dict(report.get("full_m15_download", {}) or {})
+    effective_m15 = dict(report.get("m15_history_coverage", {}) or {})
+    displayed_m15 = effective_m15 or full_m15_download
+    if displayed_m15:
+        complete = int(displayed_m15.get("symbols_complete", 0) or 0)
+        requested = int(displayed_m15.get("symbols_requested", 0) or 0)
+        candles = int(displayed_m15.get("total_effective_candles", 0) or 0)
+        adjacent = int(
+            effective_m15.get("entry_rows_with_adjacent_m15", 0) or 0
+        )
+        source_entries = int(effective_m15.get("source_entry_rows", 0) or 0)
+        st.info(
+            f"Serie M15 efetiva: {complete}/{requested} ativos cobrem o periodo "
+            f"com aquecimento; {candles:,} candles combinados; entradas adjacentes "
+            f"{adjacent}/{source_entries}."
+        )
+        rows = list(displayed_m15.get("by_symbol", []) or [])
+        if rows:
+            with st.expander("Cobertura M15 do periodo completo", expanded=False):
+                _render_stable_readonly_table(rows)
+
+    entry_architecture = dict(report.get("entry_architecture", {}) or {})
+    if entry_architecture:
+        observed_architecture = dict(
+            entry_architecture.get("observed_architecture", {}) or {}
+        )
+        architecture_evidence = dict(
+            entry_architecture.get("evidence", {}) or {}
+        )
+        mechanic_counts = dict(
+            architecture_evidence.get("primary_mechanic_counts", {}) or {}
+        )
+        stateful_share = float(
+            architecture_evidence.get(
+                "stateful_follower_share_percent",
+                0.0,
+            )
+            or 0.0
+        )
+        st.markdown("#### Padroes estruturais compativeis")
+        setup_metrics = st.columns(5)
+        setup_metrics[0].metric(
+            "Modelo",
+            observed_architecture.get("portfolio_form", "N/D"),
+        )
+        setup_metrics[1].metric(
+            "Lote-base",
+            f"{float(observed_architecture.get('base_lot', 0.0) or 0.0):.2f}",
+        )
+        setup_metrics[2].metric(
+            "Seguidores com estado",
+            f"{stateful_share:.2f}%",
+        )
+        setup_metrics[3].metric(
+            "Hedges pareados",
+            int(mechanic_counts.get("HEDGE_PAIR", 0) or 0),
+        )
+        setup_metrics[4].metric(
+            "Grade / piramidagem",
+            (
+                f"{int(mechanic_counts.get('GRID_AVERAGING', 0) or 0)} / "
+                f"{int(mechanic_counts.get('PYRAMIDING', 0) or 0)}"
+            ),
+        )
+        st.info(
+            "As entradas sao compativeis com hedge, tickets fracionados, grade, "
+            "piramidagem e cestas entre ativos. Essa e uma classificacao ex post, "
+            "nao uma prova do modo da conta ou dos parametros originais. O M15 "
+            "fornece o contexto; replay exato do segundo e do preco exige tick/M1 "
+            "e o feed da corretora."
+        )
+        per_symbol_architecture = dict(
+            entry_architecture.get("per_symbol", {}) or {}
+        )
+        architecture_rows = []
+        for symbol, values in per_symbol_architecture.items():
+            row = dict(values or {})
+            sequence_mechanics = dict(row.get("sequence_mechanics", {}) or {})
+            architecture_rows.append(
+                {
+                    "Ativo": symbol,
+                    "Entradas": int(row.get("entries", 0) or 0),
+                    "Buy": int(row.get("buy", 0) or 0),
+                    "Sell": int(row.get("sell", 0) or 0),
+                    "Sequencias mesmo lado": int(
+                        row.get("same_side_sequence_count", 0) or 0
+                    ),
+                    "Gap mediano (bps)": row.get(
+                        "median_same_side_gap_bps",
+                        None,
+                    ),
+                    "Grade": int(
+                        sequence_mechanics.get("GRID_AVERAGING", 0) or 0
+                    ),
+                    "Piramidagem": int(
+                        sequence_mechanics.get("PYRAMIDING", 0) or 0
+                    ),
+                }
+            )
+        with st.expander("Mecanica observada por ativo", expanded=False):
+            _render_stable_readonly_table(architecture_rows)
+
+    strategy_search = dict(report.get("strategy_search", {}) or {})
+    intrabar_search = dict(report.get("intrabar_search", {}) or {})
+    rule_miner = dict(report.get("rule_miner", {}) or {})
+    if strategy_search or intrabar_search or rule_miner:
+        strategy_global = dict(strategy_search.get("global", {}) or {})
+        intrabar_global = dict(intrabar_search.get("global", {}) or {})
+        intrabar_train = dict(
+            intrabar_global.get("selection_metrics_train", {}) or {}
+        )
+        intrabar_validation = dict(
+            intrabar_global.get("validation_metrics_frozen", {}) or {}
+        )
+        intrabar_train_direction = dict(
+            intrabar_train.get("direction_micro", {}) or {}
+        )
+        intrabar_validation_direction = dict(
+            intrabar_validation.get("direction_micro", {}) or {}
+        )
+        rule_search = dict(rule_miner.get("rule_search", {}) or {})
+        mined_portfolio = dict(rule_miner.get("selected_portfolio", {}) or {})
+        mined_train = dict(mined_portfolio.get("train_metrics", {}) or {})
+        mined_validation = dict(
+            mined_portfolio.get("validation_metrics_frozen", {}) or {}
+        )
+        strategy_train = dict(
+            strategy_global.get("selection_metrics_train", {}) or {}
+        )
+        strategy_validation = dict(
+            strategy_global.get("validation_metrics_frozen", {}) or {}
+        )
+        intrabar_parameters = {
+            **dict(intrabar_train.get("parameters", {}) or {}),
+            "delay_bars": intrabar_train.get("delay_bars"),
+            "cooldown_bars": intrabar_train.get("cooldown_bars"),
+            "session": intrabar_train.get("session"),
+            "filter": intrabar_train.get("filter"),
+        }
+        mined_rule_parameters = [
+            {
+                "direction": dict(rule or {}).get("direction"),
+                "predicates": [
+                    {
+                        "feature": dict(predicate or {}).get("feature"),
+                        "operator": dict(predicate or {}).get("operator"),
+                        "threshold": dict(predicate or {}).get("threshold"),
+                        "quantile": dict(predicate or {}).get("quantile"),
+                        "threshold_source": dict(predicate or {}).get(
+                            "threshold_source"
+                        ),
+                    }
+                    for predicate in list(
+                        dict(rule or {}).get("predicates", []) or []
+                    )
+                ],
+            }
+            for rule in list(mined_portfolio.get("rules", []) or [])
+        ]
+        rule_tests = sum(
+            int(rule_search.get(key, 0) or 0)
+            for key in (
+                "seed_directional_rules_evaluated",
+                "and_rules_evaluated",
+            )
+        )
+        total_hypotheses = (
+            int(strategy_search.get("candidate_count", 0) or 0)
+            + int(intrabar_search.get("candidate_count", 0) or 0)
+            + rule_tests
+        )
+        st.markdown("#### Busca reversa ampla")
+        search_metrics = st.columns(5)
+        search_metrics[0].metric("Hipoteses/regras", total_hypotheses)
+        search_metrics[1].metric(
+            "Grade intrabar",
+            int(intrabar_search.get("candidate_count", 0) or 0),
+        )
+        search_metrics[2].metric(
+            "Selecionado no treino",
+            intrabar_global.get("selected_candidate_id", "N/D"),
+        )
+        search_metrics[3].metric(
+            "Precisao direcional (val.)",
+            _optional_percent(intrabar_validation_direction.get("precision")),
+        )
+        search_metrics[4].metric(
+            "Recall direcional (val.)",
+            _optional_percent(intrabar_validation_direction.get("recall")),
+        )
+        search_rows = [
+            {
+                "Motor": "Indicadores fechados",
+                "Hipoteses": int(strategy_search.get("candidate_count", 0) or 0),
+                "Setup selecionado": strategy_global.get(
+                    "selected_candidate_id",
+                    "N/D",
+                ),
+                "Parametros": _multi_ea_value(
+                    strategy_train.get("parameters", {})
+                ),
+                "Unidade de avaliacao": "Ativo + evento M15",
+                "Split": "Treino/validacao cronologicos; corte informado pelos alvos",
+                "Precisao treino": _optional_percent(
+                    strategy_train.get("precision")
+                ),
+                "Recall treino": _optional_percent(
+                    strategy_train.get("recall")
+                ),
+                "Precisao validacao": _optional_percent(
+                    strategy_validation.get("precision")
+                ),
+                "Recall validacao": _optional_percent(
+                    strategy_validation.get("recall")
+                ),
+            },
+            {
+                "Motor": "Niveis intrabar",
+                "Hipoteses": int(intrabar_search.get("candidate_count", 0) or 0),
+                "Setup selecionado": intrabar_global.get(
+                    "selected_candidate_id",
+                    "N/D",
+                ),
+                "Parametros": _multi_ea_value(intrabar_parameters),
+                "Unidade de avaliacao": "Ativo + candle M15 + direcao",
+                "Split": "Treino/validacao por timestamps M15; corte sem rotulos",
+                "Precisao treino": _optional_percent(
+                    intrabar_train_direction.get("precision")
+                ),
+                "Recall treino": _optional_percent(
+                    intrabar_train_direction.get("recall")
+                ),
+                "Precisao validacao": _optional_percent(
+                    intrabar_validation_direction.get("precision")
+                ),
+                "Recall validacao": _optional_percent(
+                    intrabar_validation_direction.get("recall")
+                ),
+            },
+            {
+                "Motor": "Regras mineradas",
+                "Hipoteses": rule_tests,
+                "Setup selecionado": _multi_ea_value(
+                    mined_portfolio.get("rule_ids", [])
+                ),
+                "Parametros": _multi_ea_value(mined_rule_parameters),
+                "Unidade de avaliacao": "Ativo + evento M15",
+                "Split": "Treino/validacao cronologicos; corte informado pelos alvos",
+                "Precisao treino": _optional_percent(mined_train.get("precision")),
+                "Recall treino": _optional_percent(mined_train.get("recall")),
+                "Precisao validacao": _optional_percent(
+                    mined_validation.get("precision")
+                ),
+                "Recall validacao": _optional_percent(
+                    mined_validation.get("recall")
+                ),
+            },
+        ]
+        _render_stable_readonly_table(search_rows)
+        st.warning(
+            "A busca ordena configuracoes somente no treino e congela a escolha "
+            "antes da validacao. As linhas usam unidades e cortes diferentes e nao "
+            "sao diretamente comparaveis. Replay de 100% e auditoria ex post; nao "
+            "e uma taxa preditiva nem replica causalmente os tickets individuais."
+        )
+        reverse_audit = dict(
+            report.get("reverse_engineering_audit", {}) or {}
+        )
+        source_rows = int(reverse_audit.get("source_entry_rows", 0) or 0)
+        public_operations = int(
+            reverse_audit.get("public_operations_at_capture", 0) or 0
+        )
+        if public_operations > source_rows > 0:
+            st.caption(
+                f"Cobertura da fonte: {source_rows}/{public_operations} operacoes "
+                "publicas da captura. As barras sem entrada no CSV sao negativos "
+                "assumidos, portanto a avaliacao e positive-unlabeled."
+            )
+
+    m15_entry_fit = dict(report.get("m15_entry_fit", {}) or {})
+    if m15_entry_fit:
+        oracle = dict(m15_entry_fit.get("oracle_replay", {}) or {})
+        causal = dict(m15_entry_fit.get("causal_fit", {}) or {})
+        causal_coverage = dict(causal.get("coverage", {}) or {})
+        train_metrics = dict(causal.get("selection_metrics_train", {}) or {})
+        validation_metrics = dict(
+            causal.get("validation_metrics_frozen", {}) or {}
+        )
+        st.markdown("#### Auditoria das entradas M15")
+        audit_metrics = st.columns(5)
+        audit_metrics[0].metric(
+            "Replay das entradas",
+            f"{float(oracle.get('coverage_percent', 0.0) or 0.0):.2f}%",
+        )
+        audit_metrics[1].metric(
+            "Entradas M15 elegiveis",
+            (
+                f"{int(causal_coverage.get('eligible_positions', 0) or 0)}/"
+                f"{int(causal_coverage.get('source_positions', 0) or 0)}"
+            ),
+        )
+        audit_metrics[2].metric(
+            "Precisao treino",
+            _optional_percent(train_metrics.get("precision", 0.0)),
+        )
+        audit_metrics[3].metric(
+            "Precisao validacao",
+            _optional_percent(validation_metrics.get("precision", 0.0)),
+        )
+        audit_metrics[4].metric(
+            "Recall validacao",
+            _optional_percent(validation_metrics.get("recall", 0.0)),
+        )
+        _render_stable_readonly_table(
+            [
+                {
+                    "Timeframe": "M15",
+                    "Configuracao selecionada": causal.get(
+                        "selected_candidate_id",
+                        "N/D",
+                    ),
+                    "Parametros": _multi_ea_value(
+                        causal.get("selected_parameters", {})
+                    ),
+                    "Classificacao causal": m15_entry_fit.get(
+                        "classification",
+                        "N/D",
+                    ),
+                    "Falsos positivos validacao": validation_metrics.get(
+                        "false_positive",
+                        0,
+                    ),
+                    "Falsos negativos validacao": validation_metrics.get(
+                        "false_negative",
+                        0,
+                    ),
+                }
+            ]
+        )
+        st.warning(
+            "Os 100% pertencem ao replay-oraculo, que copia as entradas do CSV. "
+            "A configuracao M15 e testada contra candles sem entrada e conserva "
+            "seus falsos positivos/negativos; ela nao foi identificada como o EA "
+            "original."
         )
 
     st.markdown("#### Parametros e estatisticas informados")

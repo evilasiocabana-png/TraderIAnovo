@@ -908,6 +908,12 @@ class DashboardService:
             self.mt5_market_data_service.provider
         )
 
+    def download_multi_ea_trading_full_m15(self) -> dict[str, Any]:
+        """Baixa M15 suficiente para cobrir todas as entradas do extrato."""
+        return self.multi_ea_trading_lab_use_case.download_full_m15_history(
+            self.mt5_market_data_service.provider
+        )
+
     def _mt5_operational_models_to_evaluate(self) -> tuple[str, ...]:
         selected = self.get_mt5_operational_model()
         if selected == MT5_OPERATIONAL_MODEL_ALL:

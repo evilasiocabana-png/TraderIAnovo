@@ -21,6 +21,14 @@ from domain.candle import Candle
 _EXTERNAL_MT5_PROCESS_LOCK = threading.Lock()
 
 
+def _utc_range_boundary(value: datetime) -> datetime:
+    """Interpreta timestamps sem fuso como UTC e normaliza os demais."""
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def _external_mt5_timeout_seconds(action: str) -> float:
     configured = os.getenv("TRADERIA_MT5_EXTERNAL_TIMEOUT_SECONDS", "").strip()
     if configured:
@@ -29,6 +37,7 @@ def _external_mt5_timeout_seconds(action: str) -> float:
         except ValueError:
             pass
     return {
+        "research_range": 60.0,
         "research_batch": 20.0,
         "forex_batch": 12.0,
         "connect": 8.0,
@@ -399,6 +408,74 @@ class MT5MarketDataProvider:
         self.last_error = ""
         return result
 
+    def get_research_range(
+        self,
+        symbols: list[str] | tuple[str, ...],
+        timeframe: Any,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> dict[str, dict[str, Any]]:
+        """Le um intervalo UTC fechado para pesquisa, sem capacidade operacional."""
+
+        normalized_symbols = [
+            str(symbol).strip() for symbol in symbols if str(symbol).strip()
+        ]
+        range_start = _utc_range_boundary(date_from)
+        range_end = _utc_range_boundary(date_to)
+        if not normalized_symbols or range_end <= range_start:
+            return {}
+        if not self._use_external_mt5_process():
+            mt5 = self._mt5()
+            result: dict[str, dict[str, Any]] = {}
+            for symbol in normalized_symbols:
+                exists = self.symbol_exists(symbol)
+                selected = self.select_symbol(symbol) if exists else False
+                rates = (
+                    mt5.copy_rates_range(
+                        symbol,
+                        timeframe,
+                        range_start,
+                        range_end,
+                    )
+                    if selected
+                    else None
+                )
+                result[symbol] = {
+                    "exists": exists,
+                    "selected": selected,
+                    "candles": [
+                        self._to_candle(rate)
+                        for rate in (list(rates) if rates is not None else [])
+                    ],
+                }
+            return result
+
+        payload = self._external_mt5_call(
+            "research_range",
+            symbols=normalized_symbols,
+            timeframe=int(timeframe),
+            date_from=range_start.isoformat(),
+            date_to=range_end.isoformat(),
+        )
+        if not bool(payload.get("ok")):
+            self.last_error = str(
+                payload.get("message", "Falha na leitura MT5 por intervalo.")
+            )
+            return {}
+        result = {}
+        for symbol, data in dict(payload.get("symbols", {}) or {}).items():
+            values = dict(data or {})
+            result[str(symbol)] = {
+                "exists": bool(values.get("exists")),
+                "selected": bool(values.get("selected")),
+                "candles": [
+                    self._to_candle(rate)
+                    for rate in list(values.get("rates", []) or [])
+                ],
+            }
+        self.last_error = ""
+        return result
+
     def diagnose_connection(
         self,
         symbol: str,
@@ -763,6 +840,37 @@ try:
             "server": getattr(account, "server", "N/D") if account else "N/D",
             "account_type": getattr(account, "trade_mode", "N/D") if account else "N/D",
         })
+    elif action == "research_range":
+        symbols = [str(item) for item in list(request.get("symbols", []))]
+        timeframe = int(request.get("timeframe", 0))
+        date_from = datetime.fromisoformat(str(request.get("date_from"))).astimezone(UTC)
+        date_to = datetime.fromisoformat(str(request.get("date_to"))).astimezone(UTC)
+        response = {}
+        for symbol in symbols:
+            selected = bool(mt5.symbol_select(symbol, True))
+            info = mt5.symbol_info(symbol)
+            exists = info is not None
+            rates = None
+            if exists and selected:
+                rates = mt5.copy_rates_range(symbol, timeframe, date_from, date_to)
+            rows = []
+            if rates is not None:
+                for rate in list(rates):
+                    rows.append({
+                        "time": int(rate["time"]),
+                        "open": float(rate["open"]),
+                        "high": float(rate["high"]),
+                        "low": float(rate["low"]),
+                        "close": float(rate["close"]),
+                        "tick_volume": int(rate["tick_volume"]),
+                        "real_volume": int(rate["real_volume"]) if "real_volume" in rate.dtype.names else 0,
+                    })
+            response[symbol] = {
+                "exists": exists,
+                "selected": selected,
+                "rates": rows,
+            }
+        emit({"ok": True, "symbols": response})
     else:
         emit({"ok": False, "message": f"Acao MT5 desconhecida: {action}"})
 finally:

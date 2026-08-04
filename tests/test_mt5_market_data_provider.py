@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import inspect
 import os
 import subprocess
@@ -24,6 +25,9 @@ class FakeMT5:
         self.login_calls: list[tuple[int, str, str]] = []
         self.selected_symbols: list[tuple[str, bool]] = []
         self.requested_rates: list[tuple[str, str, int, int]] = []
+        self.requested_ranges: list[
+            tuple[str, object, datetime, datetime]
+        ] = []
         self.symbol_info_calls: list[str] = []
         self.last_error_value = (0, "OK")
 
@@ -42,7 +46,7 @@ class FakeMT5:
 
     def symbol_info(self, symbol: str) -> object | None:
         self.symbol_info_calls.append(symbol)
-        if symbol in {"EURUSD", "GBPUSD"}:
+        if symbol in {"EURUSD", "GBPUSD", "BTCUSD"}:
             return {
                 "name": symbol,
                 "point": 0.00001,
@@ -86,6 +90,25 @@ class FakeMT5:
                 "close": 5715.0,
                 "tick_volume": 1400,
             },
+        ]
+
+    def copy_rates_range(
+        self,
+        symbol: str,
+        timeframe: object,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> list[dict[str, float]]:
+        self.requested_ranges.append((symbol, timeframe, date_from, date_to))
+        return [
+            {
+                "time": 1_719_792_000,
+                "open": 61_000.0,
+                "high": 61_500.0,
+                "low": 60_500.0,
+                "close": 61_250.0,
+                "tick_volume": 321,
+            }
         ]
 
     def account_info(self) -> object:
@@ -262,6 +285,49 @@ class MT5MarketDataProviderTest(unittest.TestCase):
             provider._external_call_cache_key({"action": "research_batch"}),
             "",
         )
+
+    def test_get_research_range_usa_alias_e_copy_rates_range_no_intervalo(self) -> None:
+        fake_mt5 = FakeMT5()
+        provider = MT5MarketDataProvider(mt5_module=fake_mt5)
+        date_from = datetime(2025, 1, 2, 10, 30)
+        date_to = datetime(2025, 3, 4, 18, 45)
+
+        result = provider.get_research_range(
+            [" BTCUSD "],
+            "M15",
+            date_from,
+            date_to,
+        )
+
+        expected_from = date_from.replace(tzinfo=timezone.utc)
+        expected_to = date_to.replace(tzinfo=timezone.utc)
+        self.assertEqual(fake_mt5.symbol_info_calls, ["BTCUSD"])
+        self.assertEqual(fake_mt5.selected_symbols, [("BTCUSD", True)])
+        self.assertEqual(
+            fake_mt5.requested_ranges,
+            [("BTCUSD", "M15", expected_from, expected_to)],
+        )
+        self.assertTrue(result["BTCUSD"]["exists"])
+        self.assertTrue(result["BTCUSD"]["selected"])
+        self.assertEqual(len(result["BTCUSD"]["candles"]), 1)
+        self.assertEqual(result["BTCUSD"]["candles"][0].fechamento, 61_250.0)
+
+    def test_get_research_range_rejeita_intervalo_vazio_sem_consultar_mt5(self) -> None:
+        fake_mt5 = FakeMT5()
+        provider = MT5MarketDataProvider(mt5_module=fake_mt5)
+        boundary = datetime(2025, 1, 2, tzinfo=timezone.utc)
+
+        result = provider.get_research_range(
+            ["EURUSD"],
+            "M15",
+            boundary,
+            boundary,
+        )
+
+        self.assertEqual(result, {})
+        self.assertEqual(fake_mt5.symbol_info_calls, [])
+        self.assertEqual(fake_mt5.selected_symbols, [])
+        self.assertEqual(fake_mt5.requested_ranges, [])
 
     def test_get_symbol_microstructure_importa_spread_read_only(self) -> None:
         fake_mt5 = FakeMT5()
