@@ -216,9 +216,10 @@ MT5_ENTRY_FILTER_SUPPORTED_INDICATORS = {
     "Momentum contra",
     "MACD hist divergente",
 }
-MT5_LAB_ALPHA_IDS = tuple(f"ALPHA{index:03d}" for index in range(1, 17))
+MT5_LAB_ALPHA_IDS = tuple(f"ALPHA{index:03d}" for index in range(1, 18))
 MT5_LAB_CALCULATION_SNAPSHOT_KEY = "mt5_lab_calculation_snapshot"
-MT5_ALPHA_LIBRARY_SEARCH_SPACE_SIZE = 839
+MT5_ALPHA_LIBRARY_SEARCH_SPACE_SIZE = 947
+MULTI_EA_TRADING_LAB_RESULT_KEY = "multi_ea_trading_lab_result"
 MT5_FOREX_CYCLE_LOCK = threading.Lock()
 MT5_FOREX_BACKGROUND_THREAD_STARTED = False
 MT5_DEMO_ROBOT_BACKGROUND_THREAD_STARTED = False
@@ -12005,6 +12006,7 @@ def exibir_research_lab_data(
     include_full_audit: bool = False,
 ) -> None:
     """Exibe os dados consolidados do Research Lab."""
+    exibir_multi_ea_trading_lab(service)
     exibir_mt5_setup_suggestions(
         service,
         getattr(data, "mt5_heuristic_research", None),
@@ -12293,6 +12295,336 @@ def _render_m3_suggested_alpha_research_table() -> None:
         "autorizacao operacional vigente e definida por par no manifesto de "
         "paridade M2-M5."
     )
+
+
+def exibir_multi_ea_trading_lab(service: DashboardService) -> None:
+    """Exibe o sublab exploratorio sem acionar rotinas operacionais."""
+    getter = getattr(service, "get_multi_ea_trading_lab_report", None)
+    runner = getattr(service, "run_multi_ea_trading_lab", None)
+    gold_downloader = getattr(service, "download_multi_ea_trading_gold", None)
+    report = (
+        dict(st.session_state.get(MULTI_EA_TRADING_LAB_RESULT_KEY, {}) or {})
+        if hasattr(st, "session_state")
+        else {}
+    )
+    if not report and callable(getter):
+        try:
+            report = dict(getter() or {})
+        except (OSError, RuntimeError, ValueError) as exc:
+            report = {
+                "status": "ERRO_LEITURA",
+                "message": str(exc),
+                "research_only": True,
+            }
+
+    with st.container(border=True):
+        st.subheader("Multi EA Trading")
+        st.caption(
+            "Amostra exploratoria com ate 5.000 candles por ativo e timeframe. "
+            "O extrato permite comparar hipoteses, mas nao revela o codigo nem "
+            "os parametros proprietarios do EA original."
+        )
+        st.warning(
+            "RESEARCH_ONLY: este sublab nao envia ordens, nao altera o modelo "
+            "Demo e nao promove configuracoes para operacao."
+        )
+        controls = st.columns(2)
+        if controls[0].button(
+            "Executar amostra salva",
+            key="multi_ea_trading_run_saved_sample",
+            use_container_width=True,
+            disabled=not callable(runner),
+        ):
+            try:
+                with st.spinner("Comparando hipoteses sem lookahead..."):
+                    report = dict(runner() or {})
+                st.session_state[MULTI_EA_TRADING_LAB_RESULT_KEY] = report
+                st.success("Amostra Multi EA Trading recalculada.")
+            except (OSError, RuntimeError, ValueError) as exc:
+                st.error(f"Nao foi possivel executar a amostra: {exc}")
+        if controls[1].button(
+            "Baixar XAUUSD (ouro) e recalcular",
+            key="multi_ea_trading_download_gold",
+            use_container_width=True,
+            disabled=not callable(gold_downloader),
+        ):
+            try:
+                with st.spinner(
+                    "Baixando 5.000 candles de XAUUSD em M1, M5, M15, M30 e H1..."
+                ):
+                    report = dict(gold_downloader() or {})
+                st.session_state[MULTI_EA_TRADING_LAB_RESULT_KEY] = report
+                st.success("Historico separado do ouro salvo e amostra recalculada.")
+            except (OSError, RuntimeError, ValueError) as exc:
+                st.error(f"Nao foi possivel baixar o ouro: {exc}")
+
+        status = str(report.get("status", "SEM_RESULTADO") or "SEM_RESULTADO")
+        if status in {"SEM_RESULTADO", "SEM_FONTE", "NO_RESULT"}:
+            st.info(
+                "Ainda nao existe resultado persistido. A fonte CSV precisa ser "
+                "importada uma vez pela fachada ou configurada em "
+                "TRADERIA_MULTI_EA_POSITIONS_CSV antes da execucao."
+            )
+            return
+        if status.startswith("ERRO"):
+            st.error(str(report.get("message", "Falha no sublab.")))
+            return
+        _render_multi_ea_trading_summary(report)
+
+
+def _render_multi_ea_trading_summary(report: dict[str, object]) -> None:
+    sample = dict(report.get("sample", {}) or {})
+    coverage = dict(report.get("coverage", {}) or {})
+    behavior = dict(report.get("behavior", {}) or {})
+    split = dict(report.get("split", {}) or {})
+    metrics = st.columns(5)
+    metrics[0].metric(
+        "Posicoes no CSV",
+        _first_present(sample, "positions", "total_positions", "closed_positions", default=0),
+    )
+    metrics[1].metric(
+        "Ativos observados",
+        _first_present(sample, "markets", "symbols", "total_markets", default=0),
+    )
+    metrics[2].metric(
+        "Ativos com candles",
+        _first_present(coverage, "markets_with_history", "covered_markets", default=0),
+    )
+    metrics[3].metric(
+        "Series de 5.000",
+        _first_present(coverage, "full_series", "series_with_5000", default=0),
+    )
+    metrics[4].metric("Classificacao", report.get("classification", "N/D"))
+    gold_download = dict(report.get("gold_download", {}) or {})
+    if gold_download:
+        received = dict(gold_download.get("received_by_timeframe", {}) or {})
+        st.success(
+            "Ouro em base separada: "
+            + " | ".join(
+                f"{timeframe} {int(received.get(timeframe, 0) or 0):,} candles"
+                for timeframe in ("M1", "M5", "M15", "M30", "H1")
+            )
+            + ". Banco operacional preservado."
+        )
+
+    st.markdown("#### Parametros e estatisticas informados")
+    reported = dict(report.get("reported_profile", {}) or {})
+    _render_stable_readonly_table(
+        [
+            {
+                "Parametro": _multi_ea_label(key),
+                "Valor informado": _multi_ea_value(value),
+                "Origem": "Perfil publico MQL5/PDF",
+            }
+            for key, value in _flatten_multi_ea_values(reported)
+        ],
+        empty_columns=["Parametro", "Valor informado", "Origem"],
+        empty_message="Perfil publico ainda nao carregado.",
+    )
+
+    st.markdown("#### O que o extrato permite observar")
+    observed_rows = []
+    for section_name, values in (
+        ("Amostra CSV", sample),
+        ("Comportamento", behavior),
+        ("Treino/holdout", split),
+    ):
+        for key, value in values.items():
+            if isinstance(value, (dict, list, tuple)):
+                continue
+            observed_rows.append(
+                {
+                    "Secao": section_name,
+                    "Medida": _multi_ea_label(key),
+                    "Valor": _multi_ea_value(value),
+                }
+            )
+    _render_stable_readonly_table(
+        observed_rows,
+        empty_columns=["Secao", "Medida", "Valor"],
+        empty_message="Sem medidas observadas.",
+    )
+
+    st.markdown("#### Cobertura por ativo e timeframe")
+    coverage_rows = coverage.get("by_market", [])
+    if isinstance(coverage_rows, dict):
+        coverage_rows = [
+            {"market": market, **dict(values or {})}
+            for market, values in coverage_rows.items()
+        ]
+    _render_stable_readonly_table(
+        [_multi_ea_row_to_portuguese(row) for row in list(coverage_rows or [])],
+        empty_columns=["Ativo", "Trades", "Timeframes", "Candles", "Cobertura"],
+        empty_message="Nenhuma serie historica associada a amostra.",
+    )
+    series_rows = list(coverage.get("by_series", []) or [])
+    if series_rows:
+        with st.expander("Detalhe da cobertura por timeframe", expanded=False):
+            _render_stable_readonly_table(
+                [_multi_ea_series_row(row) for row in series_rows],
+                empty_columns=[
+                    "Ativo",
+                    "Timeframe",
+                    "Candles",
+                    "Entradas elegiveis",
+                    "Primeiro candle",
+                    "Ultimo candle",
+                    "Status",
+                ],
+            )
+
+    st.markdown("#### Hipoteses que mais se aproximam das entradas")
+    ranking = list(report.get("ranking_global", []) or [])
+    _render_stable_readonly_table(
+        [_multi_ea_ranking_row(row) for row in ranking[:20]],
+        empty_columns=[
+            "Hipotese",
+            "Familia",
+            "Parametros testados",
+            "Eventos elegiveis",
+            "Gatilhos",
+            "Cobertura",
+            "Acerto direcional",
+            "Score selecao (treino)",
+            "Score holdout",
+            "Score amostra completa",
+            "Classificacao",
+        ],
+        empty_message="Nenhuma hipotese teve eventos temporais elegiveis.",
+    )
+    st.caption(
+        "O ranking usa somente o ultimo candle completamente fechado antes de "
+        "cada entrada. A ordenacao usa exclusivamente o treino cronologico; o "
+        "holdout e uma auditoria posterior. WAIT significa que a regra nao "
+        "explicou aquela entrada. Eventos repetidos entre timeframes nao sao "
+        "posicoes independentes."
+    )
+    ranking_by_market = report.get("ranking_by_market", [])
+    market_rows: list[dict[str, object]] = []
+    if isinstance(ranking_by_market, dict):
+        for market, candidates in ranking_by_market.items():
+            for candidate in list(candidates or [])[:3]:
+                row = _multi_ea_ranking_row(candidate)
+                row = {"Ativo": market, **row}
+                market_rows.append(row)
+    else:
+        for candidate in list(ranking_by_market or []):
+            row = _multi_ea_ranking_row(candidate)
+            row = {
+                "Ativo": dict(candidate or {}).get("market", "N/D"),
+                **row,
+            }
+            market_rows.append(row)
+    if market_rows:
+        with st.expander("Melhores hipoteses por ativo", expanded=False):
+            _render_stable_readonly_table(market_rows[:60])
+
+    warnings = [str(item) for item in list(report.get("warnings", []) or [])]
+    if warnings:
+        with st.expander("Limitacoes e advertencias", expanded=True):
+            for warning in warnings:
+                st.write(f"- {warning}")
+    methodology = report.get("methodology")
+    if methodology:
+        with st.expander("Metodologia reproduzivel", expanded=False):
+            st.json(methodology)
+
+
+def _first_present(
+    values: dict[str, object],
+    *keys: str,
+    default: object = "N/D",
+) -> object:
+    for key in keys:
+        if key in values:
+            return values[key]
+    return default
+
+
+def _multi_ea_label(value: object) -> str:
+    return str(value or "N/D").replace("_", " ").strip().title()
+
+
+def _multi_ea_value(value: object) -> object:
+    if isinstance(value, bool):
+        return "Sim" if value else "Nao"
+    if isinstance(value, (dict, list, tuple)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return value
+
+
+def _flatten_multi_ea_values(
+    values: dict[str, object],
+    prefix: str = "",
+) -> list[tuple[str, object]]:
+    rows: list[tuple[str, object]] = []
+    for key, value in values.items():
+        path = f"{prefix} / {key}" if prefix else str(key)
+        if isinstance(value, dict):
+            rows.extend(_flatten_multi_ea_values(dict(value), path))
+        else:
+            rows.append((path, value))
+    return rows
+
+
+def _multi_ea_row_to_portuguese(row: object) -> dict[str, object]:
+    values = dict(row or {}) if isinstance(row, dict) else {}
+    coverage = _first_present(
+        values,
+        "temporal_coverage",
+        "coverage",
+        "eligible_positions",
+        default=0,
+    )
+    if isinstance(coverage, (int, float)) and 0.0 <= float(coverage) <= 1.0:
+        coverage = _optional_percent(coverage)
+    return {
+        "Ativo": _first_present(values, "market", "symbol", default="N/D"),
+        "Trades": _first_present(values, "positions", "trades", default=0),
+        "Timeframes": _multi_ea_value(
+            _first_present(values, "timeframes", "available_timeframes", default=[])
+        ),
+        "Candles": _first_present(values, "candles", "candle_count", default=0),
+        "Cobertura": coverage,
+        "Status": _first_present(values, "status", "classification", default="N/D"),
+    }
+
+
+def _multi_ea_ranking_row(row: object) -> dict[str, object]:
+    values = dict(row or {}) if isinstance(row, dict) else {}
+    holdout = dict(values.get("holdout", {}) or {})
+    return {
+        "Hipotese": values.get("candidate_id", "N/D"),
+        "Familia": values.get("family", "N/D"),
+        "Parametros testados": _multi_ea_value(values.get("parameters", {})),
+        "Eventos elegiveis": values.get("eligible", 0),
+        "Gatilhos": values.get("signaled", 0),
+        "Cobertura": _optional_percent(values.get("observed_recall", 0.0)),
+        "Acerto direcional": _optional_percent(
+            values.get("direction_accuracy", 0.0)
+        ),
+        "Score selecao (treino)": _optional_number(
+            values.get("selection_score", 0.0)
+        ),
+        "Score holdout": _optional_number(
+            values.get("holdout_score", holdout.get("score", 0.0))
+        ),
+        "Score amostra completa": _optional_number(values.get("score", 0.0)),
+        "Classificacao": values.get("classification", "N/D"),
+    }
+
+
+def _multi_ea_series_row(row: object) -> dict[str, object]:
+    values = dict(row or {}) if isinstance(row, dict) else {}
+    return {
+        "Ativo": values.get("market", "N/D"),
+        "Timeframe": values.get("timeframe", "N/D"),
+        "Candles": values.get("candles", 0),
+        "Entradas elegiveis": values.get("eligible_positions", 0),
+        "Primeiro candle": values.get("first_candle", "N/D"),
+        "Ultimo candle": values.get("last_candle", "N/D"),
+        "Status": values.get("status", "N/D"),
+    }
 
 
 def _load_m3_suggested_alpha_research_payload() -> dict[str, object] | None:

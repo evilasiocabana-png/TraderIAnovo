@@ -116,6 +116,7 @@ from application.live_research_service import (
     LiveResearchSnapshotRecord,
 )
 from application.market_service import MarketService
+from application.multi_ea_trading_lab_use_case import MultiEATradingLabUseCase
 from application.mt5_market_data_service import (
     MT5ConnectionDiagnostic,
     MT5DashboardMarketData,
@@ -721,6 +722,9 @@ class DashboardService:
     mt5_market_data_service: MT5MarketDataService = field(
         default_factory=MT5MarketDataService
     )
+    multi_ea_trading_lab_use_case: MultiEATradingLabUseCase = field(
+        default_factory=MultiEATradingLabUseCase
+    )
     lab_operational_model_service: LabOperationalModelService = field(
         default_factory=LabOperationalModelService
     )
@@ -886,6 +890,23 @@ class DashboardService:
         if migrated not in {*MT5_OPERATIONAL_MODEL_IDS, MT5_OPERATIONAL_MODEL_ALL}:
             return MT5_OPERATIONAL_MODEL_1
         return migrated
+
+    def get_multi_ea_trading_lab_report(self) -> dict[str, Any]:
+        """Retorna o ultimo resultado compacto do sublab Multi EA Trading."""
+        return self.multi_ea_trading_lab_use_case.get_report()
+
+    def run_multi_ea_trading_lab(
+        self,
+        source_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Executa sob demanda a amostra local, sempre em modo de pesquisa."""
+        return self.multi_ea_trading_lab_use_case.run(source_path=source_path)
+
+    def download_multi_ea_trading_gold(self) -> dict[str, Any]:
+        """Baixa XAUUSD read-only em base separada e recalcula o sublab."""
+        return self.multi_ea_trading_lab_use_case.download_gold(
+            self.mt5_market_data_service.provider
+        )
 
     def _mt5_operational_models_to_evaluate(self) -> tuple[str, ...]:
         selected = self.get_mt5_operational_model()
@@ -1488,6 +1509,8 @@ class DashboardService:
             if not pair:
                 continue
             configuration = dict(getattr(row, "final_configuration", {}) or {})
+            if self._mt5_research_only_parameters(configuration):
+                continue
             timeframe = str(
                 configuration.get(
                     "timeframe",
@@ -1635,14 +1658,21 @@ class DashboardService:
         scenarios: list[DashboardMT5ScenarioViewModel],
         target_confidence: float,
     ) -> DashboardMT5ScenarioViewModel | None:
-        valid = [
+        eligible = [
             scenario
             for scenario in scenarios
+            if not self._mt5_research_only_parameters(
+                dict(getattr(scenario, "parameters", {}) or {})
+            )
+        ]
+        valid = [
+            scenario
+            for scenario in eligible
             if str(getattr(scenario, "status", "") or "").upper() == "APROVADO"
             and str(getattr(scenario, "decision", "") or "").upper() in {"BUY", "SELL"}
         ]
         if not valid:
-            valid = list(scenarios)
+            valid = eligible
         if not valid:
             return None
         return max(
@@ -3549,6 +3579,23 @@ class DashboardService:
             return False
         return math.isclose(scenario_rr, float(target_rr), rel_tol=1e-9, abs_tol=1e-9)
 
+    @staticmethod
+    def _mt5_research_only_parameters(
+        parameters: dict[str, object] | None,
+    ) -> bool:
+        """Interpreta o guardrail RESEARCH_ONLY inclusive em snapshots JSON."""
+        value = (parameters or {}).get("research_only", False)
+        if isinstance(value, str):
+            return value.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+                "sim",
+                "s",
+            }
+        return bool(value)
+
     def _load_mt5_research_snapshot(
         self,
     ) -> DashboardMT5HeuristicResearchViewModel | None:
@@ -3809,8 +3856,19 @@ class DashboardService:
         if not scenarios:
             return snapshot
         best_scenarios = self._best_mt5_scenarios_by_pair(scenarios)
-        candidates = best_scenarios or scenarios
-        best = max(candidates, key=self._mt5_lab_target_rank)
+        if not best_scenarios:
+            return replace(
+                snapshot,
+                best_scenarios_by_market=[],
+                best_scenario=None,
+                best_pair="NONE",
+                best_heuristic="WAIT_NO_EDGE",
+                best_score=0.0,
+                best_decision="WAIT",
+                best_confidence=0.0,
+                winner_research_configuration={},
+            )
+        best = max(best_scenarios, key=self._mt5_lab_target_rank)
         winner_configuration = self._mt5_research_configuration_with_scenario_evidence(
             dict(getattr(snapshot, "winner_research_configuration", {}) or {}),
             best,
@@ -8857,6 +8915,9 @@ class DashboardService:
                 beta_id=beta_id,
                 beta_version=beta_version,
                 beta_mode=beta_mode,
+                operational_eligible=(
+                    not self._mt5_research_only_parameters(parameters)
+                ),
                 certification_demo_allowed=certification_demo_allowed,
                 certification_score=certification_score,
                 certification_grade=certification_grade,
@@ -8865,6 +8926,8 @@ class DashboardService:
                 certification_rejection_reasons=certification_rejection_reasons,
             )
         )
+        if plan.status == "RESEARCH_ONLY":
+            return plan
         return replace(
             plan,
             stop_management=LAB_FIXED_EXIT_POLICY,
@@ -8985,6 +9048,11 @@ class DashboardService:
     ) -> str:
         if research is None:
             return "TREND_MOMENTUM"
+        best_scenario = getattr(research, "best_scenario", None)
+        if best_scenario is not None and self._mt5_research_only_parameters(
+            dict(getattr(best_scenario, "parameters", {}) or {})
+        ):
+            return "TREND_MOMENTUM"
         model = str(getattr(research, "best_heuristic", "") or "")
         if model in self._mt5_supported_research_models():
             return model
@@ -9001,7 +9069,12 @@ class DashboardService:
             pair = str(getattr(row, "pair", "") or "").upper()
             timeframe = self._research_row_winner_timeframe(row)
             model = str(getattr(row, "recommended_heuristic", "") or "")
-            if not pair or model not in self._mt5_supported_research_models():
+            configuration = dict(getattr(row, "final_configuration", {}) or {})
+            if (
+                not pair
+                or self._mt5_research_only_parameters(configuration)
+                or model not in self._mt5_supported_research_models()
+            ):
                 continue
             models[(pair, timeframe)] = model
             models.setdefault((pair, ""), model)
@@ -9018,7 +9091,12 @@ class DashboardService:
             pair = str(getattr(row, "pair", "") or "").upper()
             timeframe = self._research_row_winner_timeframe(row)
             model = str(getattr(row, "recommended_heuristic", "") or "")
-            if not pair or model not in self._mt5_supported_research_models():
+            configuration = dict(getattr(row, "final_configuration", {}) or {})
+            if (
+                not pair
+                or self._mt5_research_only_parameters(configuration)
+                or model not in self._mt5_supported_research_models()
+            ):
                 continue
             rows[(pair, timeframe)] = row
             rows.setdefault((pair, ""), row)
@@ -9114,6 +9192,8 @@ class DashboardService:
         if active_research_row is None:
             return {}
         parameters = dict(getattr(active_research_row, "final_configuration", {}) or {})
+        if self._mt5_research_only_parameters(parameters):
+            return {}
         model = str(
             parameters.get(
                 "modelo",
@@ -9933,6 +10013,10 @@ class DashboardService:
     ) -> list[DashboardMT5ScenarioViewModel]:
         best_by_market: dict[str, DashboardMT5ScenarioViewModel] = {}
         for scenario in scenarios:
+            if self._mt5_research_only_parameters(
+                dict(getattr(scenario, "parameters", {}) or {})
+            ):
+                continue
             key = scenario.pair.upper()
             current = best_by_market.get(key)
             if current is None or self._mt5_lab_target_rank(
@@ -10732,6 +10816,7 @@ class DashboardService:
             model,
             parameters,
         )
+        research_only = self._mt5_research_only_parameters(parameters)
         time_context = self._mt5_scenario_time_context(row)
         if session_filter_enabled is None:
             configuration = self.configuration_service.get_configuration_data()
@@ -10760,7 +10845,11 @@ class DashboardService:
             if score >= 0.55
             else "REJEITADO"
         )
-        decision = "WAIT" if temporal_blocking_enabled else str(candidate["decision"])
+        decision = (
+            "WAIT"
+            if temporal_blocking_enabled or research_only
+            else str(candidate["decision"])
+        )
         reason = str(candidate["reason"])
         if time_context.temporal_reason:
             reason = f"{reason} | Tempo: {time_context.temporal_reason}"
@@ -10783,6 +10872,19 @@ class DashboardService:
             reason = (
                 f"{reason} | Evidencia historica: "
                 + "; ".join(certification.rejection_reasons)
+            )
+        research_only_reason = (
+            "Configuracao RESEARCH_ONLY: participa apenas do ranking de "
+            "pesquisa e nao pode gerar setup, Trade Plan ou ordem Demo."
+        )
+        if research_only:
+            status = "RESEARCH_ONLY"
+            decision = "WAIT"
+            reason = f"{reason} | {research_only_reason}"
+        ict_rejection_reasons = tuple(certification.rejection_reasons)
+        if research_only:
+            ict_rejection_reasons = tuple(
+                dict.fromkeys((*ict_rejection_reasons, research_only_reason))
             )
         return DashboardMT5ScenarioViewModel(
             alpha_id=str(parameters.get("alpha", "ALPHA001")).upper(),
@@ -10842,11 +10944,17 @@ class DashboardService:
             lab_discrimination_metrics=evidence.discrimination_metrics,
             ict_score=certification.ict_score,
             ict_grade=certification.grade,
-            ict_status=certification.status,
-            ict_usage=certification.usage,
-            ict_demo_allowed=certification.demo_allowed,
-            ict_minimum_filters_passed=certification.minimum_filters_passed,
-            ict_rejection_reasons=certification.rejection_reasons,
+            ict_status=("RESEARCH_ONLY" if research_only else certification.status),
+            ict_usage=(
+                "Somente ranking de pesquisa; promocao operacional obrigatoria."
+                if research_only
+                else certification.usage
+            ),
+            ict_demo_allowed=(False if research_only else certification.demo_allowed),
+            ict_minimum_filters_passed=(
+                False if research_only else certification.minimum_filters_passed
+            ),
+            ict_rejection_reasons=ict_rejection_reasons,
             ict_component_scores=certification.component_scores,
             status=status,
             decision=decision,
@@ -12554,6 +12662,9 @@ class DashboardService:
             scenario
             for scenario in scenario_ranking
             if scenario.pair.upper() == pair_key and scenario.decision == decision
+            and not self._mt5_research_only_parameters(
+                dict(getattr(scenario, "parameters", {}) or {})
+            )
         ]
         if not candidates:
             return None

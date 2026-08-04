@@ -310,3 +310,30 @@ mas isso nao valida uma grade. Grade, progressao de lote, exposicao correlaciona
 e encerramento por cesta exigem contratos proprios de portfolio e uma missao
 Demo posterior. A simples inclusao da Alpha no Lab nunca cria modelo operacional,
 Trade Plan, ordem MT5 ou permissao de conta real.
+
+### Sublaboratorio Multi EA Trading
+
+O `Multi EA Trading` e um fluxo exploratorio independente dentro da aba Lab.
+Ele consome o extrato de posicoes e caches locais somente quando o usuario
+aciona a pesquisa. A UI recebe apenas o JSON compacto pela `DashboardService`;
+nao le CSV, SQLite nem chama provider diretamente durante o render.
+
+O cache Forex oficial e aberto em modo read-only. Ouro usa exclusivamente
+`.traderia/research/multi_ea_trading/history.sqlite`, com 5.000 candles em M1,
+M5, M15, M30 e H1. Essa separacao impede que XAUUSD altere a lista oficial de
+pares ou seja apagado pela atualizacao do banco operacional.
+
+Resultados com `research_only=true` ou `operational_eligible=false` podem ser
+exibidos no ranking de pesquisa, mas devem falhar fechado em selecao de setup,
+configuracao vencedora operacional e construcao de Trade Plan.
+
+O ranking do sublaboratorio seleciona candidatos exclusivamente no treino
+cronologico. Score, classificacao e desempenho do holdout nao participam da
+ordenacao; o holdout e somente auditoria posterior. O score e ajustado contra
+o baseline aleatorio de 50%. A cobertura detalhada deve permanecer visivel por
+ativo e timeframe, pois uma mesma posicao pode gerar eventos nao independentes
+em varias series.
+
+O bootstrap do extrato e feito pela fachada com `source_path` ou, em instalacao
+limpa, pela variavel `TRADERIA_MULTI_EA_POSITIONS_CSV`. A tela nao acessa o CSV
+diretamente.

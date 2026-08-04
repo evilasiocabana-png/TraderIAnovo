@@ -136,6 +136,34 @@ class MT5ResearchTradePlanEngineTest(unittest.TestCase):
         self.assertEqual(plan.risk_reward, 2.0)
         self.assertEqual(plan.exit_candidates, 0)
 
+    def test_research_only_falha_fechado_antes_de_criar_plano(self) -> None:
+        plan = MT5ResearchTradePlanEngine().build_plan(
+            MT5ResearchTradePlanInput(
+                symbol="EURUSD",
+                timeframe="M15",
+                decision="BUY",
+                entry_signal_status="SINAL_TEORICO",
+                entry_price=1.1000,
+                atr=0.0010,
+                atr_stop_factor=2.5,
+                research_risk_reward=2.0,
+                active_model="MULTI_CURRENCY_GRID_MEAN_REVERSION",
+                reason="cenario experimental",
+                operational_eligible=False,
+            )
+        )
+
+        self.assertEqual(plan.status, "RESEARCH_ONLY")
+        self.assertEqual(plan.invalid_reason, "RESEARCH_ONLY_CONFIGURATION")
+        self.assertEqual(plan.direction, "WAIT")
+        self.assertIsNone(plan.stop)
+        self.assertIsNone(plan.target)
+        self.assertEqual(plan.risk_reward, 0.0)
+        self.assertFalse(plan.certification_demo_allowed)
+        self.assertEqual(plan.certification_status, "RESEARCH_ONLY")
+        self.assertIn("operational_eligible", plan.invalid_fields)
+        self.assertIn("promocao explicita", plan.next_retry)
+
     def test_preserva_beta002_adaptive_full_exit_do_lab_no_plano_valido(self) -> None:
         plan = MT5ResearchTradePlanEngine().build_plan(
             MT5ResearchTradePlanInput(

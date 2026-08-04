@@ -106,6 +106,7 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                             'application.dashboard_service.LiveResearchDashboardData',
                                   'get_live_research_session_summary': '(self) -> '
                                                                        'application.dashboard_service.LiveResearchSessionSummaryData',
+                                  'get_multi_ea_trading_lab_report': '(self) -> dict[str, typing.Any]',
                                   'get_mt5_alpha_research_ranking': '(self, target_confidence: '
                                                                     'float = 0.7) -> '
                                                                     'list[application.dashboard_view_model.DashboardMT5AlphaResearchReportViewModel]',
@@ -248,6 +249,7 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'run_mt5_research_calibration': "(self, timeframe: str = 'M1') "
                                                                   '-> '
                                                                   'application.dashboard_view_model.DashboardMT5HeuristicResearchViewModel',
+                                  'run_multi_ea_trading_lab': '(self, source_path: str | None = None) -> dict[str, typing.Any]',
                                   'run_mt5_research_calibration_for_pair': '(self, pair: str, '
                                                                            "timeframe: str = 'M1') "
                                                                            '-> '
@@ -288,6 +290,7 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'test_mt5_connection': "(self, symbol: str = 'EURUSD', "
                                                          "timeframe: str = 'H1') -> "
                                                          'application.mt5_market_data_service.MT5ConnectionDiagnostic',
+                                  'download_multi_ea_trading_gold': '(self) -> dict[str, typing.Any]',
                                   'update_configuration': '(self, **kwargs: object) -> '
                                                           'application.configuration_service.ConfigurationData',
                                   'list_mt5_research_replay_scenarios': '(self) -> '

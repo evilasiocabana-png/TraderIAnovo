@@ -89,6 +89,7 @@ class MT5ResearchTradePlanInput:
     beta_id: str = DEFAULT_BETA_ID
     beta_version: str = DEFAULT_BETA_VERSION
     beta_mode: str = "PROTECT_ONLY"
+    operational_eligible: bool = True
     certification_demo_allowed: bool = True
     certification_score: float = 100.0
     certification_grade: str = "A+"
@@ -159,6 +160,28 @@ class MT5ResearchTradePlanEngine:
         payload: MT5ResearchTradePlanInput,
     ) -> MT5ResearchTradePlan:
         """Cria plano apenas quando existe entrada teorica BUY/SELL valida."""
+        if not payload.operational_eligible:
+            return self._empty_plan(
+                payload,
+                "RESEARCH_ONLY",
+                (
+                    "Configuracao RESEARCH_ONLY participa apenas da pesquisa e "
+                    "nao pode gerar plano operacional."
+                ),
+                invalid_reason="RESEARCH_ONLY_CONFIGURATION",
+                invalid_fields=(
+                    "operational_eligible",
+                    "stop",
+                    "target",
+                    "risk_reward",
+                ),
+                next_retry=(
+                    "Aguardar promocao explicita para uma configuracao operacional."
+                ),
+                expected_trigger=(
+                    "Configuracao deve ser explicitamente elegivel para operacao Demo."
+                ),
+            )
         direction = str(payload.decision or "WAIT").upper()
         if payload.entry_signal_status != "SINAL_TEORICO":
             return self._empty_plan(
@@ -419,10 +442,15 @@ class MT5ResearchTradePlanEngine:
         expected_trigger: str,
         rr_current: float = 0.0,
     ) -> MT5ResearchTradePlan:
+        research_only = status == "RESEARCH_ONLY"
         return MT5ResearchTradePlan(
             symbol=payload.symbol,
             timeframe=payload.timeframe,
-            direction=str(payload.decision or "WAIT").upper(),
+            direction=(
+                "WAIT"
+                if research_only
+                else str(payload.decision or "WAIT").upper()
+            ),
             entry_price=payload.entry_price,
             stop=None,
             target=None,
@@ -470,8 +498,24 @@ class MT5ResearchTradePlanEngine:
             ),
             certification_score=payload.certification_score,
             certification_grade=payload.certification_grade,
-            certification_status=payload.certification_status,
-            certification_usage=payload.certification_usage,
-            certification_demo_allowed=payload.certification_demo_allowed,
-            certification_rejection_reasons=payload.certification_rejection_reasons,
+            certification_status=(
+                "RESEARCH_ONLY"
+                if research_only
+                else payload.certification_status
+            ),
+            certification_usage=(
+                "Somente pesquisa; promocao operacional explicita obrigatoria."
+                if research_only
+                else payload.certification_usage
+            ),
+            certification_demo_allowed=(
+                False
+                if research_only
+                else payload.certification_demo_allowed
+            ),
+            certification_rejection_reasons=(
+                ("Configuracao RESEARCH_ONLY sem permissao operacional.",)
+                if research_only
+                else payload.certification_rejection_reasons
+            ),
         )

@@ -844,3 +844,49 @@ Novas entradas devem registrar:
 - Replay usa SL/TP substitutos de posicao unica e nao representa uma grade;
 - Alpha permanece `RESEARCH_ONLY`, sem modelo operacional e sem envio MT5;
 - documentados limites de correlacao, exposicao de cesta e progressao de lote.
+
+## 2026-08-03 - Sublaboratorio Multi EA Trading
+
+- Missao: extrair hipoteses de setup a partir do CSV/PDF publico, usando a
+  primeira amostra aprovada de 5.000 candles por serie e incluindo ouro.
+- Seguranca inicial:
+  - restore package local `20260803_202301` criado;
+  - branch `codex/multi-ea-trading-lab` criada;
+  - tag local `restore-traderia-20260803-2023` preservada;
+  - estado anterior consolidado no commit `604c6f3`.
+- Implementacao:
+  - motor puro `research/multi_ea_trading_lab.py`;
+  - adapter isolado `infrastructure/research/multi_ea_local_data_adapter.py`;
+  - caso de uso sob demanda e fachada `DashboardService`;
+  - painel `Multi EA Trading` dentro do Lab;
+  - banco XAUUSD separado do historico operacional;
+  - guardrail `operational_eligible=False` no Trade Plan e nos seletores do Lab.
+- Dados executados:
+  - 322 posicoes fechadas e cinco eventos Balance;
+  - 25.000 candles XAUUSD baixados em M1/M5/M15/M30/H1;
+  - 40 series completas, 200.000 candles e cobertura de 212/322 posicoes;
+  - banco operacional preservado com data de modificacao 2026-07-21.
+- Resultado:
+  - EMA 20/50 liderou somente no treino (0,1703) e ficou instavel no holdout
+    (0,0333); nenhuma regra global foi identificada como o setup original;
+  - melhor aproximacao parcial do ouro: M15, Z-Score 20/1,5 e RSI14
+    25/75 ou 30/70, classificada como `HOLDOUT_INCONCLUSIVO` por ter apenas
+    quatro gatilhos no holdout;
+  - ALPHA017 estrita classificada como `NAO_SUPORTADA_PELA_AMOSTRA`.
+- Validacao:
+  - 51 testes focados de sublab, adapter, API, painel e Trade Plan passaram;
+  - 17 testes especificos passaram novamente apos o hardening do ouro;
+  - `scripts/run_critical_ci.py`: 152 testes passaram;
+  - `git diff --check` sem erro.
+- Revisao cientifica final:
+  - selecao e ordenacao passaram a usar somente o treino cronologico;
+  - score recalibrado contra baseline aleatorio de 50%;
+  - download de ouro falha fechado se qualquer um dos cinco timeframes tiver
+    menos de 5.000 candles unicos efetivamente persistidos;
+  - painel passou a exibir cobertura detalhada por timeframe e separar score
+    de treino, holdout e amostra completa;
+  - bootstrap limpo disponivel por `TRADERIA_MULTI_EA_POSITIONS_CSV`.
+- Pendencias:
+  - confirmar o fuso do CSV antes de tratar a associacao temporal como forte;
+  - baixar os dez ativos ainda sem historico se for necessaria cobertura maior;
+  - nao inferir regras de saida, grade ou lote sem dados adicionais.
