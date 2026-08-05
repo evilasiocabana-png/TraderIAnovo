@@ -236,6 +236,20 @@ reruns. O padrao atual e 5 segundos via
 ciclo operacional nem muda decisao de entrada/saida; apenas evita trabalho
 duplicado quando o Streamlit renderiza a mesma tela varias vezes no mesmo ciclo.
 
+## Politica Para Memoria Compartilhada
+
+- `DashboardService` visual e recurso process-local compartilhado; abrir outra
+  aba ou navegador nao duplica caches de historico e pesquisa.
+- o historico `mt5_demo_execution.jsonl` e lido incrementalmente uma vez por
+  processo e compartilhado entre fachadas.
+- operacoes aceitas preservam o `plan_snapshot` completo para auditoria e
+  Position Manager; rejeicoes antigas podem ser representadas por contadores ou
+  registros compactos sem alterar o total historico.
+- o ciclo Forex libera sua fachada pesada enquanto o Robo Demo for o dono do
+  ciclo operacional.
+- limpeza ou reinicio por RAM nao pode desarmar o robo nem alterar estado
+  operacional persistido.
+
 ## Politica Para Safe Mode E Stop Movel
 
 Safe Mode pode manter acompanhamento de mercado e posicao, desde que isso seja feito em leitura leve e sem recalcular o Lab pesado.

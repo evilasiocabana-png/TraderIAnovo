@@ -34,6 +34,12 @@ aplicação e não duplica o conteúdo dos documentos referenciados.
   - Protocolo oficial para criar novos modelos operacionais, baseado na
     retrospectiva do M3 RR3, cobrindo snapshot, Trade Plan, gates, Robo Demo,
     Provider MT5, Position Manager, relatorio e testes.
+- [architecture/OPERATIONAL_MODEL_M21_M19_MIRROR.md](architecture/OPERATIONAL_MODEL_M21_M19_MIRROR.md)
+  - Contrato Demo do M21: espelho independente do M19, com direcao oposta e
+    troca direta entre os niveis de SL e TP.
+- [architecture/OPERATIONAL_MODEL_M22_M9_MIRROR.md](architecture/OPERATIONAL_MODEL_M22_M9_MIRROR.md)
+  - Contrato Demo do M22: espelho independente do M9 Trend Pullback M15/M1,
+    com direcao oposta e troca direta entre SL e TP.
 - [architecture/MODEL_8_10_STOP_TARGET_RESEARCH.md](architecture/MODEL_8_10_STOP_TARGET_RESEARCH.md)
   - Pesquisa reproduzivel de stop ATR x alvo R para M8, M9 e M10, exibida por
     modelo na aba Replay e isolada do ciclo leve Forex.
@@ -50,7 +56,7 @@ aplicação e não duplica o conteúdo dos documentos referenciados.
     BUY_ONLY, EMA34/144, ADX 28-35, stop 2,5 ATR e alvo fixo 3R; AUDUSD
     preserva a melhor evidencia disponivel, ainda sem certificacao final.
 - [architecture/END_TO_END_OPERATIONAL_FLOW.md](architecture/END_TO_END_OPERATIONAL_FLOW.md)
-  - Mapa canonico das relacoes entre Lab, ciclo Forex, modelos M1-M10, Trade
+  - Mapa canonico das relacoes entre Lab, ciclo Forex, modelos M1-M22, Trade
     Plan, Robo Demo, MT5, Position Manager, Relatorio, estados e testes.
 - [architecture/WEEKLY_ROBOT_SCHEDULE.md](architecture/WEEKLY_ROBOT_SCHEDULE.md)
   - Agenda obrigatoria em Brasilia: robo Demo sempre ON de domingo 18:01 a

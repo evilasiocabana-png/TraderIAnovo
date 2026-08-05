@@ -1,7 +1,9 @@
 param(
     [int]$Port = 8532,
-    [int]$MemoryLimitMB = 3500,
-    [int]$CheckIntervalSeconds = 30,
+    [int]$MemoryLimitMB = 1600,
+    [int]$CheckIntervalSeconds = 60,
+    [int]$HealthyLogIntervalSeconds = 600,
+    [int]$HealthFailureThreshold = 3,
     [switch]$Once
 )
 
@@ -10,6 +12,16 @@ $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $DashboardPath = Join-Path $ProjectRoot "dashboard_app.py"
 $RuntimeDir = Join-Path $ProjectRoot ".traderia\runtime"
 $LogPath = Join-Path $RuntimeDir "streamlit_ram_guard.jsonl"
+$LastHealthyLogAt = [datetime]::MinValue
+$ConsecutiveHealthFailures = 0
+$TrackedProcessId = 0
+$Mutex = New-Object System.Threading.Mutex(
+    $false,
+    "Local\TraderIANovoRamGuard_$Port"
+)
+if (-not $Mutex.WaitOne(0)) {
+    exit 0
+}
 
 function Write-GuardLog {
     param(
@@ -22,37 +34,44 @@ function Write-GuardLog {
         event = $Event
         payload = $Payload
     }
-    ($record | ConvertTo-Json -Compress -Depth 6) | Add-Content -Path $LogPath -Encoding UTF8
+    try {
+        ($record | ConvertTo-Json -Compress -Depth 6) |
+            Add-Content -Path $LogPath -Encoding UTF8 -ErrorAction Stop
+    } catch {
+        return
+    }
 }
 
 function Get-TraderIAStreamlitProcess {
-    $listeningOwners = @()
-    try {
-        $listeningOwners = @(
-            Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
-                Select-Object -ExpandProperty OwningProcess -Unique
-        )
-    } catch {
-        $listeningOwners = @()
-    }
-    Get-CimInstance Win32_Process |
-        Where-Object {
-            $_.CommandLine -match "streamlit" -and
-            $_.CommandLine -match "dashboard_app.py" -and
-            $_.CommandLine -match "--server.port $Port|--server.port=$Port|localhost:$Port|:$Port" -and
-            ($listeningOwners.Count -eq 0 -or $listeningOwners -contains $_.ProcessId)
-        } |
-        ForEach-Object {
-            $process = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
-            if ($null -ne $process) {
-                [PSCustomObject]@{
-                    ProcessId = $_.ProcessId
-                    Name = $_.Name
-                    CommandLine = $_.CommandLine
-                    WorkingSetMB = [math]::Round($process.WorkingSet64 / 1MB, 2)
-                }
+    if ($script:TrackedProcessId -gt 0) {
+        $tracked = Get-Process -Id $script:TrackedProcessId -ErrorAction SilentlyContinue
+        if ($null -ne $tracked) {
+            return [PSCustomObject]@{
+                ProcessId = $script:TrackedProcessId
+                Name = $tracked.ProcessName
+                WorkingSetMB = [math]::Round($tracked.WorkingSet64 / 1MB, 2)
             }
         }
+        $script:TrackedProcessId = 0
+    }
+    $listeningOwners = @(
+        netstat -ano -p tcp |
+            Select-String -Pattern ":$Port\s+.*LISTENING\s+(\d+)\s*$" |
+            ForEach-Object { [int]$_.Matches[0].Groups[1].Value } |
+            Select-Object -Unique
+    )
+    foreach ($processId in $listeningOwners) {
+        $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
+        if ($null -ne $process) {
+            $script:TrackedProcessId = $processId
+            [PSCustomObject]@{
+                ProcessId = $processId
+                Name = $process.ProcessName
+                WorkingSetMB = [math]::Round($process.WorkingSet64 / 1MB, 2)
+            }
+            break
+        }
+    }
 }
 
 function Start-TraderIAStreamlit {
@@ -100,33 +119,52 @@ function Invoke-GuardCycle {
         return
     }
     if (-not (Test-TraderIAStreamlitHealth)) {
-        Write-GuardLog -Event "health_check_failed" -Payload @{
+        $script:ConsecutiveHealthFailures += 1
+        Write-GuardLog -Event "health_check_pending" -Payload @{
             port = $Port
             process_ids = @($processes | Select-Object -ExpandProperty ProcessId)
+            consecutive_failures = $script:ConsecutiveHealthFailures
+            threshold = $HealthFailureThreshold
+        }
+        if ($script:ConsecutiveHealthFailures -lt $HealthFailureThreshold) {
+            return
         }
         foreach ($proc in $processes) {
             Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
         }
+        $script:TrackedProcessId = 0
+        $script:ConsecutiveHealthFailures = 0
         Start-Sleep -Seconds 3
         Start-TraderIAStreamlit
         return
     }
+    $script:ConsecutiveHealthFailures = 0
     foreach ($proc in $processes) {
         if ([double]$proc.WorkingSetMB -ge $MemoryLimitMB) {
             Write-GuardLog -Event "memory_limit_reached" -Payload $proc
             Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+            $script:TrackedProcessId = 0
             Start-Sleep -Seconds 3
             Start-TraderIAStreamlit
         } else {
-            Write-GuardLog -Event "healthy" -Payload $proc
+            $now = Get-Date
+            if (($now - $script:LastHealthyLogAt).TotalSeconds -ge $HealthyLogIntervalSeconds) {
+                Write-GuardLog -Event "healthy" -Payload $proc
+                $script:LastHealthyLogAt = $now
+            }
         }
     }
 }
 
-do {
-    Invoke-GuardCycle
-    if ($Once) {
-        break
-    }
-    Start-Sleep -Seconds $CheckIntervalSeconds
-} while ($true)
+try {
+    do {
+        Invoke-GuardCycle
+        if ($Once) {
+            break
+        }
+        Start-Sleep -Seconds $CheckIntervalSeconds
+    } while ($true)
+} finally {
+    $Mutex.ReleaseMutex()
+    $Mutex.Dispose()
+}

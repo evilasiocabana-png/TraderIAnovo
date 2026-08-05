@@ -1,12 +1,12 @@
 # TraderIA Novo - Fluxo Operacional E Relacoes De Ponta A Ponta
 
 Status: referencia arquitetural canonica
-Atualizado em: 2026-08-01
+Atualizado em: 2026-08-04
 
 ## Finalidade
 
 Este documento e o mapa unico das relacoes operacionais do TraderIA Novo. Ele
-deve ser consultado antes de alterar Lab, Forex, modelos M1-M20, Robo Demo, MT5,
+deve ser consultado antes de alterar Lab, Forex, modelos M1-M22, Robo Demo, MT5,
 Position Manager, Relatorio, persistencia local ou ciclos em segundo plano.
 
 `docs/ARCHITECTURE.md` define camadas e invariantes gerais. Este documento
@@ -30,7 +30,7 @@ DashboardService enriquece leitura MT5 leve
         v
 DashboardMT5ForexSignalViewModel compartilhado
         |
-        +--> Aba MT5 Forex / monitores M1-M20
+        +--> Aba MT5 Forex / monitores M1-M22
         |
         +--> Seletor de modelos para novas entradas
         |
@@ -141,7 +141,7 @@ O snapshot compartilhado precisa transportar, por par:
 - leitura atual necessaria aos gates;
 - estado de posicao e recomendacao do Position Manager quando aplicavel.
 
-### Monitor De Indicadores M1-M20
+### Monitor De Indicadores M1-M22
 
 O monitor da aba MT5 Forex e uma projecao read-only do mesmo ciclo operacional.
 Sua primeira coluna identifica `M1` a `M7`; cada linha seguinte representa um
@@ -158,6 +158,8 @@ indicador ou uma condicao efetivamente usada pelo modelo naquele par e TF.
 - M11-M20 usam o contrato congelado da Alpha oficial correspondente e
   compartilham o calculo dos indicadores quando par, timeframe e candle fechado
   forem iguais.
+- M21 reutiliza a leitura M19/ALPHA015, inverte a direcao e troca SL/TP sem
+  duplicar consulta MT5 ou calculo de indicador.
 - M4 e os vencedores M4 dentro do M5 incluem apenas o contexto H1/H4 realmente
   habilitado pelo overlay.
 - `Leitura atual` vem do ultimo candle fechado usado na decisao.
@@ -193,6 +195,7 @@ O M2 possui contrato operacional proprio, aprovado em 2026-07-29.
 | M6 | Trend Momentum original do marco `a3bc912` | Ultimo candle M1 fechado, proximo preco vivo, SL maximo entre 2 ATR e 0,10% do preco e TP RR2 fixos | 8 pares Demo |
 | M7 | Trend Momentum original isolado com protecao dinamica | Mesma entrada e risco inicial do M6; HOLD antes de 1,50R e depois somente break-even/ATR trailing, sem fechamento antecipado | 8 pares Demo |
 | M11-M20 | Dez Alphas oficiais restantes | Ultimo candle fechado, decisao independente, SL/TP fixos e cache compartilhado de indicadores | 8 pares Demo por modelo |
+| M21 | Espelho independente do M19 | Mesmo sinal M19 com direcao oposta; TP no SL M19 e SL no TP M19 | 8 pares Demo |
 
 O nome operacional do consolidado e somente M5. `M5-P` deixa de ser modelo
 operacional separado. M6 e M7 sao independentes de M1-M5 e entre si, aparecem
@@ -293,10 +296,10 @@ Trocar aba, recarregar pagina, abrir Safari/Chrome ou reconectar nao pode:
 - apagar o snapshot valido;
 - interromper o Position Manager.
 
-## Funil Visual De Entrada M1-M20
+## Funil Visual De Entrada M1-M22
 
 A tabela `Entrada Teorica MT5` deve decompor, para cada par e para cada modelo
-M1-M20, as mesmas condicoes que antecedem o envio ao Robo Demo. A coluna
+M1-M22, as mesmas condicoes que antecedem o envio ao Robo Demo. A coluna
 `Envio` e o resumo operacional: ela exibe `PRONTO` quando todas as etapas estao
 aptas ou apresenta o gargalo mais relevante, no formato
 `BLOQ/AGUARDA: etapa - motivo`.
@@ -365,6 +368,7 @@ Toda falha que atravesse mais de um componente deve entrar nesta secao e no
 | FLOW-018 | A versao dinamica historica do ALPHA001 poderia voltar a contaminar o M6 fixo | Entrada e politica de saida compartilhavam identidade, permitindo heranca de `DYNAMIC_POSITION_MANAGER` | Configuracao M6/M7, Trade Plan, Robo Demo, provider, Position Manager, MT5 Forex, Relatorio e testes | M6 continua `BETA001_FIXED_SL_TP_RR2_V1`; a variante dinamica vira M7 independente com `BETA007`, risco inicial imutavel, protecao somente apos 1,50R e nenhum fechamento antecipado |
 | FLOW-019 | M2, M3 e M4 produziram sinais historicos, mas nenhum plano novo chegou ao executor | A janela de 120 segundos comparava barras marcadas no relogio do servidor Pepperstone com o UTC da maquina; a diferenca de aproximadamente tres horas classificava a barra viva como futura | Provider MT5, LabOperationalModelService, ciclo de 10 segundos, Trade Plan, Robo Demo, funil visual e testes | Frescor de entrada compara barra atual e `server_timestamp` no mesmo relogio MT5; UTC local e fallback; candles historicos e parametros pesquisados permanecem inalterados |
 | FLOW-020 | Depois de reiniciar o app fora do horario operacional, o diagnostico MT5 respondia, mas os monitores desapareciam aguardando o primeiro snapshot | O bloqueio correto dos ciclos de fim de semana tambem impedia a leitura inicial read-only e o snapshot existia apenas na memoria do processo encerrado | Inicializacao Streamlit, DashboardService, snapshot compartilhado, MT5 Forex e Relatorio | Na ausencia de snapshot valido, a inicializacao faz uma unica leitura historica read-only, publica o resultado compartilhado e nao arma o Robo nem envia ordens; ciclos automaticos e execucao continuam sujeitos aos bloqueios temporais |
+| FLOW-021 | O grafico patrimonial mostrava `Patrimonio final` usando somente `profit` do MT5 | Comissao, swap/rollover e fee existem em campos separados nos deals MT5 | Historico MT5, auditoria, graficos por modelo e Relatorio | Cada painel mostra lucro bruto, custos MT5, lucro liquido e detalha comissao, swap/rollover e taxas; somente operacoes fechadas, encontradas no MT5 e dentro da mesma data-base entram na conta |
 
 ## Regra De Mudanca Interligada
 
@@ -424,8 +428,11 @@ Os testes devem garantir no minimo:
 - M11-M20 usam somente candles e indicadores do lote/cache compartilhado. O
   ciclo leve nao recalcula o Lab pesado e o Position Manager apenas audita seus
   SL/TP fixos.
-- Em `TODOS_MODELOS`, M1-M20 podem coexistir no mesmo par, com no maximo uma
-  posicao por modelo e vinte posicoes totais por par.
+- M21 deriva o espelho do M19 sem recalcular indicadores e preserva SL/TP fixos.
+- M22 deriva o espelho do M9 usando a mesma leitura M15/M1, sem nova consulta
+  MT5, e preserva SL/TP fixos trocados diretamente.
+- Em `TODOS_MODELOS`, M1-M22 podem coexistir no mesmo par, com no maximo uma
+  posicao por modelo e vinte e duas posicoes totais por par.
 
 ## Documentos Complementares
 
@@ -436,6 +443,8 @@ Os testes devem garantir no minimo:
 - `docs/architecture/POSITION_MANAGER_OFFICIAL_CONTRACT.md`
 - `docs/architecture/OPERATIONAL_MODEL_CREATION_PROTOCOL.md`
 - `docs/architecture/OPERATIONAL_MODELS_M11_M20.md`
+- `docs/architecture/OPERATIONAL_MODEL_M21_M19_MIRROR.md`
+- `docs/architecture/OPERATIONAL_MODEL_M22_M9_MIRROR.md`
 - `docs/RUNTIME_AND_ARTIFACTS.md`
 ## Protecao contra travamento da ponte MT5
 
@@ -459,3 +468,9 @@ por tipo de operacao. Um subprocesso sem resposta deve ser encerrado e nunca pod
 bloquear o ciclo leve do Streamlit. O guardiao tambem verifica
 `/_stcore/health`: processo existente sem resposta HTTP e tratado como travado e
 reiniciado, independentemente do consumo de RAM.
+
+As sessoes de navegador compartilham a mesma fachada visual process-local. O
+historico de execucao tambem possui cache incremental unico; abrir outra aba nao
+repete a conversao de todo o JSONL. Quando o Robo Demo esta online, o ciclo
+Forex observador libera sua fachada pesada e consome o snapshot publicado pelo
+dono operacional ativo.

@@ -14,7 +14,10 @@ from unittest.mock import patch
 import numpy as np
 
 from application.lab_operational_model_service import (
+    LabOperationalDecision,
     LabOperationalModelService,
+    MODEL_19_ID,
+    MODEL_21_ID,
     MODEL_2_ID,
     MODEL_5_ID,
     MODEL_IDS,
@@ -322,7 +325,7 @@ class LabOperationalModelServiceTest(unittest.TestCase):
         self.assertFalse(decision.ready)
         self.assertEqual(decision.status, "DELEGATE_TO_LAB_M1")
 
-    def test_m11_to_m20_materialize_one_official_alpha_for_all_pairs(self) -> None:
+    def test_m11_to_m21_materialize_one_official_alpha_for_all_pairs(self) -> None:
         service = LabOperationalModelService()
 
         for label, spec in OFFICIAL_ALPHA_MODEL_SPECS.items():
@@ -336,7 +339,7 @@ class LabOperationalModelServiceTest(unittest.TestCase):
                     self.assertEqual(row["exit_policy"], "RESEARCH_FIXED_SL_TP")
                     self.assertFalse(row["position_manager_enabled"])
 
-    def test_m11_to_m20_evaluate_only_closed_candles_without_heavy_lab(self) -> None:
+    def test_m11_to_m21_evaluate_only_closed_candles_without_heavy_lab(self) -> None:
         now = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         service = LabOperationalModelService(now_provider=lambda: now)
         candles = self._candles(now)
@@ -386,7 +389,7 @@ class LabOperationalModelServiceTest(unittest.TestCase):
 
         self.assertEqual(len(service._official_feature_cache), 1)
 
-    def test_complete_m11_to_m20_cycle_stays_below_three_seconds(self) -> None:
+    def test_complete_m11_to_m21_cycle_stays_below_three_seconds(self) -> None:
         now = datetime(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
         service = LabOperationalModelService(now_provider=lambda: now)
         candles = self._candles(now)
@@ -412,6 +415,90 @@ class LabOperationalModelServiceTest(unittest.TestCase):
 
         self.assertLess(elapsed, 3.0)
         self.assertEqual(len(service._official_feature_cache), 40)
+
+    def test_m21_inverte_direcao_e_troca_exatamente_sl_tp_do_m19(self) -> None:
+        now = datetime(2026, 8, 4, 12, 0, 10, tzinfo=timezone.utc)
+        service = LabOperationalModelService(now_provider=lambda: now)
+        m19 = service.winner(MODEL_19_ID, "EURUSD") or {}
+        m21 = service.winner(MODEL_21_ID, "EURUSD") or {}
+        m19_parameters = dict(m19["parameters"])
+        m21_parameters = dict(m21["parameters"])
+        features = {
+            "close": 1.2000,
+            "atr": 0.0010,
+            "momentum": 0.0010,
+            "volatility": 0.0002,
+            "ema20": 1.2010,
+            "ema50": 1.1990,
+            "rsi": 55.0,
+            "adx": 18.0,
+            "tick_volume": 120.0,
+            "tick_volume_average": 100.0,
+        }
+        market_row = SimpleNamespace(spread=0.0001, spread_average=0.0002)
+
+        m19_direction, _, _ = service._official_alpha_direction(
+            alpha_id=str(m19["alpha_id"]),
+            features=features,
+            parameters=m19_parameters,
+            context_features=None,
+            market_row=market_row,
+        )
+        m21_direction, _, diagnostics = service._official_alpha_direction(
+            alpha_id=str(m21["alpha_id"]),
+            features=features,
+            parameters=m21_parameters,
+            context_features=None,
+            market_row=market_row,
+        )
+
+        self.assertEqual(m19_direction, "BUY")
+        self.assertEqual(m21_direction, "SELL")
+        self.assertIn("MIRROR_SOURCE_MODEL=M19", diagnostics)
+        self.assertEqual(m21_parameters["stop_factor"], 4.0)
+        self.assertEqual(m21_parameters["risk_reward"], 0.5)
+
+        current_bar = "2026-08-04T12:00:00+00:00"
+        common = {
+            "pair": "EURUSD",
+            "timeframe": "M1",
+            "status": "SIGNAL_FROZEN",
+            "ready": True,
+            "signal_candle_time": "2026-08-04T11:59:00+00:00",
+            "current_bar_time": current_bar,
+            "atr": 0.0010,
+        }
+        m19_plan = service._decision_with_live_entry(
+            LabOperationalDecision(
+                model_id=MODEL_19_ID,
+                direction="BUY",
+                risk_reward=float(m19_parameters["risk_reward"]),
+                alpha_id=str(m19["alpha_id"]),
+                family="LIQUIDITY_SPREAD_FILTER",
+                source_model="M19",
+                parameters=m19_parameters,
+                **common,
+            ),
+            1.2000,
+            current_bar,
+        )
+        m21_plan = service._decision_with_live_entry(
+            LabOperationalDecision(
+                model_id=MODEL_21_ID,
+                direction="SELL",
+                risk_reward=float(m21_parameters["risk_reward"]),
+                alpha_id=str(m21["alpha_id"]),
+                family="LIQUIDITY_SPREAD_FILTER_MIRROR",
+                source_model="M21",
+                parameters=m21_parameters,
+                **common,
+            ),
+            1.2000,
+            current_bar,
+        )
+
+        self.assertAlmostEqual(float(m21_plan.stop), float(m19_plan.target))
+        self.assertAlmostEqual(float(m21_plan.target), float(m19_plan.stop))
 
     def _buy_signal(self, market: object, parameters: object) -> np.ndarray:
         del parameters

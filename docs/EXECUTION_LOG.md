@@ -1,5 +1,35 @@
 # Execution Log
 
+## 2026-08-04 - Resultado bruto, custos e lucro liquido nos graficos MT5
+
+- o antigo cartao `Patrimonio final` foi renomeado para `Lucro bruto`;
+- cada painel M1-M22 e o grafico principal agora somam separadamente comissao,
+  swap/rollover e fee informados pelos deals MT5;
+- `Custos MT5` representa comissao + swap + fee; `Lucro liquido` representa
+  lucro bruto + custos assinados;
+- posicoes abertas e registros nao encontrados no MT5 permanecem fora dessa
+  conta realizada; a curva azul continua sendo o lucro bruto acumulado.
+
+## 2026-08-04 - Modelo 22 espelho independente do M9
+
+- criado `MODELO_22_ESPELHO_M9`, comentario `TraderIA M22`;
+- M22 usa o mesmo Trend Pullback M15/M1 e o mesmo candle fechado do M9;
+- BUY/SELL sao invertidos e `TP_M22 = SL_M9`, `SL_M22 = TP_M9`;
+- parametros derivados do M9: SL 2,5 ATR, alvo 1,25 ATR e RR 0,5;
+- M9 permanece inalterado e ambos podem coexistir no mesmo par;
+- seletor, monitor, Relatorio, provider e limite por par ampliados ate M22;
+- Position Manager apenas audita e conta real continua bloqueada.
+
+## 2026-08-04 - Modelo 21 espelho independente do M19
+
+- criado `MODELO_21_ESPELHO_M19`, comentario `TraderIA M21`;
+- M21 usa o mesmo gate ALPHA015 e candle M1 do M19, com BUY/SELL invertido;
+- `TP_M21 = SL_M19` e `SL_M21 = TP_M19`;
+- parametros derivados do M19 atual: SL 4 ATR, TP 2 ATR e RR 0,5;
+- M19 permanece inalterado e ambos podem coexistir no mesmo par;
+- seletor, monitor, Relatorio, provider e limite por par ampliados ate M21;
+- Position Manager apenas audita e conta real continua bloqueada.
+
 ## 2026-08-01 - Modelos 11 a 20 para as Alphas oficiais restantes
 
 - Criados dez modelos independentes, em sequencia, de M11/ALPHA001 ate
@@ -837,6 +867,37 @@ Novas entradas devem registrar:
 - validacao executada;
 - commit gerado;
 - pendencias.
+
+## 2026-08-04 - Auditoria e reducao de memoria do runtime
+
+- Sintoma: app lento apos permanecer aberto; processo da porta `8532` usava
+  aproximadamente 1707,9 MB de RAM de trabalho e 1966,4 MB de memoria privada.
+- Causa principal: cada sessao Streamlit mantinha uma `DashboardService`
+  pesada, enquanto ciclos Forex, Robo Demo e agenda mantinham outras fachadas;
+  o historico JSONL de execucao era convertido novamente por fachada.
+- Correcao:
+  - fachada visual compartilhada entre sessoes do mesmo processo;
+  - cache process-local incremental de `mt5_demo_execution.jsonl`;
+  - rejeicoes antigas compactadas em memoria, preservando contagem;
+  - operacoes aceitas preservadas integralmente para auditoria e Position
+    Manager;
+  - ciclo Forex libera caches quando o Robo Demo assume a leitura;
+  - aviso repetitivo do seletor operacional removido.
+- Resultado apos reinicio e sessao completa: 366,7 MB de RAM de trabalho e
+  564,3 MB privada; apos 35 segundos e varios ciclos, aumento de apenas 1,66 MB.
+- Operacao preservada: health `200`, MT5 `CONNECTED`, Robo Demo `online` em
+  `TODOS`, ciclo de 10 segundos e `BATCH_COMPLETED` confirmados.
+- Guardiao atualizado: limite 1600 MB, checagem a cada 60 segundos e log
+  saudavel a cada 10 minutos. A descoberta do processo usa diretamente o PID
+  em `LISTENING` retornado por `netstat`, sem consulta CIM bloqueante. O guardiao
+  exige tres falhas consecutivas de health e usa mutex por porta para impedir
+  supervisores duplicados.
+- Validacao: 3 testes do registro de runtime, 15 testes de persistencia, teste
+  incremental do JSONL e 10 testes focados de ciclos/chaveamento passaram.
+- Incidente durante validacao: Relatorio recebeu `PermissionError` ao gravar
+  `.traderia/runtime/runtime_lock.json` sob concorrencia do OneDrive. A origem
+  foi corrigida com lock process-local, escrita atomica, tres tentativas curtas
+  e fallback sem stacktrace; o ultimo cache do Relatorio e preservado.
 ## 2026-08-03 - ALPHA017 experimental de reversao multiativos
 
 - adicionada `ALPHA017_MULTI_CURRENCY_GRID_MEAN_REVERSION` ao Lab/Replay;

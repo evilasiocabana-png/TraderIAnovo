@@ -1626,6 +1626,47 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertEqual(curve, [0.0, 2.15, -1.25])
 
+    def test_resumo_patrimonial_separa_bruto_custos_e_liquido(self) -> None:
+        rows = [
+            SimpleNamespace(
+                operation_status="FECHADA/HISTORICO",
+                mt5_found=True,
+                mt5_realized_profit=12.0,
+                mt5_commission=-1.4,
+                mt5_swap=-0.3,
+                mt5_fee=-0.1,
+                mt5_time="2026-07-22T08:00:00+00:00",
+            ),
+            SimpleNamespace(
+                operation_status="FECHADA/HISTORICO",
+                mt5_found=True,
+                mt5_realized_profit=-4.0,
+                mt5_commission=-1.4,
+                mt5_swap=0.0,
+                mt5_fee=-0.1,
+                mt5_time="2026-07-22T09:00:00+00:00",
+            ),
+            SimpleNamespace(
+                operation_status="ABERTA",
+                mt5_found=True,
+                mt5_realized_profit=99.0,
+                mt5_commission=-9.0,
+                mt5_swap=-9.0,
+                mt5_fee=-9.0,
+                mt5_time="2026-07-22T10:00:00+00:00",
+            ),
+        ]
+
+        summary = dashboard_app._mt5_realized_financial_summary(rows)
+
+        self.assertEqual(summary["gross_profit"], 8.0)
+        self.assertEqual(summary["commission"], -2.8)
+        self.assertEqual(summary["swap"], -0.3)
+        self.assertEqual(summary["fee"], -0.2)
+        self.assertEqual(summary["total_costs"], -3.3)
+        self.assertEqual(summary["net_profit"], 4.7)
+        self.assertEqual(summary["operations"], 2.0)
+
     def test_snapshot_do_grafico_mantem_cartao_e_curva_no_mesmo_estado(self) -> None:
         snapshot = dashboard_app._mt5_equity_chart_snapshot(
             [0.0, -6.3, -19.8, -12.8]
@@ -1643,10 +1684,10 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "modelo_6",
         )
 
-    def test_resumo_do_setup_identifica_os_vinte_modelos(self) -> None:
+    def test_resumo_do_setup_identifica_os_vinte_e_dois_modelos(self) -> None:
         summaries = [
             dashboard_app._mt5_equity_model_setup_summary(f"MODELO {index}")
-            for index in range(1, 21)
+            for index in range(1, 23)
         ]
 
         self.assertTrue(all(summaries))
@@ -1662,15 +1703,17 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertIn("D1 -> M15", summaries[9])
         self.assertIn("ALPHA001", summaries[10])
         self.assertIn("ALPHA016", summaries[19])
+        self.assertIn("ALPHA015_M19_MIRROR", summaries[20])
+        self.assertIn("Espelho M9", summaries[21])
         self.assertEqual(
             dashboard_app._mt5_equity_model_setup_summary("M1 + M2"),
             "",
         )
 
-    def test_relatorio_renderiza_paineis_individuais_m1_a_m20(self) -> None:
+    def test_relatorio_renderiza_paineis_individuais_m1_a_m22(self) -> None:
         source = inspect.getsource(dashboard_app._exibir_evolucao_patrimonial_mt5)
 
-        self.assertIn("range(1, 21)", source)
+        self.assertIn("range(1, 23)", source)
 
     def test_resumo_em_negociacao_soma_lucros_das_operacoes_abertas(self) -> None:
         rows = [

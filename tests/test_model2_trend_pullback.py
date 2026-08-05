@@ -12,6 +12,7 @@ from application.lab_operational_model_service import (
     MODEL_2_ID,
     MODEL_8_ID,
     MODEL_9_ID,
+    MODEL_22_ID,
 )
 from research.alpha_suggested.model2_trend_pullback import (
     MODEL_2_ALPHA_ID,
@@ -162,6 +163,50 @@ class Model2TrendPullbackTest(unittest.TestCase):
         self.assertAlmostEqual(decision.stop or 0.0, 1.19875)
         self.assertAlmostEqual(decision.target or 0.0, 1.2025)
         self.assertAlmostEqual(updated_price.entry_price or 0.0, 1.2010)
+        self.assertEqual(evaluate.call_count, 1)
+
+    def test_m22_is_independent_exact_mirror_of_m9(self) -> None:
+        now = datetime(2026, 8, 4, 12, 0, tzinfo=timezone.utc)
+        service = LabOperationalModelService(now_provider=lambda: now)
+        candles = {
+            ("EURUSD", "M1"): self._runtime_candles(now, minutes=1),
+            ("EURUSD", "M15"): self._runtime_candles(now, minutes=15),
+        }
+        reading = Model2TrendPullbackReading(
+            direction=1,
+            atr=0.001,
+            diagnostics=("M9_SIGNAL=BUY",),
+        )
+
+        with patch(
+            "application.lab_operational_model_service.evaluate_trend_pullback",
+            return_value=reading,
+        ) as evaluate:
+            m9 = service.evaluate(
+                model_id=MODEL_9_ID,
+                pair="EURUSD",
+                candles_by_market=candles,
+                current_price=1.2000,
+                server_timestamp=(now + timedelta(seconds=10)).isoformat(),
+            )
+            m22 = service.evaluate(
+                model_id=MODEL_22_ID,
+                pair="EURUSD",
+                candles_by_market=candles,
+                current_price=1.2000,
+                server_timestamp=(now + timedelta(seconds=10)).isoformat(),
+            )
+
+        self.assertTrue(m9.ready)
+        self.assertTrue(m22.ready)
+        self.assertEqual(m9.direction, "BUY")
+        self.assertEqual(m22.direction, "SELL")
+        self.assertAlmostEqual(m22.stop or 0.0, m9.target or 0.0)
+        self.assertAlmostEqual(m22.target or 0.0, m9.stop or 0.0)
+        self.assertEqual(m22.parameters["mirror_source_model"], "M9")
+        self.assertEqual(m22.parameters["stop_factor"], 2.5)
+        self.assertEqual(m22.risk_reward, 0.5)
+        self.assertIn("MIRROR_DIRECTION=INVERTED", m22.diagnostics)
         self.assertEqual(evaluate.call_count, 1)
 
     def _trend_candles(

@@ -32,6 +32,7 @@ from application.lab_operational_model_service import (
     MODEL_5_ID,
     MODEL_8_ID,
     MODEL_9_ID,
+    MODEL_22_ID,
     MODEL_10_ID,
     OFFICIAL_ALPHA_MODEL_IDS,
 )
@@ -692,7 +693,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertIn("H1", transformed_row.reason)
         self.assertIs(transformed_plan, plan)
 
-    def test_chaveamento_todos_expande_modelos_m1_a_m20(self) -> None:
+    def test_chaveamento_todos_expande_modelos_m1_a_m22(self) -> None:
         service = DashboardService()
         service.set_mt5_operational_model("TODOS_MODELOS")
 
@@ -710,6 +711,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
                 MODEL_9_ID,
                 MODEL_10_ID,
                 *OFFICIAL_ALPHA_MODEL_IDS,
+                MODEL_22_ID,
             ),
         )
 

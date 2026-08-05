@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from core.runtime_lock_service import RuntimeLockService
 
@@ -57,6 +58,17 @@ class RuntimeLockServiceTest(unittest.TestCase):
             self.assertTrue(result.acquired)
             payload = json.loads(lock_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["pid"], os.getpid())
+
+    def test_falha_de_escrita_nao_derruba_dashboard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            lock_path = Path(temp_dir) / "runtime_lock.json"
+            service = RuntimeLockService(lock_path=lock_path, stale_after_seconds=90)
+
+            with patch.object(Path, "write_text", side_effect=PermissionError):
+                result = service.acquire_active()
+
+            self.assertFalse(result.acquired)
+            self.assertIn("temporariamente indisponivel", result.message)
 
 
 if __name__ == "__main__":

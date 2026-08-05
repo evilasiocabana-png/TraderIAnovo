@@ -706,6 +706,25 @@ protocolo:
 O inventario e os parametros estao em
 `docs/architecture/OPERATIONAL_MODELS_M11_M20.md`.
 
+## Registro do M21
+
+Em 2026-08-04, o M21 foi criado como espelho independente do M19. Ele reutiliza
+o mesmo sinal fechado ALPHA015, inverte BUY/SELL e troca diretamente os niveis:
+`TP_M21 = SL_M19` e `SL_M21 = TP_M19`. A derivacao ocorre no contrato runtime,
+mantendo uma posicao por modelo e execucao somente Demo. Com a inclusao do M22,
+o limite global atual passa a 22 por par.
+O contrato completo esta em
+`docs/architecture/OPERATIONAL_MODEL_M21_M19_MIRROR.md`.
+
+## Registro do M22
+
+Em 2026-08-04, o M22 foi criado como espelho independente do M9. Ele reutiliza
+o mesmo gatilho Trend Pullback M15/M1, inverte BUY/SELL e troca diretamente os
+niveis: `TP_M22 = SL_M9` e `SL_M22 = TP_M9`. Os fatores sao derivados do M9:
+SL 2,5 ATR, alvo 1,25 ATR e RR 0,5. M9 permanece inalterado; ambos possuem
+identidade, cache, Trade Plan, duplicidade e historico proprios. O contrato
+completo esta em `docs/architecture/OPERATIONAL_MODEL_M22_M9_MIRROR.md`.
+
 ## Registro dos M8, M9 e M10
 
 Os tres modelos sao variantes independentes do contrato mecanico M2 Trend

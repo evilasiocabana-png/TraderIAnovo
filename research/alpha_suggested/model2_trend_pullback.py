@@ -110,6 +110,8 @@ def trend_pullback_operational_results(
     family: str,
     entry_timeframe: str,
     context_timeframe: str,
+    mirror_source_model: str | None = None,
+    mirror_swap_sl_tp: bool = False,
 ) -> dict[str, dict[str, Any]]:
     """Create a traceable Demo contract for an M2 timeframe variant."""
     label = str(model_label).upper()
@@ -118,6 +120,19 @@ def trend_pullback_operational_results(
         entry_timeframe=entry_timeframe,
         context_timeframe=context_timeframe,
     )
+    if mirror_swap_sl_tp:
+        source_stop_factor = float(parameters["stop_factor"])
+        source_risk_reward = float(parameters["risk_reward"])
+        parameters.update(
+            {
+                "stop_factor": source_stop_factor * source_risk_reward,
+                "risk_reward": 1.0 / source_risk_reward,
+                "mirror_source_model": str(mirror_source_model or "N/D").upper(),
+                "mirror_swap_sl_tp": True,
+                "mirror_source_stop_factor": source_stop_factor,
+                "mirror_source_risk_reward": source_risk_reward,
+            }
+        )
     return {
         pair: {
             "pair": pair,
@@ -128,8 +143,13 @@ def trend_pullback_operational_results(
             "demo_forward_enabled": True,
             "parity_status": "DEMO_FORWARD_OPERATIONALLY_APPROVED",
             "parity_reason": (
-                f"{label} Trend Pullback {context_timeframe}->{entry_timeframe} "
-                "aprovado pelo usuario para execucao MT5 Demo."
+                f"{label} espelha {str(mirror_source_model).upper()} com "
+                "direcao e SL/TP invertidos para execucao MT5 Demo."
+                if mirror_swap_sl_tp
+                else (
+                    f"{label} Trend Pullback {context_timeframe}->{entry_timeframe} "
+                    "aprovado pelo usuario para execucao MT5 Demo."
+                )
             ),
             "evidence_demo_forward_enabled": False,
             "evidence_parity_status": "REPLAY_VALIDATION_PENDING",

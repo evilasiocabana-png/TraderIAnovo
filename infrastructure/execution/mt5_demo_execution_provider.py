@@ -19,8 +19,8 @@ from core.mt5_process_probe import resolve_mt5_terminal_path
 
 
 _MT5_ORDER_SEND_LOCK = threading.Lock()
-MAX_OPERATIONAL_MODELS_PER_SYMBOL = 20
-KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 21))
+MAX_OPERATIONAL_MODELS_PER_SYMBOL = 22
+KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 23))
 
 
 @dataclass(frozen=True)
@@ -1223,14 +1223,14 @@ class MT5DemoExecutionProvider:
         self,
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
-        """Bloqueia mais de uma posicao por modelo e mais de vinte por par."""
+        """Bloqueia mais de uma posicao por modelo e mais de vinte e duas por par."""
         positions = list(self.mt5.positions_get(symbol=order.symbol) or [])
         if len(positions) >= MAX_OPERATIONAL_MODELS_PER_SYMBOL:
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
                 message=(
-                    "Limite de vinte posicionamentos por par atingido. "
+                    "Limite de vinte e duas posicoes por par atingido. "
                     "Permitido no maximo um por modelo operacional."
                 ),
             )

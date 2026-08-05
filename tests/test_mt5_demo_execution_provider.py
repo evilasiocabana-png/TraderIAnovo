@@ -421,7 +421,7 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertTrue(result.accepted)
         self.assertEqual(mt5.last_request["comment"], "TraderIA M8")
 
-    def test_comments_identify_m8_to_m20_independently(self) -> None:
+    def test_comments_identify_m8_to_m22_independently(self) -> None:
         provider = self._provider(_FakeMT5())
 
         self.assertEqual(provider._model_comment("MODELO_8_TREND_PULLBACK_H1_M5"), "M8")
@@ -429,12 +429,14 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertEqual(provider._model_comment("MODELO_10_TREND_PULLBACK_D1_M15"), "M10")
         self.assertEqual(provider._model_comment("MODELO_11_ALPHA001_TREND_MOMENTUM"), "M11")
         self.assertEqual(provider._model_comment("MODELO_20_ALPHA016_REVERSAL"), "M20")
+        self.assertEqual(provider._model_comment("MODELO_21_ESPELHO_M19"), "M21")
+        self.assertEqual(provider._model_comment("MODELO_22_ESPELHO_M9"), "M22")
 
-    def test_submit_order_bloqueia_vigesima_primeira_posicao_no_par(self) -> None:
+    def test_submit_order_bloqueia_vigesima_terceira_posicao_no_par(self) -> None:
         mt5 = _FakeMT5(
             open_positions=[
                 SimpleNamespace(comment=f"TraderIA M{index}")
-                for index in range(1, 21)
+                for index in range(1, 23)
             ]
         )
         provider = self._provider(mt5)
@@ -442,8 +444,34 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         result = provider.submit_order(self._order())
 
         self.assertFalse(result.accepted)
-        self.assertIn("Limite de vinte posicionamentos por par", result.message)
+        self.assertIn("Limite de vinte e duas posicoes por par", result.message)
         self.assertIsNone(mt5.last_request)
+
+    def test_m21_pode_coexistir_com_m19_no_mesmo_par(self) -> None:
+        mt5 = _FakeMT5(
+            open_positions=[SimpleNamespace(comment="TraderIA M19")]
+        )
+        provider = self._provider(mt5)
+        order = self._order()
+        object.__setattr__(order, "operational_model", "MODELO_21_ESPELHO_M19")
+
+        result = provider.submit_order(order)
+
+        self.assertTrue(result.accepted)
+        self.assertEqual(mt5.last_request["comment"], "TraderIA M21")
+
+    def test_m22_pode_coexistir_com_m9_no_mesmo_par(self) -> None:
+        mt5 = _FakeMT5(
+            open_positions=[SimpleNamespace(comment="TraderIA M9")]
+        )
+        provider = self._provider(mt5)
+        order = self._order()
+        object.__setattr__(order, "operational_model", "MODELO_22_ESPELHO_M9")
+
+        result = provider.submit_order(order)
+
+        self.assertTrue(result.accepted)
+        self.assertEqual(mt5.last_request["comment"], "TraderIA M22")
 
     def test_get_recent_candles_aceita_array_like_do_mt5(self) -> None:
         """copy_rates_from_pos pode retornar array com bool ambiguo."""

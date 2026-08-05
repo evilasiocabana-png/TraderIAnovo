@@ -10,6 +10,7 @@ from typing import Any
 _LOCK = threading.Lock()
 _THREADS: dict[str, threading.Thread] = {}
 _SNAPSHOTS: dict[str, Any] = {}
+_RESOURCES: dict[str, Any] = {}
 
 
 def start_background_runtime_once(name: str, target: Callable[[], None]) -> bool:
@@ -61,3 +62,22 @@ def clear_background_snapshot(key: str) -> None:
     """Remove apenas o snapshot indicado, preservando threads registradas."""
     with _LOCK:
         _SNAPSHOTS.pop(str(key), None)
+
+
+def get_or_create_runtime_resource(key: str, factory: Callable[[], Any]) -> Any:
+    """Compartilha recursos pesados entre sessoes do mesmo processo."""
+    resource_key = str(key)
+    with _LOCK:
+        resource = _RESOURCES.get(resource_key)
+    if resource is not None:
+        return resource
+    created = factory()
+    with _LOCK:
+        resource = _RESOURCES.setdefault(resource_key, created)
+    return resource
+
+
+def clear_runtime_resource(key: str) -> Any:
+    """Descarta um recurso compartilhado sem interferir nos ciclos ativos."""
+    with _LOCK:
+        return _RESOURCES.pop(str(key), None)

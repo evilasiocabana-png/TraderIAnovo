@@ -262,9 +262,29 @@ Guardrails:
 - arquivos de estado compartilhado em `.traderia` devem usar escrita atomica
   (`arquivo temporario` + `os.replace`) e lock process-local. Um ciclo com
   varias posicoes deve carregar e salvar o estado uma vez por lote.
+- `runtime_lock.json` nunca pode derrubar a UI por `PermissionError` do
+  OneDrive. A escrita usa lock process-local, arquivo temporario, replace e
+  tentativas curtas; falha persistente bloqueia apenas o ciclo atual e preserva
+  o ultimo Relatorio valido.
 - historicos JSONL crescentes devem ser lidos incrementalmente a partir do
   ultimo offset conhecido. Reler o arquivo inteiro a cada ciclo e uma regressao
   de performance.
+- caches de historico JSONL devem ser process-local e compartilhados entre
+  sessoes Streamlit. Registros rejeitados podem permanecer compactados em
+  memoria quando somente a contagem for necessaria; registros aceitos e seus
+  planos continuam integrais para Relatorio e Position Manager.
+- sessoes Streamlit nao podem criar uma `DashboardService` pesada por aba ou
+  navegador. A fachada visual e compartilhada no processo; cada sessao guarda
+  apenas a referencia e seus estados estritamente visuais.
+- quando o ciclo do Robo Demo estiver ativo, o ciclo Forex inativo deve liberar
+  sua fachada e os respectivos caches MT5. O intervalo de 10 segundos e a
+  leitura operacional permanecem sob o unico dono ativo.
+- o guardiao de RAM usa limite padrao de 1600 MB, verifica a cada 60 segundos e
+  registra saude no maximo a cada 10 minutos. Ele exige tres falhas de health
+  consecutivas e possui mutex unico por porta antes de reiniciar. O reinicio
+  preserva o ultimo estado armado e nunca altera plano, ordem, SL ou TP.
+  A descoberta da porta ocorre apenas quando o PID muda; entre verificacoes o
+  guardiao consulta diretamente o processo ja rastreado.
 - falha UTF-8/JSON em snapshot operacional deve ser recuperavel no ciclo
   seguinte e nunca pode derrubar o dashboard inteiro.
 
@@ -310,6 +330,25 @@ mas isso nao valida uma grade. Grade, progressao de lote, exposicao correlaciona
 e encerramento por cesta exigem contratos proprios de portfolio e uma missao
 Demo posterior. A simples inclusao da Alpha no Lab nunca cria modelo operacional,
 Trade Plan, ordem MT5 ou permissao de conta real.
+
+## Modelo 21 Espelho Do M19
+
+M21 e um modelo Demo independente derivado do contrato M19/ALPHA015. Ele usa o
+mesmo candle M1 e os mesmos indicadores compartilhados, inverte BUY/SELL e
+troca diretamente os niveis (`TP_M21 = SL_M19`, `SL_M21 = TP_M19`). A derivacao
+dos fatores de risco ocorre a partir dos parametros M19 para impedir drift.
+M19 nao depende do M21; ambos possuem cache, Trade Plan, duplicidade, comentario
+MT5 e historico proprios. O provider admite no maximo uma posicao por modelo e
+22 por par. Position Manager apenas audita os dois contratos fixos e conta real
+permanece bloqueada.
+
+## Modelo 22 Espelho Do M9
+
+M22 e um modelo Demo independente derivado do Trend Pullback M9. Ele le os
+mesmos candles M15/M1 e o mesmo gatilho fechado, inverte BUY/SELL e troca os
+niveis (`TP_M22 = SL_M9`, `SL_M22 = TP_M9`). Com o contrato M9 atual, o M22
+usa SL 2,5 ATR, alvo 1,25 ATR e RR 0,5. M9 permanece inalterado; os dois modelos
+possuem decisao, cache, Trade Plan, duplicidade, comentario e historico proprios.
 
 ### Sublaboratorio Multi EA Trading
 

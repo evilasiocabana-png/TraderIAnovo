@@ -8,6 +8,11 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import threading
+import time
+
+
+_RUNTIME_LOCK_FILE_WRITE_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -30,6 +35,10 @@ class RuntimeLockService:
     stale_after_seconds: float | None = None
 
     def acquire_active(self, *, mode: str = "ACTIVE") -> RuntimeLockResult:
+        with _RUNTIME_LOCK_FILE_WRITE_LOCK:
+            return self._acquire_active_locked(mode=mode)
+
+    def _acquire_active_locked(self, *, mode: str) -> RuntimeLockResult:
         lock_path = self._resolved_lock_path()
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         current_pid = os.getpid()
@@ -65,7 +74,18 @@ class RuntimeLockService:
             "heartbeat_at": self._now(),
             "started_at": existing.get("started_at") if existing else self._now(),
         }
-        lock_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        if not self._write_lock(lock_path, payload):
+            if int(existing.get("pid") or 0) == current_pid:
+                return RuntimeLockResult(
+                    acquired=True,
+                    message="Runtime ACTIVE autorizado; heartbeat sera refeito.",
+                    lock_path=lock_path,
+                )
+            return RuntimeLockResult(
+                acquired=False,
+                message="Lock operacional temporariamente indisponivel.",
+                lock_path=lock_path,
+            )
         return RuntimeLockResult(
             acquired=True,
             message="Runtime ACTIVE autorizado.",
@@ -89,9 +109,34 @@ class RuntimeLockService:
             return {}
         try:
             return json.loads(lock_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except OSError:
+            return {}
+        except json.JSONDecodeError:
             self._remove_lock(lock_path)
             return {}
+
+    def _write_lock(
+        self,
+        lock_path: Path,
+        payload: dict[str, object],
+    ) -> bool:
+        temporary = lock_path.with_name(
+            f"{lock_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+        )
+        serialized = json.dumps(payload, indent=2)
+        for attempt in range(3):
+            try:
+                temporary.write_text(serialized, encoding="utf-8")
+                os.replace(temporary, lock_path)
+                return True
+            except OSError:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                if attempt < 2:
+                    time.sleep(0.05 * (attempt + 1))
+        return False
 
     def _remove_lock(self, lock_path: Path) -> None:
         try:

@@ -34,6 +34,7 @@ from application.lab_operational_model_service import (
     MODEL_8_ID as MT5_OPERATIONAL_MODEL_8,
     MODEL_9_ID as MT5_OPERATIONAL_MODEL_9,
     MODEL_10_ID as MT5_OPERATIONAL_MODEL_10,
+    MODEL_22_ID as MT5_OPERATIONAL_MODEL_22,
 )
 from application.model6_original_trend_momentum import (
     MODEL_6_BETA_ID,
@@ -63,7 +64,9 @@ from application.price_action_simple_model import (
 )
 from application.runtime_guard_service import RuntimeGuardService
 from core.background_runtime_registry import (
+    clear_runtime_resource,
     get_background_snapshot,
+    get_or_create_runtime_resource,
     is_background_runtime_running,
     publish_background_snapshot,
     start_background_runtime_once,
@@ -178,6 +181,7 @@ MT5_LAB_OPERATIONAL_MODELS = {
     MT5_OPERATIONAL_MODEL_9,
     MT5_OPERATIONAL_MODEL_10,
     *OFFICIAL_ALPHA_MODEL_IDS,
+    MT5_OPERATIONAL_MODEL_22,
 }
 MT5_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_1,
@@ -191,6 +195,7 @@ MT5_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_9,
     MT5_OPERATIONAL_MODEL_10,
     *OFFICIAL_ALPHA_MODEL_IDS,
+    MT5_OPERATIONAL_MODEL_22,
 )
 LEGACY_MT5_OPERATIONAL_MODELS = {
     "MODELO_2_ESPELHO_BETA2_RR1": MT5_OPERATIONAL_MODEL_2,
@@ -234,6 +239,7 @@ MT5_DEMO_ROBOT_SHARED_SNAPSHOT_KEY = "mt5_demo_robot_status"
 MT5_LAB_OPERATIONAL_DECISIONS_SHARED_SNAPSHOT_KEY = (
     "mt5_lab_operational_decisions"
 )
+DASHBOARD_UI_SHARED_RESOURCE_KEY = "dashboard_ui_service"
 MT5_RUNTIME_LOCK = RuntimeLockService()
 MT5_ENTRY_REGIME_PIPELINE = MarketRegimePipeline()
 
@@ -244,11 +250,19 @@ def get_dashboard_service() -> DashboardService:
     _start_mt5_forex_background_cycle_once()
     _start_weekly_robot_schedule_once()
     _start_demo_robot_background_cycle_once()
-    service = st.session_state.get("dashboard_service")
-    if service is None or not _dashboard_service_valido(service):
+    service = get_or_create_runtime_resource(
+        DASHBOARD_UI_SHARED_RESOURCE_KEY,
+        DashboardService,
+    )
+    if not _dashboard_service_valido(service):
+        clear_runtime_resource(DASHBOARD_UI_SHARED_RESOURCE_KEY)
         _clear_streamlit_resource_cache_if_available()
-        st.session_state["dashboard_service"] = DashboardService()
-    return st.session_state["dashboard_service"]
+        service = get_or_create_runtime_resource(
+            DASHBOARD_UI_SHARED_RESOURCE_KEY,
+            DashboardService,
+        )
+    st.session_state["dashboard_service"] = service
+    return service
 
 
 def _cleanup_legacy_traderia_processes_once() -> None:
@@ -296,13 +310,15 @@ def _start_mt5_forex_background_cycle_once(force: bool = False) -> None:
 
 
 def _mt5_forex_background_cycle() -> None:
-    service = DashboardService()
+    service: DashboardService | None = None
     while True:
         if (
             _mt5_forex_market_cycle_allowed_now()
             and not _demo_robot_background_cycle_should_start()
         ):
             try:
+                if service is None:
+                    service = DashboardService()
                 _apply_persisted_operational_model_to_service(service)
                 _load_mt5_forex_signals_locked(service, "H1")
                 decisions = service.refresh_lab_operational_decision_snapshot()
@@ -316,6 +332,9 @@ def _mt5_forex_background_cycle() -> None:
                 )
             except Exception:
                 pass
+        else:
+            # O ciclo do robo passa a ser o unico dono dos caches MT5 pesados.
+            service = None
         time.sleep(MT5_FOREX_AUTO_REFRESH_SECONDS)
 
 
@@ -1056,6 +1075,7 @@ def _apply_runtime_repair_plan(plan: dict[str, list[str]]) -> list[str]:
         removed.append(RUNTIME_RENDER_DURATIONS_KEY)
     if "recreate_dashboard_service" in actions and "dashboard_service" in st.session_state:
         st.session_state.pop("dashboard_service", None)
+        clear_runtime_resource(DASHBOARD_UI_SHARED_RESOURCE_KEY)
         removed.append("dashboard_service")
     if "pause_auto_cycle" in actions:
         st.session_state[MT5_FOREX_AUTO_CYCLE_UI_KEY] = False
@@ -1538,8 +1558,12 @@ def get_dashboard_view_model_or_stop(service: DashboardService) -> object:
             return view_model
 
     st.session_state.pop("dashboard_service", None)
+    clear_runtime_resource(DASHBOARD_UI_SHARED_RESOURCE_KEY)
     _clear_streamlit_resource_cache_if_available()
-    refreshed_service = DashboardService()
+    refreshed_service = get_or_create_runtime_resource(
+        DASHBOARD_UI_SHARED_RESOURCE_KEY,
+        DashboardService,
+    )
     st.session_state["dashboard_service"] = refreshed_service
     refreshed_method = getattr(refreshed_service, "get_dashboard_view_model", None)
     refreshed_version = getattr(
@@ -1585,8 +1609,12 @@ def get_light_dashboard_view_model_or_stop(service: DashboardService) -> object:
             return view_model
 
     st.session_state.pop("dashboard_service", None)
+    clear_runtime_resource(DASHBOARD_UI_SHARED_RESOURCE_KEY)
     _clear_streamlit_resource_cache_if_available()
-    refreshed_service = DashboardService()
+    refreshed_service = get_or_create_runtime_resource(
+        DASHBOARD_UI_SHARED_RESOURCE_KEY,
+        DashboardService,
+    )
     st.session_state["dashboard_service"] = refreshed_service
     refreshed_method = getattr(refreshed_service, "get_light_dashboard_view_model", None)
     refreshed_version = getattr(
@@ -2118,7 +2146,8 @@ def _mt5_operational_model_labels() -> dict[str, str]:
         labels[LAB_OPERATIONAL_MODEL_IDS_BY_LABEL[label]] = (
             f"Modelo {int(label[1:])} - {spec['alpha_id']} {str(spec['family']).replace('_', ' ').title()}"
         )
-    labels[MT5_OPERATIONAL_MODEL_ALL] = "Todos - M1 a M20"
+    labels[MT5_OPERATIONAL_MODEL_22] = "Modelo 22 - Espelho do M9"
+    labels[MT5_OPERATIONAL_MODEL_ALL] = "Todos - M1 a M22"
     return labels
 
 
@@ -2166,7 +2195,6 @@ def _render_mt5_operational_model_selector() -> str:
         selected_label = columns[0].selectbox(
             "Modelo ativo para envio",
             list(labels.values()),
-            index=list(labels).index(current),
             key=MT5_OPERATIONAL_MODEL_WIDGET_KEY,
             on_change=_persist_mt5_operational_model_widget_selection,
             help=(
@@ -2189,7 +2217,7 @@ def _render_mt5_operational_model_selector() -> str:
             "O M6 usa saida fixa; o M7 protege o SL a partir de 1,5R. M2-M5 "
             "entram no preco vivo depois do candle fechado e usam SL/TP fixos. "
             "Pares reprovados ficam bloqueados e visiveis. "
-            "Em TODOS, M1-M20 podem enviar uma posicao "
+            "Em TODOS, M1-M22 podem enviar uma posicao "
             "por modelo e par."
         )
     st.session_state[MT5_OPERATIONAL_MODEL_KEY] = selected
@@ -2207,7 +2235,7 @@ def _render_mt5_operational_model_selector() -> str:
         )
     if selected == MT5_OPERATIONAL_MODEL_ALL:
         st.warning(
-            "Todos os modelos ativos: M1-M20 podem enviar ordem. "
+            "Todos os modelos ativos: M1-M22 podem enviar ordem. "
             "O mesmo par pode ter uma posicao por modelo."
         )
     if selected == MT5_OPERATIONAL_MODEL_3:
@@ -2254,6 +2282,12 @@ def _render_mt5_operational_model_selector() -> str:
         st.warning(
             "M10 ativo: direcao D1, entrada M15 e mesma regra Trend Pullback do M2. "
             "SL inicial 1,25 ATR e TP fixo 2R."
+        )
+    if selected == MT5_OPERATIONAL_MODEL_22:
+        st.warning(
+            "M22 ativo: espelho independente do M9. Usa o mesmo gatilho "
+            "Trend Pullback M15/M1, inverte BUY/SELL, coloca o SL no TP do "
+            "M9 e o TP no SL do M9. SL 2,5 ATR, alvo 1,25 ATR e RR 0,5."
         )
     selected_label = next(
         (
@@ -2380,6 +2414,8 @@ def _mt5_operational_model_short_label(model: str) -> str:
         return "M9"
     if normalized == MT5_OPERATIONAL_MODEL_10:
         return "M10"
+    if normalized == MT5_OPERATIONAL_MODEL_22:
+        return "M22"
     for label, model_id in LAB_OPERATIONAL_MODEL_IDS_BY_LABEL.items():
         if normalized == model_id:
             return label
@@ -3123,11 +3159,26 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
         initial_balance=float(initial_balance),
         start_at=start_at,
     )
-    visible_individual_models = [f"MODELO {index}" for index in range(1, 21)]
+    main_financials = _mt5_realized_financial_summary(
+        main_chart_rows,
+        start_at=start_at,
+    )
+    visible_individual_models = [f"MODELO {index}" for index in range(1, 23)]
+    model_rows = {
+        model: _mt5_rows_for_equity_model_filter(rows, model)
+        for model in visible_individual_models
+    }
     model_curves = {
         model: _mt5_realized_equity_curve(
-            _mt5_rows_for_equity_model_filter(rows, model),
+            model_rows[model],
             initial_balance=float(initial_balance),
+            start_at=start_at,
+        )
+        for model in visible_individual_models
+    }
+    model_financials = {
+        model: _mt5_realized_financial_summary(
+            model_rows[model],
             start_at=start_at,
         )
         for model in visible_individual_models
@@ -3148,6 +3199,7 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
         main_curve,
         start_at=start_at,
         model_filter=str(main_chart_selection),
+        financials=main_financials,
     )
     for model_filter in visible_individual_models:
         _render_mt5_equity_chart(
@@ -3155,7 +3207,8 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
             model_curves[model_filter],
             start_at=start_at,
             model_filter=model_filter,
-    )
+            financials=model_financials[model_filter],
+        )
 
 
 def _mt5_equity_main_chart_model_selection() -> str:
@@ -3165,12 +3218,12 @@ def _mt5_equity_main_chart_model_selection() -> str:
         "Todos",
         value=True,
         key="mt5_report_equity_main_all",
-        help="Marca M1 a M20 no grafico principal.",
+        help="Marca M1 a M22 no grafico principal.",
     )
     selected_models: list[str] = []
-    for start in range(1, 21, 5):
+    for start in range(1, 23, 5):
         columns = st.columns(5)
-        for column, index in zip(columns, range(start, start + 5)):
+        for column, index in zip(columns, range(start, min(start + 5, 23))):
             model = f"M{index}"
             checked = column.checkbox(
                 model,
@@ -3195,11 +3248,11 @@ def _mt5_rows_for_equity_model_selection(
         return list(rows)
     selected_keys = {
         part for part in normalized.split("+")
-        if re.fullmatch(r"(?:M|MODELO)(?:[1-9]|1\d|20)", part)
+        if re.fullmatch(r"(?:M|MODELO)(?:[1-9]|1\d|2[0-2])", part)
     }
     model_keys = {
         alias: f"MODELO{index}"
-        for index in range(1, 21)
+        for index in range(1, 23)
         for alias in (f"M{index}", f"MODELO{index}")
     }
     targets = {model_keys[key] for key in selected_keys}
@@ -3214,6 +3267,7 @@ def _render_mt5_equity_chart(
     *,
     start_at: datetime,
     model_filter: str,
+    financials: dict[str, float],
 ) -> None:
     snapshot = _mt5_equity_chart_snapshot(curve)
     panel_key = _mt5_equity_chart_key(model_filter)
@@ -3231,18 +3285,34 @@ def _render_mt5_equity_chart(
                 f"com o filtro {model_filter}."
             )
             return
-        colunas = st.columns(3)
-        colunas[0].metric(
-            "Patrimonio final",
-            f"{float(snapshot['final_balance']):.2f}",
+        financial_columns = st.columns(3)
+        financial_columns[0].metric(
+            "Lucro bruto",
+            f"{float(financials['gross_profit']):.2f}",
         )
-        colunas[1].metric(
+        financial_columns[1].metric(
+            "Custos MT5",
+            f"{float(financials['total_costs']):.2f}",
+        )
+        financial_columns[2].metric(
+            "Lucro liquido",
+            f"{float(financials['net_profit']):.2f}",
+        )
+        context_columns = st.columns(2)
+        context_columns[0].metric(
             "Operacoes na curva",
             str(snapshot["operations"]),
         )
-        colunas[2].metric(
+        context_columns[1].metric(
             "Base",
             _format_mt5_equity_cutoff(start_at),
+        )
+        st.caption(
+            "Custos realizados: "
+            f"comissao {float(financials['commission']):.2f} | "
+            f"swap/rollover {float(financials['swap']):.2f} | "
+            f"taxas {float(financials['fee']):.2f}. "
+            "A curva azul representa o lucro bruto acumulado."
         )
         st.vega_lite_chart(
             list(snapshot["points"]),
@@ -3319,10 +3389,13 @@ def _mt5_equity_model_setup_summary(model_filter: str) -> str:
         "MODELO 10": (
             "Trend Pullback D1 -> M15 | ADX > 20 | SL 1,25 ATR | alvo 2R"
         ),
+        "MODELO 22": (
+            "Espelho M9 M15 -> M1 | direcao invertida | SL 2,5 ATR | alvo 1,25 ATR | RR 0,5"
+        ),
     }
     if normalized in summaries:
         return summaries[normalized]
-    match = re.fullmatch(r"MODELO (1[1-9]|20)", normalized)
+    match = re.fullmatch(r"MODELO (1[1-9]|2[01])", normalized)
     if match is None:
         return ""
     label = f"M{match.group(1)}"
@@ -3391,12 +3464,12 @@ def _mt5_equity_model_filter_caption(
     filtered_rows: list[object],
     model_filter: str,
 ) -> str:
-    counts = {f"MODELO{index}": 0 for index in range(0, 21)}
+    counts = {f"MODELO{index}": 0 for index in range(0, 23)}
     for row in rows:
         key = _mt5_equity_row_model_key(row)
         counts[key if key in counts else "MODELO0"] += 1
     details = " | ".join(
-        f"M{index}: {counts[f'MODELO{index}']}" for index in range(0, 21)
+        f"M{index}: {counts[f'MODELO{index}']}" for index in range(0, 23)
     )
     return (
         f"Filtro aplicado: {model_filter} | linhas na curva: {len(filtered_rows)} | "
@@ -3426,7 +3499,7 @@ def _mt5_equity_row_model_key(row: object) -> str:
     match = re.search(r"(?:MODELO[_ ]?|\bM)(\d{1,2})(?:_|\b)", model)
     if match is not None:
         number = int(match.group(1))
-        if 1 <= number <= 20:
+        if 1 <= number <= 22:
             return f"MODELO{number}"
     if "MODELO_10" in model or "MODELO 10" in model or model == "M10":
         return "MODELO10"
@@ -3483,6 +3556,52 @@ def _mt5_realized_equity_curve(
     initial_balance: float = 0.0,
     start_at: datetime | None = None,
 ) -> list[float]:
+    closed_rows = _mt5_closed_realized_rows(rows, start_at)
+    curve = [round(float(initial_balance), 2)]
+    running_total = float(initial_balance)
+    for row in closed_rows:
+        running_total += float(getattr(row, "mt5_realized_profit", 0.0) or 0.0)
+        curve.append(round(running_total, 2))
+    return curve
+
+
+def _mt5_realized_financial_summary(
+    rows: list[object],
+    start_at: datetime | None = None,
+) -> dict[str, float]:
+    closed_rows = _mt5_closed_realized_rows(rows, start_at)
+    gross_profit = sum(
+        float(getattr(row, "mt5_realized_profit", 0.0) or 0.0)
+        for row in closed_rows
+    )
+    commission = sum(
+        float(getattr(row, "mt5_commission", 0.0) or 0.0)
+        for row in closed_rows
+    )
+    swap = sum(
+        float(getattr(row, "mt5_swap", 0.0) or 0.0)
+        for row in closed_rows
+    )
+    fee = sum(
+        float(getattr(row, "mt5_fee", 0.0) or 0.0)
+        for row in closed_rows
+    )
+    total_costs = commission + swap + fee
+    return {
+        "gross_profit": round(gross_profit, 2),
+        "commission": round(commission, 2),
+        "swap": round(swap, 2),
+        "fee": round(fee, 2),
+        "total_costs": round(total_costs, 2),
+        "net_profit": round(gross_profit + total_costs, 2),
+        "operations": float(len(closed_rows)),
+    }
+
+
+def _mt5_closed_realized_rows(
+    rows: list[object],
+    start_at: datetime | None = None,
+) -> list[object]:
     closed_rows = [
         row
         for row in rows
@@ -3491,12 +3610,7 @@ def _mt5_realized_equity_curve(
         and _mt5_trade_realized_in_range(row, start_at)
     ]
     closed_rows.sort(key=_mt5_trade_time_key)
-    curve = [round(float(initial_balance), 2)]
-    running_total = float(initial_balance)
-    for row in closed_rows:
-        running_total += float(getattr(row, "mt5_realized_profit", 0.0) or 0.0)
-        curve.append(round(running_total, 2))
-    return curve
+    return closed_rows
 
 
 def _mt5_trade_realized_in_range(
@@ -4648,6 +4762,11 @@ def _exibir_entradas_teoricas_mt5(
             MT5_OPERATIONAL_MODEL_10,
             "Modelo 10 - Trend Pullback D1/M15",
             "Confirma direcao D1 e procura o gatilho Trend Pullback em M15.",
+        ),
+        (
+            MT5_OPERATIONAL_MODEL_22,
+            "Modelo 22 - espelho independente do M9",
+            "Le o mesmo Trend Pullback M15/M1 do M9, inverte a direcao e troca SL/TP.",
         ),
     ) + tuple(
         (
@@ -5953,7 +6072,7 @@ def _exibir_saidas_teoricas_mt5(
     st.subheader("Saida Teorica MT5")
     st.caption(
         "Somente leitura: acompanha posicoes abertas usando o modelo registrado "
-        "na ordem. M1 e M6 preservam SL/TP fixos; os modelos do Lab M2-M5, M8-M20 preservam os contratos "
+        "na ordem. M1 e M6 preservam SL/TP fixos; os modelos do Lab M2-M5, M8-M22 preservam os contratos "
         "da pesquisa; M7 protege o SL depois de 1,5R sem FULL_EXIT. Posicoes "
         "legadas continuam identificadas pelo contrato gravado quando abertas."
     )
@@ -5980,6 +6099,8 @@ def _exibir_saidas_teoricas_mt5(
             "<span class='traderia-legend-model18'>M18</span>"
             "<span class='traderia-legend-model19'>M19</span>"
             "<span class='traderia-legend-model20'>M20</span>"
+            "<span class='traderia-legend-model21'>M21</span>"
+            "<span class='traderia-legend-model22'>M22</span>"
             "</div>"
         ),
         unsafe_allow_html=True,
@@ -6601,11 +6722,11 @@ def _mt5_theoretical_exit_programming_label(row: object) -> str:
 
 
 def _mt5_theoretical_exit_cell_class(row: dict[str, object], column: str) -> str:
-    """Destaca apenas a celula do modelo; a linha ja comunica M1-M20."""
+    """Destaca apenas a celula do modelo; a linha ja comunica M1-M22."""
     if column == "Modelo envio":
         model = str(row.get(column, "") or "").upper()
         match = re.fullmatch(r"MODELO (\d{1,2})", model)
-        if match is not None and 11 <= int(match.group(1)) <= 20:
+        if match is not None and 11 <= int(match.group(1)) <= 22:
             return f"traderia-cell-model{match.group(1)}"
         if model == "MODELO 4":
             return "traderia-cell-model4"
@@ -7060,9 +7181,10 @@ def _mt5_open_position_context_by_model(
         "MODELO8": MT5_OPERATIONAL_MODEL_8,
         "MODELO9": MT5_OPERATIONAL_MODEL_9,
         "MODELO10": MT5_OPERATIONAL_MODEL_10,
+        "MODELO22": MT5_OPERATIONAL_MODEL_22,
         **{
             f"MODELO{index}": LAB_OPERATIONAL_MODEL_IDS_BY_LABEL[f"M{index}"]
-            for index in range(11, 21)
+            for index in range(11, 22)
         },
     }
     index: dict[tuple[str, str], dict[str, object]] = {}
@@ -8337,6 +8459,8 @@ def _inject_dashboard_css() -> None:
         .traderia-row-model18 td { background: #E0E7FF !important; color: #312E81 !important; font-weight: 800; }
         .traderia-row-model19 td { background: #D1FAE5 !important; color: #064E3B !important; font-weight: 800; }
         .traderia-row-model20 td { background: #FCE7F3 !important; color: #831843 !important; font-weight: 800; }
+        .traderia-row-model21 td { background: #E2E8F0 !important; color: #0F172A !important; font-weight: 800; }
+        .traderia-row-model22 td { background: #FAE8FF !important; color: #701A75 !important; font-weight: 800; }
         .traderia-stable-table td.traderia-cell-active {
             background: #DBEAFE !important;
             color: #0F172A !important;
@@ -8407,6 +8531,8 @@ def _inject_dashboard_css() -> None:
         .traderia-stable-table td.traderia-cell-model18 { background: #C7D2FE !important; color: #312E81 !important; font-weight: 900; }
         .traderia-stable-table td.traderia-cell-model19 { background: #A7F3D0 !important; color: #064E3B !important; font-weight: 900; }
         .traderia-stable-table td.traderia-cell-model20 { background: #FBCFE8 !important; color: #831843 !important; font-weight: 900; }
+        .traderia-stable-table td.traderia-cell-model21 { background: #CBD5E1 !important; color: #0F172A !important; font-weight: 900; }
+        .traderia-stable-table td.traderia-cell-model22 { background: #F5D0FE !important; color: #701A75 !important; font-weight: 900; }
         .traderia-stable-table td.traderia-cell-result-positive {
             background: #DDF7E3 !important;
             color: #0F3D24 !important;
@@ -8499,6 +8625,8 @@ def _inject_dashboard_css() -> None:
         .traderia-legend-model18 { background: #E0E7FF; color: #312E81; }
         .traderia-legend-model19 { background: #D1FAE5; color: #064E3B; }
         .traderia-legend-model20 { background: #FCE7F3; color: #831843; }
+        .traderia-legend-model21 { background: #E2E8F0; color: #0F172A; }
+        .traderia-legend-model22 { background: #FAE8FF; color: #701A75; }
         .traderia-legend-wait {
             background: #FEF3C7;
             color: #78350F;

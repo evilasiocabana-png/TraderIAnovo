@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
+import numpy as np
+
 from research.alpha_suggested.alpha_suggested_1_plus_discovery import (
     build_signal as build_m2_signal,
     engineer_features,
@@ -47,6 +49,8 @@ MODEL_17_ID = "MODELO_17_ALPHA013_SUPPORT_RESISTANCE"
 MODEL_18_ID = "MODELO_18_ALPHA014_MULTI_TIMEFRAME"
 MODEL_19_ID = "MODELO_19_ALPHA015_LIQUIDITY_SPREAD"
 MODEL_20_ID = "MODELO_20_ALPHA016_REVERSAL"
+MODEL_21_ID = "MODELO_21_ESPELHO_M19"
+MODEL_22_ID = "MODELO_22_ESPELHO_M9"
 MODEL_IDS = {
     "M2": MODEL_2_ID,
     "M3": MODEL_3_ID,
@@ -65,6 +69,8 @@ MODEL_IDS = {
     "M18": MODEL_18_ID,
     "M19": MODEL_19_ID,
     "M20": MODEL_20_ID,
+    "M21": MODEL_21_ID,
+    "M22": MODEL_22_ID,
 }
 MODEL_LABELS = {value: key for key, value in MODEL_IDS.items()}
 FIXED_EXIT_POLICY = "RESEARCH_FIXED_SL_TP"
@@ -93,6 +99,14 @@ TREND_PULLBACK_MODEL_SPECS = {
         "family": "TREND_PULLBACK_M15_D1",
         "entry_timeframe": "M15",
         "context_timeframe": "D1",
+    },
+    "M22": {
+        "alpha_id": "ALPHA_M9_TREND_PULLBACK_M15_M1_MIRROR",
+        "family": "TREND_PULLBACK_M1_M15_MIRROR",
+        "entry_timeframe": "M1",
+        "context_timeframe": "M15",
+        "mirror_source_model": "M9",
+        "mirror_swap_sl_tp": True,
     },
 }
 
@@ -245,18 +259,42 @@ OFFICIAL_ALPHA_MODEL_SPECS: dict[str, dict[str, Any]] = {
         },
         "evidence": {"pair": "USDCAD", "sample_size": 63, "ict_score": 57.97},
     },
+    "M21": {
+        "alpha_id": "ALPHA015_M19_MIRROR",
+        "family": "LIQUIDITY_SPREAD_FILTER_MIRROR",
+        "timeframe": "M1",
+        "parameters": {
+            "mirror_source_model": "M19",
+            "mirror_source_alpha": "ALPHA015",
+            "mirror_swap_sl_tp": True,
+        },
+        "evidence": {"pair": "N/D", "sample_size": 0, "ict_score": 15.0},
+    },
 }
 OFFICIAL_ALPHA_MODEL_IDS = tuple(MODEL_IDS[label] for label in OFFICIAL_ALPHA_MODEL_SPECS)
 
 
 def official_alpha_operational_results(model_label: str) -> dict[str, dict[str, Any]]:
-    """Materialize one immutable Demo contract per pair for M11-M20."""
+    """Materialize one immutable Demo contract per pair for M11-M21."""
     label = str(model_label or "").upper()
     spec = OFFICIAL_ALPHA_MODEL_SPECS.get(label)
     if spec is None:
         return {}
+    model_parameters = dict(spec["parameters"])
+    if label == "M21":
+        source_parameters = dict(OFFICIAL_ALPHA_MODEL_SPECS["M19"]["parameters"])
+        source_stop_factor = float(source_parameters["stop_factor"])
+        source_risk_reward = float(source_parameters["risk_reward"])
+        model_parameters = {
+            **source_parameters,
+            **model_parameters,
+            "stop_factor": source_stop_factor * source_risk_reward,
+            "risk_reward": 1.0 / source_risk_reward,
+            "mirror_source_stop_factor": source_stop_factor,
+            "mirror_source_risk_reward": source_risk_reward,
+        }
     parameters = {
-        **dict(spec["parameters"]),
+        **model_parameters,
         "alpha": spec["alpha_id"],
         "family": spec["family"],
         "beta_id": "BETA_FIXED_SL_TP",
@@ -338,6 +376,10 @@ class LabOperationalModelService:
         repr=False,
     )
     _official_feature_cache: dict[tuple[str, str, str], dict[str, Any]] = field(
+        default_factory=dict,
+        repr=False,
+    )
+    _trend_pullback_reading_cache: dict[tuple[object, ...], Any] = field(
         default_factory=dict,
         repr=False,
     )
@@ -460,7 +502,7 @@ class LabOperationalModelService:
                 "M5 usa o Trade Plan M1 vigente quando Alpha e TF coincidem.",
                 **common,
             )
-        if label in {"M2", "M8", "M9", "M10"}:
+        if label in {"M2", "M8", "M9", "M10", "M22"}:
             if (
                 str((winner.get("parameters") or {}).get("family") or "").upper()
                 .startswith("TREND_PULLBACK_")
@@ -525,7 +567,7 @@ class LabOperationalModelService:
         server_timestamp: str | None,
         market_row: object | None,
     ) -> LabOperationalDecision:
-        """Evaluate M11-M20 once per closed candle using shared features."""
+        """Evaluate M11-M21 once per closed candle using shared features."""
         timeframe = str(winner.get("timeframe") or "M1").upper()
         candles = self._candles(candles_by_market, pair, timeframe)
         common = self._winner_values(winner)
@@ -680,13 +722,39 @@ class LabOperationalModelService:
                 current_time,
                 server_timestamp=server_timestamp,
             )
-        try:
-            reading = evaluate_trend_pullback(
-                candles[:-1],
-                context[:-1],
-                parameters,
-                model_label=model_label,
+        reading_signature = tuple(
+            (name, str(parameters.get(name)))
+            for name in (
+                "fast",
+                "slow",
+                "context_fast",
+                "context_slow",
+                "adx_period",
+                "adx_min",
+                "atr_period",
+                "pullback_rule",
+                "confirmation_rule",
             )
+        )
+        reading_cache_key = (
+            pair,
+            timeframe,
+            context_timeframe,
+            signal_time,
+            str(context[-2]["data"]),
+            reading_signature,
+        )
+        try:
+            reading = self._trend_pullback_reading_cache.get(reading_cache_key)
+            if reading is None:
+                reading = evaluate_trend_pullback(
+                    candles[:-1],
+                    context[:-1],
+                    parameters,
+                    model_label=model_label,
+                )
+                self._trend_pullback_reading_cache[reading_cache_key] = reading
+                self._trim_caches()
         except (KeyError, TypeError, ValueError, IndexError) as exc:
             return self._wait(
                 model_id,
@@ -699,7 +767,20 @@ class LabOperationalModelService:
                 **common,
             )
 
-        if reading.direction == 0:
+        mirror_source_model = str(
+            parameters.get("mirror_source_model") or ""
+        ).upper()
+        mirror_enabled = bool(parameters.get("mirror_swap_sl_tp", False))
+        direction_value = -reading.direction if mirror_enabled else reading.direction
+        diagnostics = reading.diagnostics
+        if mirror_enabled:
+            diagnostics += (
+                f"MIRROR_SOURCE_MODEL={mirror_source_model or 'N/D'}",
+                "MIRROR_DIRECTION=INVERTED",
+                "MIRROR_LEVELS=SL_M22_TP_M9__TP_M22_SL_M9",
+            )
+
+        if direction_value == 0:
             decision = self._wait(
                 model_id,
                 pair,
@@ -713,7 +794,7 @@ class LabOperationalModelService:
                 signal_candle_time=signal_time,
                 current_bar_time=current_time,
                 atr=reading.atr,
-                diagnostics=reading.diagnostics,
+                diagnostics=diagnostics,
                 **common,
             )
         else:
@@ -723,12 +804,12 @@ class LabOperationalModelService:
                 timeframe=timeframe,
                 status="SIGNAL_FROZEN",
                 ready=True,
-                direction="BUY" if reading.direction > 0 else "SELL",
+                direction="BUY" if direction_value > 0 else "SELL",
                 signal_candle_time=signal_time,
                 current_bar_time=current_time,
                 atr=reading.atr,
                 risk_reward=float(parameters.get("risk_reward", 2.0) or 2.0),
-                diagnostics=reading.diagnostics,
+                diagnostics=diagnostics,
                 **common,
             )
         self._decision_cache[cache_key] = decision
@@ -1064,125 +1145,181 @@ class LabOperationalModelService:
         cached = self._official_feature_cache.get(cache_key)
         if cached is not None:
             return cached
-        market = engineer_features(pair, closed_candles)
-        frame = market.frame.copy()
-        for period in (9, 20, 21, 40, 50, 100, 200):
-            name = f"ema{period}"
-            if name not in frame:
-                frame[name] = frame["close"].ewm(
-                    span=period,
-                    adjust=False,
-                    min_periods=period,
-                ).mean()
-        returns = frame["close"].pct_change()
-        frame["momentum10"] = frame["close"] / frame["close"].shift(10) - 1.0
-        frame["volatility20"] = returns.rolling(20, min_periods=20).std()
-        ema12 = frame["close"].ewm(span=12, adjust=False, min_periods=12).mean()
-        ema26 = frame["close"].ewm(span=26, adjust=False, min_periods=26).mean()
-        frame["macd"] = ema12 - ema26
-        frame["macd_signal"] = frame["macd"].ewm(
-            span=9,
-            adjust=False,
-            min_periods=9,
-        ).mean()
-        typical = (frame["high"] + frame["low"] + frame["close"]) / 3.0
-        volume = frame["volume"].clip(lower=0.0)
-        volume_sum = volume.rolling(20, min_periods=20).sum()
-        frame["vwap20"] = (typical * volume).rolling(
-            20,
-            min_periods=20,
-        ).sum() / volume_sum.replace(0.0, math.nan)
-        average20 = frame["close"].rolling(20, min_periods=20).mean()
-        deviation20 = frame["close"].rolling(20, min_periods=20).std()
-        frame["zscore20"] = (
-            (frame["close"] - average20) / deviation20.replace(0.0, math.nan)
+        def values(name: str) -> np.ndarray:
+            return np.asarray(
+                [float(candle[name]) for candle in closed_candles],
+                dtype=float,
+            )
+
+        def ewm_series(
+            source: np.ndarray,
+            *,
+            alpha: float,
+            min_periods: int,
+        ) -> np.ndarray:
+            output = np.full(source.shape, np.nan, dtype=float)
+            state = math.nan
+            observations = 0
+            for index, raw_value in enumerate(source):
+                value = float(raw_value)
+                if not math.isfinite(value):
+                    continue
+                state = (
+                    value
+                    if not math.isfinite(state)
+                    else alpha * value + (1.0 - alpha) * state
+                )
+                observations += 1
+                if observations >= min_periods:
+                    output[index] = state
+            return output
+
+        def ema(source: np.ndarray, period: int) -> np.ndarray:
+            return ewm_series(
+                source,
+                alpha=2.0 / (float(period) + 1.0),
+                min_periods=period,
+            )
+
+        def finite(value: float, default: float = 0.0) -> float:
+            number = float(value)
+            return number if math.isfinite(number) else default
+
+        opens = values("abertura")
+        highs = values("maxima")
+        lows = values("minima")
+        closes = values("fechamento")
+        volumes = np.clip(values("volume"), 0.0, None)
+
+        previous_close = np.roll(closes, 1)
+        previous_close[0] = math.nan
+        true_range = np.nanmax(
+            np.vstack(
+                (
+                    np.abs(highs - lows),
+                    np.abs(highs - previous_close),
+                    np.abs(lows - previous_close),
+                )
+            ),
+            axis=0,
         )
-        frame["donchian_high20"] = frame["high"].shift(1).rolling(
-            20,
-            min_periods=20,
-        ).max()
-        frame["donchian_low20"] = frame["low"].shift(1).rolling(
-            20,
-            min_periods=20,
-        ).min()
-        frame["donchian_high40"] = frame["high"].shift(1).rolling(
-            40,
-            min_periods=40,
-        ).max()
-        frame["donchian_low40"] = frame["low"].shift(1).rolling(
-            40,
-            min_periods=40,
-        ).min()
-        frame["support20"] = frame["low"].shift(1).rolling(
-            20,
-            min_periods=20,
-        ).min()
-        frame["resistance20"] = frame["high"].shift(1).rolling(
-            20,
-            min_periods=20,
-        ).max()
-        frame["volume_average20"] = frame["volume"].shift(1).rolling(
-            20,
-            min_periods=20,
-        ).mean()
-        last = frame.iloc[-1]
-        previous = frame.iloc[-2]
-        candle_range = max(float(last["high"] - last["low"]), 0.0)
+        atr14 = ewm_series(true_range, alpha=1.0 / 14.0, min_periods=14)
+
+        delta = np.diff(closes, prepend=math.nan)
+        gain = np.where(np.isfinite(delta), np.clip(delta, 0.0, None), math.nan)
+        loss = np.where(np.isfinite(delta), np.clip(-delta, 0.0, None), math.nan)
+        average_gain = ewm_series(gain, alpha=1.0 / 14.0, min_periods=14)
+        average_loss = ewm_series(loss, alpha=1.0 / 14.0, min_periods=14)
+        relative_strength = np.divide(
+            average_gain,
+            average_loss,
+            out=np.full(average_gain.shape, np.nan),
+            where=average_loss != 0.0,
+        )
+        rsi14 = 100.0 - (100.0 / (1.0 + relative_strength))
+
+        upward = np.diff(highs, prepend=math.nan)
+        downward = -np.diff(lows, prepend=math.nan)
+        plus_dm = np.where((upward > downward) & (upward > 0.0), upward, 0.0)
+        minus_dm = np.where((downward > upward) & (downward > 0.0), downward, 0.0)
+        smoothed_range = ewm_series(true_range, alpha=1.0 / 14.0, min_periods=14)
+        plus_smoothed = ewm_series(plus_dm, alpha=1.0 / 14.0, min_periods=14)
+        minus_smoothed = ewm_series(minus_dm, alpha=1.0 / 14.0, min_periods=14)
+        plus_di = np.divide(
+            100.0 * plus_smoothed,
+            smoothed_range,
+            out=np.full(smoothed_range.shape, np.nan),
+            where=smoothed_range != 0.0,
+        )
+        minus_di = np.divide(
+            100.0 * minus_smoothed,
+            smoothed_range,
+            out=np.full(smoothed_range.shape, np.nan),
+            where=smoothed_range != 0.0,
+        )
+        directional_sum = plus_di + minus_di
+        dx = np.divide(
+            100.0 * np.abs(plus_di - minus_di),
+            directional_sum,
+            out=np.full(directional_sum.shape, np.nan),
+            where=directional_sum != 0.0,
+        )
+        adx14 = ewm_series(dx, alpha=1.0 / 14.0, min_periods=14)
+
+        ema_values = {
+            period: ema(closes, period)
+            for period in (9, 20, 21, 40, 50, 100, 200)
+        }
+        ema12 = ema(closes, 12)
+        ema26 = ema(closes, 26)
+        macd = ema12 - ema26
+        macd_signal = ewm_series(
+            macd,
+            alpha=2.0 / 10.0,
+            min_periods=9,
+        )
+
+        returns = closes[1:] / closes[:-1] - 1.0
+        volatility20 = float(np.std(returns[-20:], ddof=1))
+        typical = (highs + lows + closes) / 3.0
+        recent_volume = volumes[-20:]
+        volume_sum = float(np.sum(recent_volume))
+        vwap20 = (
+            float(np.sum(typical[-20:] * recent_volume) / volume_sum)
+            if volume_sum > 0.0
+            else 0.0
+        )
+        recent_close = closes[-20:]
+        deviation20 = float(np.std(recent_close, ddof=1))
+        zscore20 = (
+            float((closes[-1] - np.mean(recent_close)) / deviation20)
+            if deviation20 > 0.0
+            else 0.0
+        )
+        candle_range = max(float(highs[-1] - lows[-1]), 0.0)
         lower_wick = (
-            float(min(last["open"], last["close"]) - last["low"])
-            / candle_range
+            float(min(opens[-1], closes[-1]) - lows[-1]) / candle_range
             if candle_range > 0.0
             else 0.0
         )
         upper_wick = (
-            float(last["high"] - max(last["open"], last["close"]))
-            / candle_range
+            float(highs[-1] - max(opens[-1], closes[-1])) / candle_range
             if candle_range > 0.0
             else 0.0
         )
-        pivot = float(
-            (previous["high"] + previous["low"] + previous["close"]) / 3.0
-        )
-
-        def number(name: str, default: float = 0.0) -> float:
-            try:
-                value = float(last[name])
-            except (KeyError, TypeError, ValueError):
-                return default
-            return value if math.isfinite(value) else default
 
         features = {
             "time": signal_time,
-            "open": number("open"),
-            "high": number("high"),
-            "low": number("low"),
-            "close": number("close"),
-            "atr": number("atr14"),
-            "adx": number("adx"),
-            "rsi": number("rsi", 50.0),
-            "momentum": number("momentum10"),
-            "volatility": abs(number("volatility20")),
-            "macd": number("macd"),
-            "macd_signal": number("macd_signal"),
-            "previous_macd_histogram": float(
-                previous.get("macd", 0.0) - previous.get("macd_signal", 0.0)
+            "open": finite(opens[-1]),
+            "high": finite(highs[-1]),
+            "low": finite(lows[-1]),
+            "close": finite(closes[-1]),
+            "atr": finite(atr14[-1]),
+            "adx": finite(adx14[-1]),
+            "rsi": finite(rsi14[-1], 50.0),
+            "momentum": finite(closes[-1] / closes[-11] - 1.0),
+            "volatility": abs(finite(volatility20)),
+            "macd": finite(macd[-1]),
+            "macd_signal": finite(macd_signal[-1]),
+            "previous_macd_histogram": finite(
+                macd[-2] - macd_signal[-2]
             ),
-            "pivot": pivot,
-            "vwap": number("vwap20"),
-            "z_score": number("zscore20"),
-            "support": number("support20"),
-            "resistance": number("resistance20"),
-            "donchian_high20": number("donchian_high20"),
-            "donchian_low20": number("donchian_low20"),
-            "donchian_high40": number("donchian_high40"),
-            "donchian_low40": number("donchian_low40"),
-            "tick_volume": number("volume"),
-            "tick_volume_average": number("volume_average20"),
+            "pivot": finite((highs[-2] + lows[-2] + closes[-2]) / 3.0),
+            "vwap": finite(vwap20),
+            "z_score": finite(zscore20),
+            "support": finite(np.min(lows[-21:-1])),
+            "resistance": finite(np.max(highs[-21:-1])),
+            "donchian_high20": finite(np.max(highs[-21:-1])),
+            "donchian_low20": finite(np.min(lows[-21:-1])),
+            "donchian_high40": finite(np.max(highs[-41:-1])),
+            "donchian_low40": finite(np.min(lows[-41:-1])),
+            "tick_volume": finite(volumes[-1]),
+            "tick_volume_average": finite(np.mean(volumes[-21:-1])),
             "lower_wick": lower_wick,
             "upper_wick": upper_wick,
         }
         for period in (9, 20, 21, 40, 50, 100, 200):
-            features[f"ema{period}"] = number(f"ema{period}")
+            features[f"ema{period}"] = finite(ema_values[period][-1])
         self._official_feature_cache[cache_key] = features
         self._trim_caches()
         return features
@@ -1280,7 +1417,7 @@ class LabOperationalModelService:
             elif fast < slow and momentum < 0.0 and context_fast < context_slow and context_momentum < 0.0:
                 direction = "SELL"
             reason = "EMA e momentum alinhados no timeframe de entrada e no contexto."
-        elif alpha == "ALPHA015":
+        elif alpha in {"ALPHA015", "ALPHA015_M19_MIRROR"}:
             spread = self._market_row_float(market_row, "spread")
             spread_average = self._market_row_float(market_row, "spread_average")
             volume = float(features["tick_volume"])
@@ -1297,7 +1434,16 @@ class LabOperationalModelService:
                 direction = "BUY"
             elif liquid and fast < slow and momentum < 0.0:
                 direction = "SELL"
-            reason = "ALPHA015 liberou liquidez/spread; EMA e momentum carregam a direcao."
+            if alpha == "ALPHA015_M19_MIRROR":
+                direction = (
+                    "SELL" if direction == "BUY" else "BUY" if direction == "SELL" else "WAIT"
+                )
+                reason = (
+                    "M21 espelhou a direcao M19 apos o mesmo gate ALPHA015 de "
+                    "liquidez/spread, EMA e momentum."
+                )
+            else:
+                reason = "ALPHA015 liberou liquidez/spread; EMA e momentum carregam a direcao."
         elif alpha == "ALPHA016":
             reversal = float(parameters.get("reversal_strength", 0.0006) or 0.0006)
             vol_min = float(parameters.get("volatility_threshold", 0.0001) or 0.0001)
@@ -1352,13 +1498,19 @@ class LabOperationalModelService:
                 f"CONTEXT_EMA{slow_period}={float(context_features.get(f'ema{slow_period}', 0.0)):.8f}",
                 f"CONTEXT_MOMENTUM10={float(context_features.get('momentum', 0.0)):.8f}",
             )
-        elif alpha == "ALPHA015":
+        elif alpha in {"ALPHA015", "ALPHA015_M19_MIRROR"}:
             diagnostics += (
                 f"SPREAD={float(spread or 0.0):.8f}",
                 f"SPREAD_AVERAGE={float(spread_average or 0.0):.8f}",
                 f"TICK_VOLUME={float(features['tick_volume']):.2f}",
                 f"TICK_VOLUME_AVERAGE={float(features['tick_volume_average']):.2f}",
             )
+            if alpha == "ALPHA015_M19_MIRROR":
+                diagnostics += (
+                    "MIRROR_SOURCE_MODEL=M19",
+                    "MIRROR_DIRECTION=INVERTED",
+                    "MIRROR_LEVELS=SL_M21_TP_M19__TP_M21_SL_M19",
+                )
         if direction == "WAIT":
             reason = f"AGUARDA: {reason}"
         return direction, reason, diagnostics
@@ -1603,6 +1755,7 @@ class LabOperationalModelService:
         self._m4_market_cache.clear()
         self._candle_rows_cache.clear()
         self._official_feature_cache.clear()
+        self._trend_pullback_reading_cache.clear()
         return self._manifest_cache
 
     def _bar_age_seconds(
@@ -1649,3 +1802,7 @@ class LabOperationalModelService:
             self._candle_rows_cache.pop(next(iter(self._candle_rows_cache)))
         while len(self._official_feature_cache) > 128:
             self._official_feature_cache.pop(next(iter(self._official_feature_cache)))
+        while len(self._trend_pullback_reading_cache) > 128:
+            self._trend_pullback_reading_cache.pop(
+                next(iter(self._trend_pullback_reading_cache))
+            )

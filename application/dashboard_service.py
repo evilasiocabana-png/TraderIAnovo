@@ -16,6 +16,10 @@ import time
 from typing import Any
 import warnings
 
+
+_MT5_EXECUTION_LOG_CACHE_LOCK = threading.Lock()
+_MT5_EXECUTION_LOG_CACHE: dict[str, tuple[int, list[dict[str, Any]]]] = {}
+
 from application.configuration_service import (
     ConfigurationData,
     ConfigurationService,
@@ -32,6 +36,7 @@ from application.lab_operational_model_service import (
     MODEL_8_ID as MT5_OPERATIONAL_MODEL_8,
     MODEL_9_ID as MT5_OPERATIONAL_MODEL_9,
     MODEL_10_ID as MT5_OPERATIONAL_MODEL_10,
+    MODEL_22_ID as MT5_OPERATIONAL_MODEL_22,
 )
 from application.model6_original_trend_momentum import (
     MODEL_6_ALPHA_ID,
@@ -155,6 +160,7 @@ MT5_LAB_OPERATIONAL_MODELS = {
     MT5_OPERATIONAL_MODEL_9,
     MT5_OPERATIONAL_MODEL_10,
     *OFFICIAL_ALPHA_MODEL_IDS,
+    MT5_OPERATIONAL_MODEL_22,
 }
 MT5_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_1,
@@ -168,6 +174,7 @@ MT5_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_9,
     MT5_OPERATIONAL_MODEL_10,
     *OFFICIAL_ALPHA_MODEL_IDS,
+    MT5_OPERATIONAL_MODEL_22,
 )
 LEGACY_MT5_OPERATIONAL_MODELS = {
     "MODELO_2_ESPELHO_BETA2_RR1": MT5_OPERATIONAL_MODEL_2,
@@ -3950,7 +3957,7 @@ class DashboardService:
     def _position_manager_plans_from_open_execution_records(
         self,
     ) -> list[PositionTradePlan]:
-        """Usa o plano original de cada ordem aberta para gerir M1-M20 por ticket."""
+        """Usa o plano original de cada ordem aberta para gerir M1-M22 por ticket."""
         list_positions = getattr(self.demo_robot_execution_service, "list_open_positions", None)
         if not callable(list_positions):
             return []
@@ -4359,37 +4366,43 @@ class DashboardService:
             object.__setattr__(self, "mt5_demo_execution_records_cache", [])
             object.__setattr__(self, "mt5_demo_execution_records_cache_offset", 0)
             return []
-        size = int(path.stat().st_size)
-        offset = int(self.mt5_demo_execution_records_cache_offset or 0)
-        records = list(self.mt5_demo_execution_records_cache)
-        if size < offset:
-            offset = 0
-            records = []
-        if size == offset:
-            return records
-
-        with path.open("rb") as source:
-            source.seek(offset)
-            chunk = source.read()
-        complete_length = chunk.rfind(b"\n") + 1
-        if complete_length <= 0:
-            return records
-        for raw_line in chunk[:complete_length].splitlines():
-            if not raw_line.strip():
-                continue
-            try:
-                payload = json.loads(raw_line.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                continue
-            if isinstance(payload, dict):
-                records.append(payload)
-        object.__setattr__(self, "mt5_demo_execution_records_cache", records)
-        object.__setattr__(
-            self,
-            "mt5_demo_execution_records_cache_offset",
-            offset + complete_length,
-        )
-        return list(records)
+        cache_key = str(path.resolve())
+        with _MT5_EXECUTION_LOG_CACHE_LOCK:
+            size = int(path.stat().st_size)
+            offset, records = _MT5_EXECUTION_LOG_CACHE.get(cache_key, (0, []))
+            if size < offset:
+                offset = 0
+                records = []
+            if size > offset:
+                with path.open("rb") as source:
+                    source.seek(offset)
+                    chunk = source.read()
+                complete_length = chunk.rfind(b"\n") + 1
+                if complete_length > 0:
+                    for raw_line in chunk[:complete_length].splitlines():
+                        if not raw_line.strip():
+                            continue
+                        try:
+                            payload = json.loads(raw_line.decode("utf-8"))
+                        except (UnicodeDecodeError, json.JSONDecodeError):
+                            continue
+                        if isinstance(payload, dict):
+                            if (
+                                "accepted" in payload
+                                and not bool(payload.get("accepted"))
+                            ):
+                                records.append({"accepted": False})
+                            else:
+                                records.append(payload)
+                    offset += complete_length
+                    _MT5_EXECUTION_LOG_CACHE[cache_key] = (offset, records)
+            object.__setattr__(self, "mt5_demo_execution_records_cache", records)
+            object.__setattr__(
+                self,
+                "mt5_demo_execution_records_cache_offset",
+                offset,
+            )
+            return list(records)
 
     def _load_mt5_trade_history(self) -> tuple[dict[int, dict[str, Any]], str, str]:
         try:
@@ -6193,6 +6206,7 @@ class DashboardService:
                 model_id: 110 + (index * 10)
                 for index, model_id in enumerate(OFFICIAL_ALPHA_MODEL_IDS)
             },
+            MT5_OPERATIONAL_MODEL_22: 220,
         }
         return sorted(candidates, key=lambda item: priority.get(item[0], 999))
 
@@ -6345,6 +6359,8 @@ class DashboardService:
         beta_id = f"BETA_LAB_{model_label}_FIXED"
         beta_version = f"{beta_id}_V1"
         holdout = dict(winner.get("holdout_next_open") or {})
+        is_m21_mirror = model_label == "M21"
+        is_m22_mirror = model_label == "M22"
         transformed_plan = MT5ResearchTradePlan(
             symbol=row.pair,
             timeframe=decision.timeframe,
@@ -6364,8 +6380,24 @@ class DashboardService:
             reward_pips=reward,
             risk_percent=abs(risk / entry) if entry else 0.0,
             reward_percent=abs(reward / entry) if entry else 0.0,
-            stop_reason="SL inicial fixo reproduzido do modelo vencedor do Lab.",
-            target_reason="TP fixo reproduzido pelo RR vencedor do Lab.",
+            stop_reason=(
+                "SL M21 colocado no nivel que seria o TP do M19."
+                if is_m21_mirror
+                else (
+                    "SL M22 colocado no nivel que seria o TP do M9."
+                    if is_m22_mirror
+                    else "SL inicial fixo reproduzido do modelo vencedor do Lab."
+                )
+            ),
+            target_reason=(
+                "TP M21 colocado no nivel que seria o SL do M19."
+                if is_m21_mirror
+                else (
+                    "TP M22 colocado no nivel que seria o SL do M9."
+                    if is_m22_mirror
+                    else "TP fixo reproduzido pelo RR vencedor do Lab."
+                )
+            ),
             stop_management=LAB_FIXED_EXIT_POLICY,
             stop_management_parameters=parameters,
             stop_management_reason=(
@@ -6377,7 +6409,15 @@ class DashboardService:
             beta_id=beta_id,
             beta_version=beta_version,
             beta_mode="FIXED_SL_TP",
-            beta_reason="Saida fixa identica ao contrato de paridade executavel.",
+            beta_reason=(
+                "M21 preserva a troca direta SL/TP do plano M19 espelhado."
+                if is_m21_mirror
+                else (
+                    "M22 preserva a troca direta SL/TP do plano M9 espelhado."
+                    if is_m22_mirror
+                    else "Saida fixa identica ao contrato de paridade executavel."
+                )
+            ),
             source="RESEARCH_LAB",
             reason=decision.reason,
             rr_current=float(decision.risk_reward),
