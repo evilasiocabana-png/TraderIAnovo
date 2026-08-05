@@ -15,6 +15,7 @@ from application.model6_original_trend_momentum import MODEL_6_ID
 from application.model7_trend_momentum_dynamic import MODEL_7_ID
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
+from domain.operational_model_policy import is_retired_operational_model
 from domain.contracts.market_snapshot import MarketSnapshot
 from domain.contracts.risk_decision import RiskDecision
 from domain.contracts.strategy_signal import StrategySignal
@@ -171,6 +172,13 @@ class MT5DemoRobotService:
             return self._result(
                 "DISABLED",
                 "Kill switch demo ativo. Robo temporal nao executou.",
+                signal,
+                trade_plan,
+            )
+        if is_retired_operational_model(signal.operational_model):
+            return self._result(
+                "MODEL_RETIRED",
+                "Modelo operacional aposentado: M6 a M22 nao abrem novas ordens.",
                 signal,
                 trade_plan,
             )

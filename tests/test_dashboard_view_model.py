@@ -693,7 +693,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertIn("H1", transformed_row.reason)
         self.assertIs(transformed_plan, plan)
 
-    def test_chaveamento_todos_expande_modelos_m1_a_m22(self) -> None:
+    def test_chaveamento_todos_expande_somente_modelos_ativos_m1_a_m5(self) -> None:
         service = DashboardService()
         service.set_mt5_operational_model("TODOS_MODELOS")
 
@@ -705,13 +705,6 @@ class DashboardViewModelContractTest(unittest.TestCase):
                 "MODELO_3_LAB_ALPHA_SUGERIDA_2_PLUS",
                 "MODELO_4_LAB_CONTEXTUAL_MTF",
                 "MODELO_5_LAB_CONSOLIDADO",
-                MODEL_6_ID,
-                MODEL_7_ID,
-                MODEL_8_ID,
-                MODEL_9_ID,
-                MODEL_10_ID,
-                *OFFICIAL_ALPHA_MODEL_IDS,
-                MODEL_22_ID,
             ),
         )
 
@@ -869,204 +862,19 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertIn("M5_", transformed_row.active_model)
         self.assertIs(transformed_plan, fallback_plan)
 
-    def test_modelo6_legado_migra_e_materializa_trend_momentum_original(self) -> None:
+    def test_modelo6_legado_aposentado_migra_para_modelo1(self) -> None:
         service = DashboardService()
+
         service.set_mt5_operational_model(MODEL_6_LEGACY_ID)
-        service.mt5_market_data_service.latest_forex_candles[("EURUSD", "M1")] = [
-            Candle(
-                f"2026-07-22T10:{index:02d}:00+00:00",
-                1.10,
-                1.101,
-                1.099,
-                1.10,
-                100,
-            )
-            for index in range(53)
-        ]
-        row = DashboardMT5ForexSignalRowViewModel(
-            pair="EURUSD",
-            status="OK",
-            timeframe="M1",
-            last_price=1.1000,
-            pivot=1.1010,
-            support=1.0990,
-            resistance=1.1060,
-            swing_low=1.0988,
-            short_average=1.1010,
-            long_average=1.1000,
-            atr=0.0010,
-            decision="BUY",
-            theoretical_entry_direction="BUY",
-            theoretical_entry_status="SINAL_TEORICO",
-            theoretical_entry_price=1.1000,
-            active_model="TREND_MOMENTUM",
-            entry_filter_status="OK",
-        )
-        fallback_plan = MT5ResearchTradePlan(
-            symbol="EURUSD",
-            timeframe="M1",
-            direction="WAIT",
-            entry_price=None,
-            stop=None,
-            target=None,
-            risk_reward=0.0,
-            stop_multiplier=0.0,
-            exit_model="NONE",
-            exit_score=0.0,
-            exit_candidates=0,
-            status="SEM_GATILHO_VALIDO",
-        )
 
-        analysis = SimpleNamespace(
-            decision="BUY",
-            trend="ALTA",
-            momentum=0.002,
-            volatility=0.0002,
-            rsi=58.0,
-            short_average=1.101,
-            long_average=1.100,
-            mid_average=1.1005,
-            ema_fast=1.101,
-            ema_mid=1.1005,
-            ema_slow=1.100,
-            atr=0.001,
-            support=1.098,
-            resistance=1.104,
-            swing_high=1.103,
-            swing_low=1.099,
-            reason="Trend Momentum original alinhado.",
-        )
-        with patch.object(
-            service.mt5_market_data_service,
-            "_analyze_pair",
-            return_value=analysis,
-        ) as analyze_pair:
-            transformed_row, transformed_plan = service._mt5_apply_operational_model(
-                row,
-                fallback_plan,
-            )
+        self.assertEqual(service.get_mt5_operational_model(), "MODELO_1_ALPHA_ATUAL")
 
-        self.assertEqual(service.get_mt5_operational_model(), MODEL_6_ID)
-        self.assertEqual(transformed_row.decision, "BUY")
-        self.assertEqual(transformed_row.lab_alpha_id, "ALPHA001")
-        self.assertEqual(transformed_row.beta_id, "BETA001")
-        self.assertEqual(transformed_row.timeframe, "M1")
-        self.assertEqual(transformed_plan.direction, "BUY")
-        self.assertEqual(transformed_plan.risk_reward, 2.0)
-        self.assertEqual(transformed_plan.stop_management, "RESEARCH_FIXED_SL_TP")
-        self.assertEqual(transformed_plan.beta_mode, "FIXED_SL_TP")
-        self.assertEqual(transformed_plan.exit_model, "BETA001_FIXED_SL_TP_RR2_V1")
-        self.assertEqual(transformed_plan.source, "M6_ORIGINAL_MARCO_ZERO")
-        self.assertLess(transformed_plan.stop or 0.0, transformed_plan.entry_price or 0.0)
-        self.assertGreater(transformed_plan.target or 0.0, transformed_plan.entry_price or 0.0)
-        analyzed_candles = analyze_pair.call_args.args[1]
-        self.assertEqual(len(analyzed_candles), 52)
-        self.assertEqual(
-            analyzed_candles[-1].data,
-            "2026-07-22T10:51:00+00:00",
-        )
-
-    def test_modelo7_materializa_entrada_original_com_protecao_dinamica(self) -> None:
+    def test_modelo7_aposentado_migra_para_modelo1(self) -> None:
         service = DashboardService()
+
         service.set_mt5_operational_model(MODEL_7_ID)
-        service.mt5_market_data_service.latest_forex_candles[("EURUSD", "M1")] = [
-            Candle(
-                f"2026-07-22T10:{index:02d}:00+00:00",
-                1.10,
-                1.101,
-                1.099,
-                1.10,
-                100,
-            )
-            for index in range(53)
-        ]
-        row = DashboardMT5ForexSignalRowViewModel(
-            pair="EURUSD",
-            status="OK",
-            timeframe="M1",
-            last_price=1.1000,
-            pivot=1.1010,
-            support=1.0990,
-            resistance=1.1060,
-            swing_low=1.0988,
-            short_average=1.1010,
-            long_average=1.1000,
-            atr=0.0010,
-            decision="BUY",
-            theoretical_entry_direction="BUY",
-            theoretical_entry_status="SINAL_TEORICO",
-            theoretical_entry_price=1.1000,
-            active_model="TREND_MOMENTUM",
-            entry_filter_status="OK",
-        )
-        fallback_plan = MT5ResearchTradePlan(
-            symbol="EURUSD",
-            timeframe="M1",
-            direction="WAIT",
-            entry_price=None,
-            stop=None,
-            target=None,
-            risk_reward=0.0,
-            stop_multiplier=0.0,
-            exit_model="NONE",
-            exit_score=0.0,
-            exit_candidates=0,
-            status="SEM_GATILHO_VALIDO",
-        )
-        analysis = SimpleNamespace(
-            decision="BUY",
-            trend="ALTA",
-            momentum=0.002,
-            volatility=0.0002,
-            rsi=58.0,
-            short_average=1.101,
-            long_average=1.100,
-            mid_average=1.1005,
-            ema_fast=1.101,
-            ema_mid=1.1005,
-            ema_slow=1.100,
-            atr=0.001,
-            support=1.098,
-            resistance=1.104,
-            swing_high=1.103,
-            swing_low=1.099,
-            reason="Trend Momentum original alinhado.",
-        )
 
-        with patch.object(
-            service.mt5_market_data_service,
-            "_analyze_pair",
-            return_value=analysis,
-        ) as analyze_pair:
-            transformed_row, transformed_plan = service._mt5_apply_operational_model(
-                row,
-                fallback_plan,
-            )
-
-        self.assertEqual(service.get_mt5_operational_model(), MODEL_7_ID)
-        self.assertEqual(transformed_row.decision, "BUY")
-        self.assertEqual(transformed_row.lab_alpha_id, "ALPHA001")
-        self.assertEqual(transformed_row.beta_id, "BETA007")
-        self.assertEqual(transformed_row.lab_ict_grade, "BASELINE_M7")
-        self.assertEqual(transformed_plan.direction, "BUY")
-        self.assertEqual(transformed_plan.risk_reward, 2.0)
-        self.assertEqual(
-            transformed_plan.stop_management,
-            "M7_DYNAMIC_PROTECT_ONLY",
-        )
-        self.assertEqual(transformed_plan.beta_mode, "PROTECT_ONLY")
-        self.assertEqual(
-            transformed_plan.exit_model,
-            "BETA007_DYNAMIC_PROTECT_ONLY_V1",
-        )
-        self.assertEqual(transformed_plan.source, "M7_DYNAMIC_MARCO_ZERO")
-        self.assertEqual(transformed_plan.certification_grade, "BASELINE_M7")
-        self.assertLess(transformed_plan.stop or 0.0, transformed_plan.entry_price or 0.0)
-        self.assertGreater(
-            transformed_plan.target or 0.0,
-            transformed_plan.entry_price or 0.0,
-        )
-        analyze_pair.assert_called_once()
+        self.assertEqual(service.get_mt5_operational_model(), "MODELO_1_ALPHA_ATUAL")
 
     def test_scenario_runner_novas_alphas_usam_indicadores_especificos(self) -> None:
         service = DashboardService()

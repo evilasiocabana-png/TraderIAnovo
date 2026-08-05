@@ -14,6 +14,7 @@ from typing import Any
 
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
+from domain.operational_model_policy import is_retired_operational_model
 from domain.contracts.dynamic_exit_demo_sl import DynamicExitDemoSLExecutionResult
 from core.mt5_process_probe import resolve_mt5_terminal_path
 
@@ -417,6 +418,11 @@ class MT5DemoExecutionProvider:
 
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         """Converte ExecutionOrder em request MT5 e envia para conta demo."""
+        retirement_check = self._retired_model_preflight(order)
+        if retirement_check is not None:
+            self._write_log(order, retirement_check)
+            return retirement_check
+
         initialize_check = self._initialize_check()
         if initialize_check is not None:
             self._write_log(order, initialize_check)
@@ -1218,6 +1224,23 @@ class MT5DemoExecutionProvider:
                 ),
             )
         return None
+
+    def _retired_model_preflight(
+        self,
+        order: ExecutionOrder,
+    ) -> ExecutionResult | None:
+        """Defesa final: M6..M22 ficam somente em historico e gestao."""
+        model = getattr(order, "operational_model", "")
+        if not is_retired_operational_model(model):
+            return None
+        return ExecutionResult(
+            accepted=False,
+            status="REJECTED",
+            message=(
+                "Modelo operacional aposentado: M6 a M22 nao podem abrir "
+                "novas ordens; historico e posicoes existentes foram preservados."
+            ),
+        )
 
     def _open_position_model_limit_preflight(
         self,

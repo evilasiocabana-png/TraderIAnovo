@@ -395,7 +395,7 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
 
         self.assertIsNone(service._regime_validation_signal(signal))
 
-    def test_modelo6_original_aceita_fonte_operacional_propria(self) -> None:
+    def test_modelo6_aposentado_nao_abre_nova_ordem(self) -> None:
         provider = _AcceptingProvider()
         service = MT5DemoRobotService(
             execution_service=DemoExecutionService(provider=provider),
@@ -417,10 +417,10 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
 
         result = service.evaluate_once(signal, plan)
 
-        self.assertEqual(result.status, "EXECUTED")
-        self.assertEqual(provider.orders[0].plan_snapshot["source"], "M6_ORIGINAL_MARCO_ZERO")
+        self.assertEqual(result.status, "MODEL_RETIRED")
+        self.assertEqual(provider.orders, [])
 
-    def test_modelo7_dinamico_aceita_fonte_operacional_propria(self) -> None:
+    def test_modelo7_aposentado_nao_abre_nova_ordem(self) -> None:
         provider = _AcceptingProvider()
         service = MT5DemoRobotService(
             execution_service=DemoExecutionService(provider=provider),
@@ -442,8 +442,8 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
 
         result = service.evaluate_once(signal, plan)
 
-        self.assertEqual(result.status, "EXECUTED")
-        self.assertEqual(provider.orders[0].plan_snapshot["source"], "M7_DYNAMIC_MARCO_ZERO")
+        self.assertEqual(result.status, "MODEL_RETIRED")
+        self.assertEqual(provider.orders, [])
 
     def _signal(
         self,

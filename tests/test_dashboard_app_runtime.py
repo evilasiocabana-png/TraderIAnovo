@@ -395,6 +395,23 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             finally:
                 dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
 
+    def test_seletor_operacional_expoe_somente_m1_a_m5(self) -> None:
+        labels = dashboard_app._mt5_operational_model_labels()
+
+        self.assertEqual(
+            labels[dashboard_app.MT5_OPERATIONAL_MODEL_ALL],
+            "Todos - M1 a M5",
+        )
+        self.assertEqual(
+            set(labels),
+            {
+                *dashboard_app.MT5_OPERATIONAL_MODEL_IDS,
+                dashboard_app.MT5_OPERATIONAL_MODEL_ALL,
+            },
+        )
+        self.assertNotIn(dashboard_app.MT5_OPERATIONAL_MODEL_6, labels)
+        self.assertNotIn(dashboard_app.MT5_OPERATIONAL_MODEL_22, labels)
+
     def test_chaveamento_persiste_no_evento_antes_do_rerender(self) -> None:
         original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
         labels = dashboard_app._mt5_operational_model_labels()
@@ -1710,10 +1727,11 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "",
         )
 
-    def test_relatorio_renderiza_paineis_individuais_m1_a_m22(self) -> None:
+    def test_relatorio_ativo_renderiza_paineis_individuais_m1_a_m5(self) -> None:
         source = inspect.getsource(dashboard_app._exibir_evolucao_patrimonial_mt5)
 
-        self.assertIn("range(1, 23)", source)
+        self.assertIn("range(1, 6)", source)
+        self.assertNotIn("range(1, 23)", source)
 
     def test_resumo_em_negociacao_soma_lucros_das_operacoes_abertas(self) -> None:
         rows = [

@@ -347,7 +347,7 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertTrue(result.accepted)
         self.assertIsNotNone(mt5.last_request)
 
-    def test_submit_order_permite_sexta_posicao_m6_no_par(self) -> None:
+    def test_submit_order_bloqueia_modelo6_aposentado(self) -> None:
         mt5 = _FakeMT5(
             open_positions=[
                 SimpleNamespace(comment="TraderIA M1"),
@@ -367,11 +367,11 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
 
         result = provider.submit_order(order)
 
-        self.assertTrue(result.accepted)
-        self.assertIsNotNone(mt5.last_request)
-        self.assertEqual(mt5.last_request["comment"], "TraderIA M6")
+        self.assertFalse(result.accepted)
+        self.assertIn("aposentado", result.message)
+        self.assertIsNone(mt5.last_request)
 
-    def test_submit_order_permite_setima_posicao_m7_no_par(self) -> None:
+    def test_submit_order_bloqueia_modelo7_aposentado(self) -> None:
         mt5 = _FakeMT5(
             open_positions=[
                 SimpleNamespace(comment="TraderIA M1"),
@@ -392,11 +392,11 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
 
         result = provider.submit_order(order)
 
-        self.assertTrue(result.accepted)
-        self.assertIsNotNone(mt5.last_request)
-        self.assertEqual(mt5.last_request["comment"], "TraderIA M7")
+        self.assertFalse(result.accepted)
+        self.assertIn("aposentado", result.message)
+        self.assertIsNone(mt5.last_request)
 
-    def test_submit_order_permite_oitava_posicao_m8_no_par(self) -> None:
+    def test_submit_order_bloqueia_modelo8_aposentado(self) -> None:
         mt5 = _FakeMT5(
             open_positions=[
                 SimpleNamespace(comment="TraderIA M1"),
@@ -418,8 +418,9 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
 
         result = provider.submit_order(order)
 
-        self.assertTrue(result.accepted)
-        self.assertEqual(mt5.last_request["comment"], "TraderIA M8")
+        self.assertFalse(result.accepted)
+        self.assertIn("aposentado", result.message)
+        self.assertIsNone(mt5.last_request)
 
     def test_comments_identify_m8_to_m22_independently(self) -> None:
         provider = self._provider(_FakeMT5())
@@ -447,7 +448,7 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertIn("Limite de vinte e duas posicoes por par", result.message)
         self.assertIsNone(mt5.last_request)
 
-    def test_m21_pode_coexistir_com_m19_no_mesmo_par(self) -> None:
+    def test_m21_aposentado_nao_abre_nova_ordem(self) -> None:
         mt5 = _FakeMT5(
             open_positions=[SimpleNamespace(comment="TraderIA M19")]
         )
@@ -457,10 +458,11 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
 
         result = provider.submit_order(order)
 
-        self.assertTrue(result.accepted)
-        self.assertEqual(mt5.last_request["comment"], "TraderIA M21")
+        self.assertFalse(result.accepted)
+        self.assertIn("aposentado", result.message)
+        self.assertIsNone(mt5.last_request)
 
-    def test_m22_pode_coexistir_com_m9_no_mesmo_par(self) -> None:
+    def test_m22_aposentado_nao_abre_nova_ordem(self) -> None:
         mt5 = _FakeMT5(
             open_positions=[SimpleNamespace(comment="TraderIA M9")]
         )
@@ -470,8 +472,9 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
 
         result = provider.submit_order(order)
 
-        self.assertTrue(result.accepted)
-        self.assertEqual(mt5.last_request["comment"], "TraderIA M22")
+        self.assertFalse(result.accepted)
+        self.assertIn("aposentado", result.message)
+        self.assertIsNone(mt5.last_request)
 
     def test_get_recent_candles_aceita_array_like_do_mt5(self) -> None:
         """copy_rates_from_pos pode retornar array com bool ambiguo."""

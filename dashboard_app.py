@@ -177,11 +177,6 @@ MT5_LAB_OPERATIONAL_MODELS = {
     MT5_OPERATIONAL_MODEL_3,
     MT5_OPERATIONAL_MODEL_4,
     MT5_OPERATIONAL_MODEL_5,
-    MT5_OPERATIONAL_MODEL_8,
-    MT5_OPERATIONAL_MODEL_9,
-    MT5_OPERATIONAL_MODEL_10,
-    *OFFICIAL_ALPHA_MODEL_IDS,
-    MT5_OPERATIONAL_MODEL_22,
 }
 MT5_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_1,
@@ -189,6 +184,8 @@ MT5_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_3,
     MT5_OPERATIONAL_MODEL_4,
     MT5_OPERATIONAL_MODEL_5,
+)
+MT5_RETIRED_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_6,
     MT5_OPERATIONAL_MODEL_7,
     MT5_OPERATIONAL_MODEL_8,
@@ -196,6 +193,13 @@ MT5_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_10,
     *OFFICIAL_ALPHA_MODEL_IDS,
     MT5_OPERATIONAL_MODEL_22,
+)
+MT5_HISTORICAL_OPERATIONAL_MODEL_IDS = (
+    *MT5_OPERATIONAL_MODEL_IDS,
+    *MT5_RETIRED_OPERATIONAL_MODEL_IDS,
+)
+MT5_HISTORICAL_LAB_OPERATIONAL_MODELS = (
+    MT5_LAB_OPERATIONAL_MODELS | set(MT5_RETIRED_OPERATIONAL_MODEL_IDS[2:])
 )
 LEGACY_MT5_OPERATIONAL_MODELS = {
     "MODELO_2_ESPELHO_BETA2_RR1": MT5_OPERATIONAL_MODEL_2,
@@ -2136,18 +2140,8 @@ def _mt5_operational_model_labels() -> dict[str, str]:
         MT5_OPERATIONAL_MODEL_3: "Modelo 3 - melhores cenarios individuais",
         MT5_OPERATIONAL_MODEL_4: "Modelo 4 - contexto M30/H1/H4",
         MT5_OPERATIONAL_MODEL_5: "Modelo 5 - consolidado M1-M4",
-        MT5_OPERATIONAL_MODEL_6: "Modelo 6 - Trend Momentum original",
-        MT5_OPERATIONAL_MODEL_7: "Modelo 7 - Trend Momentum com SL movel",
-        MT5_OPERATIONAL_MODEL_8: "Modelo 8 - Trend Pullback H1/M5",
-        MT5_OPERATIONAL_MODEL_9: "Modelo 9 - Trend Pullback M15/M1",
-        MT5_OPERATIONAL_MODEL_10: "Modelo 10 - Trend Pullback D1/M15",
     }
-    for label, spec in OFFICIAL_ALPHA_MODEL_SPECS.items():
-        labels[LAB_OPERATIONAL_MODEL_IDS_BY_LABEL[label]] = (
-            f"Modelo {int(label[1:])} - {spec['alpha_id']} {str(spec['family']).replace('_', ' ').title()}"
-        )
-    labels[MT5_OPERATIONAL_MODEL_22] = "Modelo 22 - Espelho do M9"
-    labels[MT5_OPERATIONAL_MODEL_ALL] = "Todos - M1 a M22"
+    labels[MT5_OPERATIONAL_MODEL_ALL] = "Todos - M1 a M5"
     return labels
 
 
@@ -2211,14 +2205,11 @@ def _render_mt5_operational_model_selector() -> str:
         )
         columns[2].caption(
             "M1 e M3-M5 preservam seus contratos do Lab. M2 usa o contrato "
-            "independente Trend Pullback M15/H1 nos oito pares. M8-M10 usam "
-            "a mesma regra com pares H1/M5, M15/M1 e D1/M15. M6 e M7 "
-            "reproduzem o Trend Momentum original no ultimo candle M1 fechado. "
-            "O M6 usa saida fixa; o M7 protege o SL a partir de 1,5R. M2-M5 "
+            "independente Trend Pullback M15/H1 nos oito pares. M2-M5 "
             "entram no preco vivo depois do candle fechado e usam SL/TP fixos. "
-            "Pares reprovados ficam bloqueados e visiveis. "
-            "Em TODOS, M1-M22 podem enviar uma posicao "
-            "por modelo e par."
+            "Pares reprovados ficam bloqueados e visiveis. M6-M22 estao "
+            "aposentados para novas entradas, mas seguem no historico e na "
+            "gestao das posicoes abertas. Em TODOS, somente M1-M5 enviam ordens."
         )
     st.session_state[MT5_OPERATIONAL_MODEL_KEY] = selected
     st.session_state[MT5_OPERATIONAL_MODEL_SYNC_KEY] = selected
@@ -2235,7 +2226,7 @@ def _render_mt5_operational_model_selector() -> str:
         )
     if selected == MT5_OPERATIONAL_MODEL_ALL:
         st.warning(
-            "Todos os modelos ativos: M1-M22 podem enviar ordem. "
+            "Todos os modelos ativos: somente M1-M5 podem enviar ordem. "
             "O mesmo par pode ter uma posicao por modelo."
         )
     if selected == MT5_OPERATIONAL_MODEL_3:
@@ -3163,7 +3154,7 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
         main_chart_rows,
         start_at=start_at,
     )
-    visible_individual_models = [f"MODELO {index}" for index in range(1, 23)]
+    visible_individual_models = [f"MODELO {index}" for index in range(1, 6)]
     model_rows = {
         model: _mt5_rows_for_equity_model_filter(rows, model)
         for model in visible_individual_models
@@ -3218,12 +3209,12 @@ def _mt5_equity_main_chart_model_selection() -> str:
         "Todos",
         value=True,
         key="mt5_report_equity_main_all",
-        help="Marca M1 a M22 no grafico principal.",
+        help="Marca M1 a M5 no grafico principal.",
     )
     selected_models: list[str] = []
-    for start in range(1, 23, 5):
+    for start in range(1, 6, 5):
         columns = st.columns(5)
-        for column, index in zip(columns, range(start, min(start + 5, 23))):
+        for column, index in zip(columns, range(start, min(start + 5, 6))):
             model = f"M{index}"
             checked = column.checkbox(
                 model,
@@ -3244,20 +3235,21 @@ def _mt5_rows_for_equity_model_selection(
     selection: str,
 ) -> list[object]:
     normalized = str(selection or "TODOS").upper().replace(" ", "")
+    active_keys = {f"MODELO{index}" for index in range(1, 6)}
     if normalized == "TODOS":
-        return list(rows)
+        return [row for row in rows if _mt5_equity_row_model_key(row) in active_keys]
     selected_keys = {
         part for part in normalized.split("+")
-        if re.fullmatch(r"(?:M|MODELO)(?:[1-9]|1\d|2[0-2])", part)
+        if re.fullmatch(r"(?:M|MODELO)[1-5]", part)
     }
     model_keys = {
         alias: f"MODELO{index}"
-        for index in range(1, 23)
+        for index in range(1, 6)
         for alias in (f"M{index}", f"MODELO{index}")
     }
     targets = {model_keys[key] for key in selected_keys}
     if not targets:
-        return list(rows)
+        return [row for row in rows if _mt5_equity_row_model_key(row) in active_keys]
     return [row for row in rows if _mt5_equity_row_model_key(row) in targets]
 
 
@@ -6327,7 +6319,10 @@ def _mt5_trade_row_price(
 
 def _mt5_theoretical_exit_has_recorded_model(row: object) -> bool:
     model = str(getattr(row, "operational_model", "") or "").upper()
-    return model in set(MT5_OPERATIONAL_MODEL_IDS) or model in LEGACY_MT5_OPERATIONAL_MODELS
+    return (
+        model in set(MT5_HISTORICAL_OPERATIONAL_MODEL_IDS)
+        or model in LEGACY_MT5_OPERATIONAL_MODELS
+    )
 
 
 def _mt5_theoretical_exit_effective_model(
@@ -6338,7 +6333,7 @@ def _mt5_theoretical_exit_effective_model(
     row_model = str(getattr(row, "operational_model", "") or "").upper()
     if row_model in LEGACY_MT5_OPERATIONAL_MODELS:
         return row_model
-    if row_model in set(MT5_OPERATIONAL_MODEL_IDS):
+    if row_model in set(MT5_HISTORICAL_OPERATIONAL_MODEL_IDS):
         return row_model
     fallback = str(fallback_model or MT5_OPERATIONAL_MODEL_1).upper()
     if fallback in set(MT5_OPERATIONAL_MODEL_IDS):
@@ -6356,7 +6351,7 @@ def _mt5_theoretical_exit_display_signal(
         return _model4_inverse_entry_row(signal)
     if display_model == "MODELO_5_PRICE_ACTION" and signal:
         return _model5_price_action_entry_row(signal)
-    if display_model in MT5_LAB_OPERATIONAL_MODELS:
+    if display_model in MT5_HISTORICAL_LAB_OPERATIONAL_MODELS:
         return signal
     if display_model in {
         MT5_OPERATIONAL_MODEL_6,
@@ -6474,7 +6469,7 @@ def _mt5_theoretical_exit_stop_management_label(
         return "FIXO_ESPELHO_M1"
     if display_model == "MODELO_5_PRICE_ACTION":
         return "ESTRUTURAL_PRICE_ACTION"
-    if display_model in MT5_LAB_OPERATIONAL_MODELS:
+    if display_model in MT5_HISTORICAL_LAB_OPERATIONAL_MODELS:
         return "RESEARCH_FIXED_SL_TP"
     if display_model == MT5_OPERATIONAL_MODEL_6:
         return "FIXO_SL_TP_RR2"
@@ -6504,7 +6499,7 @@ def _mt5_theoretical_exit_stop_movement_label(
         "MODELO_4_ESPELHO_M1",
     }:
         return "FIXO"
-    if display_model in MT5_LAB_OPERATIONAL_MODELS:
+    if display_model in MT5_HISTORICAL_LAB_OPERATIONAL_MODELS:
         return "FIXO"
     if display_model == MT5_OPERATIONAL_MODEL_6:
         return "FIXO_ATUAL"
@@ -6529,7 +6524,7 @@ def _mt5_theoretical_exit_beta_label(
     row_beta = _mt5_trade_row_text(row, "beta_id", "beta_id", "beta")
     if row_beta and _mt5_theoretical_exit_has_recorded_model(row):
         return row_beta.upper()
-    if display_model in MT5_LAB_OPERATIONAL_MODELS:
+    if display_model in MT5_HISTORICAL_LAB_OPERATIONAL_MODELS:
         return f"BETA_LAB_{_mt5_operational_model_short_label(display_model).replace('MODELO ', 'M')}_FIXED"
     if display_model == MT5_OPERATIONAL_MODEL_6:
         return MODEL_6_BETA_ID
@@ -6588,7 +6583,7 @@ def _mt5_theoretical_exit_model_label(
             text = str(value or "").strip()
             if text and text.upper() not in {"N/D", "NONE"}:
                 return text
-    if display_model in MT5_LAB_OPERATIONAL_MODELS:
+    if display_model in MT5_HISTORICAL_LAB_OPERATIONAL_MODELS:
         label = _mt5_operational_model_short_label(display_model).replace("MODELO ", "M")
         return f"BETA_LAB_{label}_FIXED_V1"
     for value in (
