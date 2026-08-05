@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 
 
-ACTIVE_OPERATIONAL_MODEL_NUMBERS = frozenset(range(1, 8))
-RETIRED_OPERATIONAL_MODEL_NUMBERS = frozenset(range(8, 23))
+ACTIVE_OPERATIONAL_MODEL_NUMBERS = frozenset(range(1, 6))
+RETIRED_OPERATIONAL_MODEL_NUMBERS = frozenset(range(6, 23))
 
 
 def operational_model_number(value: object) -> int | None:
@@ -25,5 +25,5 @@ def is_active_operational_model(value: object) -> bool:
 
 
 def is_retired_operational_model(value: object) -> bool:
-    """Retorna True para M8..M22, preservados apenas para historico/gestao."""
+    """Retorna True para M6..M22, preservados apenas para historico/gestao."""
     return operational_model_number(value) in RETIRED_OPERATIONAL_MODEL_NUMBERS
