@@ -87,25 +87,24 @@ Responsabilidade:
   `ALPHA_SUGERIDA_002_PLUS`; M4 usa contexto causal M30/H1/H4; M5 delega ao
   melhor vencedor consolidado por par.
 - O consolidado operacional chama-se somente M5. Nao existe M5-P operacional.
-  M6 e um baseline historico independente e pode enviar somente ao MT5 Demo.
-- M6 reproduz o `TREND_MOMENTUM` original congelado no marco `a3bc912`:
-  M1, media simples 20/50, momentum 10, volatilidade 20, RSI14 e decisao no
-  ultimo candle fechado. A entrada usa o preco vivo seguinte.
-- O risco inicial do M6 usa a maior distancia entre 2 ATR e 0,10% do preco,
-  com alvo RR2. Sua saida e fixa por primeiro toque no SL inicial ou TP RR2.
-  O M6 nao usa break-even, trailing, `EARLY_EXIT`, `FULL_EXIT` ou qualquer
-  movimento do Position Manager.
-- M2-M5 usam o ultimo candle fechado, entram no proximo preco vivo dentro da
-  janela autorizada e preservam SL/TP fixos da pesquisa.
-- O Position Manager apenas audita M2-M5 sob `RESEARCH_FIXED_SL_TP`: nao move
-  SL e nao executa `FULL_EXIT` nesses modelos.
-- Para M6, o Position Manager possui bypass defensivo inclusive para snapshots
-  antigos que ainda declarem `DYNAMIC_POSITION_MANAGER`.
-- M7 preserva a mesma entrada congelada do M6 em um contrato independente:
-  `MODELO_7_TREND_MOMENTUM_DYNAMIC` + `BETA007_DYNAMIC_PROTECT_ONLY_V1`.
-- M7 mede o progresso pelo risco inicial imutavel, mantem o SL antes de 1,50R
-  e, depois, permite somente break-even ou ATR trailing mais protetivo. Ele
-  nunca executa `EARLY_EXIT` ou `FULL_EXIT`.
+- M3 opera exclusivamente XAUUSD/M5 sobre as ultimas 52 velas: BUY exige RSI14
+  fechado acima de 50 e fechamento acima da SMA20; SELL exige RSI14 abaixo de
+  50 e fechamento abaixo da SMA20. O Full Exit continua sendo pelo RSI no lado
+  oposto e a inversao ocorre no ciclo seguinte. Usa SL estrutural 2+2 e nao
+  possui TP fixo.
+- M6 cobre os nove pares adicionais do Lab Forex; M7 cobre XAUUSD e BTCUSD.
+  Eles reutilizam resultado pesado persistido e nao recalculam pesquisa no ciclo leve.
+- M1-M2 e M4-M7 preservam entrada, SL inicial, TP e RR fixos do plano de origem
+  sob `RESEARCH_FIXED_SL_TP`; o M3 possui gestao propria pelo RSI14/50.
+- Os IDs históricos M8-M14 reutilizavam, respectivamente, as entradas M1-M7 e
+  permanecem aposentados. Eles mudavam somente a
+  gestao pos-entrada para `DYNAMIC_PROTECT_ONLY`.
+- Nas variantes M8-M14, antes de 1,50R o SL inicial e preservado; depois, o
+  Position Manager pode somente melhorar o SL por break-even ou ATR trailing.
+  `EARLY_EXIT` e `FULL_EXIT` sao sempre proibidos.
+- Com `TimeTradeServer` valido, o gate de rollover usa exclusivamente a janela
+  de 5 minutos antes/depois da virada do dia do servidor. O horario UTC fixo e
+  apenas fallback de seguranca quando o relogio MT5 estiver indisponivel.
 - A entrada historica nasce apenas em transicao `WAIT -> BUY/SELL`.
 - Um replay nao pode abrir nova entrada enquanto o trade teorico anterior do
   mesmo cenario estiver ativo.
@@ -197,6 +196,9 @@ Essa pasta e ignorada pelo Git.
 
 - Audita `.traderia/mt5_demo_execution.jsonl` contra historico MT5/local.
 - Carrega uma vez, cacheia na sessao e atualiza por botao.
+- As curvas operacionais ativas exibem M1-M17. M13-M17 aceitam somente os IDs
+  atuais da familia Forex/M5 e os 17 pares canonicos, sem misturar contratos
+  historicos que reutilizavam os numeros M13-M16.
 
 ## Politica De Travamentos E Regressao De Velocidade
 
@@ -292,6 +294,11 @@ Incidentes recorrentes devem virar missao de arquitetura/performance antes de
 novas funcionalidades que aumentem custo de renderizacao, leitura MT5 ou leitura
 de arquivos `.traderia`.
 
+Em producao local no OneDrive, o Streamlit deve iniciar com
+`--server.fileWatcherType none`. A recarga automatica por varredura do repositorio
+ja causou porta aberta sem resposta HTTP e reinicios sucessivos pelo guardiao.
+Essa opcao nao altera o ciclo MT5 de 10 segundos nem a leitura de mercado.
+
 ## Fronteiras Criticas
 
 - `dashboard_app.py` nao deve importar providers diretamente.
@@ -300,19 +307,93 @@ de arquivos `.traderia`.
 - Recalculo pesado precisa ser explicito.
 - Execucao real nao e autorizada por padrao.
 
-## Variantes Trend Pullback M8-M10
+## Variantes Dinamicas M8-M14 (historico aposentado)
 
-M8, M9 e M10 sao modelos operacionais independentes derivados da formula M2,
-sem copiar ou alterar o estado do M2. M8 usa H1 para direcao e M5 para entrada;
-M9 usa M15 e M1; M10 usa D1 e M15. Todos usam EMA20/50 no contexto, EMA9/21,
-ADX14 e pullback no timeframe de entrada, com SL fixo 1,25 ATR e TP fixo 2R.
+M8-M14 foram variantes independentes das entradas M1-M7, na mesma ordem. Desde
+2026-08-06 nao podem abrir novas ordens e permanecem somente para auditoria. Elas
+preservam Alpha, timeframe, sinal, entrada, SL inicial, TP e RR do modelo de
+origem. Somente o contrato pos-entrada muda para `DYNAMIC_PROTECT_ONLY`.
 
-O Market Data coleta somente os timeframes requeridos e reaproveita o cache
-compartilhado. O Lab operacional congela a decisao por candle fechado; o Robo
-Demo materializa o Trade Plan; o provider grava `TraderIA M8`, `TraderIA M9`
-ou `TraderIA M10`; o Position Manager nao move o SL desses contratos fixos; o
-Relatorio identifica cada modelo separadamente. O limite e uma posicao por
-modelo e dez por par. Conta real permanece bloqueada.
+O Position Manager preserva o plano antes de 1,50R e, depois, pode apenas mover
+o SL para um nivel mais protetivo por break-even ou ATR trailing. `EARLY_EXIT`
+e `FULL_EXIT` permanecem proibidos. A entrada fixa e a variante dinamica podem
+coexistir para comparacao A/B; a mesma variante nao pode repetir o mesmo plano
+no mesmo candle. Os contratos historicos que usavam os numeros M8-M22 ficam
+aposentados para novas entradas. O contrato completo esta em
+`docs/architecture/DYNAMIC_EXIT_MODELS_M8_M14.md`.
+
+## Modelo M8 XAUUSD/M5 por SMA20/50 e RSI14
+
+O contrato ativo `MODELO_8_XAU_M5_SMA_RSI_REENTRY` e isolado dos IDs M8
+historicos. Opera somente XAUUSD/M5. SMA20 e SMA50 simples definem apenas a
+direcao: BUY quando SMA20 > SMA50 e SELL quando SMA20 < SMA50. A entrada e a
+mercado enquanto o RSI14 estiver do lado do nivel 50 correspondente a direcao autorizada.
+O SL fica `0,01` alem do ultimo pivo M5 confirmado por dois candles de cada
+lado e nao existe TP fixo. O Position Manager executa Full Exit se candle M5
+fechado confirmar RSI14 de 70 para baixo em BUY ou de 30 para cima em SELL, ou
+se SMA20/SMA50 inverterem. A reentrada usa Buy Stop/Sell Stop exatamente no
+extremo do último candle M5 fechado, com RSI50 e direção das médias válidos. Contrato completo em
+`docs/architecture/OPERATIONAL_MODEL_M8_XAU_M5_SMA_RSI_REENTRY.md`.
+
+## Família ativa M8-M12 — setups A-E
+
+M8 é o setup A sem filtro adicional. M9/Setup B acrescenta ADX14 > 25.
+M10/Setup C acrescenta distância `abs(SMA20-SMA50)/ATR14 >= 0,25`.
+M11/Setup D acrescenta inclinação direcional da SMA50 em um candle,
+normalizada pelo ATR14, `>= 0,05`. M12/Setup E exige os três filtros ao mesmo
+tempo. Entrada, SL estrutural e Full Exit permanecem iguais ao M8, mas cada
+modelo possui identidade e auditoria próprias. Os IDs M8-M12 anteriores não
+foram reativados. Contrato completo em
+`docs/architecture/OPERATIONAL_MODELS_M8_M12_XAU_TREND_FILTERS.md`.
+
+## Modelo M15 XAUUSD/M5 (historico aposentado)
+
+M15 foi aposentado para novas entradas em 2026-08-06. Seu contrato historico
+permanece auditavel: operava somente XAUUSD/M5 e EMA20/50 definia a
+direcao; a entrada fica um pip (`0,01`) alem do extremo do candle anterior
+fechado e o SL inicial um pip alem do extremo oposto. O modelo nao possui TP
+fixo. Depois da abertura, o Position Manager move o SL pelo ultimo candle M5
+fechado somente quando o novo nivel for mais protetivo. O M15 nao usa
+`EARLY_EXIT`, `FULL_EXIT` ou Lab pesado no runtime. O contrato completo esta em
+`docs/architecture/OPERATIONAL_MODEL_M15_XAU_M5_BREAKOUT.md`.
+
+## Modelo M16 XAUUSD/M5 (historico aposentado)
+
+M16 foi aposentado para novas entradas em 2026-08-06. Seu contrato historico
+permanece auditavel: era independente do M15 e operava somente XAUUSD/M5. O preco atual acima da
+EMA20 prepara BUY STOP; abaixo da EMA20 prepara SELL STOP. A entrada fica um pip
+alem do extremo do candle anterior, o SL nasce no extremo oposto exato e nao ha
+TP fixo. Depois da abertura, o Position Manager move somente o SL pelo ultimo
+candle fechado, sem EARLY_EXIT ou FULL_EXIT. Contrato oficial em
+`docs/architecture/OPERATIONAL_MODEL_M16_XAU_M5_PRICE_EMA_BREAKOUT.md`.
+
+## Regra De Correcao Interligada
+
+## Família ativa M13-M17 — 17 pares Forex/M5
+
+M13-M17 replicam os setups A-E de M8-M12 nos 17 pares Forex canônicos, com
+buffer de um pip adaptado ao par e estado independente por modelo/par. Entrada
+inicial, reentrada Stop, saída RSI 70/30, inversão SMA e filtros são avaliados
+em M5 fechado. XAUUSD/BTCUSD ficam fora do escopo e conta real segue bloqueada.
+Contrato: `docs/architecture/OPERATIONAL_MODELS_M13_M17_FOREX_TREND_FILTERS.md`.
+
+M8-M17 iniciam com um cache leve de exatamente 52 velas M5 por ativo. A janela
+e deslizante tanto em RAM quanto no arquivo persistido: a vela nova substitui
+uma vela do mesmo horario ou remove a mais antiga, sem ultrapassar 52. Quando
+o ultimo lote vivo ainda nao esta disponivel, o runtime pode preaquecer os
+indicadores com as 52 velas mais recentes do banco local, mas marca a serie
+como `LOCAL_HISTORY_SEED` e bloqueia qualquer Trade Plan. A primeira leitura
+MT5 valida substitui a semente, muda a origem para `LIVE` e somente entao o
+modelo pode liberar entrada. O cache fica em `.traderia/`, usa escrita atomica
+e nunca e versionado.
+
+Os indicadores de M8-M17 sao calculados localmente somente depois que o MT5
+entrega um lote integral, atual e cronologicamente coerente de 52 velas M5. O
+plano registra `indicator_source=LOCAL_MT5_CANDLES_52` e o provider exige
+`indicator_closed_candle_time` igual ao candle fechado do Trade Plan. Lote
+parcial, semente local, mistura de periodos ou cache antigo podem ser exibidos
+para diagnostico, mas nunca autorizam ordem. A janela continua deslizante: a
+53a vela remove a mais antiga e mantem exatamente 52 em RAM e no cache.
 
 ## Regra De Correcao Interligada
 

@@ -31,9 +31,20 @@ aplicação e não duplica o conteúdo dos documentos referenciados.
   - Certificacao oficial da plataforma para pesquisa quantitativa com dados
     historicos reais, mantendo operacao real proibida.
 - [architecture/OPERATIONAL_MODEL_CREATION_PROTOCOL.md](architecture/OPERATIONAL_MODEL_CREATION_PROTOCOL.md)
+- [architecture/OPERATIONAL_MODELS_M6_M7_LAB_EXPANSION.md](architecture/OPERATIONAL_MODELS_M6_M7_LAB_EXPANSION.md)
   - Protocolo oficial para criar novos modelos operacionais, baseado na
     retrospectiva do M3 RR3, cobrindo snapshot, Trade Plan, gates, Robo Demo,
     Provider MT5, Position Manager, relatorio e testes.
+- [architecture/DYNAMIC_EXIT_MODELS_M8_M14.md](architecture/DYNAMIC_EXIT_MODELS_M8_M14.md)
+  - Contrato oficial das sete variantes independentes de saida dinamica:
+    M8->M1 ate M14->M7, com entrada preservada e protecao de SL sem Full Exit.
+- [architecture/OPERATIONAL_MODEL_M8_XAU_M5_SMA_RSI_REENTRY.md](architecture/OPERATIONAL_MODEL_M8_XAU_M5_SMA_RSI_REENTRY.md)
+  - Novo contrato M8 ativo, isolado dos IDs M8 históricos: XAUUSD/M5, entrada
+    pelo nível RSI50 filtrado por SMA20/SMA50, reentrada Stop e Full Exit por cruzamento RSI 70/30 ou
+    inversão das médias.
+- [architecture/OPERATIONAL_MODELS_M8_M12_XAU_TREND_FILTERS.md](architecture/OPERATIONAL_MODELS_M8_M12_XAU_TREND_FILTERS.md)
+  - Família ativa A-E para XAUUSD/M5: base RSI50/SMA20-50, ADX, distância/ATR,
+    inclinação da SMA50 e combinação dos três filtros.
 - [architecture/OPERATIONAL_MODEL_M21_M19_MIRROR.md](architecture/OPERATIONAL_MODEL_M21_M19_MIRROR.md)
   - Contrato Demo do M21: espelho independente do M19, com direcao oposta e
     troca direta entre os niveis de SL e TP.
@@ -48,9 +59,12 @@ aplicação e não duplica o conteúdo dos documentos referenciados.
     EMA9/21, ADX14, pullback, confirmacao por candle fechado, SL 1,25 ATR e
     alvo fixo 2R.
 - [architecture/MODEL_3_NESTED_STRUCTURE_CONTINUATION.md](architecture/MODEL_3_NESTED_STRUCTURE_CONTINUATION.md)
-  - Contrato operacional do M3 robusto: Structure Continuation H1, SL 1,75
-    ATR e alvo fixo 2,5R nos oito pares Demo; somente USDCAD possui
-    certificacao historica individual.
+  - Contrato historico do M3 anterior, preservado apenas para auditoria.
+- [architecture/MODEL_3_ALL_FOREX_WINNERS.md](architecture/MODEL_3_ALL_FOREX_WINNERS.md)
+  - Contrato historico aposentado do antigo M3 de 17 pares Forex.
+- [architecture/OPERATIONAL_MODEL_M3_XAU_M5_RSI50_FLIP.md](architecture/OPERATIONAL_MODEL_M3_XAU_M5_RSI50_FLIP.md)
+  - Contrato ativo do M3 em XAUUSD/M5: direcao pelo RSI14 em torno de 50,
+    Full Exit no lado oposto, inversao no ciclo seguinte e sem TP fixo.
 - [architecture/MODEL_4_LIQUIDITY_RECLAIM.md](architecture/MODEL_4_LIQUIDITY_RECLAIM.md)
   - Contrato experimental do M4 nos oito pares Demo: Liquidity Reclaim M30
     BUY_ONLY, EMA34/144, ADX 28-35, stop 2,5 ATR e alvo fixo 3R; AUDUSD
@@ -122,6 +136,19 @@ Os ADRs oficiais ficam em [docs/adr/](adr/).
 | ADR-0007 | Estratégias Retornam Apenas StrategySignal | Aprovado | 2026-06-26 | [ADR-0007-estrategias-retornam-strategysignal.md](adr/ADR-0007-estrategias-retornam-strategysignal.md) |
 | ADR-0008 | IA Não Executa Ordens | Aprovado | 2026-06-26 | [ADR-0008-ia-nao-executa-ordens.md](adr/ADR-0008-ia-nao-executa-ordens.md) |
 | ADR-0009 | Operação Real Permanece Desabilitada | Aprovado | 2026-06-26 | [ADR-0009-operacao-real-desabilitada.md](adr/ADR-0009-operacao-real-desabilitada.md) |
+
+### Modelo M15 (historico aposentado)
+
+- [OPERATIONAL_MODEL_M15_XAU_M5_BREAKOUT.md](architecture/OPERATIONAL_MODEL_M15_XAU_M5_BREAKOUT.md)
+  - Contrato do XAUUSD/M5 com EMA20/50, entrada com buffer de um pip,
+    SL no extremo exato,
+    ausencia de TP fixo e trailing pelo candle anterior fechado.
+
+### Modelo M16 (historico aposentado)
+
+- [OPERATIONAL_MODEL_M16_XAU_M5_PRICE_EMA_BREAKOUT.md](architecture/OPERATIONAL_MODEL_M16_XAU_M5_PRICE_EMA_BREAKOUT.md)
+  - Contrato independente do XAUUSD/M5 com direcao por preco/EMA20, ordem STOP,
+    SL no extremo exato, ausencia de TP fixo e trailing pelo candle fechado.
 
 ## 5. Scripts Arquiteturais
 

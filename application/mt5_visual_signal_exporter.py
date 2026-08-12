@@ -6,12 +6,21 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import importlib
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 from typing import Any
 
 from application.dashboard_view_model import (
     DashboardMT5ForexSignalRowViewModel,
     DashboardMT5ForexSignalViewModel,
+)
+from core.mt5_process_probe import resolve_mt5_terminal_path
+from core.mt5_external_process_gate import (
+    get_mt5_external_cache,
+    mt5_external_process_slot,
+    set_mt5_external_cache,
 )
 
 
@@ -28,6 +37,9 @@ class MT5VisualSignalExporter:
     """Converte sinais prontos do DashboardService em JSON visual para MT5."""
 
     MAX_HISTORY_SIGNALS = 0
+
+    def __init__(self) -> None:
+        self._last_open_positions: dict[str, dict[str, Any]] = {}
 
     def export(
         self,
@@ -478,6 +490,11 @@ class MT5VisualSignalExporter:
         return "NEW_POSITION"
 
     def _open_positions_by_symbol(self) -> dict[str, dict[str, Any]]:
+        if (
+            os.getenv("TRADERIA_MT5_MARKET_DATA_EXTERNAL_PROCESS_ENABLED", "0").strip()
+            == "1"
+        ):
+            return self._open_positions_by_symbol_external()
         try:
             mt5 = importlib.import_module("MetaTrader5")
         except Exception:
@@ -519,6 +536,96 @@ class MT5VisualSignalExporter:
                 "ticket": data.get("ticket"),
                 "opened_at": self._position_time_iso(data.get("time")),
             }
+        return positions
+
+    def _open_positions_by_symbol_external(self) -> dict[str, dict[str, Any]]:
+        terminal_path = resolve_mt5_terminal_path() or ""
+        request = {
+            "action": "positions",
+            "terminal_path": terminal_path,
+            "symbol": "",
+        }
+        shared_key = f"execution_read:{json.dumps(request, sort_keys=True)}"
+        cache_ttl = max(
+            float(os.getenv("TRADERIA_MT5_EXECUTION_READ_CACHE_SECONDS", "10")),
+            0.0,
+        )
+        cached = get_mt5_external_cache(shared_key, ttl_seconds=cache_ttl)
+        if isinstance(cached, dict) and bool(cached.get("ok")):
+            return self._positions_payload_to_map(list(cached.get("rows", [])))
+        code = (
+            "import json, sys\n"
+            "import MetaTrader5 as mt5\n"
+            "path = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None\n"
+            "ok = bool(mt5.initialize(path=path) if path else mt5.initialize())\n"
+            "rows = [item._asdict() for item in (mt5.positions_get() or [])] if ok else []\n"
+            "print(json.dumps(rows, default=str))\n"
+            "mt5.shutdown()\n"
+        )
+        creationflags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            if sys.platform.startswith("win")
+            else 0
+        )
+        process: subprocess.Popen[str] | None = None
+        timeout_seconds = max(
+            float(os.getenv("TRADERIA_MT5_VISUAL_POSITIONS_TIMEOUT_SECONDS", "5")),
+            1.0,
+        )
+        with mt5_external_process_slot(timeout=0.05) as acquired:
+            if not acquired:
+                return dict(self._last_open_positions)
+            try:
+                process = subprocess.Popen(
+                    [sys.executable, "-c", code, terminal_path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    creationflags=creationflags,
+                )
+                stdout, _stderr = process.communicate(timeout=timeout_seconds)
+            except (OSError, subprocess.TimeoutExpired):
+                if process is not None:
+                    try:
+                        process.kill()
+                    except OSError:
+                        pass
+                return dict(self._last_open_positions)
+        output = (stdout or "").strip().splitlines()
+        if not output:
+            return dict(self._last_open_positions)
+        try:
+            open_positions = json.loads(output[-1])
+        except json.JSONDecodeError:
+            return dict(self._last_open_positions)
+        set_mt5_external_cache(
+            shared_key,
+            {"ok": True, "rows": list(open_positions or [])},
+        )
+        return self._positions_payload_to_map(list(open_positions or []))
+
+    def _positions_payload_to_map(
+        self,
+        open_positions: list[dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        positions: dict[str, dict[str, Any]] = {}
+        for data in open_positions:
+            symbol = str(data.get("symbol", "")).upper()
+            position_type = int(data.get("type", -1))
+            side = "BUY" if position_type == 0 else "SELL" if position_type == 1 else ""
+            if not symbol or not side:
+                continue
+            positions[self._symbol_key(symbol)] = {
+                "symbol": symbol,
+                "side": side,
+                "entry": self._positive_or_none(data.get("price_open")),
+                "stop": self._positive_or_none(data.get("sl")),
+                "target": self._positive_or_none(data.get("tp")),
+                "volume": self._positive_or_none(data.get("volume")),
+                "ticket": data.get("ticket"),
+                "opened_at": self._position_time_iso(data.get("time")),
+            }
+        self._last_open_positions = positions
         return positions
 
     def _symbol_key(self, symbol: str) -> str:

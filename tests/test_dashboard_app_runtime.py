@@ -395,22 +395,257 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             finally:
                 dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
 
-    def test_seletor_operacional_expoe_somente_m1_a_m5(self) -> None:
+    def test_seletor_operacional_expoe_m1_a_m17(self) -> None:
         labels = dashboard_app._mt5_operational_model_labels()
 
         self.assertEqual(
             labels[dashboard_app.MT5_OPERATIONAL_MODEL_ALL],
-            "Todos - M1 a M5",
+            "Todos - M1 a M17",
         )
         self.assertEqual(
             set(labels),
             {
                 *dashboard_app.MT5_OPERATIONAL_MODEL_IDS,
+                dashboard_app.MT5_OPERATIONAL_MODEL_8_TO_17,
                 dashboard_app.MT5_OPERATIONAL_MODEL_ALL,
             },
         )
-        self.assertNotIn(dashboard_app.MT5_OPERATIONAL_MODEL_6, labels)
+        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_3, labels)
+        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_6, labels)
+        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_7, labels)
+        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_8, labels)
+        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_9, labels)
+        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_12, labels)
+        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_16, labels)
+        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_17, labels)
         self.assertNotIn(dashboard_app.MT5_OPERATIONAL_MODEL_22, labels)
+
+    def test_grupo_m8_a_m17_e_valido_e_nao_habilita_m1_a_m7(self) -> None:
+        group = dashboard_app.MT5_OPERATIONAL_MODEL_8_TO_17
+
+        self.assertEqual(dashboard_app._valid_mt5_operational_model(group), group)
+        self.assertEqual(dashboard_app._mt5_operational_model_short_label(group), "M8-M17")
+        self.assertFalse(
+            dashboard_app._mt5_operational_model_enabled(
+                group,
+                dashboard_app.MT5_OPERATIONAL_MODEL_7,
+            )
+        )
+        for model in dashboard_app.MT5_OPERATIONAL_MODEL_8_TO_17_IDS:
+            self.assertTrue(dashboard_app._mt5_operational_model_enabled(group, model))
+
+    def test_novo_m8_e_valido_e_m8_historico_retorna_para_m1(self) -> None:
+        self.assertEqual(
+            dashboard_app._valid_mt5_operational_model(
+                dashboard_app.MT5_OPERATIONAL_MODEL_8,
+            ),
+            dashboard_app.MT5_OPERATIONAL_MODEL_8,
+        )
+        self.assertEqual(
+            dashboard_app._valid_mt5_operational_model(
+                dashboard_app.MT5_HISTORICAL_DYNAMIC_MODEL_8,
+            ),
+            dashboard_app.MT5_OPERATIONAL_MODEL_1,
+        )
+        self.assertEqual(
+            dashboard_app._valid_mt5_operational_model(
+                dashboard_app.MT5_OPERATIONAL_MODEL_12,
+            ),
+            dashboard_app.MT5_OPERATIONAL_MODEL_12,
+        )
+        self.assertEqual(
+            dashboard_app._valid_mt5_operational_model(
+                dashboard_app.MT5_HISTORICAL_DYNAMIC_MODEL_9,
+            ),
+            dashboard_app.MT5_OPERATIONAL_MODEL_1,
+        )
+        self.assertEqual(
+            dashboard_app._valid_mt5_operational_model(
+                dashboard_app.MT5_HISTORICAL_XAU_MODEL_16,
+            ),
+            dashboard_app.MT5_OPERATIONAL_MODEL_1,
+        )
+
+    def test_novo_m3_e_valido_e_m3_all_forex_retorna_para_m1(self) -> None:
+        self.assertEqual(
+            dashboard_app._valid_mt5_operational_model(
+                dashboard_app.MT5_OPERATIONAL_MODEL_3,
+            ),
+            dashboard_app.MT5_OPERATIONAL_MODEL_3,
+        )
+        self.assertEqual(
+            dashboard_app._valid_mt5_operational_model(
+                dashboard_app.MT5_HISTORICAL_ALL_FOREX_MODEL_3,
+            ),
+            dashboard_app.MT5_OPERATIONAL_MODEL_1,
+        )
+
+    def test_m15_forex_exibe_os_17_pares_durante_aquecimento(self) -> None:
+        rows = dashboard_app._mt5_theoretical_entry_source_rows(
+            [],
+            source_model_id=dashboard_app.MT5_OPERATIONAL_MODEL_15,
+        )
+
+        self.assertEqual(len(rows), 17)
+        self.assertNotIn("XAUUSD", {row["Par"] for row in rows})
+        self.assertTrue(all(row["TF"] == "M5" for row in rows))
+
+    def test_m8_a_m17_usam_rotulos_proprios(self) -> None:
+        expected = {
+            dashboard_app.MT5_OPERATIONAL_MODEL_8: "M8",
+            dashboard_app.MT5_OPERATIONAL_MODEL_9: "M9",
+            dashboard_app.MT5_OPERATIONAL_MODEL_10: "M10",
+            dashboard_app.MT5_OPERATIONAL_MODEL_11: "M11",
+            dashboard_app.MT5_OPERATIONAL_MODEL_12: "M12",
+            dashboard_app.MT5_OPERATIONAL_MODEL_13: "M13",
+            dashboard_app.MT5_OPERATIONAL_MODEL_14: "M14",
+            dashboard_app.MT5_OPERATIONAL_MODEL_15: "M15",
+            dashboard_app.MT5_OPERATIONAL_MODEL_16: "M16",
+            dashboard_app.MT5_OPERATIONAL_MODEL_17: "M17",
+        }
+
+        self.assertEqual(
+            {
+                model_id: dashboard_app._mt5_operational_model_short_label(model_id)
+                for model_id in expected
+            },
+            expected,
+        )
+
+    def test_m8_a_m12_usam_somente_xauusd_m5_na_tabela(self) -> None:
+        source = [
+            {"Par": "EURUSD", "TF": "H1", "Periodo de tempo": "H1"},
+            {"Par": "XAUUSD", "TF": "H1", "Periodo de tempo": "H1"},
+        ]
+
+        for model_id in (
+            dashboard_app.MT5_OPERATIONAL_MODEL_8,
+            dashboard_app.MT5_OPERATIONAL_MODEL_9,
+            dashboard_app.MT5_OPERATIONAL_MODEL_10,
+            dashboard_app.MT5_OPERATIONAL_MODEL_11,
+            dashboard_app.MT5_OPERATIONAL_MODEL_12,
+        ):
+            rows = dashboard_app._mt5_theoretical_entry_source_rows(
+                source,
+                source_model_id=model_id,
+            )
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["Par"], "XAUUSD")
+            self.assertEqual(rows[0]["TF"], "M5")
+            self.assertEqual(rows[0]["Periodo de tempo"], "M5")
+
+    def test_aquecimento_m8_e_espera_nao_bloqueiam_trade_plan(self) -> None:
+        for reason in (
+            "M8_CANDLES_INSUFICIENTES",
+            "M8_AQUECENDO_0_DE_52_CANDLES",
+            "M8_AGUARDA_NIVEL_RSI50_E_DIRECAO_SMA",
+        ):
+            gate = dashboard_app._entry_plan_gate(
+                {
+                    "Plano Research": reason,
+                    "Codigo Rejeicao": reason,
+                }
+            )
+            self.assertEqual(gate, f"AGUARDA: {reason}")
+
+    def test_m15_usa_gates_visuais_da_ordem_stop_real(self) -> None:
+        row = {
+            "Par": "XAUUSD",
+            "Periodo de tempo": "M5",
+            "Paridade Demo": "APROVADA",
+            "Candles recebidos": 1000,
+            "Candle atual modelo": "2026-08-06T13:20:00+00:00",
+            "Status indicadores": "M15_BUY_STOP_PRONTA",
+            "Leitura indicadores": "EMA20=2001 | EMA50=1999",
+            "Entrada Teorica": "SINAL_TEORICO",
+            "Direcao Teorica": "BUY",
+            "Plano Research": "PLANO_VALIDO",
+            "Preco Teorico": "2010.01",
+            "Stop Research": "2005.0",
+            "Alvo Research": "SEM_TP_FIXO",
+            "Ultimo preco": "2009.90",
+        }
+
+        entry_row = dashboard_app._forex_theoretical_entry_row(
+            row,
+            robot_online=True,
+            mt5_online=True,
+            operational_model=dashboard_app.MT5_HISTORICAL_XAU_MODEL_15,
+            execution_records=[],
+        )
+
+        self.assertEqual(entry_row["Regime"], "OK: direcao definida pela EMA20/50")
+        self.assertEqual(entry_row["Zona"], "OK: nao aplicavel ao M15")
+        self.assertEqual(entry_row["Preco no plano"], "OK: BUY STOP aguardando rompimento")
+        self.assertEqual(entry_row["Envio"], "PRONTO")
+
+    def test_m8_nao_herda_regime_legado_nem_exige_tp_fixo(self) -> None:
+        row = {
+            "Par": "XAUUSD",
+            "Periodo de tempo": "M5",
+            "Candles recebidos": 52,
+            "Candle atual modelo": "2026-08-11T07:10:00+00:00",
+            "Candle do Sinal": "2026-08-11T07:05:00+00:00",
+            "Status indicadores": "M8_SELL_MERCADO_PRONTA",
+            "Leitura indicadores": "SMA20=4410 | SMA50=4415 | RSI14=45",
+            "Entrada Teorica": "SINAL_TEORICO",
+            "Direcao Teorica": "SELL",
+            "Plano Research": "PLANO_VALIDO",
+            "Preco Teorico": "4408.0",
+            "Stop Research": "4420.0",
+            "Alvo Research": "SEM_TP_FIXO",
+        }
+
+        entry_row = dashboard_app._forex_theoretical_entry_row(
+            row,
+            robot_online=True,
+            mt5_online=True,
+            operational_model=dashboard_app.MT5_OPERATIONAL_MODEL_8,
+            execution_records=[],
+        )
+
+        self.assertEqual(entry_row["Dados TF"], "OK: 52 candles")
+        self.assertEqual(entry_row["Regime"], "OK: direcao definida pelo proprio setup")
+        self.assertEqual(entry_row["Zona"], "OK: nao aplicavel; regra incorporada ao setup")
+        self.assertEqual(entry_row["Preco no plano"], "OK: sem TP fixo; Full Exit pelo setup")
+        self.assertEqual(entry_row["Envio"], "PRONTO")
+
+    def test_m15_forex_nao_e_confundido_com_antigo_m15_xau(self) -> None:
+        row = {
+            "Par": "EURUSD",
+            "Periodo de tempo": "M5",
+            "Candles recebidos": 52,
+            "Candle atual modelo": "2026-08-11T07:10:00+00:00",
+            "Candle do Sinal": "2026-08-11T07:05:00+00:00",
+            "Status indicadores": "M15_DISTANCE_ATR_OK_SELL_MERCADO_PRONTA",
+            "Leitura indicadores": "SMA20=1.10 | SMA50=1.11 | RSI14=45",
+            "Entrada Teorica": "SINAL_TEORICO",
+            "Direcao Teorica": "SELL",
+            "Plano Research": "PLANO_VALIDO",
+            "Preco Teorico": "1.10",
+            "Stop Research": "1.11",
+            "Alvo Research": "SEM_TP_FIXO",
+        }
+
+        entry_row = dashboard_app._forex_theoretical_entry_row(
+            row,
+            robot_online=True,
+            mt5_online=True,
+            operational_model=dashboard_app.MT5_OPERATIONAL_MODEL_15,
+            execution_records=[],
+        )
+
+        self.assertEqual(entry_row["Regime"], "OK: direcao definida pelo proprio setup")
+        self.assertEqual(entry_row["Preco no plano"], "OK: sem TP fixo; Full Exit pelo setup")
+        self.assertEqual(entry_row["Envio"], "PRONTO")
+
+    def test_m14_forex_tambem_exibe_os_17_pares(self) -> None:
+        rows = dashboard_app._mt5_theoretical_entry_source_rows(
+            [],
+            source_model_id=dashboard_app.MT5_OPERATIONAL_MODEL_14,
+        )
+
+        self.assertEqual(len(rows), 17)
 
     def test_chaveamento_persiste_no_evento_antes_do_rerender(self) -> None:
         original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
@@ -1710,15 +1945,22 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertTrue(all(summaries))
         self.assertIn("Lab vencedor", summaries[0])
         self.assertIn("Trend Pullback", summaries[1])
-        self.assertIn("Continuacao de estrutura", summaries[2])
+        self.assertIn("XAUUSD/M5", summaries[2])
+        self.assertIn("RSI14>50", summaries[2])
         self.assertIn("Liquidity Reclaim", summaries[3])
         self.assertIn("consolidado", summaries[4])
-        self.assertIn("RR2 fixo", summaries[5])
-        self.assertIn("protecao dinamica", summaries[6])
-        self.assertIn("H1 -> M5", summaries[7])
-        self.assertIn("M15 -> M1", summaries[8])
-        self.assertIn("D1 -> M15", summaries[9])
-        self.assertIn("ALPHA001", summaries[10])
+        self.assertIn("nove novos pares", summaries[5])
+        self.assertIn("XAUUSD e BTCUSD", summaries[6])
+        self.assertIn("RSI14/50", summaries[7])
+        self.assertIn("ADX14 > 25", summaries[8])
+        self.assertIn("distancia SMA20/50", summaries[9])
+        self.assertIn("inclinacao SMA50", summaries[10])
+        self.assertIn("ADX + distancia/ATR", summaries[11])
+        self.assertIn("17 pares Forex/M5", summaries[12])
+        self.assertIn("base M13 + ADX14", summaries[13])
+        self.assertIn("base M13 + distancia", summaries[14])
+        self.assertIn("base M13 + inclinacao", summaries[15])
+        self.assertIn("ADX + distancia/ATR", summaries[16])
         self.assertIn("ALPHA016", summaries[19])
         self.assertIn("ALPHA015_M19_MIRROR", summaries[20])
         self.assertIn("Espelho M9", summaries[21])
@@ -1727,11 +1969,52 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "",
         )
 
-    def test_relatorio_ativo_renderiza_paineis_individuais_m1_a_m5(self) -> None:
+    def test_relatorio_ativo_renderiza_paineis_individuais_m1_a_m17(self) -> None:
         source = inspect.getsource(dashboard_app._exibir_evolucao_patrimonial_mt5)
 
-        self.assertIn("range(1, 6)", source)
-        self.assertNotIn("range(1, 23)", source)
+        self.assertEqual(
+            dashboard_app.MT5_ACTIVE_REPORT_MODEL_NUMBERS,
+            tuple(range(1, 18)),
+        )
+        self.assertIn("MT5_ACTIVE_REPORT_MODEL_NUMBERS", source)
+
+    def test_relatorio_m13_a_m17_separa_contratos_forex_dos_historicos(self) -> None:
+        active_rows = [
+            SimpleNamespace(operational_model=model_id, symbol="EURUSD")
+            for model_id in (
+                dashboard_app.MT5_OPERATIONAL_MODEL_13,
+                dashboard_app.MT5_OPERATIONAL_MODEL_14,
+                dashboard_app.MT5_OPERATIONAL_MODEL_15,
+                dashboard_app.MT5_OPERATIONAL_MODEL_16,
+                dashboard_app.MT5_OPERATIONAL_MODEL_17,
+            )
+        ]
+        retired_rows = [
+            SimpleNamespace(
+                operational_model=dashboard_app.MT5_HISTORICAL_DYNAMIC_MODEL_13,
+                symbol="EURUSD",
+            ),
+            SimpleNamespace(
+                operational_model=dashboard_app.MT5_HISTORICAL_DYNAMIC_MODEL_14,
+                symbol="EURUSD",
+            ),
+            SimpleNamespace(
+                operational_model=dashboard_app.MT5_HISTORICAL_XAU_MODEL_15,
+                symbol="XAUUSD",
+            ),
+            SimpleNamespace(
+                operational_model=dashboard_app.MT5_HISTORICAL_XAU_MODEL_16,
+                symbol="XAUUSD",
+            ),
+        ]
+        rows = active_rows + retired_rows
+
+        for offset, number in enumerate(range(13, 18)):
+            filtered = dashboard_app._mt5_rows_for_equity_model_selection(
+                rows,
+                f"M{number}",
+            )
+            self.assertEqual(filtered, [active_rows[offset]])
 
     def test_resumo_em_negociacao_soma_lucros_das_operacoes_abertas(self) -> None:
         rows = [
@@ -1989,15 +2272,20 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         service.refresh_lab_operational_decision_snapshot.return_value = {
             ("MODELO_11_ALPHA001_TREND_MOMENTUM", "EURUSD"): "WAIT"
         }
+        service.get_xau_m5_operational_decision_snapshot.return_value = {}
+        service.get_forex_m5_sma_rsi_decision_snapshot.return_value = {}
         service.get_mt5_forex_runtime_view_model.return_value = runtime_snapshot
 
         with (
-            patch.dict(os.environ, {}, clear=False),
+            patch.dict(
+                os.environ,
+                {"TRADERIA_MT5_INITIAL_LOAD_ENABLED": "1"},
+                clear=False,
+            ),
             patch.object(dashboard_app, "get_background_snapshot", return_value=None),
             patch.object(dashboard_app, "_load_mt5_forex_signals_locked") as load,
             patch.object(dashboard_app, "publish_background_snapshot") as publish,
         ):
-            os.environ.pop("TRADERIA_MT5_INITIAL_LOAD_ENABLED", None)
             dashboard_app.ensure_mt5_forex_initial_load(service)
 
         load.assert_called_once_with(service, timeframe="H1")
@@ -2012,14 +2300,32 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         rows = [
             SimpleNamespace(operational_model="MODELO_1_ALPHA_ATUAL"),
             SimpleNamespace(operational_model="MODELO_2_ESPELHO_BETA2_RR1"),
-            SimpleNamespace(operational_model="MODELO_3_RR3"),
+            SimpleNamespace(
+                operational_model="MODELO_3_XAU_M5_RSI50_FLIP",
+                symbol="XAUUSD",
+            ),
             SimpleNamespace(operational_model="MODELO_4_ESPELHO_M1"),
             SimpleNamespace(operational_model="MODELO_5_PRICE_ACTION"),
-            SimpleNamespace(operational_model="MODELO_6_ESPELHO_M5"),
+            SimpleNamespace(
+                operational_model="MODELO_6_LAB_FOREX_EXPANSION",
+                symbol="GBPNZD",
+            ),
+            SimpleNamespace(
+                operational_model="MODELO_7_LAB_XAU_BTC",
+                symbol="XAUUSD",
+            ),
             SimpleNamespace(operational_model="N/D"),
             SimpleNamespace(
                 operational_model="N/D",
                 plan_snapshot={"operational_model": "MODELO_2_ESPELHO_BETA2_RR1"},
+            ),
+            SimpleNamespace(
+                operational_model="MODELO_6_TREND_MOMENTUM_ORIGINAL",
+                symbol="EURUSD",
+            ),
+            SimpleNamespace(
+                operational_model="MODELO_7_TREND_MOMENTUM_DYNAMIC",
+                symbol="EURUSD",
             ),
         ]
 
@@ -2030,14 +2336,66 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         model4 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 4")
         model5 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 5")
         model6 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 6")
+        model7 = dashboard_app._mt5_rows_for_equity_model_filter(rows, "MODELO 7")
 
-        self.assertEqual(model0, [rows[6]])
+        self.assertEqual(model0, [rows[7]])
         self.assertEqual(model1, [rows[0]])
-        self.assertEqual(model2, [rows[1], rows[7]])
+        self.assertEqual(model2, [rows[1], rows[8]])
         self.assertEqual(model3, [rows[2]])
         self.assertEqual(model4, [rows[3]])
         self.assertEqual(model5, [rows[4]])
         self.assertEqual(model6, [rows[5]])
+        self.assertEqual(model7, [rows[6]])
+
+    def test_grafico_principal_nao_mistura_m6_m7_antigos_com_os_novos(self) -> None:
+        rows = [
+            SimpleNamespace(
+                operational_model="MODELO_6_LAB_FOREX_EXPANSION",
+                symbol="AUDCAD",
+            ),
+            SimpleNamespace(
+                operational_model="MODELO_7_LAB_XAU_BTC",
+                symbol="BTCUSD",
+            ),
+            SimpleNamespace(
+                operational_model="MODELO_6_TREND_MOMENTUM_ORIGINAL",
+                symbol="EURUSD",
+            ),
+            SimpleNamespace(
+                operational_model="MODELO_7_TREND_MOMENTUM_DYNAMIC",
+                symbol="EURUSD",
+            ),
+        ]
+
+        filtered = dashboard_app._mt5_rows_for_equity_model_selection(
+            rows,
+            "M6 + M7",
+        )
+
+        self.assertEqual(filtered, rows[:2])
+
+    def test_curva_m3_nova_exclui_historico_do_contrato_anterior(self) -> None:
+        rows = [
+            SimpleNamespace(
+                operational_model="MODELO_3_XAU_M5_RSI50_FLIP",
+                symbol="XAUUSD",
+            ),
+            SimpleNamespace(
+                operational_model="MODELO_3_LAB_ALPHA_SUGERIDA_2_PLUS",
+                symbol="EURUSD",
+            ),
+            SimpleNamespace(
+                operational_model="MODELO_3_LAB_ALL_FOREX_WINNERS",
+                symbol="XAUUSD",
+            ),
+        ]
+
+        filtered = dashboard_app._mt5_rows_for_equity_model_filter(
+            rows,
+            "MODELO 3",
+        )
+
+        self.assertEqual(filtered, [rows[0]])
 
     def test_saldo_inicial_mt5_default_visual_e_zero(self) -> None:
         source = inspect.getsource(dashboard_app._exibir_evolucao_patrimonial_mt5)
@@ -3293,8 +3651,8 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         eurusd_rows = [row for row in rows if row["Par"] == "EURUSD"]
         gbpusd_rows = [row for row in rows if row["Par"] == "GBPUSD"]
 
-        self.assertEqual(len(eurusd_rows), 16)
-        self.assertEqual(len(gbpusd_rows), 16)
+        self.assertEqual(len(eurusd_rows), 17)
+        self.assertEqual(len(gbpusd_rows), 17)
         self.assertEqual(
             [
                 (row["Alpha de entrada"], row["Confirmacao Historica"])
@@ -3344,7 +3702,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             eurusd_rows[1]["Momentum enfraquecendo"],
             "V 18.00% | NV 48.00% | Dif +30%",
         )
-        self.assertEqual(eurusd_rows[-1]["Alpha de entrada"], "ALPHA016")
+        self.assertEqual(eurusd_rows[-1]["Alpha de entrada"], "ALPHA017")
         self.assertEqual(eurusd_rows[-1]["Trades observados"], 0)
         self.assertEqual(eurusd_rows[-1]["RSI divergente"], "N/D")
         self.assertEqual(gbpusd_rows[0]["Beta Stop"], "BETA005 | ATR_TRAILING_ONLY | ATR_TRAILING_STOP_MANAGER")
@@ -3846,6 +4204,36 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             )
         )
 
+    def test_relatorio_exclui_plano_local_sem_negociacao_confirmada_no_mt5(self) -> None:
+        row = SimpleNamespace(
+            operation_status="NAO_ENCONTRADA",
+            mt5_found=False,
+            mt5_ticket=None,
+            mt5_side="N/D",
+            side="BUY",
+            mt5_realized_profit=0.0,
+            projected_loss=-102500.0,
+        )
+
+        self.assertFalse(dashboard_app._is_mt5_actual_operation(row))
+
+    def test_relatorio_mantem_operacao_fechada_confirmada_por_ticket_mt5(self) -> None:
+        row = SimpleNamespace(
+            operation_status="FECHADA/HISTORICO",
+            mt5_found=True,
+            mt5_ticket=356419468,
+            mt5_side="BUY",
+            side="N/D",
+        )
+
+        self.assertTrue(dashboard_app._is_mt5_actual_operation(row))
+        self.assertEqual(dashboard_app._mt5_trade_side_label(row), "BUY")
+
+    def test_lado_local_nao_e_ocultado_por_marcador_nd_do_mt5(self) -> None:
+        row = SimpleNamespace(mt5_side="N/D", side="SELL")
+
+        self.assertEqual(dashboard_app._mt5_trade_side_label(row), "SELL")
+
     def test_diagnostico_mt5_nao_liga_ciclo_automatico(self) -> None:
         original_st = dashboard_app.st
         original_render_diagnostic = dashboard_app._exibir_mt5_connection_diagnostic
@@ -3939,7 +4327,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         finally:
             dashboard_app.st.session_state = previous_session_state
 
-    def test_robo_demo_online_global_cycle_roda_em_qualquer_aba(self) -> None:
+    def test_robo_demo_global_consume_snapshot_sem_rodar_ciclo_na_interface(self) -> None:
         class FakeSessionState(dict):
             pass
 
@@ -3977,12 +4365,12 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
             with patch.object(
                 dashboard_app,
-                "_demo_robot_background_cycle_active",
-                return_value=False,
+                "get_background_snapshot",
+                return_value=None,
             ):
                 dashboard_app._maybe_run_demo_robot_global_cycle(service, data)
 
-            self.assertEqual(service.cycles, [("TODOS", "M15")])
+            self.assertEqual(service.cycles, [])
         finally:
             dashboard_app.st.session_state = previous_session_state
 
@@ -4081,6 +4469,30 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertIs(refreshed_forex, shared)
         self.assertIs(refreshed_data.mt5_forex_signals, shared)
+
+    def test_forex_fragment_sem_snapshot_nao_le_mt5_na_interface(self) -> None:
+        previous = SimpleNamespace(refresh_id=1)
+        data = SimpleNamespace(mt5_forex_signals=previous)
+
+        class FakeService:
+            def get_light_dashboard_view_model(self):
+                self.fail("A interface nao deve reconstruir o ViewModel.")
+
+        with patch.object(
+            dashboard_app,
+            "_mt5_shared_background_cycle_active",
+            return_value=False,
+        ):
+            refreshed_data, refreshed_forex = (
+                dashboard_app._maybe_run_mt5_forex_auto_cycle(
+                    FakeService(),
+                    data,
+                    previous,
+                )
+            )
+
+        self.assertIs(refreshed_data, data)
+        self.assertIs(refreshed_forex, previous)
 
     def test_robo_demo_online_nao_desarma_persistido_quando_backend_falha(self) -> None:
         class FakeSessionState(dict):

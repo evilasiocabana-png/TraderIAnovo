@@ -7,6 +7,12 @@ from datetime import datetime, time
 from typing import Any, Protocol
 
 from core.decision_pipeline import DecisionPipeline
+from application.model15_xau_m5_breakout import MODEL_15_ID
+from application.model16_xau_m5_price_ema_breakout import MODEL_16_ID
+from application.model3_xau_m5_rsi50_flip import MODEL_3_ID
+from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
+from application.xau_m5_sma_rsi_model_family import XAU_TREND_FILTER_MODEL_IDS
+from application.forex_m5_sma_rsi_model_family import FOREX_SMA_RSI_MODEL_IDS
 from domain.contracts.decision_context import DecisionContext
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
@@ -433,6 +439,19 @@ class DemoExecutionService:
         return bool(self.provider.has_open_position(order.symbol))
 
     def _has_required_stop_and_target(self, order: ExecutionOrder) -> bool:
+        if str(getattr(order, "operational_model", "") or "").upper() in {
+            MODEL_3_ID,
+            MODEL_8_ID,
+            MODEL_15_ID,
+            MODEL_16_ID,
+            *XAU_TREND_FILTER_MODEL_IDS,
+            *FOREX_SMA_RSI_MODEL_IDS,
+        }:
+            if order.side == "BUY":
+                return order.stop < order.entry_price
+            if order.side == "SELL":
+                return order.entry_price < order.stop
+            return False
         if order.side == "BUY":
             return order.stop < order.entry_price < order.target
         if order.side == "SELL":

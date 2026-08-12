@@ -9,6 +9,7 @@ import math
 import os
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import threading
@@ -19,6 +20,8 @@ import warnings
 
 _MT5_EXECUTION_LOG_CACHE_LOCK = threading.Lock()
 _MT5_EXECUTION_LOG_CACHE: dict[str, tuple[int, list[dict[str, Any]]]] = {}
+_MODEL15_RUNTIME_STATE_PATH = Path(".traderia") / "model15_runtime_state.json"
+_MODEL16_RUNTIME_STATE_PATH = Path(".traderia") / "model16_runtime_state.json"
 
 from application.configuration_service import (
     ConfigurationData,
@@ -30,12 +33,12 @@ from application.lab_operational_model_service import (
     LabOperationalModelService,
     OFFICIAL_ALPHA_MODEL_IDS,
     MODEL_2_ID as MT5_OPERATIONAL_MODEL_2,
-    MODEL_3_ID as MT5_OPERATIONAL_MODEL_3,
+    MODEL_3_ID as MT5_HISTORICAL_MODEL_3,
     MODEL_4_ID as MT5_OPERATIONAL_MODEL_4,
     MODEL_5_ID as MT5_OPERATIONAL_MODEL_5,
-    MODEL_8_ID as MT5_OPERATIONAL_MODEL_8,
-    MODEL_9_ID as MT5_OPERATIONAL_MODEL_9,
-    MODEL_10_ID as MT5_OPERATIONAL_MODEL_10,
+    MODEL_8_ID as MT5_HISTORICAL_MODEL_8,
+    MODEL_9_ID as MT5_HISTORICAL_MODEL_9,
+    MODEL_10_ID as MT5_HISTORICAL_MODEL_10,
     MODEL_22_ID as MT5_OPERATIONAL_MODEL_22,
 )
 from application.model6_original_trend_momentum import (
@@ -47,7 +50,7 @@ from application.model6_original_trend_momentum import (
     MODEL_6_CANDLES,
     MODEL_6_EXIT_POLICY,
     MODEL_6_CONFIDENCE,
-    MODEL_6_ID as MT5_OPERATIONAL_MODEL_6,
+    MODEL_6_ID as MT5_HISTORICAL_MODEL_6,
     MODEL_6_LEGACY_ID,
     MODEL_6_MINIMUM_DISTANCE_PERCENT,
     MODEL_6_RISK_REWARD,
@@ -64,10 +67,121 @@ from application.model7_trend_momentum_dynamic import (
     MODEL_7_CANDLES,
     MODEL_7_CONFIDENCE,
     MODEL_7_EXIT_POLICY,
-    MODEL_7_ID as MT5_OPERATIONAL_MODEL_7,
+    MODEL_7_ID as MT5_HISTORICAL_MODEL_7,
     MODEL_7_RISK_REWARD,
     MODEL_7_TIMEFRAME,
     model7_trend_momentum_parameters,
+)
+from application.model3_all_forex_winners import (
+    MODEL_3_ID as MT5_HISTORICAL_ALL_FOREX_MODEL_3,
+)
+from application.model3_xau_m5_rsi50_flip import (
+    MODEL_3_ALPHA_ID,
+    MODEL_3_ALPHA_VERSION,
+    MODEL_3_BETA_ID,
+    MODEL_3_BETA_MODE,
+    MODEL_3_BETA_VERSION,
+    MODEL_3_ID as MT5_OPERATIONAL_MODEL_3,
+    MODEL_3_STOP_MANAGEMENT,
+    MODEL_3_SYMBOL,
+    MODEL_3_TIMEFRAME,
+    Model3EntryDecision,
+    evaluate_model3_entry,
+    model3_parameters,
+)
+from application.model6_lab_forex_expansion import (
+    MODEL_6_ID as MT5_OPERATIONAL_MODEL_6,
+)
+from application.model7_lab_alternative_markets import (
+    MODEL_7_ID as MT5_OPERATIONAL_MODEL_7,
+)
+from application.model8_xau_m5_sma_rsi_reentry import (
+    MODEL_8_ALPHA_ID,
+    MODEL_8_ALPHA_VERSION,
+    MODEL_8_BETA_ID,
+    MODEL_8_BETA_VERSION,
+    MODEL_8_ID as MT5_OPERATIONAL_MODEL_8,
+    MODEL_8_STOP_MANAGEMENT,
+    MODEL_8_SYMBOL,
+    MODEL_8_TIMEFRAME,
+    Model8EntryDecision,
+    evaluate_model8_entry,
+    evaluate_model8_native_entry,
+    load_model8_runtime_state,
+    model8_parameters,
+)
+from application.xau_m5_sma_rsi_model_family import (
+    MODEL_9_ID as MT5_OPERATIONAL_MODEL_9,
+    MODEL_10_ID as MT5_OPERATIONAL_MODEL_10,
+    MODEL_11_ID as MT5_OPERATIONAL_MODEL_11,
+    MODEL_12_ID as MT5_OPERATIONAL_MODEL_12,
+    XAU_TREND_FILTER_MODEL_IDS,
+    evaluate_xau_trend_filter_entry,
+    evaluate_xau_native_trend_filter_entry,
+    trend_filter_spec,
+    xau_trend_filter_parameters,
+)
+from application.model15_xau_m5_breakout import (
+    MODEL_15_ALPHA_ID,
+    MODEL_15_ALPHA_VERSION,
+    MODEL_15_BETA_ID,
+    MODEL_15_BETA_VERSION,
+    MODEL_15_ID as MT5_HISTORICAL_XAU_MODEL_15,
+    MODEL_15_PIP_SIZE,
+    MODEL_15_STOP_MANAGEMENT,
+    MODEL_15_SYMBOL,
+    MODEL_15_TIMEFRAME,
+    Model15EntryDecision,
+    evaluate_model15_entry,
+    model15_stop_management_parameters,
+)
+from application.model16_xau_m5_price_ema_breakout import (
+    MODEL_16_ALPHA_ID,
+    MODEL_16_ALPHA_VERSION,
+    MODEL_16_BETA_ID,
+    MODEL_16_BETA_VERSION,
+    MODEL_16_ID as MT5_HISTORICAL_XAU_MODEL_16,
+    MODEL_16_PIP_SIZE,
+    MODEL_16_STOP_MANAGEMENT,
+    MODEL_16_SYMBOL,
+    MODEL_16_TIMEFRAME,
+    Model16EntryDecision,
+    evaluate_model16_entry,
+    model16_stop_management_parameters,
+)
+from application.dynamic_exit_model_family import (
+    DYNAMIC_EXIT_BETA_MODE,
+    DYNAMIC_EXIT_MODEL_IDS,
+    DYNAMIC_EXIT_POLICY,
+    MODEL_8_ID as MT5_HISTORICAL_DYNAMIC_MODEL_8,
+    MODEL_9_ID as MT5_HISTORICAL_DYNAMIC_MODEL_9,
+    MODEL_10_ID as MT5_HISTORICAL_DYNAMIC_MODEL_10,
+    MODEL_11_ID as MT5_HISTORICAL_DYNAMIC_MODEL_11,
+    MODEL_12_ID as MT5_HISTORICAL_DYNAMIC_MODEL_12,
+    MODEL_13_ID as MT5_HISTORICAL_DYNAMIC_MODEL_13,
+    MODEL_14_ID as MT5_HISTORICAL_DYNAMIC_MODEL_14,
+    dynamic_exit_model_spec,
+    dynamic_exit_parameters,
+    dynamic_exit_source_model,
+)
+from application.forex_m5_sma_rsi_model_family import (
+    MODEL_13_ID as MT5_OPERATIONAL_MODEL_13,
+    MODEL_14_ID as MT5_OPERATIONAL_MODEL_14,
+    MODEL_15_ID as MT5_OPERATIONAL_MODEL_15,
+    MODEL_16_ID as MT5_OPERATIONAL_MODEL_16,
+    MODEL_17_ID as MT5_OPERATIONAL_MODEL_17,
+    FOREX_SMA_RSI_MODEL_IDS,
+    FOREX_SMA_RSI_PAIRS,
+    FOREX_SMA_RSI_TIMEFRAME,
+    evaluate_forex_sma_rsi_entry,
+    evaluate_forex_native_sma_rsi_entry,
+    forex_sma_rsi_parameters,
+    forex_sma_rsi_spec,
+    load_forex_sma_rsi_runtime_state,
+)
+from application.mt5_native_m5_indicators import (
+    load_native_m5_indicator_snapshot,
+    load_native_m5_indicator_snapshots,
 )
 from application.cost_manager import CostManager
 from application.data_readiness_gate_log import (
@@ -149,13 +263,31 @@ ENTRY_FILTER_SUPPORTED_INDICATORS = {
 }
 MT5_OPERATIONAL_MODEL_1 = "MODELO_1_ALPHA_ATUAL"
 MT5_OPERATIONAL_MODEL_ALL = "TODOS_MODELOS"
+MT5_OPERATIONAL_MODEL_8_TO_17 = "MODELOS_8_A_17"
 MT5_OPERATIONAL_MODEL_6_ENABLED = True
 MT5_OPERATIONAL_MODEL_7_ENABLED = True
 MT5_LAB_OPERATIONAL_MODELS = {
     MT5_OPERATIONAL_MODEL_2,
-    MT5_OPERATIONAL_MODEL_3,
     MT5_OPERATIONAL_MODEL_4,
     MT5_OPERATIONAL_MODEL_5,
+}
+MT5_SCOPED_M1_OPERATIONAL_MODELS = {
+    MT5_OPERATIONAL_MODEL_6,
+    MT5_OPERATIONAL_MODEL_7,
+}
+MT5_DYNAMIC_EXIT_OPERATIONAL_MODELS = set(DYNAMIC_EXIT_MODEL_IDS)
+MT5_CUSTOM_OPERATIONAL_MODELS = {
+    MT5_OPERATIONAL_MODEL_3,
+    MT5_OPERATIONAL_MODEL_8,
+    MT5_OPERATIONAL_MODEL_9,
+    MT5_OPERATIONAL_MODEL_10,
+    MT5_OPERATIONAL_MODEL_11,
+    MT5_OPERATIONAL_MODEL_12,
+    MT5_OPERATIONAL_MODEL_13,
+    MT5_OPERATIONAL_MODEL_14,
+    MT5_OPERATIONAL_MODEL_15,
+    MT5_OPERATIONAL_MODEL_16,
+    MT5_OPERATIONAL_MODEL_17,
 }
 MT5_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_1,
@@ -163,23 +295,57 @@ MT5_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_3,
     MT5_OPERATIONAL_MODEL_4,
     MT5_OPERATIONAL_MODEL_5,
-)
-MT5_RETIRED_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_6,
     MT5_OPERATIONAL_MODEL_7,
     MT5_OPERATIONAL_MODEL_8,
     MT5_OPERATIONAL_MODEL_9,
     MT5_OPERATIONAL_MODEL_10,
+    MT5_OPERATIONAL_MODEL_11,
+    MT5_OPERATIONAL_MODEL_12,
+    MT5_OPERATIONAL_MODEL_13,
+    MT5_OPERATIONAL_MODEL_14,
+    MT5_OPERATIONAL_MODEL_15,
+    MT5_OPERATIONAL_MODEL_16,
+    MT5_OPERATIONAL_MODEL_17,
+)
+MT5_OPERATIONAL_MODEL_8_TO_17_IDS = (
+    MT5_OPERATIONAL_MODEL_8,
+    MT5_OPERATIONAL_MODEL_9,
+    MT5_OPERATIONAL_MODEL_10,
+    MT5_OPERATIONAL_MODEL_11,
+    MT5_OPERATIONAL_MODEL_12,
+    MT5_OPERATIONAL_MODEL_13,
+    MT5_OPERATIONAL_MODEL_14,
+    MT5_OPERATIONAL_MODEL_15,
+    MT5_OPERATIONAL_MODEL_16,
+    MT5_OPERATIONAL_MODEL_17,
+)
+MT5_RETIRED_OPERATIONAL_MODEL_IDS = (
+    MT5_HISTORICAL_MODEL_3,
+    MT5_HISTORICAL_ALL_FOREX_MODEL_3,
+    MT5_HISTORICAL_MODEL_8,
+    MT5_HISTORICAL_MODEL_9,
+    MT5_HISTORICAL_MODEL_10,
+    MT5_HISTORICAL_DYNAMIC_MODEL_8,
+    MT5_HISTORICAL_DYNAMIC_MODEL_9,
+    MT5_HISTORICAL_DYNAMIC_MODEL_10,
+    MT5_HISTORICAL_DYNAMIC_MODEL_11,
+    MT5_HISTORICAL_DYNAMIC_MODEL_12,
+    MT5_HISTORICAL_DYNAMIC_MODEL_13,
+    MT5_HISTORICAL_DYNAMIC_MODEL_14,
+    MT5_HISTORICAL_XAU_MODEL_15,
+    MT5_HISTORICAL_XAU_MODEL_16,
     *OFFICIAL_ALPHA_MODEL_IDS,
     MT5_OPERATIONAL_MODEL_22,
 )
 LEGACY_MT5_OPERATIONAL_MODELS = {
     "MODELO_2_ESPELHO_BETA2_RR1": MT5_OPERATIONAL_MODEL_2,
-    "MODELO_3_RR3": MT5_OPERATIONAL_MODEL_3,
     "MODELO_4_ESPELHO_M1": MT5_OPERATIONAL_MODEL_4,
     "MODELO_5_PRICE_ACTION": MT5_OPERATIONAL_MODEL_5,
     "MODELO_5_PESQUISA_CONSOLIDADO": MT5_OPERATIONAL_MODEL_5,
     MODEL_6_LEGACY_ID: MT5_OPERATIONAL_MODEL_6,
+    MT5_HISTORICAL_MODEL_6: MT5_OPERATIONAL_MODEL_6,
+    MT5_HISTORICAL_MODEL_7: MT5_OPERATIONAL_MODEL_7,
 }
 MT5_OPERATIONAL_MODEL_5_ENTRY_TIMEFRAME = "M5"
 MT5_RR3_MIN_SAMPLE_SIZE = 150
@@ -213,6 +379,11 @@ from application.paper_trading_service import PaperTradingReport
 from application.paper_trading_service import PaperTradingService
 from application.regime_service import RegimeData, RegimeService
 from domain.candle import Candle
+from domain.market_universe import (
+    MODEL_1_FOREX_PAIRS,
+    MODEL_6_FOREX_EXPANSION_PAIRS,
+    MODEL_7_ALTERNATIVE_MARKETS,
+)
 
 
 MT5_LAB_TARGET_CONFIDENCE = 0.70
@@ -246,6 +417,7 @@ from core.mt5_process_probe import (
     probe_mt5_initialize,
     resolve_mt5_terminal_path,
 )
+from core.mt5_external_process_gate import mt5_external_process_slot
 from core.operation_session import OperationSession
 from domain.contracts.decision_context import DecisionContext
 from domain.contracts.dynamic_exit import (
@@ -803,6 +975,7 @@ class DashboardService:
     mt5_trade_open_ticket_cache: set[int] = field(default_factory=set)
     mt5_trade_history_cache_status: str = "SEM_CACHE"
     mt5_trade_history_cache_message: str = "Historico MT5 ainda nao carregado."
+    mt5_trade_audit_report_cache: DashboardMT5TradeAuditViewModel | None = None
     mt5_demo_execution_records_cache: list[dict[str, Any]] = field(
         default_factory=list
     )
@@ -837,6 +1010,8 @@ class DashboardService:
     mt5_server_timestamp_cache_value: str = "N/D"
     mt5_server_timestamp_cache_started: float = 0.0
     mt5_visual_auto_export_last_run: float = 0.0
+    model15_runtime_state_signature: str = ""
+    model16_runtime_state_signature: str = ""
     session_service: SessionService = SessionService(
         OperationSession("N/D", "09:00", "18:00")
     )
@@ -881,7 +1056,11 @@ class DashboardService:
         """Seleciona qual modelo pode enviar ordem demo MT5 neste ciclo."""
         normalized = str(model or MT5_OPERATIONAL_MODEL_1).upper()
         normalized = LEGACY_MT5_OPERATIONAL_MODELS.get(normalized, normalized)
-        if normalized not in {*MT5_OPERATIONAL_MODEL_IDS, MT5_OPERATIONAL_MODEL_ALL}:
+        if normalized not in {
+            *MT5_OPERATIONAL_MODEL_IDS,
+            MT5_OPERATIONAL_MODEL_ALL,
+            MT5_OPERATIONAL_MODEL_8_TO_17,
+        }:
             normalized = MT5_OPERATIONAL_MODEL_1
         object.__setattr__(self, "mt5_operational_model", normalized)
 
@@ -891,7 +1070,11 @@ class DashboardService:
             or MT5_OPERATIONAL_MODEL_1
         ).upper()
         migrated = LEGACY_MT5_OPERATIONAL_MODELS.get(selected, selected)
-        if migrated not in {*MT5_OPERATIONAL_MODEL_IDS, MT5_OPERATIONAL_MODEL_ALL}:
+        if migrated not in {
+            *MT5_OPERATIONAL_MODEL_IDS,
+            MT5_OPERATIONAL_MODEL_ALL,
+            MT5_OPERATIONAL_MODEL_8_TO_17,
+        }:
             return MT5_OPERATIONAL_MODEL_1
         return migrated
 
@@ -922,7 +1105,24 @@ class DashboardService:
         selected = self.get_mt5_operational_model()
         if selected == MT5_OPERATIONAL_MODEL_ALL:
             return MT5_OPERATIONAL_MODEL_IDS
+        if selected == MT5_OPERATIONAL_MODEL_8_TO_17:
+            return MT5_OPERATIONAL_MODEL_8_TO_17_IDS
         return (selected,)
+
+    def _mt5_multi_model_selection_active(self) -> bool:
+        return self.get_mt5_operational_model() in {
+            MT5_OPERATIONAL_MODEL_ALL,
+            MT5_OPERATIONAL_MODEL_8_TO_17,
+        }
+
+    def _mt5_entry_source_models_to_evaluate(self) -> tuple[str, ...]:
+        """Collapse dynamic variants onto their fixed entry calculations."""
+        sources: list[str] = []
+        for model_id in self._mt5_operational_models_to_evaluate():
+            source = dynamic_exit_source_model(model_id) or model_id
+            if source not in sources:
+                sources.append(source)
+        return tuple(sources)
 
     def get_lab_operational_decision_snapshot(self) -> dict[tuple[str, str], object]:
         """Expoe somente decisoes compactas ja calculadas pelo ciclo MT5."""
@@ -934,7 +1134,7 @@ class DashboardService:
         """Atualiza o monitor com candles ja coletados, sem nova leitura MT5."""
         selected_models = tuple(
             model_id
-            for model_id in self._mt5_operational_models_to_evaluate()
+            for model_id in self._mt5_entry_source_models_to_evaluate()
             if model_id != MT5_OPERATIONAL_MODEL_1
         )
         if not selected_models:
@@ -954,40 +1154,12 @@ class DashboardService:
             candles_by_market = {}
         refreshed: dict[tuple[str, str], object] = {}
         for model_id in selected_models:
-            if model_id == MT5_OPERATIONAL_MODEL_6:
-                for pair in SUPPORTED_MT5_SYMBOLS:
-                    source_row = rows_by_pair.get(pair)
-                    decision = self._mt5_model6_original_decision(
-                        pair,
-                        current_price=(
-                            getattr(source_row, "last_price", None)
-                            if source_row is not None
-                            else None
-                        ),
-                        candles_by_market=candles_by_market,
-                    )
-                    refreshed[(MT5_OPERATIONAL_MODEL_6, pair)] = decision
+            if model_id in MT5_CUSTOM_OPERATIONAL_MODELS:
+                # M15 usa diretamente o snapshot XAUUSD/M5 e nao pertence ao
+                # manifesto do Lab operacional M2/M4/M5.
                 continue
-            if model_id == MT5_OPERATIONAL_MODEL_7:
-                for pair in SUPPORTED_MT5_SYMBOLS:
-                    source_row = rows_by_pair.get(pair)
-                    base_decision = refreshed.get(
-                        (MT5_OPERATIONAL_MODEL_6, pair)
-                    )
-                    decision = (
-                        self._mt5_model7_decision_from_base(base_decision)
-                        if base_decision is not None
-                        else self._mt5_model7_dynamic_decision(
-                            pair,
-                            current_price=(
-                                getattr(source_row, "last_price", None)
-                                if source_row is not None
-                                else None
-                            ),
-                            candles_by_market=candles_by_market,
-                        )
-                    )
-                    refreshed[(MT5_OPERATIONAL_MODEL_7, pair)] = decision
+            if model_id in MT5_SCOPED_M1_OPERATIONAL_MODELS:
+                # M3/M6/M7 reuse the M1 Lab row already calculated in this cycle.
                 continue
             for pair in self.lab_operational_model_service.results(model_id):
                 source_row = rows_by_pair.get(pair)
@@ -1291,6 +1463,41 @@ class DashboardService:
         timeframe: str = "M1",
     ) -> MT5ForexSignalDashboard:
         """Atualiza leitura Forex MT5 em modo leve e somente analise."""
+        selected_models = self._mt5_entry_source_models_to_evaluate()
+        self._seed_operational_m5_from_local_history(selected_models)
+        ensure_connection = getattr(
+            self.mt5_market_data_service,
+            "ensure_provider_connection",
+            None,
+        )
+        if callable(ensure_connection):
+            # O aquecimento M5 ocorre antes do lote principal. No provider
+            # in-process a sessao precisa estar inicializada para symbol_info
+            # e copy_rates_from_pos responderem nesse primeiro passo.
+            ensure_connection()
+        if MT5_OPERATIONAL_MODEL_3 in selected_models:
+            # Aquece M5 antes do lote principal para nao perder o gate externo
+            # entre a leitura H1 e a leitura suplementar.
+            self.mt5_market_data_service.refresh_supplemental_forex_candles(
+                {MODEL_8_SYMBOL: {MODEL_8_TIMEFRAME}},
+                full_count=52,
+            )
+        if {
+            MT5_OPERATIONAL_MODEL_8,
+            MT5_OPERATIONAL_MODEL_9,
+            MT5_OPERATIONAL_MODEL_10,
+            MT5_OPERATIONAL_MODEL_11,
+            MT5_OPERATIONAL_MODEL_12,
+        }.intersection(selected_models):
+            self.mt5_market_data_service.refresh_supplemental_forex_candles(
+                {MODEL_8_SYMBOL: {MODEL_8_TIMEFRAME}},
+                full_count=52,
+            )
+        if set(FOREX_SMA_RSI_MODEL_IDS).intersection(selected_models):
+            self.mt5_market_data_service.refresh_supplemental_forex_candles(
+                {pair: {FOREX_SMA_RSI_TIMEFRAME} for pair in FOREX_SMA_RSI_PAIRS},
+                full_count=52,
+            )
         timeframes_by_pair = self._mt5_lab_timeframes_by_pair()
         if timeframes_by_pair and hasattr(
             self.mt5_market_data_service,
@@ -1304,56 +1511,130 @@ class DashboardService:
             data = self.mt5_market_data_service.load_forex_signal_dashboard(
                 timeframe=timeframe,
             )
-        selected_models = self._mt5_operational_models_to_evaluate()
         researched_models = tuple(
             model
             for model in selected_models
-            if model
-            not in {
-                MT5_OPERATIONAL_MODEL_1,
-                MT5_OPERATIONAL_MODEL_6,
-                MT5_OPERATIONAL_MODEL_7,
-            }
+            if model != MT5_OPERATIONAL_MODEL_1
+            and model not in MT5_SCOPED_M1_OPERATIONAL_MODELS
+            and model not in MT5_CUSTOM_OPERATIONAL_MODELS
         )
         required = (
             self.lab_operational_model_service.required_timeframes(researched_models)
             if researched_models
             else {}
         )
-        if (
-            MT5_OPERATIONAL_MODEL_6 in selected_models
-            or MT5_OPERATIONAL_MODEL_7 in selected_models
-        ):
-            for pair in SUPPORTED_MT5_SYMBOLS:
-                required.setdefault(pair, set()).add(MODEL_6_TIMEFRAME)
         if required:
             self.mt5_market_data_service.refresh_supplemental_forex_candles(
                 required,
-                full_count=(
-                    max(MODEL_6_CANDLES, MODEL_7_CANDLES)
-                    if (
-                        MT5_OPERATIONAL_MODEL_6 in selected_models
-                        or MT5_OPERATIONAL_MODEL_7 in selected_models
-                    )
-                    else 500
-                ),
+                full_count=500,
             )
         self._auto_export_mt5_visual_signals()
         return data
 
+    def _seed_operational_m5_from_local_history(
+        self,
+        selected_models: tuple[str, ...],
+    ) -> None:
+        """Preaquece M3 e M8-M17 com 52 velas locais sem liberar dado stale."""
+        requested: set[str] = set()
+        if {
+            MT5_OPERATIONAL_MODEL_3,
+            MT5_OPERATIONAL_MODEL_8,
+            MT5_OPERATIONAL_MODEL_9,
+            MT5_OPERATIONAL_MODEL_10,
+            MT5_OPERATIONAL_MODEL_11,
+            MT5_OPERATIONAL_MODEL_12,
+        }.intersection(selected_models):
+            requested.add(MODEL_8_SYMBOL)
+        if set(FOREX_SMA_RSI_MODEL_IDS).intersection(selected_models):
+            requested.update(FOREX_SMA_RSI_PAIRS)
+        candles_by_market = getattr(
+            self.mt5_market_data_service,
+            "latest_forex_candles",
+            {},
+        )
+        missing = {
+            pair
+            for pair in requested
+            if len(list(candles_by_market.get((pair, "M5"), []) or [])) < 52
+        }
+        if not missing:
+            return
+        database_path = self.mt5_research_history_database_path()
+        if not database_path.exists():
+            return
+        seeded: dict[tuple[str, str], list[Candle]] = {}
+        try:
+            uri = f"file:{database_path.resolve().as_posix()}?mode=ro"
+            with sqlite3.connect(uri, uri=True, timeout=3.0) as connection:
+                for pair in sorted(missing):
+                    records = connection.execute(
+                        """
+                        SELECT candle_time, open, high, low, close, volume
+                        FROM mt5_history_candles
+                        WHERE pair = ? AND timeframe = 'M5'
+                        ORDER BY candle_time DESC
+                        LIMIT 52
+                        """,
+                        (pair,),
+                    ).fetchall()
+                    if len(records) != 52:
+                        continue
+                    seeded[(pair, "M5")] = [
+                        Candle(
+                            data=str(candle_time),
+                            abertura=float(open_price),
+                            maxima=float(high),
+                            minima=float(low),
+                            fechamento=float(close),
+                            volume=int(volume or 0),
+                        )
+                        for (
+                            candle_time,
+                            open_price,
+                            high,
+                            low,
+                            close,
+                            volume,
+                        ) in reversed(records)
+                    ]
+        except sqlite3.Error:
+            return
+        seed = getattr(
+            self.mt5_market_data_service,
+            "seed_supplemental_forex_candles",
+            None,
+        )
+        if callable(seed):
+            seed(seeded)
+
     def _mt5_lab_timeframes_by_pair(self) -> dict[str, str]:
         selected = self.get_mt5_operational_model()
+        selected = dynamic_exit_source_model(selected) or selected
+        if selected in FOREX_SMA_RSI_MODEL_IDS:
+            return {pair: FOREX_SMA_RSI_TIMEFRAME for pair in FOREX_SMA_RSI_PAIRS}
+        if selected in {
+            MT5_OPERATIONAL_MODEL_3,
+            MT5_OPERATIONAL_MODEL_8,
+            MT5_OPERATIONAL_MODEL_9,
+            MT5_OPERATIONAL_MODEL_10,
+            MT5_OPERATIONAL_MODEL_11,
+            MT5_OPERATIONAL_MODEL_12,
+        }:
+            return {MODEL_8_SYMBOL: MODEL_8_TIMEFRAME}
         if selected in MT5_LAB_OPERATIONAL_MODELS:
             return self.lab_operational_model_service.timeframes_by_pair(selected)
-        if selected in {
-            MT5_OPERATIONAL_MODEL_6,
-            MT5_OPERATIONAL_MODEL_7,
-        }:
-            return {pair: MODEL_6_TIMEFRAME for pair in SUPPORTED_MT5_SYMBOLS}
         research = self.get_mt5_research_constants()
         timeframes: dict[str, str] = {}
+        allowed_pairs: set[str] | None = None
+        if selected == MT5_OPERATIONAL_MODEL_6:
+            allowed_pairs = set(MODEL_6_FOREX_EXPANSION_PAIRS)
+        elif selected == MT5_OPERATIONAL_MODEL_7:
+            allowed_pairs = set(MODEL_7_ALTERNATIVE_MARKETS)
         for row in list(getattr(research, "rows", []) or []):
             pair = str(getattr(row, "pair", "") or "").upper()
+            if allowed_pairs is not None and pair not in allowed_pairs:
+                continue
             timeframe = self._research_row_winner_timeframe(row)
             if pair and timeframe:
                 timeframes[pair] = timeframe
@@ -2782,11 +3063,20 @@ class DashboardService:
         self,
         timeframe: str = "M1",
         progress_callback: object | None = None,
+        symbols: tuple[str, ...] | None = None,
     ) -> MT5ForexSignalDashboard:
         """Atualiza o historico MT5 com notificacao opcional de progresso."""
         configuration = self.configuration_service.get_configuration_data()
         timeframes = self._mt5_research_timeframes(configuration, timeframe)
         candle_count = self._mt5_research_history_candle_count(configuration)
+        research_symbols = tuple(
+            str(symbol or "").upper()
+            for symbol in (symbols or SUPPORTED_MT5_SYMBOLS)
+            if str(symbol or "").strip()
+        )
+        stored_history = (
+            self._load_mt5_research_history_snapshot() if symbols else None
+        )
         preloaded_by_timeframe: dict[str, dict[str, dict[str, Any]]] | None = None
         research_batch_reader = getattr(
             self.mt5_market_data_service.provider,
@@ -2805,7 +3095,7 @@ class DashboardService:
                 )
             try:
                 preloaded_by_timeframe = research_batch_reader(
-                    list(SUPPORTED_MT5_SYMBOLS),
+                    list(research_symbols),
                     {
                         candidate: self.mt5_market_data_service._timeframe_value(
                             candidate
@@ -2836,6 +3126,7 @@ class DashboardService:
                     if preloaded_by_timeframe is not None
                     else None
                 ),
+                symbols=research_symbols,
             )
             snapshots.append(snapshot)
             if callable(progress_callback):
@@ -2869,6 +3160,24 @@ class DashboardService:
             for snapshot in snapshots
             for row in list(getattr(snapshot, "pairs", []) or [])
         ]
+        if stored_history is not None:
+            replaced_keys = {
+                (
+                    str(getattr(row, "pair", "") or "").upper(),
+                    str(getattr(row, "timeframe", "") or "").upper(),
+                )
+                for row in all_pairs
+            }
+            preserved_pairs = [
+                row
+                for row in list(getattr(stored_history, "pairs", []) or [])
+                if (
+                    str(getattr(row, "pair", "") or "").upper(),
+                    str(getattr(row, "timeframe", "") or "").upper(),
+                )
+                not in replaced_keys
+            ]
+            all_pairs = preserved_pairs + all_pairs
         history = MT5ForexSignalDashboard(
             connection_status=self._combined_mt5_connection_status(snapshots),
             server=self._first_non_empty_attr(snapshots, "server", "N/D"),
@@ -2887,6 +3196,11 @@ class DashboardService:
                     for pair in list(getattr(snapshot, "available_pairs", []) or [])
                     if str(pair or "")
                 }
+                | set(
+                    list(getattr(stored_history, "available_pairs", []) or [])
+                    if stored_history is not None
+                    else []
+                )
             ),
             unavailable_pairs=sorted(
                 {
@@ -4288,6 +4602,263 @@ class DashboardService:
         return self.dynamic_exit_demo_sl_execution_service.list_audit_log()
 
     def get_mt5_trade_audit_report(self) -> DashboardMT5TradeAuditViewModel:
+        """Retorna auditoria MT5 sem expor a UI a chamadas nativas bloqueantes."""
+        external_enabled = (
+            os.getenv("TRADERIA_MT5_REPORT_EXTERNAL_PROCESS_ENABLED", "0").strip()
+            == "1"
+        )
+        inside_worker = (
+            os.getenv("TRADERIA_MT5_REPORT_INPROCESS_WORKER", "0").strip() == "1"
+        )
+        if external_enabled and not inside_worker:
+            external = self._get_mt5_trade_audit_report_external()
+            if external is not None:
+                merged = self._merge_lightweight_open_positions(external)
+                object.__setattr__(self, "mt5_trade_audit_report_cache", merged)
+                return merged
+            cached = self.mt5_trade_audit_report_cache
+            if cached is not None:
+                merged = self._merge_lightweight_open_positions(cached)
+                object.__setattr__(self, "mt5_trade_audit_report_cache", merged)
+                return merged
+            lightweight = self._lightweight_open_positions_report()
+            if lightweight is not None:
+                object.__setattr__(
+                    self,
+                    "mt5_trade_audit_report_cache",
+                    lightweight,
+                )
+                return lightweight
+            local_records = self._read_mt5_demo_execution_jsonl()
+            accepted_records = [
+                record for record in local_records if bool(record.get("accepted"))
+            ]
+            return DashboardMT5TradeAuditViewModel(
+                total_local_records=len(local_records),
+                total_accepted_local=len(accepted_records),
+                mt5_connection_status="AQUECENDO",
+                message=(
+                    "Sonda externa MT5 ainda sem resposta; a interface permanece "
+                    "leve e preservara o ultimo relatorio valido."
+                ),
+            )
+        return self._get_mt5_trade_audit_report_inline()
+
+    def _merge_lightweight_open_positions(
+        self,
+        report: DashboardMT5TradeAuditViewModel,
+    ) -> DashboardMT5TradeAuditViewModel:
+        """Atualiza posicoes abertas sem reler todo o historico MT5."""
+        lightweight = self._lightweight_open_positions_report(report)
+        if lightweight is None:
+            return report
+        open_statuses = {"ABERTA", "ORDEM_ABERTA"}
+        closed_rows = [
+            row
+            for row in report.rows
+            if str(row.operation_status or "").upper() not in open_statuses
+        ]
+        return replace(
+            report,
+            rows=[*lightweight.rows, *closed_rows],
+            mt5_connection_status="CONNECTED",
+            last_update=lightweight.last_update,
+            mt5_source=lightweight.mt5_source,
+            message=lightweight.message,
+        )
+
+    def _lightweight_open_positions_report(
+        self,
+        base_report: DashboardMT5TradeAuditViewModel | None = None,
+    ) -> DashboardMT5TradeAuditViewModel | None:
+        """Le somente positions_get e preserva metadados auditados por ticket."""
+        try:
+            self._enable_mt5_demo_provider()
+            provider = self.demo_robot_execution_service.provider
+            positions = list(provider.list_open_positions() or [])
+        except (AttributeError, ImportError, OSError, RuntimeError, TypeError):
+            return None
+        if not positions:
+            return None
+
+        existing_by_ticket = {
+            int(ticket): row
+            for row in list(getattr(base_report, "rows", []) or [])
+            if (ticket := getattr(row, "mt5_ticket", None)) is not None
+        }
+        rows = [
+            self._lightweight_open_position_row(
+                position,
+                existing_by_ticket.get(
+                    int(getattr(position, "ticket", 0) or 0)
+                ),
+            )
+            for position in positions
+        ]
+        rows.sort(key=lambda row: str(row.timestamp), reverse=True)
+        now = datetime.now(timezone.utc).isoformat()
+        return DashboardMT5TradeAuditViewModel(
+            rows=rows,
+            total_local_records=int(
+                getattr(base_report, "total_local_records", 0) or 0
+            ),
+            total_accepted_local=int(
+                getattr(base_report, "total_accepted_local", 0) or 0
+            ),
+            total_audited=int(getattr(base_report, "total_audited", 0) or 0),
+            total_matched=int(getattr(base_report, "total_matched", 0) or 0),
+            total_mismatched=int(
+                getattr(base_report, "total_mismatched", 0) or 0
+            ),
+            mt5_connection_status="CONNECTED",
+            mt5_account_balance=float(
+                getattr(base_report, "mt5_account_balance", 0.0) or 0.0
+            ),
+            equity_curve_default_start_date=str(
+                getattr(
+                    base_report,
+                    "equity_curve_default_start_date",
+                    "2026-07-22",
+                )
+                or "2026-07-22"
+            ),
+            last_update=now,
+            source=str(
+                getattr(base_report, "source", ".traderia/mt5_demo_execution.jsonl")
+            ),
+            mt5_source="MetaTrader5 positions_get (leitura leve)",
+            message=f"{len(rows)} posicoes abertas atualizadas pela leitura leve MT5.",
+        )
+
+    def _lightweight_open_position_row(
+        self,
+        position: object,
+        existing: DashboardMT5TradeAuditRowViewModel | None,
+    ) -> DashboardMT5TradeAuditRowViewModel:
+        ticket = int(getattr(position, "ticket", 0) or 0)
+        symbol = str(getattr(position, "symbol", "N/D") or "N/D").upper()
+        side = self._mt5_side_from_type(getattr(position, "type", None))
+        volume = float(getattr(position, "volume", 0.0) or 0.0)
+        entry = float(getattr(position, "price_open", 0.0) or 0.0)
+        current = float(getattr(position, "price_current", 0.0) or 0.0)
+        stop_value = float(getattr(position, "sl", 0.0) or 0.0)
+        target_value = float(getattr(position, "tp", 0.0) or 0.0)
+        stop = stop_value if stop_value > 0.0 else None
+        target = target_value if target_value > 0.0 else None
+        opened_at = self._mt5_history_time(getattr(position, "time", None))
+        comment = str(getattr(position, "comment", "") or "").strip()
+        model = self._mt5_model_from_position_comment(comment)
+        common = {
+            "timestamp": opened_at,
+            "symbol": symbol,
+            "side": side,
+            "quantity": volume,
+            "entry_price": entry,
+            "stop": stop,
+            "target": target,
+            "local_status": "OPEN_FROM_MT5",
+            "local_message": comment or "Posicao aberta confirmada pelo MT5.",
+            "local_ticket": ticket,
+            "mt5_found": True,
+            "mt5_ticket": ticket,
+            "mt5_source": "positions_get lightweight",
+            "operation_status": "ABERTA",
+            "mt5_symbol": symbol,
+            "mt5_side": side,
+            "mt5_volume": volume,
+            "mt5_price": current,
+            "mt5_stop": stop,
+            "mt5_realized_profit": float(
+                getattr(position, "profit", 0.0) or 0.0
+            ),
+            "mt5_swap": float(getattr(position, "swap", 0.0) or 0.0),
+            "mt5_time": opened_at,
+            "audit_status": "MT5_OPEN",
+            "audit_message": "Posicao aberta confirmada pela leitura leve MT5.",
+        }
+        if existing is not None:
+            if str(existing.operational_model or "N/D").upper() not in {
+                "",
+                "N/D",
+            }:
+                model = existing.operational_model
+            return replace(existing, operational_model=model, **common)
+        return DashboardMT5TradeAuditRowViewModel(
+            operational_model=model,
+            position_manager_status="MONITORANDO",
+            position_manager_message="Posicao aberta disponivel para acompanhamento.",
+            plan_snapshot={
+                "operational_model": model,
+                "mt5_comment": comment,
+                "source": "MT5_LIGHTWEIGHT_POSITION",
+            },
+            **common,
+        )
+
+    def _mt5_model_from_position_comment(self, comment: str) -> str:
+        normalized = str(comment or "").upper().replace("-", " ")
+        for token in normalized.split():
+            if token.startswith("M") and token[1:].isdigit():
+                number = int(token[1:])
+                if 1 <= number <= len(MT5_OPERATIONAL_MODEL_IDS):
+                    return MT5_OPERATIONAL_MODEL_IDS[number - 1]
+        return "N/D"
+
+    def _get_mt5_trade_audit_report_external(
+        self,
+    ) -> DashboardMT5TradeAuditViewModel | None:
+        timeout_seconds = max(
+            float(os.getenv("TRADERIA_MT5_REPORT_EXTERNAL_TIMEOUT_SECONDS", "15")),
+            3.0,
+        )
+        code = (
+            "import json, os\n"
+            "from dataclasses import asdict\n"
+            "os.environ['TRADERIA_MT5_REPORT_INPROCESS_WORKER'] = '1'\n"
+            "from application.dashboard_service import DashboardService\n"
+            "report = DashboardService().get_mt5_trade_audit_report()\n"
+            "print(json.dumps(asdict(report), default=str))\n"
+        )
+        creationflags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            if sys.platform.startswith("win")
+            else 0
+        )
+        process: subprocess.Popen[str] | None = None
+        with mt5_external_process_slot(timeout=0.05) as acquired:
+            if not acquired:
+                return None
+            try:
+                process = subprocess.Popen(
+                    [sys.executable, "-c", code],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    creationflags=creationflags,
+                )
+                stdout, _stderr = process.communicate(timeout=timeout_seconds)
+            except (OSError, subprocess.TimeoutExpired):
+                if process is not None:
+                    try:
+                        process.kill()
+                        process.wait(timeout=1.0)
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
+                return None
+        output = (stdout or "").strip().splitlines()
+        if not output:
+            return None
+        try:
+            payload = json.loads(output[-1])
+            rows = [
+                DashboardMT5TradeAuditRowViewModel(**dict(row))
+                for row in list(payload.pop("rows", []))
+            ]
+            return DashboardMT5TradeAuditViewModel(rows=rows, **payload)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+
+    def _get_mt5_trade_audit_report_inline(self) -> DashboardMT5TradeAuditViewModel:
         """Confronta ordens originadas no TraderIA com historico read-only do MT5."""
         local_records = self._read_mt5_demo_execution_jsonl()
         accepted_records = [
@@ -5759,10 +6330,12 @@ class DashboardService:
             plan = self._mt5_research_trade_plan_for_view_row(row)
             selected_models = self._mt5_operational_models_to_evaluate()
             if plan.status != "PLANO_VALIDO" and not any(
-                model in (MT5_LAB_OPERATIONAL_MODELS | {
-                    MT5_OPERATIONAL_MODEL_6,
-                    MT5_OPERATIONAL_MODEL_7,
-                })
+                model in (
+                    MT5_LAB_OPERATIONAL_MODELS
+                    | MT5_SCOPED_M1_OPERATIONAL_MODELS
+                    | MT5_DYNAMIC_EXIT_OPERATIONAL_MODELS
+                    | MT5_CUSTOM_OPERATIONAL_MODELS
+                )
                 for model in selected_models
             ):
                 last_waiting = self._demo_robot_view_model(
@@ -5788,19 +6361,39 @@ class DashboardService:
                 )
                 continue
             model_candidates: list[tuple[str, DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]] = []
+            entry_source_results: dict[
+                str,
+                tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan],
+            ] = {}
             for operational_model in selected_models:
-                model_row, model_plan = self._mt5_apply_operational_model(
-                    row,
-                    plan,
-                    operational_model=operational_model,
-                )
+                source_model = dynamic_exit_source_model(operational_model)
+                if source_model is None:
+                    model_row, model_plan = self._mt5_apply_operational_model(
+                        row,
+                        plan,
+                        operational_model=operational_model,
+                    )
+                    entry_source_results[operational_model] = (model_row, model_plan)
+                else:
+                    source_result = entry_source_results.get(source_model)
+                    if source_result is None:
+                        source_result = self._mt5_apply_operational_model(
+                            row,
+                            plan,
+                            operational_model=source_model,
+                        )
+                        entry_source_results[source_model] = source_result
+                    model_row, model_plan = self._mt5_dynamic_exit_variant_from_source(
+                        *source_result,
+                        operational_model=operational_model,
+                    )
                 if (
                     str(getattr(model_row, "decision", "") or "").upper()
                     in {"BUY", "SELL"}
                     and model_plan.status == "PLANO_VALIDO"
                 ):
                     model_candidates.append((operational_model, model_row, model_plan))
-            if self.get_mt5_operational_model() == MT5_OPERATIONAL_MODEL_ALL:
+            if self._mt5_multi_model_selection_active():
                 model_candidates = self._ordered_demo_model_candidates_per_pair(
                     model_candidates,
                 )
@@ -5853,10 +6446,12 @@ class DashboardService:
             for operational_model, model_row, model_plan in model_candidates:
                 signal_candle_time = str(
                     getattr(model_row, "theoretical_entry_candle", "")
-                    if operational_model in (MT5_LAB_OPERATIONAL_MODELS | {
-                        MT5_OPERATIONAL_MODEL_6,
-                        MT5_OPERATIONAL_MODEL_7,
-                    })
+                    if operational_model in (
+                        MT5_LAB_OPERATIONAL_MODELS
+                        | MT5_SCOPED_M1_OPERATIONAL_MODELS
+                        | MT5_DYNAMIC_EXIT_OPERATIONAL_MODELS
+                        | MT5_CUSTOM_OPERATIONAL_MODELS
+                    )
                     else getattr(source_row, "last_candle_time", "")
                 )
                 time_context = self.forex_time_layer.classify(
@@ -5916,7 +6511,7 @@ class DashboardService:
                     )
                     object.__setattr__(self, "last_demo_robot_status", status_view)
                     self._append_demo_robot_visual_signal(status_view)
-                    if self.get_mt5_operational_model() != MT5_OPERATIONAL_MODEL_ALL:
+                    if not self._mt5_multi_model_selection_active():
                         return status_view
                     last_executed = status_view
                     continue
@@ -6102,6 +6697,13 @@ class DashboardService:
                     message="Nenhum ativo MT5 disponivel para ciclo demo.",
                     selected_pair="TODOS",
                     timeframe=timeframe,
+                    model="MULTI_ASSET",
+                    decision="WAIT",
+                    result_status="NO_SIGNAL",
+                    result_message="Nenhuma ordem foi enviada ao MT5.",
+                    provider="MT5_DEMO",
+                    mt5_order_send_enabled=True,
+                    audit_log=self._demo_robot_audit_rows(),
                 ),
             )
             return self.last_demo_robot_status
@@ -6199,11 +6801,13 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_8: 80,
             MT5_OPERATIONAL_MODEL_9: 90,
             MT5_OPERATIONAL_MODEL_10: 100,
-            **{
-                model_id: 110 + (index * 10)
-                for index, model_id in enumerate(OFFICIAL_ALPHA_MODEL_IDS)
-            },
-            MT5_OPERATIONAL_MODEL_22: 220,
+            MT5_OPERATIONAL_MODEL_11: 110,
+            MT5_OPERATIONAL_MODEL_12: 120,
+            MT5_OPERATIONAL_MODEL_13: 130,
+            MT5_OPERATIONAL_MODEL_14: 140,
+            MT5_OPERATIONAL_MODEL_15: 150,
+            MT5_OPERATIONAL_MODEL_16: 160,
+            MT5_OPERATIONAL_MODEL_17: 170,
         }
         return sorted(candidates, key=lambda item: priority.get(item[0], 999))
 
@@ -6272,13 +6876,1716 @@ class DashboardService:
         selected_model = str(
             operational_model or self.get_mt5_operational_model()
         ).upper()
+        source_model = dynamic_exit_source_model(selected_model)
+        if source_model is not None:
+            source_row, source_plan = self._mt5_apply_operational_model(
+                row,
+                plan,
+                operational_model=source_model,
+            )
+            return self._mt5_dynamic_exit_variant_from_source(
+                source_row,
+                source_plan,
+                operational_model=selected_model,
+            )
+        if selected_model == MT5_OPERATIONAL_MODEL_1:
+            return self._mt5_scoped_m1_plan(
+                row,
+                plan,
+                model_id=selected_model,
+                allowed_pairs=MODEL_1_FOREX_PAIRS,
+                scope_label="M1_CORE_FOREX",
+            )
+        if selected_model == MT5_OPERATIONAL_MODEL_3:
+            return self._mt5_model3_xau_m5_plan(row, plan)
         if selected_model in MT5_LAB_OPERATIONAL_MODELS:
             return self._mt5_lab_operational_plan(row, plan, selected_model)
         if selected_model == MT5_OPERATIONAL_MODEL_6:
-            return self._mt5_model6_original_plan(row, plan)
+            return self._mt5_scoped_m1_plan(
+                row,
+                plan,
+                model_id=selected_model,
+                allowed_pairs=MODEL_6_FOREX_EXPANSION_PAIRS,
+                scope_label="M6_FOREX_EXPANSION",
+            )
         if selected_model == MT5_OPERATIONAL_MODEL_7:
-            return self._mt5_model7_dynamic_plan(row, plan)
+            return self._mt5_scoped_m1_plan(
+                row,
+                plan,
+                model_id=selected_model,
+                allowed_pairs=MODEL_7_ALTERNATIVE_MARKETS,
+                scope_label="M7_XAU_BTC",
+            )
+        if selected_model == MT5_OPERATIONAL_MODEL_8:
+            return self._mt5_model8_xau_m5_plan(row, plan)
+        if selected_model in XAU_TREND_FILTER_MODEL_IDS:
+            return self._mt5_xau_trend_filter_plan(
+                row,
+                plan,
+                selected_model,
+            )
+        if selected_model in FOREX_SMA_RSI_MODEL_IDS:
+            return self._mt5_forex_sma_rsi_plan(row, plan, selected_model)
         return row, plan
+
+    def _mt5_forex_sma_rsi_plan(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        fallback_plan: MT5ResearchTradePlan,
+        model_id: str,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        """Materializa M13-M17 por par sobre o cache M5 compartilhado."""
+        spec = forex_sma_rsi_spec(model_id)
+        pair = str(row.pair or "").upper()
+        if spec is None:
+            return row, fallback_plan
+        candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
+        rows = list(candles.get((pair, FOREX_SMA_RSI_TIMEFRAME), []) or [])
+        runtime = load_forex_sma_rsi_runtime_state(model_id, pair)
+        decision = evaluate_forex_sma_rsi_entry(
+            model_id, pair, rows,
+            awaiting_reentry_side=str(runtime.get("entry_intent_side") or ""),
+        )
+        decision = self._block_seed_only_forex_m5_decision(decision, pair)
+        parameters = forex_sma_rsi_parameters(model_id, pair)
+        parameters["active_entry_order_type"] = decision.base.entry_order_type
+        parameters.update(
+            {
+                "indicator_source": "LOCAL_MT5_CANDLES_52",
+                "indicator_generated_at": decision.base.current_candle_time,
+                "indicator_closed_candle_time": decision.base.closed_candle_time,
+            }
+        )
+        diagnostics = (
+            f"SETUP={spec.setup}", f"SMA20={decision.base.sma20}",
+            f"SMA50={decision.base.sma50}", f"RSI14={decision.base.rsi14}",
+            f"ADX14={decision.adx14}", f"ATR14={decision.atr14}",
+            f"DISTANCE_ATR={decision.distance_atr}",
+            f"SMA50_SLOPE_ATR={decision.sma50_slope_atr}",
+            f"ENTRY={decision.base.entry_order_type}",
+        )
+        common = dict(
+            symbol=pair, timeframe=FOREX_SMA_RSI_TIMEFRAME, target=None,
+            risk_reward=0.0, source=spec.source,
+            stop_management=spec.stop_management,
+            stop_management_parameters=parameters,
+            alpha_id=spec.alpha_id, alpha_version=spec.alpha_version,
+            beta_id=spec.beta_id, beta_version=spec.beta_version,
+            beta_mode="FULL_EXIT_RSI70_30_CROSS_OR_SMA_INVERSION",
+            diagnostics=diagnostics,
+        )
+        if not decision.ready:
+            wait_plan = replace(
+                fallback_plan, direction="WAIT", entry_price=None, stop=None,
+                status=decision.status, reason=decision.reason,
+                invalid_reason=decision.status, invalid_fields=("entry_trigger",),
+                **common,
+            )
+            return replace(
+                row, timeframe="M5", lab_timeframe="M5", decision="WAIT",
+                theoretical_entry_direction="WAIT",
+                theoretical_entry_status=decision.status,
+                theoretical_entry_price=None,
+                theoretical_entry_reason=decision.reason,
+                active_model=f"M{spec.number}_SETUP_{spec.setup}_FOREX_M5",
+                active_model_indicators=diagnostics, reason=decision.reason,
+                lab_alpha_id=spec.alpha_id, lab_alpha_version=spec.alpha_version,
+                beta_id=spec.beta_id, beta_version=spec.beta_version,
+                beta_mode="FULL_EXIT_RSI70_30_CROSS_OR_SMA_INVERSION",
+                lab_parameters=parameters, lab_configuration_source=spec.source,
+                research_plan_status=decision.status,
+                research_plan_source=spec.source,
+                research_plan_reason=decision.reason,
+                research_plan_diagnostics=diagnostics,
+            ), wait_plan
+        entry = float(decision.base.entry_price or 0.0)
+        stop = float(decision.base.initial_stop or 0.0)
+        risk = abs(entry - stop)
+        trade_plan = MT5ResearchTradePlan(
+            direction=decision.base.direction, entry_price=entry, stop=stop,
+            target=0.0, risk_reward=0.0, stop_multiplier=0.0, exit_model=spec.beta_version,
+            exit_score=0.0, exit_candidates=2, status="PLANO_VALIDO",
+            risk_pips=risk, risk_percent=abs(risk / entry) if entry else 0.0,
+            reward_pips=0.0, reward_percent=0.0,
+            stop_reason="Um pip alem do ultimo pivo M5 confirmado 2+2.",
+            target_reason="Sem TP fixo.",
+            stop_management_reason="Full Exit RSI 70/30 ou inversao SMA.",
+            beta_reason="Full Exit RSI 70/30 ou inversao SMA.",
+            reason=decision.reason, rr_current=0.0, rr_minimum=0.0,
+            certification_score=100.0, certification_grade="USER_DEFINED_DEMO",
+            certification_status="USER_APPROVED_DEMO_RULE",
+            certification_usage="Regra manual autorizada somente para MT5 Demo.",
+            certification_demo_allowed=True,
+            **{key: value for key, value in common.items() if key not in {"target", "risk_reward"}},
+        )
+        return replace(
+            row, timeframe="M5", lab_timeframe="M5",
+            decision=decision.base.direction,
+            theoretical_entry_direction=decision.base.direction,
+            theoretical_entry_status=("ORDEM_STOP_TEORICA" if decision.base.signal_kind == "REENTRY" else "SINAL_TEORICO"),
+            theoretical_entry_candle=decision.base.closed_candle_time,
+            theoretical_entry_price=entry, theoretical_entry_reason=decision.reason,
+            active_model=f"M{spec.number}_SETUP_{spec.setup}_FOREX_M5",
+            active_model_indicators=diagnostics, reason=decision.reason,
+            short_average=decision.base.sma20, long_average=decision.base.sma50,
+            lab_alpha_id=spec.alpha_id, lab_alpha_version=spec.alpha_version,
+            beta_id=spec.beta_id, beta_version=spec.beta_version,
+            beta_mode="FULL_EXIT_RSI70_30_CROSS_OR_SMA_INVERSION",
+            lab_parameters=parameters, lab_configuration_source=spec.source,
+            lab_confidence=1.0, lab_ict_score=100.0,
+            lab_ict_grade="USER_DEFINED_DEMO", lab_ict_status="USER_APPROVED_DEMO_RULE",
+            lab_ict_usage=trade_plan.certification_usage, lab_ict_demo_allowed=True,
+            entry_filter_status="OK", entry_filter_parameter=f"SETUP_{spec.setup}",
+            entry_filter_reading=decision.status, entry_filter_reason=decision.reason,
+            research_plan_status="PLANO_VALIDO", research_plan_source=spec.source,
+            research_plan_entry_price=entry, research_plan_stop=stop,
+            research_plan_target=0.0, research_plan_risk_reward=0.0,
+            research_plan_risk_pips=risk,
+            research_plan_stop_management=spec.stop_management,
+            research_plan_stop_management_parameters=parameters,
+            research_plan_reason=decision.reason,
+            research_plan_diagnostics=diagnostics,
+        ), trade_plan
+
+    def get_model3_entry_decision(self) -> Model3EntryDecision:
+        """Avalia o M3 somente com o snapshot XAUUSD/M5 compartilhado."""
+        candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
+        rows = (
+            list(candles.get((MODEL_3_SYMBOL, MODEL_3_TIMEFRAME), []) or [])[-52:]
+            if isinstance(candles, dict)
+            else []
+        )
+        decision = evaluate_model3_entry(rows)
+        if self._supplemental_m5_is_seed_only(MODEL_3_SYMBOL):
+            return replace(
+                decision,
+                direction="WAIT",
+                status="M3_AQUECIDO_52_CANDLES_AGUARDA_ATUALIZACAO_MT5",
+                reason=(
+                    "M3 possui 52 velas M5 para indicadores, mas aguarda "
+                    "um candle atual confirmado pelo MT5 antes de operar."
+                ),
+                entry_price=None,
+                initial_stop=None,
+            )
+        return decision
+
+    def get_model8_entry_decision(self) -> Model8EntryDecision:
+        """Avalia M8 localmente sobre exatamente 52 velas XAUUSD/M5 do MT5."""
+        candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
+        rows = (
+            list(candles.get((MODEL_8_SYMBOL, MODEL_8_TIMEFRAME), []) or [])[-52:]
+            if isinstance(candles, dict)
+            else []
+        )
+        state = load_model8_runtime_state()
+        decision = evaluate_model8_entry(
+            rows,
+            awaiting_reentry_side=str(state.get("entry_intent_side") or ""),
+        )
+        if self._supplemental_m5_is_seed_only(MODEL_8_SYMBOL):
+            return replace(
+                decision, direction="WAIT",
+                status="M8_AQUECIDO_52_CANDLES_AGUARDA_ATUALIZACAO_MT5",
+                reason=(
+                    "M8 possui 52 velas locais, mas aguarda lote completo e atual "
+                    "de 52 velas do MT5 antes de calcular/liberar entrada."
+                ),
+                signal_kind="NONE", entry_order_type="NONE",
+                entry_price=None, initial_stop=None,
+            )
+        return decision
+
+    def get_xau_trend_filter_entry_decision(self, model_id: str):
+        """Avalia M9-M12 no snapshot XAUUSD/M5 compartilhado do runtime."""
+        if trend_filter_spec(model_id) is None:
+            raise ValueError(f"Modelo XAU/M5 desconhecido: {model_id}")
+        candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
+        rows = (
+            list(candles.get((MODEL_8_SYMBOL, MODEL_8_TIMEFRAME), []) or [])[-52:]
+            if isinstance(candles, dict)
+            else []
+        )
+        runtime = load_model8_runtime_state(operational_model=model_id)
+        decision = evaluate_xau_trend_filter_entry(
+            model_id, rows,
+            awaiting_reentry_side=str(runtime.get("entry_intent_side") or ""),
+        )
+        if self._supplemental_m5_is_seed_only(MODEL_8_SYMBOL):
+            spec = trend_filter_spec(model_id)
+            status = f"M{spec.number}_AQUECIDO_52_CANDLES_AGUARDA_ATUALIZACAO_MT5"
+            reason = "Aguardando lote completo e atual de 52 velas M5 do MT5."
+            return replace(
+                decision,
+                base=replace(
+                    decision.base, direction="WAIT", status=status, reason=reason,
+                    signal_kind="NONE", entry_order_type="NONE",
+                    entry_price=None, initial_stop=None,
+                ),
+                filter_allowed=False, status=status, reason=reason,
+                failed_filters=tuple(dict.fromkeys((*decision.failed_filters, "LIVE_CANDLES_52"))),
+            )
+        return decision
+
+    def _supplemental_m5_is_seed_only(self, pair: str) -> bool:
+        keys = getattr(
+            self.mt5_market_data_service,
+            "supplemental_forex_seed_only_keys",
+            set(),
+        )
+        return (str(pair).upper(), "M5") in set(keys or set())
+
+    def _block_seed_only_forex_m5_decision(self, decision, pair: str):
+        if not self._supplemental_m5_is_seed_only(pair):
+            return decision
+        spec = forex_sma_rsi_spec(decision.model_id)
+        status = (
+            f"M{spec.number}_AQUECIDO_52_CANDLES_AGUARDA_ATUALIZACAO_MT5"
+            if spec is not None
+            else "AQUECIDO_52_CANDLES_AGUARDA_ATUALIZACAO_MT5"
+        )
+        reason = (
+            f"{str(pair).upper()} possui 52 velas M5 locais para indicadores, "
+            "mas aguarda candle atual confirmado pelo MT5 antes de operar."
+        )
+        return replace(
+            decision,
+            base=replace(
+                decision.base,
+                direction="WAIT",
+                status=status,
+                reason=reason,
+                signal_kind="NONE",
+                entry_order_type="NONE",
+                entry_price=None,
+                initial_stop=None,
+            ),
+            filter_allowed=False,
+            status=status,
+            reason=reason,
+            failed_filters=tuple(
+                dict.fromkeys((*decision.failed_filters, "LIVE_CANDLE"))
+            ),
+        )
+
+    def get_xau_m5_operational_decision_snapshot(
+        self,
+    ) -> dict[tuple[str, str], object]:
+        """Expoe M3 e M8-M12 calculados sobre o cache M5 do ciclo de fundo."""
+        selected = set(self._mt5_entry_source_models_to_evaluate())
+        active = selected.intersection(
+            {
+                MT5_OPERATIONAL_MODEL_3,
+                MT5_OPERATIONAL_MODEL_8,
+                MT5_OPERATIONAL_MODEL_9,
+                MT5_OPERATIONAL_MODEL_10,
+                MT5_OPERATIONAL_MODEL_11,
+                MT5_OPERATIONAL_MODEL_12,
+            }
+        )
+        decisions: dict[tuple[str, str], object] = {}
+        decisions[("__XAU_M5__", "CANDLE_COUNT")] = len(
+            list(getattr(self.mt5_market_data_service, "latest_forex_candles", {}).get(
+                (MODEL_8_SYMBOL, MODEL_8_TIMEFRAME), [],
+            ) or [])[-52:]
+        )
+        if MT5_OPERATIONAL_MODEL_3 in active:
+            decisions[(MT5_OPERATIONAL_MODEL_3, MODEL_3_SYMBOL)] = (
+                self.get_model3_entry_decision()
+            )
+        if MT5_OPERATIONAL_MODEL_8 in active:
+            decisions[(MT5_OPERATIONAL_MODEL_8, MODEL_8_SYMBOL)] = (
+                self.get_model8_entry_decision()
+            )
+        for model_id in XAU_TREND_FILTER_MODEL_IDS:
+            if model_id in active:
+                decisions[(model_id, MODEL_8_SYMBOL)] = (
+                    self.get_xau_trend_filter_entry_decision(model_id)
+                )
+        return decisions
+
+    def get_forex_m5_sma_rsi_decision_snapshot(
+        self,
+    ) -> dict[tuple[str, str], object]:
+        """Publica M13-M17 e a contagem das 52 velas M5 do mesmo ciclo."""
+        active = set(self._mt5_entry_source_models_to_evaluate()).intersection(
+            FOREX_SMA_RSI_MODEL_IDS
+        )
+        candles_by_market = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
+        if not isinstance(candles_by_market, dict):
+            candles_by_market = {}
+        decisions: dict[tuple[str, str], object] = {}
+        for pair in FOREX_SMA_RSI_PAIRS:
+            rows = list(candles_by_market.get((pair, FOREX_SMA_RSI_TIMEFRAME), []) or [])[-52:]
+            decisions[("__FOREX_M5__", pair)] = len(rows)
+            for model_id in active:
+                runtime = load_forex_sma_rsi_runtime_state(model_id, pair)
+                decisions[(model_id, pair)] = evaluate_forex_sma_rsi_entry(
+                    model_id, pair, rows,
+                    awaiting_reentry_side=str(runtime.get("entry_intent_side") or ""),
+                )
+                decisions[(model_id, pair)] = self._block_seed_only_forex_m5_decision(
+                    decisions[(model_id, pair)], pair,
+                )
+        return decisions
+
+    def _mt5_model3_xau_m5_plan(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        fallback_plan: MT5ResearchTradePlan,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        """Materializa o M3: direcao e reversao pelo RSI14 em torno de 50."""
+        pair = str(row.pair or "").upper()
+        if pair != MODEL_3_SYMBOL:
+            reason = f"M3 opera exclusivamente {MODEL_3_SYMBOL}."
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    timeframe=MODEL_3_TIMEFRAME,
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=reason,
+                    research_plan_status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    research_plan_reason=reason,
+                ),
+                replace(
+                    fallback_plan,
+                    status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    reason=reason,
+                    invalid_reason="PAIR_OUTSIDE_MODEL_SCOPE",
+                    invalid_fields=("symbol",),
+                ),
+            )
+
+        decision = self.get_model3_entry_decision()
+        parameters = model3_parameters()
+        parameters["active_entry_order_type"] = "MARKET"
+        diagnostics = (
+            f"RSI14={decision.rsi14 if decision.rsi14 is not None else 'N/D'}",
+            "RSI_LEVEL=50",
+            f"LAST_SWING={decision.last_swing_price or 'N/D'}",
+            "ENTRY=MARKET",
+            "TAKE_PROFIT=DISABLED",
+            "REVERSE_AFTER_FULL_EXIT=ENABLED",
+        )
+        common_plan = dict(
+            symbol=MODEL_3_SYMBOL,
+            timeframe=MODEL_3_TIMEFRAME,
+            target=None,
+            risk_reward=0.0,
+            source="MODEL_3_MANUAL_RULE",
+            stop_management=MODEL_3_STOP_MANAGEMENT,
+            stop_management_parameters=parameters,
+            alpha_id=MODEL_3_ALPHA_ID,
+            alpha_version=MODEL_3_ALPHA_VERSION,
+            beta_id=MODEL_3_BETA_ID,
+            beta_version=MODEL_3_BETA_VERSION,
+            beta_mode=MODEL_3_BETA_MODE,
+            diagnostics=diagnostics,
+        )
+        if not decision.ready:
+            wait_plan = replace(
+                fallback_plan,
+                direction="WAIT",
+                entry_price=None,
+                stop=None,
+                status=decision.status,
+                reason=decision.reason,
+                invalid_reason=decision.status,
+                invalid_fields=("entry_trigger",),
+                **common_plan,
+            )
+            return (
+                replace(
+                    row,
+                    timeframe=MODEL_3_TIMEFRAME,
+                    lab_timeframe=MODEL_3_TIMEFRAME,
+                    last_candle_time=decision.current_candle_time,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status=decision.status,
+                    theoretical_entry_candle=decision.closed_candle_time,
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=decision.reason,
+                    active_model="M3_XAU_M5_RSI14_FLIP",
+                    active_model_indicators=diagnostics,
+                    reason=decision.reason,
+                    lab_alpha_id=MODEL_3_ALPHA_ID,
+                    lab_alpha_version=MODEL_3_ALPHA_VERSION,
+                    beta_id=MODEL_3_BETA_ID,
+                    beta_version=MODEL_3_BETA_VERSION,
+                    beta_mode=MODEL_3_BETA_MODE,
+                    lab_parameters=parameters,
+                    lab_configuration_source="MODEL_3_MANUAL_RULE",
+                    research_plan_status=decision.status,
+                    research_plan_source="MODEL_3_MANUAL_RULE",
+                    research_plan_reason=decision.reason,
+                    research_plan_diagnostics=diagnostics,
+                ),
+                wait_plan,
+            )
+
+        entry = float(decision.entry_price or 0.0)
+        stop = float(decision.initial_stop or 0.0)
+        risk = abs(entry - stop)
+        plan = MT5ResearchTradePlan(
+            direction=decision.direction,
+            entry_price=entry,
+            stop=stop,
+            target=0.0,
+            risk_reward=0.0,
+            stop_multiplier=0.0,
+            exit_model=MODEL_3_BETA_VERSION,
+            exit_score=0.0,
+            exit_candidates=2,
+            status="PLANO_VALIDO",
+            risk_pips=risk,
+            reward_pips=0.0,
+            risk_percent=abs(risk / entry) if entry else 0.0,
+            reward_percent=0.0,
+            stop_reason="0,01 alem do ultimo fundo/topo M5 confirmado (pivo 2+2).",
+            target_reason="M3 nao usa TP fixo.",
+            stop_management_reason="Full exit quando o RSI14 fecha no lado oposto de 50; depois inverte.",
+            beta_reason="Full exit e inversao pelo nivel RSI14=50 no M5 fechado.",
+            source="MODEL_3_MANUAL_RULE",
+            reason=decision.reason,
+            rr_current=0.0,
+            rr_minimum=0.0,
+            certification_score=100.0,
+            certification_grade="USER_DEFINED_DEMO",
+            certification_status="USER_APPROVED_DEMO_RULE",
+            certification_usage="Regra manual autorizada exclusivamente para MT5 Demo.",
+            certification_demo_allowed=True,
+            **{
+                key: value
+                for key, value in common_plan.items()
+                if key not in {"target", "risk_reward", "source"}
+            },
+        )
+        return (
+            replace(
+                row,
+                timeframe=MODEL_3_TIMEFRAME,
+                lab_timeframe=MODEL_3_TIMEFRAME,
+                last_candle_time=decision.current_candle_time,
+                decision=decision.direction,
+                theoretical_entry_direction=decision.direction,
+                theoretical_entry_status="SINAL_TEORICO",
+                theoretical_entry_candle=decision.closed_candle_time,
+                theoretical_entry_price=entry,
+                theoretical_entry_reason=decision.reason,
+                active_model="M3_XAU_M5_RSI14_FLIP",
+                active_model_indicators=diagnostics,
+                active_model_score=1.0,
+                reason=decision.reason,
+                swing_low=(
+                    decision.last_swing_price
+                    if decision.direction == "BUY"
+                    else row.swing_low
+                ),
+                swing_high=(
+                    decision.last_swing_price
+                    if decision.direction == "SELL"
+                    else row.swing_high
+                ),
+                lab_alpha_id=MODEL_3_ALPHA_ID,
+                lab_alpha_version=MODEL_3_ALPHA_VERSION,
+                beta_id=MODEL_3_BETA_ID,
+                beta_version=MODEL_3_BETA_VERSION,
+                beta_mode=MODEL_3_BETA_MODE,
+                beta_reason=plan.beta_reason,
+                lab_parameters=parameters,
+                lab_configuration_source="MODEL_3_MANUAL_RULE",
+                lab_confidence=1.0,
+                lab_ict_score=100.0,
+                lab_ict_grade="USER_DEFINED_DEMO",
+                lab_ict_status="USER_APPROVED_DEMO_RULE",
+                lab_ict_usage=plan.certification_usage,
+                lab_ict_demo_allowed=True,
+                entry_filter_status="OK",
+                entry_filter_parameter="M3_RSI14_LEVEL_50",
+                entry_filter_reading=decision.status,
+                entry_filter_reason=decision.reason,
+                research_plan_status="PLANO_VALIDO",
+                research_plan_source="MODEL_3_MANUAL_RULE",
+                research_plan_entry_price=entry,
+                research_plan_stop=stop,
+                research_plan_target=0.0,
+                research_plan_risk_reward=0.0,
+                research_plan_risk_pips=risk,
+                research_plan_stop_management=MODEL_3_STOP_MANAGEMENT,
+                research_plan_stop_management_parameters=parameters,
+                research_plan_reason=decision.reason,
+                research_plan_diagnostics=diagnostics,
+            ),
+            plan,
+        )
+
+    def _mt5_model8_xau_m5_plan(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        fallback_plan: MT5ResearchTradePlan,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        """Materializa entrada inicial a mercado e reentrada Stop do M8."""
+        pair = str(row.pair or "").upper()
+        if pair != MODEL_8_SYMBOL:
+            reason = f"M8 opera exclusivamente {MODEL_8_SYMBOL}."
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    timeframe=MODEL_8_TIMEFRAME,
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=reason,
+                    research_plan_status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    research_plan_reason=reason,
+                ),
+                replace(
+                    fallback_plan,
+                    status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    reason=reason,
+                    invalid_reason="PAIR_OUTSIDE_MODEL_SCOPE",
+                    invalid_fields=("symbol",),
+                ),
+            )
+
+        decision = self.get_model8_entry_decision()
+        parameters = model8_parameters()
+        parameters["active_entry_order_type"] = decision.entry_order_type
+        parameters.update(
+            {
+                "indicator_source": "LOCAL_MT5_CANDLES_52",
+                "indicator_generated_at": decision.current_candle_time,
+                "indicator_closed_candle_time": decision.closed_candle_time,
+            }
+        )
+        diagnostics = (
+            f"SMA20={decision.sma20 if decision.sma20 is not None else 'N/D'}",
+            f"SMA50={decision.sma50 if decision.sma50 is not None else 'N/D'}",
+            f"RSI14={decision.rsi14 if decision.rsi14 is not None else 'N/D'}",
+            f"SIGNAL_KIND={decision.signal_kind}",
+            f"LAST_SWING={decision.last_swing_price or 'N/D'}",
+            f"ENTRY={decision.entry_order_type}",
+            "TAKE_PROFIT=DISABLED",
+        )
+        common_plan = dict(
+            symbol=MODEL_8_SYMBOL,
+            timeframe=MODEL_8_TIMEFRAME,
+            target=None,
+            risk_reward=0.0,
+            source="MODEL_8_MANUAL_RULE",
+            stop_management=MODEL_8_STOP_MANAGEMENT,
+            stop_management_parameters=parameters,
+            alpha_id=MODEL_8_ALPHA_ID,
+            alpha_version=MODEL_8_ALPHA_VERSION,
+            beta_id=MODEL_8_BETA_ID,
+            beta_version=MODEL_8_BETA_VERSION,
+            beta_mode="FULL_EXIT_RSI70_30_CROSS_OR_SMA_INVERSION",
+            diagnostics=diagnostics,
+        )
+        if not decision.ready:
+            wait_plan = replace(
+                fallback_plan,
+                direction="WAIT",
+                entry_price=None,
+                stop=None,
+                status=decision.status,
+                reason=decision.reason,
+                invalid_reason=decision.status,
+                invalid_fields=("entry_trigger",),
+                **common_plan,
+            )
+            return (
+                replace(
+                    row,
+                    timeframe=MODEL_8_TIMEFRAME,
+                    lab_timeframe=MODEL_8_TIMEFRAME,
+                    last_candle_time=decision.current_candle_time,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status=decision.status,
+                    theoretical_entry_candle=decision.closed_candle_time,
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=decision.reason,
+                    active_model="M8_XAU_M5_SMA20_50_RSI14",
+                    active_model_indicators=diagnostics,
+                    reason=decision.reason,
+                    short_average=decision.sma20,
+                    long_average=decision.sma50,
+                    lab_alpha_id=MODEL_8_ALPHA_ID,
+                    lab_alpha_version=MODEL_8_ALPHA_VERSION,
+                    beta_id=MODEL_8_BETA_ID,
+                    beta_version=MODEL_8_BETA_VERSION,
+                    beta_mode="FULL_EXIT_RSI70_30_CROSS_OR_SMA_INVERSION",
+                    lab_parameters=parameters,
+                    lab_configuration_source="MODEL_8_MANUAL_RULE",
+                    research_plan_status=decision.status,
+                    research_plan_source="MODEL_8_MANUAL_RULE",
+                    research_plan_reason=decision.reason,
+                    research_plan_diagnostics=diagnostics,
+                ),
+                wait_plan,
+            )
+
+        entry = float(decision.entry_price or 0.0)
+        stop = float(decision.initial_stop or 0.0)
+        risk = abs(entry - stop)
+        plan = MT5ResearchTradePlan(
+            direction=decision.direction,
+            entry_price=entry,
+            stop=stop,
+            target=0.0,
+            risk_reward=0.0,
+            stop_multiplier=0.0,
+            exit_model=MODEL_8_BETA_VERSION,
+            exit_score=0.0,
+            exit_candidates=2,
+            status="PLANO_VALIDO",
+            risk_pips=risk,
+            reward_pips=0.0,
+            risk_percent=abs(risk / entry) if entry else 0.0,
+            reward_percent=0.0,
+            stop_reason="1 pip alem do ultimo fundo/topo M5 confirmado (pivo 2+2).",
+            target_reason="M8 nao usa TP fixo.",
+            stop_management_reason="Full exit no cruzamento confirmado RSI 70/30 ou inversao SMA20/SMA50.",
+            beta_reason="Full exit no cruzamento confirmado RSI 70/30 ou inversao SMA20/SMA50.",
+            source="MODEL_8_MANUAL_RULE",
+            reason=decision.reason,
+            rr_current=0.0,
+            rr_minimum=0.0,
+            certification_score=100.0,
+            certification_grade="USER_DEFINED_DEMO",
+            certification_status="USER_APPROVED_DEMO_RULE",
+            certification_usage="Regra manual autorizada exclusivamente para MT5 Demo.",
+            certification_demo_allowed=True,
+            **{key: value for key, value in common_plan.items() if key not in {"target", "risk_reward", "source"}},
+        )
+        return (
+            replace(
+                row,
+                timeframe=MODEL_8_TIMEFRAME,
+                lab_timeframe=MODEL_8_TIMEFRAME,
+                last_candle_time=decision.current_candle_time,
+                decision=decision.direction,
+                theoretical_entry_direction=decision.direction,
+                theoretical_entry_status=(
+                    "ORDEM_STOP_TEORICA"
+                    if decision.signal_kind == "REENTRY"
+                    else "SINAL_TEORICO"
+                ),
+                theoretical_entry_candle=decision.closed_candle_time,
+                theoretical_entry_price=entry,
+                theoretical_entry_reason=decision.reason,
+                active_model="M8_XAU_M5_SMA20_50_RSI14",
+                active_model_indicators=diagnostics,
+                active_model_score=1.0,
+                reason=decision.reason,
+                short_average=decision.sma20,
+                long_average=decision.sma50,
+                swing_low=decision.last_swing_price if decision.direction == "BUY" else row.swing_low,
+                swing_high=decision.last_swing_price if decision.direction == "SELL" else row.swing_high,
+                lab_alpha_id=MODEL_8_ALPHA_ID,
+                lab_alpha_version=MODEL_8_ALPHA_VERSION,
+                beta_id=MODEL_8_BETA_ID,
+                beta_version=MODEL_8_BETA_VERSION,
+                beta_mode="FULL_EXIT_RSI70_30_CROSS_OR_SMA_INVERSION",
+                beta_reason=plan.beta_reason,
+                lab_parameters=parameters,
+                lab_configuration_source="MODEL_8_MANUAL_RULE",
+                lab_confidence=1.0,
+                lab_ict_score=100.0,
+                lab_ict_grade="USER_DEFINED_DEMO",
+                lab_ict_status="USER_APPROVED_DEMO_RULE",
+                lab_ict_usage=plan.certification_usage,
+                lab_ict_demo_allowed=True,
+                entry_filter_status="OK",
+                entry_filter_parameter="M8_RSI50_WITH_SMA_DIRECTION",
+                entry_filter_reading=decision.status,
+                entry_filter_reason=decision.reason,
+                research_plan_status="PLANO_VALIDO",
+                research_plan_source="MODEL_8_MANUAL_RULE",
+                research_plan_entry_price=entry,
+                research_plan_stop=stop,
+                research_plan_target=0.0,
+                research_plan_risk_reward=0.0,
+                research_plan_risk_pips=risk,
+                research_plan_stop_management=MODEL_8_STOP_MANAGEMENT,
+                research_plan_stop_management_parameters=parameters,
+                research_plan_reason=decision.reason,
+                research_plan_diagnostics=diagnostics,
+            ),
+            plan,
+        )
+
+    def _mt5_xau_trend_filter_plan(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        fallback_plan: MT5ResearchTradePlan,
+        model_id: str,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        """Materializa B-E sem duplicar o contrato estrutural do setup A."""
+        spec = trend_filter_spec(model_id)
+        if spec is None:
+            return row, fallback_plan
+        base_row, base_plan = self._mt5_model8_xau_m5_plan(row, fallback_plan)
+        if str(row.pair or "").upper() != MODEL_8_SYMBOL:
+            reason = f"M{spec.number} opera exclusivamente {MODEL_8_SYMBOL}."
+            return (
+                replace(
+                    base_row,
+                    theoretical_entry_reason=reason,
+                    research_plan_reason=reason,
+                ),
+                replace(base_plan, reason=reason),
+            )
+        decision = self.get_xau_trend_filter_entry_decision(model_id)
+        parameters = xau_trend_filter_parameters(model_id)
+        parameters["active_entry_order_type"] = decision.base.entry_order_type
+        parameters.update(
+            {
+                "indicator_source": "LOCAL_MT5_CANDLES_52",
+                "indicator_generated_at": decision.base.current_candle_time,
+                "indicator_closed_candle_time": decision.base.closed_candle_time,
+            }
+        )
+        diagnostics = tuple(base_row.active_model_indicators) + (
+            f"SETUP={spec.setup}",
+            f"ENTRY={decision.base.entry_order_type}",
+            f"ADX14={decision.adx14 if decision.adx14 is not None else 'N/D'}",
+            f"ATR14={decision.atr14 if decision.atr14 is not None else 'N/D'}",
+            f"DISTANCE_ATR={decision.distance_atr if decision.distance_atr is not None else 'N/D'}",
+            f"SMA50_SLOPE_ATR={decision.sma50_slope_atr if decision.sma50_slope_atr is not None else 'N/D'}",
+            f"PASSED={','.join(decision.passed_filters) or 'NONE'}",
+            f"FAILED={','.join(decision.failed_filters) or 'NONE'}",
+        )
+        identity = {
+            "alpha_id": spec.alpha_id,
+            "alpha_version": spec.alpha_version,
+            "beta_id": spec.beta_id,
+            "beta_version": spec.beta_version,
+            "beta_mode": "FULL_EXIT_RSI70_30_CROSS_OR_SMA_INVERSION",
+            "source": spec.source,
+            "stop_management": spec.stop_management,
+            "stop_management_parameters": parameters,
+            "diagnostics": diagnostics,
+        }
+        if not decision.ready:
+            plan = replace(
+                base_plan,
+                direction="WAIT",
+                entry_price=None,
+                stop=None,
+                target=None,
+                status=decision.status,
+                reason=decision.reason,
+                invalid_reason=decision.status,
+                invalid_fields=("entry_trigger", "sideways_filter"),
+                **identity,
+            )
+            return (
+                replace(
+                    base_row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status=decision.status,
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=decision.reason,
+                    active_model=f"M{spec.number}_SETUP_{spec.setup}_XAU_M5",
+                    active_model_indicators=diagnostics,
+                    reason=decision.reason,
+                    lab_alpha_id=spec.alpha_id,
+                    lab_alpha_version=spec.alpha_version,
+                    beta_id=spec.beta_id,
+                    beta_version=spec.beta_version,
+                    lab_parameters=parameters,
+                    lab_configuration_source=spec.source,
+                    entry_filter_status=(
+                        "BLOQUEADO" if decision.failed_filters else "AGUARDANDO"
+                    ),
+                    entry_filter_parameter=f"SETUP_{spec.setup}_SIDEWAYS_FILTER",
+                    entry_filter_reading=decision.status,
+                    entry_filter_reason=decision.reason,
+                    research_plan_status=decision.status,
+                    research_plan_source=spec.source,
+                    research_plan_entry_price=None,
+                    research_plan_stop=None,
+                    research_plan_target=None,
+                    research_plan_reason=decision.reason,
+                    research_plan_diagnostics=diagnostics,
+                ),
+                plan,
+            )
+        entry = float(decision.base.entry_price or 0.0)
+        stop = float(decision.base.initial_stop or 0.0)
+        risk = abs(entry - stop)
+        plan = replace(
+            base_plan,
+            direction=decision.base.direction,
+            entry_price=entry,
+            stop=stop,
+            risk_pips=risk,
+            risk_percent=abs(risk / entry) if entry else 0.0,
+            status="PLANO_VALIDO",
+            reason=decision.reason,
+            invalid_reason="",
+            invalid_fields=(),
+            **identity,
+        )
+        return (
+            replace(
+                base_row,
+                decision=decision.base.direction,
+                theoretical_entry_direction=decision.base.direction,
+                theoretical_entry_status=(
+                    "ORDEM_STOP_TEORICA"
+                    if decision.base.signal_kind == "REENTRY"
+                    else "SINAL_TEORICO"
+                ),
+                theoretical_entry_price=entry,
+                active_model=f"M{spec.number}_SETUP_{spec.setup}_XAU_M5",
+                active_model_indicators=diagnostics,
+                reason=decision.reason,
+                theoretical_entry_reason=decision.reason,
+                lab_alpha_id=spec.alpha_id,
+                lab_alpha_version=spec.alpha_version,
+                beta_id=spec.beta_id,
+                beta_version=spec.beta_version,
+                lab_parameters=parameters,
+                lab_configuration_source=spec.source,
+                entry_filter_status="OK",
+                entry_filter_parameter=f"SETUP_{spec.setup}_SIDEWAYS_FILTER",
+                entry_filter_reading=decision.status,
+                entry_filter_reason=decision.reason,
+                research_plan_source=spec.source,
+                research_plan_entry_price=entry,
+                research_plan_stop=stop,
+                research_plan_risk_pips=risk,
+                research_plan_stop_management=spec.stop_management,
+                research_plan_stop_management_parameters=parameters,
+                research_plan_reason=decision.reason,
+                research_plan_diagnostics=diagnostics,
+            ),
+            plan,
+        )
+
+    def get_model15_entry_decision(
+        self,
+        *,
+        read_only_fallback: bool = False,
+    ) -> Model15EntryDecision:
+        """Expoe M15; somente a UI pode reutilizar o ultimo estado auditado."""
+        candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
+        rows = (
+            list(candles.get((MODEL_15_SYMBOL, MODEL_15_TIMEFRAME), []) or [])
+            if isinstance(candles, dict)
+            else []
+        )
+        decision = evaluate_model15_entry(rows, pip_size=MODEL_15_PIP_SIZE)
+        if read_only_fallback and len(rows) < 51:
+            persisted = self._model15_decision_from_runtime_state()
+            if persisted is not None:
+                return persisted
+            return decision
+        self._persist_model15_runtime_state(decision)
+        return decision
+
+    def _model15_decision_from_runtime_state(
+        self,
+    ) -> Model15EntryDecision | None:
+        payload = self.get_model15_runtime_state()
+        status = str(payload.get("status") or "").strip()
+        if not status or status == "M15_CANDLES_INSUFICIENTES":
+            return None
+        try:
+            return Model15EntryDecision(
+                direction=str(payload.get("direction") or "WAIT"),
+                status=status,
+                reason=str(payload.get("reason") or ""),
+                current_candle_time=str(
+                    payload.get("current_candle_time") or "N/D"
+                ),
+                previous_candle_time=str(
+                    payload.get("previous_candle_time") or "N/D"
+                ),
+                entry_price=self._optional_float(payload.get("entry_price")),
+                initial_stop=self._optional_float(payload.get("initial_stop")),
+                ema20=self._optional_float(payload.get("ema20")),
+                ema50=self._optional_float(payload.get("ema50")),
+                previous_high=self._optional_float(payload.get("previous_high")),
+                previous_low=self._optional_float(payload.get("previous_low")),
+                current_high=self._optional_float(payload.get("current_high")),
+                current_low=self._optional_float(payload.get("current_low")),
+            )
+        except (TypeError, ValueError):
+            return None
+
+    def get_model15_runtime_state(self) -> dict[str, Any]:
+        """Return the latest compact M15 audit state persisted by the runtime."""
+
+        try:
+            payload = json.loads(
+                _MODEL15_RUNTIME_STATE_PATH.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return dict(payload) if isinstance(payload, dict) else {}
+
+    def _persist_model15_runtime_state(self, decision: Model15EntryDecision) -> None:
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return
+        payload = {
+            **asdict(decision),
+            "symbol": MODEL_15_SYMBOL,
+            "timeframe": MODEL_15_TIMEFRAME,
+            "operational_model": MT5_OPERATIONAL_MODEL_15,
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+        }
+        signature_payload = {
+            key: value for key, value in payload.items() if key != "captured_at"
+        }
+        signature = json.dumps(
+            signature_payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            default=str,
+        )
+        if signature == self.model15_runtime_state_signature:
+            return
+        if not self.model15_runtime_state_signature:
+            previous = self.get_model15_runtime_state()
+            previous.pop("captured_at", None)
+            if previous == signature_payload:
+                object.__setattr__(self, "model15_runtime_state_signature", signature)
+                return
+        target = _MODEL15_RUNTIME_STATE_PATH
+        temporary = target.with_name(
+            f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+        )
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            temporary.replace(target)
+        except OSError:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+        object.__setattr__(self, "model15_runtime_state_signature", signature)
+
+    def _mt5_model15_xau_m5_plan(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        fallback_plan: MT5ResearchTradePlan,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        """Materializa o breakout M5 do ouro sem TP fixo ou Lab pesado."""
+        pair = str(row.pair or "").upper()
+        if pair != MODEL_15_SYMBOL:
+            reason = f"M15 opera exclusivamente {MODEL_15_SYMBOL}."
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    timeframe=MODEL_15_TIMEFRAME,
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=reason,
+                    research_plan_status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    research_plan_reason=reason,
+                ),
+                replace(
+                    fallback_plan,
+                    status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    reason=reason,
+                    invalid_reason="PAIR_OUTSIDE_MODEL_SCOPE",
+                    invalid_fields=("symbol",),
+                ),
+            )
+
+        decision = self.get_model15_entry_decision()
+        parameters = model15_stop_management_parameters()
+        diagnostics = (
+            f"EMA20={decision.ema20 if decision.ema20 is not None else 'N/D'}",
+            f"EMA50={decision.ema50 if decision.ema50 is not None else 'N/D'}",
+            f"PREVIOUS_HIGH={decision.previous_high or 'N/D'}",
+            f"PREVIOUS_LOW={decision.previous_low or 'N/D'}",
+            f"CURRENT_HIGH={decision.current_high or 'N/D'}",
+            f"CURRENT_LOW={decision.current_low or 'N/D'}",
+            "ENTRY_BUFFER=1_PIP",
+            "STOP_BUFFER=0_EXACT_EXTREME",
+            "TAKE_PROFIT=DISABLED",
+        )
+        if not decision.ready:
+            wait_plan = replace(
+                fallback_plan,
+                symbol=MODEL_15_SYMBOL,
+                timeframe=MODEL_15_TIMEFRAME,
+                direction="WAIT",
+                entry_price=None,
+                stop=None,
+                target=None,
+                risk_reward=0.0,
+                status=decision.status,
+                source="MODEL_15_MANUAL_RULE",
+                reason=decision.reason,
+                invalid_reason=decision.status,
+                invalid_fields=("entry_trigger",),
+                stop_management=MODEL_15_STOP_MANAGEMENT,
+                stop_management_parameters=parameters,
+                alpha_id=MODEL_15_ALPHA_ID,
+                alpha_version=MODEL_15_ALPHA_VERSION,
+                beta_id=MODEL_15_BETA_ID,
+                beta_version=MODEL_15_BETA_VERSION,
+                beta_mode="TRAILING_ONLY",
+                diagnostics=diagnostics,
+            )
+            return (
+                replace(
+                    row,
+                    timeframe=MODEL_15_TIMEFRAME,
+                    lab_timeframe=MODEL_15_TIMEFRAME,
+                    last_candle_time=decision.current_candle_time,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status=decision.status,
+                    theoretical_entry_candle=decision.current_candle_time,
+                    theoretical_entry_price=decision.entry_price,
+                    theoretical_entry_reason=decision.reason,
+                    active_model="M15_XAU_M5_EMA20_50_BREAKOUT",
+                    active_model_indicators=diagnostics,
+                    reason=decision.reason,
+                    short_average=decision.ema20,
+                    long_average=decision.ema50,
+                    swing_high=decision.previous_high,
+                    swing_low=decision.previous_low,
+                    lab_alpha_id=MODEL_15_ALPHA_ID,
+                    lab_alpha_version=MODEL_15_ALPHA_VERSION,
+                    beta_id=MODEL_15_BETA_ID,
+                    beta_version=MODEL_15_BETA_VERSION,
+                    beta_mode="TRAILING_ONLY",
+                    beta_reason="SL acompanha o extremo do candle M5 anterior.",
+                    lab_parameters=parameters,
+                    lab_configuration_source="MODEL_15_MANUAL_RULE",
+                    entry_filter_status="AGUARDANDO",
+                    entry_filter_parameter="M15_EMA_BREAKOUT_PREVIOUS_CANDLE",
+                    entry_filter_reading=decision.status,
+                    entry_filter_reason=decision.reason,
+                    research_plan_status=decision.status,
+                    research_plan_source="MODEL_15_MANUAL_RULE",
+                    research_plan_entry_price=decision.entry_price,
+                    research_plan_stop=decision.initial_stop,
+                    research_plan_target=None,
+                    research_plan_risk_reward=0.0,
+                    research_plan_stop_management=MODEL_15_STOP_MANAGEMENT,
+                    research_plan_stop_management_parameters=parameters,
+                    research_plan_reason=decision.reason,
+                    research_plan_diagnostics=diagnostics,
+                ),
+                wait_plan,
+            )
+
+        entry = float(decision.entry_price or 0.0)
+        stop = float(decision.initial_stop or 0.0)
+        risk = abs(entry - stop)
+        reason = decision.reason
+        plan = MT5ResearchTradePlan(
+            symbol=MODEL_15_SYMBOL,
+            timeframe=MODEL_15_TIMEFRAME,
+            direction=decision.direction,
+            entry_price=entry,
+            stop=stop,
+            target=0.0,
+            risk_reward=0.0,
+            stop_multiplier=0.0,
+            exit_model=MODEL_15_BETA_VERSION,
+            exit_score=0.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            risk_pips=risk,
+            reward_pips=0.0,
+            risk_percent=abs(risk / entry) if entry else 0.0,
+            reward_percent=0.0,
+            stop_reason="Extremo oposto exato do candle M5 anterior.",
+            target_reason="M15 nao usa TP fixo; saida exclusivamente pelo SL movel.",
+            stop_management=MODEL_15_STOP_MANAGEMENT,
+            stop_management_parameters=parameters,
+            stop_management_reason=(
+                "A cada ciclo, usar o extremo do ultimo candle M5 fechado e "
+                "mover o SL somente quando ficar mais protetivo."
+            ),
+            alpha_id=MODEL_15_ALPHA_ID,
+            alpha_version=MODEL_15_ALPHA_VERSION,
+            beta_id=MODEL_15_BETA_ID,
+            beta_version=MODEL_15_BETA_VERSION,
+            beta_mode="TRAILING_ONLY",
+            beta_reason="Sem TP e sem Full Exit; encerramento pelo SL movel.",
+            source="MODEL_15_MANUAL_RULE",
+            reason=reason,
+            rr_current=0.0,
+            rr_minimum=0.0,
+            diagnostics=diagnostics,
+            certification_score=100.0,
+            certification_grade="USER_DEFINED_DEMO",
+            certification_status="USER_APPROVED_DEMO_RULE",
+            certification_usage="Regra manual autorizada exclusivamente para MT5 Demo.",
+            certification_demo_allowed=True,
+        )
+        return (
+            replace(
+                row,
+                timeframe=MODEL_15_TIMEFRAME,
+                lab_timeframe=MODEL_15_TIMEFRAME,
+                last_candle_time=decision.current_candle_time,
+                decision=decision.direction,
+                theoretical_entry_direction=decision.direction,
+                theoretical_entry_status="SINAL_TEORICO",
+                theoretical_entry_candle=decision.current_candle_time,
+                theoretical_entry_price=entry,
+                theoretical_entry_reason=reason,
+                active_model="M15_XAU_M5_EMA20_50_BREAKOUT",
+                active_model_indicators=diagnostics,
+                active_model_score=1.0,
+                reason=reason,
+                short_average=decision.ema20,
+                long_average=decision.ema50,
+                swing_high=decision.previous_high,
+                swing_low=decision.previous_low,
+                lab_alpha_id=MODEL_15_ALPHA_ID,
+                lab_alpha_version=MODEL_15_ALPHA_VERSION,
+                beta_id=MODEL_15_BETA_ID,
+                beta_version=MODEL_15_BETA_VERSION,
+                beta_mode="TRAILING_ONLY",
+                beta_reason=plan.beta_reason,
+                lab_parameters=parameters,
+                lab_configuration_source="MODEL_15_MANUAL_RULE",
+                lab_confidence=1.0,
+                lab_ict_score=100.0,
+                lab_ict_grade="USER_DEFINED_DEMO",
+                lab_ict_status="USER_APPROVED_DEMO_RULE",
+                lab_ict_usage=plan.certification_usage,
+                lab_ict_demo_allowed=True,
+                entry_filter_status="OK",
+                entry_filter_parameter="M15_EMA_BREAKOUT_PREVIOUS_CANDLE",
+                entry_filter_reading=decision.status,
+                entry_filter_reason=reason,
+                research_plan_status="PLANO_VALIDO",
+                research_plan_source="MODEL_15_MANUAL_RULE",
+                research_plan_entry_price=entry,
+                research_plan_stop=stop,
+                research_plan_target=0.0,
+                research_plan_risk_reward=0.0,
+                research_plan_risk_pips=risk,
+                research_plan_reward_pips=0.0,
+                research_plan_risk_percent=plan.risk_percent,
+                research_plan_reward_percent=0.0,
+                research_plan_stop_reason=plan.stop_reason,
+                research_plan_target_reason=plan.target_reason,
+                research_plan_exit_model=MODEL_15_BETA_VERSION,
+                research_plan_stop_management=MODEL_15_STOP_MANAGEMENT,
+                research_plan_stop_management_parameters=parameters,
+                research_plan_stop_management_reason=plan.stop_management_reason,
+                dynamic_exit_policy=MODEL_15_STOP_MANAGEMENT,
+                dynamic_exit_action="HOLD_POSITION",
+                dynamic_exit_reason="Aguardar novo candle M5 fechado para atualizar SL.",
+                dynamic_exit_confidence=1.0,
+                dynamic_exit_candidate_stop=None,
+                dynamic_exit_allowed_to_execute_demo=(
+                    self._dynamic_exit_demo_sl_assisted_enabled()
+                ),
+                dynamic_exit_source="M15_PREVIOUS_CANDLE_TRAILING",
+                research_plan_reason=reason,
+                research_plan_rr_current=0.0,
+                research_plan_rr_minimum=0.0,
+                research_plan_diagnostics=diagnostics,
+            ),
+            plan,
+        )
+
+    def get_model16_entry_decision(
+        self,
+        *,
+        read_only_fallback: bool = False,
+    ) -> Model16EntryDecision:
+        """Expoe M16; somente a UI pode reutilizar o ultimo estado auditado."""
+        candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
+        rows = (
+            list(candles.get((MODEL_16_SYMBOL, MODEL_16_TIMEFRAME), []) or [])
+            if isinstance(candles, dict)
+            else []
+        )
+        decision = evaluate_model16_entry(rows, pip_size=MODEL_16_PIP_SIZE)
+        if read_only_fallback and len(rows) < 21:
+            persisted = self._model16_decision_from_runtime_state()
+            if persisted is not None:
+                return persisted
+            return decision
+        self._persist_model16_runtime_state(decision)
+        return decision
+
+    def _model16_decision_from_runtime_state(
+        self,
+    ) -> Model16EntryDecision | None:
+        payload = self.get_model16_runtime_state()
+        status = str(payload.get("status") or "").strip()
+        if not status or status == "M16_CANDLES_INSUFICIENTES":
+            return None
+        try:
+            return Model16EntryDecision(
+                direction=str(payload.get("direction") or "WAIT"),
+                status=status,
+                reason=str(payload.get("reason") or ""),
+                current_candle_time=str(
+                    payload.get("current_candle_time") or "N/D"
+                ),
+                previous_candle_time=str(
+                    payload.get("previous_candle_time") or "N/D"
+                ),
+                entry_price=self._optional_float(payload.get("entry_price")),
+                initial_stop=self._optional_float(payload.get("initial_stop")),
+                current_price=self._optional_float(payload.get("current_price")),
+                ema20=self._optional_float(payload.get("ema20")),
+                previous_high=self._optional_float(payload.get("previous_high")),
+                previous_low=self._optional_float(payload.get("previous_low")),
+                current_high=self._optional_float(payload.get("current_high")),
+                current_low=self._optional_float(payload.get("current_low")),
+            )
+        except (TypeError, ValueError):
+            return None
+
+    def get_model16_runtime_state(self) -> dict[str, Any]:
+        """Retorna o ultimo estado compacto e persistido do M16."""
+        try:
+            payload = json.loads(
+                _MODEL16_RUNTIME_STATE_PATH.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return dict(payload) if isinstance(payload, dict) else {}
+
+    def _persist_model16_runtime_state(self, decision: Model16EntryDecision) -> None:
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return
+        payload = {
+            **asdict(decision),
+            "symbol": MODEL_16_SYMBOL,
+            "timeframe": MODEL_16_TIMEFRAME,
+            "operational_model": MT5_OPERATIONAL_MODEL_16,
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+        }
+        signature_payload = {
+            key: value for key, value in payload.items() if key != "captured_at"
+        }
+        signature = json.dumps(
+            signature_payload,
+            ensure_ascii=True,
+            sort_keys=True,
+            default=str,
+        )
+        if signature == self.model16_runtime_state_signature:
+            return
+        if not self.model16_runtime_state_signature:
+            previous = self.get_model16_runtime_state()
+            previous.pop("captured_at", None)
+            if previous == signature_payload:
+                object.__setattr__(self, "model16_runtime_state_signature", signature)
+                return
+        target = _MODEL16_RUNTIME_STATE_PATH
+        temporary = target.with_name(
+            f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+        )
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            temporary.replace(target)
+        except OSError:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+        object.__setattr__(self, "model16_runtime_state_signature", signature)
+
+    def _mt5_model16_xau_m5_plan(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        fallback_plan: MT5ResearchTradePlan,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        """Materializa o M16 por preco/EMA20 sem TP fixo ou Lab pesado."""
+        pair = str(row.pair or "").upper()
+        if pair != MODEL_16_SYMBOL:
+            reason = f"M16 opera exclusivamente {MODEL_16_SYMBOL}."
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    timeframe=MODEL_16_TIMEFRAME,
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=reason,
+                    research_plan_status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    research_plan_reason=reason,
+                ),
+                replace(
+                    fallback_plan,
+                    status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    reason=reason,
+                    invalid_reason="PAIR_OUTSIDE_MODEL_SCOPE",
+                    invalid_fields=("symbol",),
+                ),
+            )
+
+        decision = self.get_model16_entry_decision()
+        parameters = model16_stop_management_parameters()
+        diagnostics = (
+            f"PRICE={decision.current_price if decision.current_price is not None else 'N/D'}",
+            f"EMA20={decision.ema20 if decision.ema20 is not None else 'N/D'}",
+            f"PREVIOUS_HIGH={decision.previous_high or 'N/D'}",
+            f"PREVIOUS_LOW={decision.previous_low or 'N/D'}",
+            f"CURRENT_HIGH={decision.current_high or 'N/D'}",
+            f"CURRENT_LOW={decision.current_low or 'N/D'}",
+            "ENTRY_BUFFER=1_PIP",
+            "STOP_BUFFER=0_EXACT_EXTREME",
+            "TAKE_PROFIT=DISABLED",
+        )
+        if not decision.ready:
+            wait_plan = replace(
+                fallback_plan,
+                symbol=MODEL_16_SYMBOL,
+                timeframe=MODEL_16_TIMEFRAME,
+                direction="WAIT",
+                entry_price=None,
+                stop=None,
+                target=None,
+                risk_reward=0.0,
+                status=decision.status,
+                source="MODEL_16_MANUAL_RULE",
+                reason=decision.reason,
+                invalid_reason=decision.status,
+                invalid_fields=("entry_trigger",),
+                stop_management=MODEL_16_STOP_MANAGEMENT,
+                stop_management_parameters=parameters,
+                alpha_id=MODEL_16_ALPHA_ID,
+                alpha_version=MODEL_16_ALPHA_VERSION,
+                beta_id=MODEL_16_BETA_ID,
+                beta_version=MODEL_16_BETA_VERSION,
+                beta_mode="TRAILING_ONLY",
+                diagnostics=diagnostics,
+            )
+            return (
+                replace(
+                    row,
+                    timeframe=MODEL_16_TIMEFRAME,
+                    lab_timeframe=MODEL_16_TIMEFRAME,
+                    last_candle_time=decision.current_candle_time,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status=decision.status,
+                    theoretical_entry_candle=decision.current_candle_time,
+                    theoretical_entry_price=decision.entry_price,
+                    theoretical_entry_reason=decision.reason,
+                    active_model="M16_XAU_M5_PRICE_EMA20_BREAKOUT",
+                    active_model_indicators=diagnostics,
+                    reason=decision.reason,
+                    short_average=decision.current_price,
+                    long_average=decision.ema20,
+                    swing_high=decision.previous_high,
+                    swing_low=decision.previous_low,
+                    lab_alpha_id=MODEL_16_ALPHA_ID,
+                    lab_alpha_version=MODEL_16_ALPHA_VERSION,
+                    beta_id=MODEL_16_BETA_ID,
+                    beta_version=MODEL_16_BETA_VERSION,
+                    beta_mode="TRAILING_ONLY",
+                    beta_reason="SL acompanha o extremo exato do candle M5 anterior.",
+                    lab_parameters=parameters,
+                    lab_configuration_source="MODEL_16_MANUAL_RULE",
+                    entry_filter_status="AGUARDANDO",
+                    entry_filter_parameter="M16_PRICE_EMA20_BREAKOUT_PREVIOUS_CANDLE",
+                    entry_filter_reading=decision.status,
+                    entry_filter_reason=decision.reason,
+                    research_plan_status=decision.status,
+                    research_plan_source="MODEL_16_MANUAL_RULE",
+                    research_plan_entry_price=decision.entry_price,
+                    research_plan_stop=decision.initial_stop,
+                    research_plan_target=None,
+                    research_plan_risk_reward=0.0,
+                    research_plan_stop_management=MODEL_16_STOP_MANAGEMENT,
+                    research_plan_stop_management_parameters=parameters,
+                    research_plan_reason=decision.reason,
+                    research_plan_diagnostics=diagnostics,
+                ),
+                wait_plan,
+            )
+
+        entry = float(decision.entry_price or 0.0)
+        stop = float(decision.initial_stop or 0.0)
+        risk = abs(entry - stop)
+        reason = decision.reason
+        plan = MT5ResearchTradePlan(
+            symbol=MODEL_16_SYMBOL,
+            timeframe=MODEL_16_TIMEFRAME,
+            direction=decision.direction,
+            entry_price=entry,
+            stop=stop,
+            target=0.0,
+            risk_reward=0.0,
+            stop_multiplier=0.0,
+            exit_model=MODEL_16_BETA_VERSION,
+            exit_score=0.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            risk_pips=risk,
+            reward_pips=0.0,
+            risk_percent=abs(risk / entry) if entry else 0.0,
+            reward_percent=0.0,
+            stop_reason="Extremo oposto exato do candle M5 anterior.",
+            target_reason="M16 nao usa TP fixo; saida exclusivamente pelo SL movel.",
+            stop_management=MODEL_16_STOP_MANAGEMENT,
+            stop_management_parameters=parameters,
+            stop_management_reason=(
+                "A cada candle M5 fechado, usar seu extremo e mover o SL "
+                "somente quando ficar mais protetivo."
+            ),
+            alpha_id=MODEL_16_ALPHA_ID,
+            alpha_version=MODEL_16_ALPHA_VERSION,
+            beta_id=MODEL_16_BETA_ID,
+            beta_version=MODEL_16_BETA_VERSION,
+            beta_mode="TRAILING_ONLY",
+            beta_reason="Sem TP e sem Full Exit; encerramento pelo SL movel.",
+            source="MODEL_16_MANUAL_RULE",
+            reason=reason,
+            rr_current=0.0,
+            rr_minimum=0.0,
+            diagnostics=diagnostics,
+            certification_score=100.0,
+            certification_grade="USER_DEFINED_DEMO",
+            certification_status="USER_APPROVED_DEMO_RULE",
+            certification_usage="Regra manual autorizada exclusivamente para MT5 Demo.",
+            certification_demo_allowed=True,
+        )
+        return (
+            replace(
+                row,
+                timeframe=MODEL_16_TIMEFRAME,
+                lab_timeframe=MODEL_16_TIMEFRAME,
+                last_candle_time=decision.current_candle_time,
+                decision=decision.direction,
+                theoretical_entry_direction=decision.direction,
+                theoretical_entry_status="SINAL_TEORICO",
+                theoretical_entry_candle=decision.current_candle_time,
+                theoretical_entry_price=entry,
+                theoretical_entry_reason=reason,
+                active_model="M16_XAU_M5_PRICE_EMA20_BREAKOUT",
+                active_model_indicators=diagnostics,
+                active_model_score=1.0,
+                reason=reason,
+                short_average=decision.current_price,
+                long_average=decision.ema20,
+                swing_high=decision.previous_high,
+                swing_low=decision.previous_low,
+                lab_alpha_id=MODEL_16_ALPHA_ID,
+                lab_alpha_version=MODEL_16_ALPHA_VERSION,
+                beta_id=MODEL_16_BETA_ID,
+                beta_version=MODEL_16_BETA_VERSION,
+                beta_mode="TRAILING_ONLY",
+                beta_reason=plan.beta_reason,
+                lab_parameters=parameters,
+                lab_configuration_source="MODEL_16_MANUAL_RULE",
+                lab_confidence=1.0,
+                lab_ict_score=100.0,
+                lab_ict_grade="USER_DEFINED_DEMO",
+                lab_ict_status="USER_APPROVED_DEMO_RULE",
+                lab_ict_usage=plan.certification_usage,
+                lab_ict_demo_allowed=True,
+                entry_filter_status="OK",
+                entry_filter_parameter="M16_PRICE_EMA20_BREAKOUT_PREVIOUS_CANDLE",
+                entry_filter_reading=decision.status,
+                entry_filter_reason=reason,
+                research_plan_status="PLANO_VALIDO",
+                research_plan_source="MODEL_16_MANUAL_RULE",
+                research_plan_entry_price=entry,
+                research_plan_stop=stop,
+                research_plan_target=0.0,
+                research_plan_risk_reward=0.0,
+                research_plan_risk_pips=risk,
+                research_plan_reward_pips=0.0,
+                research_plan_risk_percent=plan.risk_percent,
+                research_plan_reward_percent=0.0,
+                research_plan_stop_reason=plan.stop_reason,
+                research_plan_target_reason=plan.target_reason,
+                research_plan_exit_model=MODEL_16_BETA_VERSION,
+                research_plan_stop_management=MODEL_16_STOP_MANAGEMENT,
+                research_plan_stop_management_parameters=parameters,
+                research_plan_stop_management_reason=plan.stop_management_reason,
+                dynamic_exit_policy=MODEL_16_STOP_MANAGEMENT,
+                dynamic_exit_action="HOLD_POSITION",
+                dynamic_exit_reason="Aguardar novo candle M5 fechado para atualizar SL.",
+                dynamic_exit_confidence=1.0,
+                dynamic_exit_candidate_stop=None,
+                dynamic_exit_allowed_to_execute_demo=(
+                    self._dynamic_exit_demo_sl_assisted_enabled()
+                ),
+                dynamic_exit_source="M16_PREVIOUS_CANDLE_TRAILING",
+                research_plan_reason=reason,
+                research_plan_rr_current=0.0,
+                research_plan_rr_minimum=0.0,
+                research_plan_diagnostics=diagnostics,
+            ),
+            plan,
+        )
+
+    def _mt5_dynamic_exit_variant_from_source(
+        self,
+        source_row: DashboardMT5ForexSignalRowViewModel,
+        source_plan: MT5ResearchTradePlan,
+        *,
+        operational_model: str,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        """Copy one entry plan and change only its post-entry exit contract."""
+        spec = dynamic_exit_model_spec(operational_model)
+        if spec is None:
+            return source_row, source_plan
+        parameters = dynamic_exit_parameters(
+            dict(source_plan.stop_management_parameters or {})
+        )
+        parameters.update(
+            {
+                "dynamic_exit_source_model": spec.source_model_id,
+                "dynamic_exit_source_number": spec.source_number,
+            }
+        )
+        reason = (
+            f"{spec.short_name} preserva integralmente a entrada, o SL inicial e "
+            f"o TP do {spec.source_short_name}; apos a abertura, o Position "
+            "Manager pode somente manter ou tornar o SL mais protetivo."
+        )
+        diagnostics = tuple(source_plan.diagnostics) + (
+            f"DYNAMIC_EXIT_SOURCE={spec.source_short_name}",
+            "DYNAMIC_EXIT_POLICY=DYNAMIC_PROTECT_ONLY",
+            "EARLY_EXIT=DISABLED",
+            "FULL_EXIT=DISABLED",
+        )
+        transformed_plan = replace(
+            source_plan,
+            exit_model=spec.beta_version,
+            stop_management=DYNAMIC_EXIT_POLICY,
+            stop_management_parameters=parameters,
+            stop_management_reason=reason,
+            beta_id=spec.beta_id,
+            beta_version=spec.beta_version,
+            beta_mode=DYNAMIC_EXIT_BETA_MODE,
+            beta_reason=reason,
+            diagnostics=diagnostics,
+        )
+        transformed_row = replace(
+            source_row,
+            active_model=(
+                f"{spec.short_name}_DYNAMIC_FROM_{spec.source_short_name} | "
+                f"{source_row.active_model}"
+            ),
+            active_model_indicators=tuple(source_row.active_model_indicators)
+            + (
+                f"ENTRY_SOURCE={spec.source_short_name}",
+                "EXIT=DYNAMIC_PROTECT_ONLY",
+            ),
+            beta_id=spec.beta_id,
+            beta_version=spec.beta_version,
+            beta_mode=DYNAMIC_EXIT_BETA_MODE,
+            beta_reason=reason,
+            research_plan_exit_model=spec.beta_version,
+            research_plan_stop_management=DYNAMIC_EXIT_POLICY,
+            research_plan_stop_management_parameters=parameters,
+            research_plan_stop_management_reason=reason,
+            dynamic_exit_policy=DYNAMIC_EXIT_POLICY,
+            dynamic_exit_action="HOLD_POSITION",
+            dynamic_exit_reason=(
+                "Aguardar 1.50R; depois permitir break-even ou ATR trailing "
+                "somente quando o novo SL for mais protetivo."
+            ),
+            dynamic_exit_confidence=0.55,
+            dynamic_exit_candidate_stop=None,
+            dynamic_exit_allowed_to_execute_demo=(
+                self._dynamic_exit_demo_sl_assisted_enabled()
+            ),
+            dynamic_exit_source=(
+                f"{spec.short_name}_DYNAMIC_FROM_{spec.source_short_name}"
+            ),
+            research_plan_diagnostics=diagnostics,
+        )
+        return transformed_row, transformed_plan
+
+    def _mt5_scoped_m1_plan(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        plan: MT5ResearchTradePlan,
+        *,
+        model_id: str,
+        allowed_pairs: tuple[str, ...],
+        scope_label: str,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        """Reuse the M1 Lab plan while keeping market groups isolated."""
+        pair = str(row.pair or "").upper()
+        if pair not in set(allowed_pairs):
+            reason = f"{pair} nao pertence ao escopo {scope_label}."
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=reason,
+                    research_plan_status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    research_plan_reason=reason,
+                ),
+                replace(
+                    plan,
+                    status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    reason=reason,
+                    invalid_reason="PAIR_OUTSIDE_MODEL_SCOPE",
+                    invalid_fields=("symbol",),
+                ),
+            )
+        if model_id == MT5_OPERATIONAL_MODEL_1:
+            return row, plan
+        return (
+            replace(
+                row,
+                active_model=f"{scope_label} | {row.active_model}",
+                active_model_indicators=tuple(row.active_model_indicators)
+                + (f"MODEL_SCOPE={scope_label}",),
+                lab_configuration_source=(
+                    f"{scope_label} | {row.lab_configuration_source}"
+                ),
+            ),
+            plan,
+        )
 
     def _mt5_lab_operational_plan(
         self,

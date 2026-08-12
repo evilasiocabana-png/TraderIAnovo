@@ -10,7 +10,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from application.dashboard_service import DashboardService, MT5ScenarioHistoricalEvidence
+from application.dashboard_service import (
+    DashboardService,
+    MT5_OPERATIONAL_MODEL_IDS,
+    MT5ScenarioHistoricalEvidence,
+)
 from application.dashboard_view_model import (
     DASHBOARD_VIEW_MODEL_CONTRACT_VERSION,
     DashboardMT5HeuristicResearchRowViewModel,
@@ -27,7 +31,6 @@ from application.lab_operational_model_service import (
     FIXED_EXIT_POLICY,
     LabOperationalDecision,
     MODEL_2_ID,
-    MODEL_3_ID,
     MODEL_4_ID,
     MODEL_5_ID,
     MODEL_8_ID,
@@ -36,6 +39,10 @@ from application.lab_operational_model_service import (
     MODEL_10_ID,
     OFFICIAL_ALPHA_MODEL_IDS,
 )
+from application.model3_xau_m5_rsi50_flip import MODEL_3_ID as ACTIVE_MODEL_3_ID
+from application.model6_lab_forex_expansion import MODEL_6_ID as ACTIVE_MODEL_6_ID
+from application.model7_lab_alternative_markets import MODEL_7_ID as ACTIVE_MODEL_7_ID
+from application.dynamic_exit_model_family import DYNAMIC_EXIT_MODEL_IDS
 from application.mt5_market_data_service import MT5ForexSignalDashboard, MT5ForexSignalRow
 from application.model6_original_trend_momentum import MODEL_6_ID, MODEL_6_LEGACY_ID
 from application.model7_trend_momentum_dynamic import MODEL_7_ID
@@ -693,26 +700,102 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertIn("H1", transformed_row.reason)
         self.assertIs(transformed_plan, plan)
 
-    def test_chaveamento_todos_expande_somente_modelos_ativos_m1_a_m5(self) -> None:
+    def test_chaveamento_todos_expande_somente_modelos_ativos_m1_a_m14(self) -> None:
         service = DashboardService()
         service.set_mt5_operational_model("TODOS_MODELOS")
 
         self.assertEqual(
             service._mt5_operational_models_to_evaluate(),
-            (
-                "MODELO_1_ALPHA_ATUAL",
-                "MODELO_2_LAB_ALPHA_SUGERIDA_1_PLUS",
-                "MODELO_3_LAB_ALPHA_SUGERIDA_2_PLUS",
-                "MODELO_4_LAB_CONTEXTUAL_MTF",
-                "MODELO_5_LAB_CONSOLIDADO",
-            ),
+            MT5_OPERATIONAL_MODEL_IDS,
         )
 
-    def test_modelos_lab_m2_a_m5_materializam_planos_fixos_independentes(self) -> None:
+    def test_grupo_operacional_m8_a_m17_avalia_somente_esses_modelos(self) -> None:
+        from application.dashboard_service import (
+            MT5_OPERATIONAL_MODEL_8_TO_17,
+            MT5_OPERATIONAL_MODEL_8_TO_17_IDS,
+        )
+
+        service = object.__new__(DashboardService)
+        service.set_mt5_operational_model(MT5_OPERATIONAL_MODEL_8_TO_17)
+
+        self.assertEqual(
+            service._mt5_operational_models_to_evaluate(),
+            MT5_OPERATIONAL_MODEL_8_TO_17_IDS,
+        )
+        self.assertTrue(service._mt5_multi_model_selection_active())
+
+    def test_modelo3_materializa_xau_m5_rsi50_e_exclui_outros_ativos(self) -> None:
+        service = DashboardService()
+        plan = MT5ResearchTradePlan(
+            symbol="XAUUSD",
+            timeframe="M5",
+            direction="BUY",
+            entry_price=0.9000,
+            stop=0.8950,
+            target=0.9100,
+            risk_reward=2.0,
+            stop_multiplier=1.5,
+            exit_model="INITIAL_RISK_PLAN",
+            exit_score=1.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            alpha_id="ALPHA013",
+            stop_management="RESEARCH_FIXED_SL_TP",
+        )
+        row = DashboardMT5ForexSignalRowViewModel(
+            pair="XAUUSD",
+            status="OK",
+            timeframe="M5",
+            decision="BUY",
+            active_model="SUPPORT_RESISTANCE_REACTION",
+        )
+
+        decision = SimpleNamespace(
+            ready=True,
+            direction="BUY",
+            status="M3_BUY_MERCADO_PRONTA",
+            reason="RSI14 acima de 50.",
+            current_candle_time="2026-08-11 10:05",
+            closed_candle_time="2026-08-11 10:00",
+            entry_price=3500.0,
+            initial_stop=3490.0,
+            rsi14=60.0,
+            last_swing_price=3490.01,
+        )
+        with patch.object(
+            DashboardService,
+            "get_model3_entry_decision",
+            return_value=decision,
+        ):
+            transformed_row, transformed_plan = service._mt5_apply_operational_model(
+                row,
+                plan,
+                operational_model=ACTIVE_MODEL_3_ID,
+            )
+
+        self.assertEqual(transformed_row.active_model, "M3_XAU_M5_RSI14_FLIP")
+        self.assertEqual(transformed_plan.symbol, "XAUUSD")
+        self.assertEqual(transformed_plan.timeframe, "M5")
+        self.assertEqual(transformed_plan.direction, "BUY")
+        self.assertEqual(transformed_plan.target, 0.0)
+
+        blocked_row, blocked_plan = service._mt5_apply_operational_model(
+            DashboardMT5ForexSignalRowViewModel(
+                pair="AUDCAD",
+                status="OK",
+                timeframe="H1",
+                decision="BUY",
+            ),
+            plan,
+            operational_model=ACTIVE_MODEL_3_ID,
+        )
+        self.assertEqual(blocked_row.decision, "WAIT")
+        self.assertEqual(blocked_plan.status, "PAIR_OUTSIDE_MODEL_SCOPE")
+
+    def test_modelos_lab_m2_m4_m5_materializam_planos_fixos_independentes(self) -> None:
         service = DashboardService()
         labels = {
             MODEL_2_ID: "M2",
-            MODEL_3_ID: "M3",
             MODEL_4_ID: "M4",
             MODEL_5_ID: "M5",
         }
@@ -862,19 +945,19 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertIn("M5_", transformed_row.active_model)
         self.assertIs(transformed_plan, fallback_plan)
 
-    def test_modelo6_legado_aposentado_migra_para_modelo1(self) -> None:
+    def test_modelo6_legado_aposentado_migra_para_modelo6_atual(self) -> None:
         service = DashboardService()
 
         service.set_mt5_operational_model(MODEL_6_LEGACY_ID)
 
-        self.assertEqual(service.get_mt5_operational_model(), "MODELO_1_ALPHA_ATUAL")
+        self.assertEqual(service.get_mt5_operational_model(), ACTIVE_MODEL_6_ID)
 
-    def test_modelo7_aposentado_migra_para_modelo1(self) -> None:
+    def test_modelo7_legado_aposentado_migra_para_modelo7_atual(self) -> None:
         service = DashboardService()
 
         service.set_mt5_operational_model(MODEL_7_ID)
 
-        self.assertEqual(service.get_mt5_operational_model(), "MODELO_1_ALPHA_ATUAL")
+        self.assertEqual(service.get_mt5_operational_model(), ACTIVE_MODEL_7_ID)
 
     def test_scenario_runner_novas_alphas_usam_indicadores_especificos(self) -> None:
         service = DashboardService()

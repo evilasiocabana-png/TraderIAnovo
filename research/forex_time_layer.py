@@ -135,9 +135,12 @@ class ForexTimeLayer:
             server_dt,
             guard_minutes=rollover_guard_minutes,
         )
+        fallback_rollover = bool(
+            server_dt is None and self._is_rollover_window(utc_dt.hour)
+        )
         session = (
             "ROLLOVER"
-            if bool(server_rollover["is_rollover_window"])
+            if bool(server_rollover["is_rollover_window"] or fallback_rollover)
             else self._session(utc_dt.hour)
         )
         preferred_sessions = self._preferred_sessions(normalized_pair)
@@ -146,6 +149,7 @@ class ForexTimeLayer:
             utc_dt,
             preferred_sessions,
             server_rollover=server_rollover,
+            allow_static_rollover=server_dt is None,
         )
         return ForexTimeContext(
             pair=normalized_pair,
@@ -166,11 +170,11 @@ class ForexTimeLayer:
             is_london_ny_overlap=session == "LONDON_NEW_YORK_OVERLAP",
             is_rollover_window=bool(
                 server_rollover["is_rollover_window"]
-                or self._is_rollover_window(utc_dt.hour)
+                or fallback_rollover
             ),
             is_rollover=bool(
                 server_rollover["is_rollover_window"]
-                or self._is_rollover_window(utc_dt.hour)
+                or fallback_rollover
             ),
             is_friday_late=self._is_friday_late(utc_dt),
             is_sunday_open=self._is_sunday_open(utc_dt),
@@ -208,8 +212,6 @@ class ForexTimeLayer:
         return None
 
     def _session(self, hour_utc: int) -> str:
-        if self._is_rollover_window(hour_utc):
-            return "ROLLOVER"
         if 13 <= hour_utc < 17:
             return "LONDON_NEW_YORK_OVERLAP"
         if 7 <= hour_utc < 13:
@@ -285,6 +287,7 @@ class ForexTimeLayer:
         preferred_sessions: tuple[str, ...],
         *,
         server_rollover: dict[str, object] | None = None,
+        allow_static_rollover: bool = True,
     ) -> tuple[str, bool, float, str]:
         if server_rollover and bool(server_rollover.get("is_rollover_window")):
             return (
@@ -316,7 +319,7 @@ class ForexTimeLayer:
                 0.0,
                 "Final de sexta-feira: risco de baixa liquidez e gap.",
             )
-        if self._is_rollover_window(timestamp_utc.hour):
+        if allow_static_rollover and self._is_rollover_window(timestamp_utc.hour):
             return (
                 "ROLLOVER_BLOQUEADO",
                 True,

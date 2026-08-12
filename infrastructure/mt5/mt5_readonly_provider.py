@@ -7,21 +7,13 @@ import importlib
 from typing import Any
 
 from domain.contracts.mt5_status import MT5Status
+from domain.market_universe import MT5_RESEARCH_MARKETS
 
 
 class MT5ReadonlyProvider:
     """Fronteira read-only para leitura MT5 sem metodos operacionais."""
 
-    DEFAULT_FOREX_SYMBOLS = (
-        "EURUSD",
-        "GBPUSD",
-        "USDCHF",
-        "USDJPY",
-        "AUDUSD",
-        "NZDUSD",
-        "USDCAD",
-        "EURJPY",
-    )
+    DEFAULT_FOREX_SYMBOLS = MT5_RESEARCH_MARKETS
 
     def __init__(self) -> None:
         self._module: Any | None = None

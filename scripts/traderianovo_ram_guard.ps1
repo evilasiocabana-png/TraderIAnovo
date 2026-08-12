@@ -1,6 +1,6 @@
 param(
     [int]$Port = 8532,
-    [int]$MemoryLimitMB = 1600,
+    [int]$MemoryLimitMB = 900,
     [int]$CheckIntervalSeconds = 60,
     [int]$HealthyLogIntervalSeconds = 600,
     [int]$HealthFailureThreshold = 3,
@@ -82,10 +82,22 @@ function Start-TraderIAStreamlit {
     }
     $script = @"
 `$env:TRADERIA_DEMO_EXECUTION_ENABLED='1'
+`$env:TRADERIA_WEEKLY_ROBOT_SCHEDULE_ENABLED='1'
 `$env:TRADERIA_MT5_INPROCESS_ENABLED='1'
+`$env:TRADERIA_MT5_MARKET_DATA_EXTERNAL_PROCESS_ENABLED='1'
+`$env:TRADERIA_MT5_WARM_CACHE_ENABLED='1'
+`$env:TRADERIA_MT5_REPORT_EXTERNAL_PROCESS_ENABLED='1'
+`$env:TRADERIA_MT5_EXECUTION_READ_EXTERNAL_PROCESS_ENABLED='1'
+`$env:TRADERIA_MT5_EXTERNAL_TIMEOUT_SECONDS='30'
+`$env:TRADERIA_MT5_ONLINE_MAX_CANDLES='260'
+`$env:TRADERIA_MT5_REQUEST_QUEUE_TTL_SECONDS='10'
+`$env:TRADERIA_MT5_EXECUTION_READ_CACHE_SECONDS='10'
+`$env:TRADERIA_MT5_SERVER_TIME_CACHE_SECONDS='10'
+`$env:TRADERIA_MT5_REPORT_EXTERNAL_TIMEOUT_SECONDS='15'
+`$env:TRADERIA_MT5_EXECUTION_READ_TIMEOUT_SECONDS='8'
 `$env:MT5_PATH='C:\Program Files\MetaTrader 5\terminal64.exe'
 Set-Location '$ProjectRoot'
-& '$python' -m streamlit run '$DashboardPath' --server.port $Port --server.headless true
+& '$python' -m streamlit run '$DashboardPath' --server.port $Port --server.address 127.0.0.1 --server.headless true --server.fileWatcherType none --browser.gatherUsageStats false
 "@
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($script))
     Start-Process -FilePath "powershell.exe" -WindowStyle Hidden -ArgumentList @(

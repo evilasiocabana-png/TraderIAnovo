@@ -6,7 +6,6 @@ import os
 import json
 import subprocess
 import sys
-import threading
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -16,9 +15,8 @@ from core.configuration_manager import ConfigurationManager
 from core.event_bus import EventBus
 from core.events import NEW_CANDLE
 from core.mt5_process_probe import resolve_mt5_terminal_path
+from core.mt5_external_process_gate import mt5_external_process_slot
 from domain.candle import Candle
-
-_EXTERNAL_MT5_PROCESS_LOCK = threading.Lock()
 
 
 def _utc_range_boundary(value: datetime) -> datetime:
@@ -408,6 +406,75 @@ class MT5MarketDataProvider:
         self.last_error = ""
         return result
 
+    def get_sparse_research_batch(
+        self,
+        requested: dict[str, list[str] | tuple[str, ...] | set[str]],
+        timeframes: dict[str, Any],
+        count: int,
+    ) -> dict[str, dict[str, dict[str, Any]]]:
+        """Le apenas os pares pedidos em cada timeframe, sem produto cartesiano."""
+        normalized = {
+            str(label).upper(): sorted(
+                {
+                    str(symbol).strip()
+                    for symbol in symbols
+                    if str(symbol).strip()
+                }
+            )
+            for label, symbols in dict(requested or {}).items()
+            if str(label).strip()
+        }
+        normalized = {
+            label: symbols
+            for label, symbols in normalized.items()
+            if symbols and label in {str(key).upper() for key in timeframes}
+        }
+        if count <= 0 or not normalized:
+            return {}
+        normalized_timeframes = {
+            str(label).upper(): int(value)
+            for label, value in timeframes.items()
+            if str(label).upper() in normalized
+        }
+        if not self._use_external_mt5_process():
+            return {
+                label: self.get_forex_batch(
+                    {symbol: normalized_timeframes[label] for symbol in symbols},
+                    count,
+                )
+                for label, symbols in normalized.items()
+            }
+        payload = self._external_mt5_call(
+            "sparse_research_batch",
+            requested=normalized,
+            timeframes=normalized_timeframes,
+            count=int(count),
+        )
+        if not bool(payload.get("ok")):
+            self.connected = False
+            self.last_error = str(
+                payload.get("message", "Falha na leitura esparsa multi-TF.")
+            )
+            return {}
+        self.connected = True
+        result: dict[str, dict[str, dict[str, Any]]] = {}
+        for label, symbols_payload in dict(payload.get("timeframes", {})).items():
+            timeframe_rows: dict[str, dict[str, Any]] = {}
+            for symbol, data in dict(symbols_payload or {}).items():
+                raw = dict(data or {})
+                timeframe_rows[str(symbol)] = {
+                    "exists": bool(raw.get("exists")),
+                    "selected": bool(raw.get("selected")),
+                    "candles": [
+                        self._to_candle(rate)
+                        for rate in list(raw.get("rates", []))
+                    ],
+                    "microstructure": raw.get("microstructure", {}),
+                }
+            result[str(label).upper()] = timeframe_rows
+        self.last_error = ""
+        return result
+
     def get_research_range(
         self,
         symbols: list[str] | tuple[str, ...],
@@ -785,14 +852,23 @@ try:
                 },
             }
         emit({"ok": True, "symbols": response})
-    elif action == "research_batch":
+    elif action in {"research_batch", "sparse_research_batch"}:
         symbols = [str(item) for item in list(request.get("symbols", []))]
+        requested = {
+            str(label).upper(): [str(item) for item in list(items or [])]
+            for label, items in dict(request.get("requested", {})).items()
+        }
         timeframes = dict(request.get("timeframes", {}))
         count = int(request.get("count", 0))
         response = {}
         for label, timeframe in timeframes.items():
             timeframe_response = {}
-            for symbol in symbols:
+            label_symbols = (
+                requested.get(str(label).upper(), [])
+                if action == "sparse_research_batch"
+                else symbols
+            )
+            for symbol in label_symbols:
                 selected = bool(mt5.symbol_select(symbol, True))
                 info = mt5.symbol_info(symbol)
                 exists = info is not None
@@ -885,38 +961,37 @@ finally:
             else 0
         )
         timeout_seconds = _external_mt5_timeout_seconds(action)
-        if not _EXTERNAL_MT5_PROCESS_LOCK.acquire(timeout=min(timeout_seconds, 2.0)):
-            return {
-                "ok": False,
-                "message": "Leitura MT5 ocupada; mantendo o ultimo dado valido.",
-            }
         process: subprocess.Popen[str] | None = None
-        try:
-            process = subprocess.Popen(
-                [sys.executable, "-c", code, json.dumps(request)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                creationflags=creationflags,
-            )
-            stdout, stderr = process.communicate(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            if process is not None:
-                try:
-                    process.kill()
-                except OSError:
-                    pass
-            return {
-                "ok": False,
-                "message": (
-                    f"Timeout de {timeout_seconds:g}s no processo externo MT5; "
-                    "ultimo dado valido preservado."
-                ),
-            }
-        except OSError as exc:
-            return {"ok": False, "message": f"Falha ao executar processo MT5: {exc}"}
-        finally:
-            _EXTERNAL_MT5_PROCESS_LOCK.release()
+        with mt5_external_process_slot(timeout=min(timeout_seconds, 2.0)) as acquired:
+            if not acquired:
+                return {
+                    "ok": False,
+                    "message": "Leitura MT5 ocupada; mantendo o ultimo dado valido.",
+                }
+            try:
+                process = subprocess.Popen(
+                    [sys.executable, "-c", code, json.dumps(request)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    creationflags=creationflags,
+                )
+                stdout, stderr = process.communicate(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                if process is not None:
+                    try:
+                        process.kill()
+                    except OSError:
+                        pass
+                return {
+                    "ok": False,
+                    "message": (
+                        f"Timeout de {timeout_seconds:g}s no processo externo MT5; "
+                        "ultimo dado valido preservado."
+                    ),
+                }
+            except OSError as exc:
+                return {"ok": False, "message": f"Falha ao executar processo MT5: {exc}"}
         output = (stdout or "").strip().splitlines()
         if not output:
             return {

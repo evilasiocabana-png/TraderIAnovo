@@ -86,6 +86,12 @@ class FailingProvider:
         return False
 
 
+class TimeoutProvider(FailingProvider):
+    last_error = (
+        "Timeout de 30s no processo externo MT5; ultimo dado valido preservado."
+    )
+
+
 class ForexProvider:
     def __init__(self) -> None:
         self.selected_symbols: list[str] = []
@@ -374,7 +380,7 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         self.assertFalse(data.real_operation_authorized)
         self.assertEqual(data.available_symbols, ["EURUSD"])
 
-    def test_load_forex_signal_dashboard_analisa_oito_pares(self) -> None:
+    def test_load_forex_signal_dashboard_analisa_universo_configurado(self) -> None:
         ConfigurationManager.update_configuration(quantitative_score_candles_loaded=100)
         provider = ForexProvider()
         service = MT5MarketDataService(provider=provider, event_bus=EventBus())
@@ -382,21 +388,12 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         data = service.load_forex_signal_dashboard("H1")
 
         self.assertEqual(data.connection_status, "CONNECTED")
-        self.assertEqual(len(data.pairs), 8)
+        self.assertEqual(len(data.pairs), len(SUPPORTED_MT5_SYMBOLS))
         self.assertEqual(data.timeframe, "H1")
         self.assertEqual(data.read_only_status, "SOMENTE ANALISE DE MERCADO")
         self.assertFalse(data.real_operation_authorized)
         pairs = {row.pair: row for row in data.pairs}
-        self.assertEqual(set(pairs), {
-            "EURUSD",
-            "GBPUSD",
-            "USDCHF",
-            "USDJPY",
-            "EURJPY",
-            "AUDUSD",
-            "NZDUSD",
-            "USDCAD",
-        })
+        self.assertEqual(set(pairs), set(SUPPORTED_MT5_SYMBOLS))
         self.assertIn(pairs["EURUSD"].decision, {"BUY", "SELL", "WAIT"})
         self.assertIn(pairs["USDCAD"].decision, {"BUY", "SELL", "WAIT"})
         self.assertTrue(pairs["EURUSD"].reason)
@@ -409,15 +406,25 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         self.assertIsInstance(pairs["EURUSD"].confidence_drivers, tuple)
         self.assertTrue(provider.requests)
 
-    def test_load_forex_signal_dashboard_falha_com_oito_waits_sem_mt5(self) -> None:
+    def test_load_forex_signal_dashboard_falha_com_waits_sem_mt5(self) -> None:
         service = MT5MarketDataService(provider=FailingProvider())
 
         data = service.load_forex_signal_dashboard()
 
         self.assertEqual(data.connection_status, "DISCONNECTED")
-        self.assertEqual(len(data.pairs), 8)
+        self.assertEqual(len(data.pairs), len(SUPPORTED_MT5_SYMBOLS))
         self.assertTrue(all(row.decision == "WAIT" for row in data.pairs))
         self.assertTrue(all(row.status == "MT5 DESCONECTADO" for row in data.pairs))
+
+    def test_timeout_do_conector_nao_e_rotulado_como_terminal_offline(self) -> None:
+        service = MT5MarketDataService(provider=TimeoutProvider())
+
+        data = service.load_forex_signal_dashboard()
+
+        self.assertEqual(data.connection_status, "CONNECTOR_TIMEOUT")
+        self.assertEqual(data.connection_health, "AGUARDANDO_DADOS_MT5")
+        self.assertEqual(data.safe_mode_status, "AGUARDANDO_DADOS")
+        self.assertIn("Timeout", data.safe_mode_error)
 
     def test_load_forex_signal_dashboard_le_parametros_simples_do_mt5(
         self,
@@ -651,7 +658,7 @@ class MT5MarketDataServiceTest(unittest.TestCase):
 
         self.assertEqual(data.connection_status, "CONNECTED")
         self.assertTrue(data.mt5_safe_mode)
-        self.assertEqual(len(data.pairs), 8)
+        self.assertEqual(len(data.pairs), len(SUPPORTED_MT5_SYMBOLS))
         ok_rows = [row for row in data.pairs if row.status == "OK"]
         self.assertTrue(ok_rows)
         self.assertTrue(provider.requests)
@@ -789,7 +796,7 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         self.assertEqual(data.connection_health_icon, "🔴")
         self.assertIn("provider failure", data.health_message)
 
-    def test_health_timeout_fica_vermelho(self) -> None:
+    def test_health_timeout_aguarda_dados_sem_rotular_mt5_offline(self) -> None:
         service = MT5MarketDataService(
             provider=TimeoutForexProvider(),
             event_bus=EventBus(),
@@ -797,8 +804,9 @@ class MT5MarketDataServiceTest(unittest.TestCase):
 
         data = service.load_forex_signal_dashboard("H1")
 
-        self.assertEqual(data.connection_health, "OFFLINE")
-        self.assertEqual(data.connection_health_icon, "🔴")
+        self.assertEqual(data.connection_health, "AGUARDANDO_DADOS_MT5")
+        self.assertEqual(data.connection_health_icon, "AGUARDA")
+        self.assertEqual(data.safe_mode_status, "AGUARDANDO_DADOS")
         self.assertIn("timeout", data.health_message.lower())
 
     def test_diagnose_mt5_connection_propaga_etapa_e_last_error(self) -> None:

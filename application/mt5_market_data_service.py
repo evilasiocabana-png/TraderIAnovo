@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import os
+import json
+import threading
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+from pathlib import Path
 from statistics import pstdev
 from time import perf_counter
 from typing import Any, Protocol
@@ -13,6 +16,7 @@ from core.configuration_manager import ConfigurationManager
 from core.event_bus import EventBus
 from core.events import NEW_CANDLE
 from domain.candle import Candle
+from domain.market_universe import MODEL_3_ALL_FOREX_PAIRS, MT5_RESEARCH_MARKETS
 from market.candle_history import CandleHistory
 from research.quantitative_score_engine import (
     QuantitativeScoreConfiguration,
@@ -27,6 +31,10 @@ from research.timeframe_optimizer import (
     TimeframeOptimizer,
     TimeframeOptimizerConfiguration,
 )
+
+
+_OPERATIONAL_M5_WINDOW = 52
+_OPERATIONAL_M5_SYMBOLS = frozenset((*MODEL_3_ALL_FOREX_PAIRS, "XAUUSD"))
 
 
 class ReadOnlyCandleProvider(Protocol):
@@ -242,17 +250,11 @@ class MT5ForexSignalDashboard:
     safe_mode_error: str = ""
 
 
-SUPPORTED_MT5_SYMBOLS = (
-    "EURUSD",
-    "GBPUSD",
-    "USDCHF",
-    "USDJPY",
-    "EURJPY",
-    "AUDUSD",
-    "NZDUSD",
-    "USDCAD",
-)
+SUPPORTED_MT5_SYMBOLS = MT5_RESEARCH_MARKETS
 SUPPORTED_MT5_TIMEFRAMES = ("M1", "M5", "M15", "M30", "H1", "H4", "D1")
+_SUPPLEMENTAL_WARM_CACHE_LOCK = threading.Lock()
+
+
 @dataclass
 class MT5MarketDataService:
     """Ingere candles MT5 em CandleHistory sem expor execucao operacional."""
@@ -284,6 +286,10 @@ class MT5MarketDataService:
     latest_forex_candles: dict[tuple[str, str], list[Candle]] = field(
         default_factory=dict
     )
+    supplemental_forex_seed_only_keys: set[tuple[str, str]] = field(
+        default_factory=set,
+        repr=False,
+    )
     supplemental_forex_refresh_started: dict[str, float] = field(
         default_factory=dict,
         repr=False,
@@ -300,6 +306,7 @@ class MT5MarketDataService:
     def __post_init__(self) -> None:
         if hasattr(self.provider, "event_bus"):
             setattr(self.provider, "event_bus", self.event_bus)
+        self._hydrate_supplemental_forex_cache()
 
     def ingest_candles(
         self,
@@ -431,11 +438,18 @@ class MT5MarketDataService:
         normalized_timeframe = self._normalize_timeframe(timeframe)
         configured_candles = configuration.candles_loaded
         safe_count = max(configuration.slow_ma_period + 1, configured_candles)
+        safe_count = self._online_candle_limit(
+            safe_count,
+            minimum=configuration.slow_ma_period + 1,
+        )
         timeframe_value = self._timeframe_value(normalized_timeframe)
         refresh_time = self._current_update_time()
 
         connected = self._provider_connect()
         if not connected:
+            connection_status, connection_health, safe_mode_status = (
+                self._provider_connection_failure_state()
+            )
             rows = [
                 self._unavailable_pair_row(
                     pair,
@@ -449,14 +463,14 @@ class MT5MarketDataService:
                 for pair in SUPPORTED_MT5_SYMBOLS
             ]
             self.latest_forex_signal_dashboard = MT5ForexSignalDashboard(
-                connection_status="DISCONNECTED",
+                connection_status=connection_status,
                 timeframe=normalized_timeframe,
                 pairs=rows,
                 unavailable_pairs=list(SUPPORTED_MT5_SYMBOLS),
                 message=self._provider_error_message(
                     "Fonte MT5 read-only nao conectada."
                 ),
-                connection_health="OFFLINE",
+                connection_health=connection_health,
                 connection_health_icon="🔴",
                 last_update=refresh_time,
                 last_mt5_read=refresh_time,
@@ -474,7 +488,7 @@ class MT5MarketDataService:
                 mt5_safe_mode=safe_mode_enabled,
                 safe_mode_message=safe_mode_message,
                 safe_mode_source="MT5_SAFE_MODE",
-                safe_mode_status="OFFLINE",
+                safe_mode_status=safe_mode_status,
                 safe_mode_received_candles=0,
                 safe_mode_last_price=None,
                 safe_mode_error=self._provider_error_message(
@@ -523,7 +537,11 @@ class MT5MarketDataService:
                 read_started = perf_counter()
                 candles = self.provider.get_candles(pair, timeframe_value, safe_count)
                 provider_read_ms += self._elapsed_ms(read_started)
-                self.latest_forex_candles[(pair, normalized_timeframe)] = list(candles)
+                self.latest_forex_candles[(pair, normalized_timeframe)] = self._trim_forex_candle_cache(
+                    pair,
+                    normalized_timeframe,
+                    candles,
+                )
             except TimeoutError as exc:
                 unavailable_pairs.append(pair)
                 read_errors.append(f"{pair}: timeout: {exc}")
@@ -620,9 +638,8 @@ class MT5MarketDataService:
             mt5_safe_mode=safe_mode_enabled,
             safe_mode_message=safe_mode_message,
             safe_mode_source="MT5_SAFE_MODE",
-            safe_mode_status=(
-                "ONLINE" if health["connection_health"].startswith("ONLINE")
-                else "OFFLINE"
+            safe_mode_status=self._safe_mode_status_from_health(
+                health["connection_health"]
             ),
             safe_mode_received_candles=sum(row.received_candles for row in rows),
             safe_mode_last_price=self._latest_row_price(rows),
@@ -656,6 +673,10 @@ class MT5MarketDataService:
         fallback = self._normalize_timeframe(fallback_timeframe)
         configured_candles = configuration.candles_loaded
         safe_count = max(configuration.slow_ma_period + 1, configured_candles)
+        safe_count = self._online_candle_limit(
+            safe_count,
+            minimum=configuration.slow_ma_period + 1,
+        )
         refresh_time = self._current_update_time()
         should_recalculate_research = False
 
@@ -667,6 +688,9 @@ class MT5MarketDataService:
 
         connected = self._provider_connect()
         if not connected:
+            connection_status, connection_health, safe_mode_status = (
+                self._provider_connection_failure_state()
+            )
             rows = [
                 self._unavailable_pair_row(
                     pair,
@@ -680,14 +704,14 @@ class MT5MarketDataService:
                 for pair in SUPPORTED_MT5_SYMBOLS
             ]
             self.latest_forex_signal_dashboard = MT5ForexSignalDashboard(
-                connection_status="DISCONNECTED",
+                connection_status=connection_status,
                 timeframe=fallback,
                 pairs=rows,
                 unavailable_pairs=list(SUPPORTED_MT5_SYMBOLS),
                 message=self._provider_error_message(
                     "Fonte MT5 read-only nao conectada."
                 ),
-                connection_health="OFFLINE",
+                connection_health=connection_health,
                 connection_health_icon="ðŸ”´",
                 last_update=refresh_time,
                 last_mt5_read=refresh_time,
@@ -705,7 +729,7 @@ class MT5MarketDataService:
                 mt5_safe_mode=safe_mode_enabled,
                 safe_mode_message=safe_mode_message,
                 safe_mode_source="MT5_SAFE_MODE",
-                safe_mode_status="OFFLINE",
+                safe_mode_status=safe_mode_status,
                 safe_mode_received_candles=0,
                 safe_mode_last_price=None,
                 safe_mode_error=self._provider_error_message(
@@ -819,7 +843,11 @@ class MT5MarketDataService:
                 else:
                     candles = self.provider.get_candles(pair, timeframe_value, safe_count)
                 provider_read_ms += self._elapsed_ms(read_started)
-                self.latest_forex_candles[(pair, normalized_timeframe)] = list(candles)
+                self.latest_forex_candles[(pair, normalized_timeframe)] = self._trim_forex_candle_cache(
+                    pair,
+                    normalized_timeframe,
+                    candles,
+                )
             except TimeoutError as exc:
                 unavailable_pairs.append(pair)
                 read_errors.append(f"{pair}: timeout: {exc}")
@@ -923,9 +951,8 @@ class MT5MarketDataService:
             mt5_safe_mode=safe_mode_enabled,
             safe_mode_message=safe_mode_message,
             safe_mode_source="MT5_SAFE_MODE",
-            safe_mode_status=(
-                "ONLINE" if health["connection_health"].startswith("ONLINE")
-                else "OFFLINE"
+            safe_mode_status=self._safe_mode_status_from_health(
+                health["connection_health"]
             ),
             safe_mode_received_candles=sum(row.received_candles for row in rows),
             safe_mode_last_price=self._latest_row_price(rows),
@@ -950,6 +977,7 @@ class MT5MarketDataService:
         }
         if not normalized:
             return {}
+        target_count = max(int(full_count), 1)
         primary_keys = {
             (
                 str(getattr(row, "pair", "") or "").upper(),
@@ -958,17 +986,31 @@ class MT5MarketDataService:
             for row in list(getattr(self.latest_forex_signal_dashboard, "pairs", []) or [])
         }
         missing: dict[str, set[str]] = {}
+        validate_seed: dict[str, set[str]] = {}
         warm: dict[str, set[str]] = {}
+        seed_only_keys = set(
+            getattr(self, "supplemental_forex_seed_only_keys", set()) or set()
+        )
         now = perf_counter()
         intervals = {"M1": 10.0, "M5": 10.0, "M15": 10.0, "M30": 10.0, "H1": 30.0, "H4": 60.0, "D1": 300.0}
         for pair, timeframes in normalized.items():
             for timeframe in timeframes:
                 key = (pair, timeframe)
-                if key in primary_keys:
-                    continue
                 cached = list(self.latest_forex_candles.get(key, []) or [])
-                if len(cached) < 260:
+                requires_live_validation = (
+                    key in seed_only_keys
+                    and self._is_operational_m5_cache(pair, timeframe)
+                )
+                if len(cached) < target_count:
                     missing.setdefault(timeframe, set()).add(pair)
+                    continue
+                if requires_live_validation:
+                    validate_seed.setdefault(timeframe, set()).add(pair)
+                    continue
+                if key in primary_keys:
+                    # O lote online primario e propositalmente leve. Modelos
+                    # com SMA50/ADX/inclinacao ainda precisam do aquecimento
+                    # historico completo quando o cache primario veio curto.
                     continue
                 last = float(self.supplemental_forex_refresh_started.get(timeframe, 0.0))
                 if now - last >= intervals.get(timeframe, 30.0):
@@ -978,12 +1020,32 @@ class MT5MarketDataService:
             errors.update(
                 self._read_supplemental_forex_batch(
                     missing,
-                    count=max(int(full_count), 260),
+                    count=target_count,
                 )
             )
+        if validate_seed:
+            validation_errors = self._read_supplemental_forex_batch(
+                validate_seed,
+                count=1,
+            )
+            recovery: dict[str, set[str]] = {}
+            for market_key, message in validation_errors.items():
+                if not str(message).startswith("RECUPERAR_LOTE_COMPLETO:"):
+                    errors[market_key] = message
+                    continue
+                pair, separator, timeframe = str(market_key).partition("|")
+                if separator:
+                    recovery.setdefault(timeframe, set()).add(pair)
+            if recovery:
+                errors.update(
+                    self._read_supplemental_forex_batch(
+                        recovery,
+                        count=target_count,
+                    )
+                )
         if warm:
-            errors.update(self._read_supplemental_forex_batch(warm, count=3))
-        for timeframe in set(missing) | set(warm):
+            errors.update(self._read_supplemental_forex_batch(warm, count=1))
+        for timeframe in set(missing) | set(validate_seed) | set(warm):
             self.supplemental_forex_refresh_started[timeframe] = now
         return errors
 
@@ -999,10 +1061,24 @@ class MT5MarketDataService:
             for timeframe in requested
         }
         symbols = sorted({pair for pairs in requested.values() for pair in pairs})
+        sparse_batch_reader = getattr(
+            self.provider,
+            "get_sparse_research_batch",
+            None,
+        )
         batch_reader = getattr(self.provider, "get_research_batch", None)
         payload: dict[str, dict[str, dict[str, Any]]] = {}
         try:
-            if callable(batch_reader):
+            if callable(sparse_batch_reader):
+                payload = sparse_batch_reader(
+                    {
+                        timeframe: sorted(pairs)
+                        for timeframe, pairs in requested.items()
+                    },
+                    labels,
+                    max(int(count), 1),
+                )
+            elif callable(batch_reader):
                 payload = batch_reader(symbols, labels, max(int(count), 1))
             else:
                 for timeframe, timeframe_value in labels.items():
@@ -1020,6 +1096,7 @@ class MT5MarketDataService:
                     }
         except Exception as exc:  # noqa: BLE001 - external read-only provider
             return {"BATCH": str(exc)}
+        loaded_any = False
         for timeframe, pairs in requested.items():
             rows = dict(payload.get(timeframe, {}) or {})
             for pair in pairs:
@@ -1033,13 +1110,172 @@ class MT5MarketDataService:
                 if not candles:
                     errors[f"{pair}|{timeframe}"] = "MT5 retornou zero candles."
                     continue
-                self._merge_forex_candle_cache(
-                    pair,
-                    timeframe,
-                    candles,
-                    limit=max(int(count), 500),
+                key = (pair.upper(), timeframe.upper())
+                requires_full_live_batch = (
+                    key in self.supplemental_forex_seed_only_keys
+                    and self._is_operational_m5_cache(pair, timeframe)
                 )
+                if requires_full_live_batch:
+                    if len(candles) >= _OPERATIONAL_M5_WINDOW:
+                        promoted = self._replace_operational_m5_live_batch(
+                            pair,
+                            timeframe,
+                            candles,
+                        )
+                    else:
+                        promoted = self._promote_operational_m5_seed_with_latest(
+                            pair,
+                            timeframe,
+                            candles,
+                        )
+                    if not promoted:
+                        unique_count = len(
+                            {
+                                str(getattr(candle, "data", ""))
+                                for candle in candles
+                                if str(getattr(candle, "data", ""))
+                            }
+                        )
+                        errors[f"{pair}|{timeframe}"] = (
+                            "RECUPERAR_LOTE_COMPLETO: a vela recebida nao e "
+                            "continua ao cache M5; "
+                            f"recebidas={unique_count}."
+                        )
+                        continue
+                else:
+                    self._merge_forex_candle_cache(
+                        pair,
+                        timeframe,
+                        candles,
+                        limit=max(int(count), 500),
+                    )
+                self.supplemental_forex_seed_only_keys.discard(key)
+                loaded_any = True
+        if loaded_any:
+            self._persist_supplemental_forex_cache()
         return errors
+
+    def _supplemental_forex_cache_path(self) -> Path:
+        configured = os.getenv("TRADERIA_MT5_WARM_CACHE_PATH", "").strip()
+        return (
+            Path(configured)
+            if configured
+            else Path(".traderia") / "mt5_m5_warm_cache.json"
+        )
+
+    def _supplemental_forex_cache_enabled(self) -> bool:
+        return os.getenv("TRADERIA_MT5_WARM_CACHE_ENABLED", "0").strip() == "1"
+
+    def _hydrate_supplemental_forex_cache(self) -> None:
+        """Restaura as 52 velas M5 antes do primeiro ciclo M8-M17."""
+        if not self._supplemental_forex_cache_enabled():
+            return
+        path = self._supplemental_forex_cache_path()
+        try:
+            with _SUPPLEMENTAL_WARM_CACHE_LOCK:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            return
+        markets = dict(payload.get("markets", {}) or {})
+        sources = {
+            str(key): str(value or "").upper()
+            for key, value in dict(payload.get("sources", {}) or {}).items()
+        }
+        for market_key, rows in markets.items():
+            pair, separator, timeframe = str(market_key).partition("|")
+            if not separator or timeframe.upper() != "M5":
+                continue
+            candles: list[Candle] = []
+            for row in list(rows or [])[-52:]:
+                try:
+                    raw = dict(row)
+                    candles.append(
+                        Candle(
+                            data=str(raw["data"]),
+                            abertura=float(raw["abertura"]),
+                            maxima=float(raw["maxima"]),
+                            minima=float(raw["minima"]),
+                            fechamento=float(raw["fechamento"]),
+                            volume=int(raw.get("volume", 0) or 0),
+                        )
+                    )
+                except (KeyError, TypeError, ValueError):
+                    candles = []
+                    break
+            if candles:
+                key = (pair.upper(), "M5")
+                self.latest_forex_candles[key] = candles[-52:]
+                if sources.get(str(market_key), "LOCAL_HISTORY_SEED") != "LIVE":
+                    self.supplemental_forex_seed_only_keys.add(key)
+
+    def _persist_supplemental_forex_cache(self) -> None:
+        """Salva somente o warmup M5 em arquivo pequeno e atomico."""
+        if not self._supplemental_forex_cache_enabled():
+            return
+        markets: dict[str, list[dict[str, object]]] = {}
+        for (pair, timeframe), candles in self.latest_forex_candles.items():
+            if str(timeframe).upper() != "M5" or len(candles) < 52:
+                continue
+            markets[f"{str(pair).upper()}|M5"] = [
+                {
+                    "data": candle.data,
+                    "abertura": candle.abertura,
+                    "maxima": candle.maxima,
+                    "minima": candle.minima,
+                    "fechamento": candle.fechamento,
+                    "volume": candle.volume,
+                }
+                for candle in list(candles)[-52:]
+            ]
+        if not markets:
+            return
+        path = self._supplemental_forex_cache_path()
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        payload = {
+            "timeframe": "M5",
+            "candles_per_market": 52,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "markets": markets,
+            "sources": {
+                market_key: (
+                    "LOCAL_HISTORY_SEED"
+                    if tuple(market_key.split("|", 1))
+                    in self.supplemental_forex_seed_only_keys
+                    else "LIVE"
+                )
+                for market_key in markets
+            },
+        }
+        try:
+            with _SUPPLEMENTAL_WARM_CACHE_LOCK:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                temporary.write_text(
+                    json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
+                    encoding="utf-8",
+                )
+                os.replace(temporary, path)
+        except OSError:
+            return
+
+    def seed_supplemental_forex_candles(
+        self,
+        markets: dict[tuple[str, str], list[Candle]],
+    ) -> None:
+        """Preaquece indicadores com historico local sem liberar ordem viva."""
+        changed = False
+        for raw_key, candles in dict(markets or {}).items():
+            pair, timeframe = (str(raw_key[0]).upper(), str(raw_key[1]).upper())
+            key = (pair, timeframe)
+            if len(self.latest_forex_candles.get(key, [])) >= 52:
+                continue
+            rows = list(candles or [])[-52:]
+            if len(rows) < 52:
+                continue
+            self.latest_forex_candles[key] = rows
+            self.supplemental_forex_seed_only_keys.add(key)
+            changed = True
+        if changed:
+            self._persist_supplemental_forex_cache()
 
     def _merge_forex_candle_cache(
         self,
@@ -1057,7 +1293,93 @@ class MT5MarketDataService:
             if str(getattr(candle, "data", ""))
         }
         ordered = [merged[name] for name in sorted(merged)]
-        self.latest_forex_candles[key] = ordered[-max(int(limit), 260) :]
+        retention = max(int(limit), 260)
+        if self._is_operational_m5_cache(pair, timeframe):
+            retention = _OPERATIONAL_M5_WINDOW
+        self.latest_forex_candles[key] = ordered[-retention:]
+
+    def _replace_operational_m5_live_batch(
+        self,
+        pair: str,
+        timeframe: str,
+        candles: list[Candle],
+    ) -> bool:
+        if not self._is_operational_m5_cache(pair, timeframe):
+            return False
+        unique = {
+            str(getattr(candle, "data", "")): candle
+            for candle in list(candles or [])
+            if str(getattr(candle, "data", ""))
+        }
+        if len(unique) < _OPERATIONAL_M5_WINDOW:
+            return False
+        ordered = [unique[name] for name in sorted(unique)]
+        self.latest_forex_candles[(pair.upper(), timeframe.upper())] = ordered[
+            -_OPERATIONAL_M5_WINDOW:
+        ]
+        return True
+
+    def _promote_operational_m5_seed_with_latest(
+        self,
+        pair: str,
+        timeframe: str,
+        candles: list[Candle],
+    ) -> bool:
+        """Valida o cache de 51/52 velas com apenas a vela M5 mais recente."""
+        if not self._is_operational_m5_cache(pair, timeframe):
+            return False
+        key = (pair.upper(), timeframe.upper())
+        cached = list(self.latest_forex_candles.get(key, []) or [])[-52:]
+        incoming = list(candles or [])
+        if len(cached) < _OPERATIONAL_M5_WINDOW or not incoming:
+            return False
+        cached_time = self._parse_candle_timestamp(cached[-1])
+        latest = max(
+            incoming,
+            key=lambda candle: str(getattr(candle, "data", "")),
+        )
+        latest_time = self._parse_candle_timestamp(latest)
+        if cached_time is None or latest_time is None or latest_time < cached_time:
+            return False
+        elapsed_seconds = (latest_time - cached_time).total_seconds()
+        if elapsed_seconds > 5 * 60:
+            return False
+        self._merge_forex_candle_cache(
+            pair,
+            timeframe,
+            [latest],
+            limit=_OPERATIONAL_M5_WINDOW,
+        )
+        return True
+
+    def _parse_candle_timestamp(self, candle: Candle) -> datetime | None:
+        raw = str(getattr(candle, "data", "") or "").strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def _trim_forex_candle_cache(
+        self,
+        pair: str,
+        timeframe: str,
+        candles: list[Candle],
+    ) -> list[Candle]:
+        rows = list(candles or [])
+        if self._is_operational_m5_cache(pair, timeframe):
+            return rows[-_OPERATIONAL_M5_WINDOW:]
+        return rows
+
+    def _is_operational_m5_cache(self, pair: str, timeframe: str) -> bool:
+        return (
+            str(timeframe).upper() == "M5"
+            and str(pair).upper() in _OPERATIONAL_M5_SYMBOLS
+        )
 
     def load_forex_research_snapshot(
         self,
@@ -1065,8 +1387,14 @@ class MT5MarketDataService:
         count: int | None = None,
         *,
         preloaded_market_data: dict[str, dict[str, Any]] | None = None,
+        symbols: tuple[str, ...] | None = None,
     ) -> MT5ForexSignalDashboard:
         """Carrega snapshot MT5 para calibracao sem alterar o painel online."""
+        research_symbols = tuple(
+            str(symbol or "").upper()
+            for symbol in (symbols or SUPPORTED_MT5_SYMBOLS)
+            if str(symbol or "").strip()
+        )
         total_started = perf_counter()
         provider_read_ms = 0.0
         feature_ms = 0.0
@@ -1101,13 +1429,13 @@ class MT5MarketDataService:
                     requested_candles=safe_count,
                     last_update=refresh_time,
                 )
-                for pair in SUPPORTED_MT5_SYMBOLS
+                for pair in research_symbols
             ]
             return MT5ForexSignalDashboard(
                 connection_status="DISCONNECTED",
                 timeframe=normalized_timeframe,
                 pairs=rows,
-                unavailable_pairs=list(SUPPORTED_MT5_SYMBOLS),
+                unavailable_pairs=list(research_symbols),
                 message=self._provider_error_message(
                     "Fonte MT5 read-only nao conectada para calibracao."
                 ),
@@ -1158,7 +1486,7 @@ class MT5MarketDataService:
                 batch_market_data = batch_reader(
                     {
                         pair: timeframe_value
-                        for pair in SUPPORTED_MT5_SYMBOLS
+                        for pair in research_symbols
                     },
                     safe_count,
                 )
@@ -1166,7 +1494,7 @@ class MT5MarketDataService:
             except Exception as exc:  # noqa: BLE001 - provider externo read-only
                 read_errors.append(f"MT5 batch de pesquisa: {exc}")
                 batch_market_data = {}
-        for pair in SUPPORTED_MT5_SYMBOLS:
+        for pair in research_symbols:
             batch_row = batch_market_data.get(pair)
             if batch_market_data:
                 symbol_exists = bool(batch_row and batch_row.get("exists"))
@@ -1222,7 +1550,11 @@ class MT5MarketDataService:
                     else self.provider.get_candles(pair, timeframe_value, safe_count)
                 )
                 provider_read_ms += self._elapsed_ms(read_started)
-                self.latest_forex_candles[(pair, normalized_timeframe)] = list(candles)
+                self.latest_forex_candles[(pair, normalized_timeframe)] = self._trim_forex_candle_cache(
+                    pair,
+                    normalized_timeframe,
+                    candles,
+                )
             except TimeoutError as exc:
                 unavailable_pairs.append(pair)
                 read_errors.append(f"{pair}: timeout: {exc}")
@@ -1313,9 +1645,8 @@ class MT5MarketDataService:
             mt5_safe_mode=True,
             safe_mode_message=safe_mode_message,
             safe_mode_source="MT5_RESEARCH_CALIBRATION",
-            safe_mode_status=(
-                "ONLINE" if health["connection_health"].startswith("ONLINE")
-                else "OFFLINE"
+            safe_mode_status=self._safe_mode_status_from_health(
+                health["connection_health"]
             ),
             safe_mode_received_candles=sum(row.received_candles for row in rows),
             safe_mode_last_price=self._latest_row_price(rows),
@@ -1503,6 +1834,21 @@ class MT5MarketDataService:
     def _provider_connect(self) -> bool:
         connector = getattr(self.provider, "connect")
         return bool(connector())
+
+    def ensure_provider_connection(self) -> bool:
+        """Inicializa a sessao antes de aquecer caches suplementares."""
+        return self._provider_connect()
+
+    def _online_candle_limit(self, requested: int, *, minimum: int) -> int:
+        """Limita somente o refresh online; pesquisa historica fica intacta."""
+        configured = os.getenv("TRADERIA_MT5_ONLINE_MAX_CANDLES", "").strip()
+        if not configured:
+            return max(int(requested), int(minimum), 1)
+        try:
+            limit = max(int(configured), int(minimum), 1)
+        except ValueError:
+            return max(int(requested), int(minimum), 1)
+        return min(max(int(requested), int(minimum), 1), limit)
 
     def _generic_connection_diagnostic(
         self,
@@ -1740,6 +2086,22 @@ class MT5MarketDataService:
             return error
         return fallback
 
+    def _provider_connection_failure_state(self) -> tuple[str, str, str]:
+        """Distingue terminal desconectado de conector ocupado/expirado.
+
+        Um timeout do processo read-only nao prova que a conta ou o terminal
+        caiu. O envio permanece bloqueado, mas o painel deve comunicar a causa
+        real em vez de exibir um falso ``MT5 offline``.
+        """
+        error = self._provider_error_message("").upper()
+        if "TIMEOUT" in error or "LEITURA MT5 OCUPADA" in error:
+            return (
+                "CONNECTOR_TIMEOUT",
+                "AGUARDANDO_DADOS_MT5",
+                "AGUARDANDO_DADOS",
+            )
+        return "DISCONNECTED", "OFFLINE", "OFFLINE"
+
     def _symbol_exists(self, symbol: str) -> bool:
         checker = getattr(self.provider, "symbol_exists", None)
         if callable(checker):
@@ -1768,6 +2130,20 @@ class MT5MarketDataService:
         ]
         last_candle_time = self._latest_row_candle_time(successful_rows)
         if read_errors:
+            transient_markers = ("LEITURA MT5 OCUPADA", "TIMEOUT")
+            normalized_errors = [str(error).upper() for error in read_errors]
+            only_transient_errors = all(
+                any(marker in error for marker in transient_markers)
+                for error in normalized_errors
+            )
+            if only_transient_errors:
+                return {
+                    "connection_health": "AGUARDANDO_DADOS_MT5",
+                    "connection_health_icon": "AGUARDA",
+                    "last_candle_time": last_candle_time,
+                    "seconds_since_update": self._seconds_since(refresh_time),
+                    "health_message": "; ".join(read_errors),
+                }
             return {
                 "connection_health": "OFFLINE",
                 "connection_health_icon": "🔴",
@@ -1801,6 +2177,14 @@ class MT5MarketDataService:
             "seconds_since_update": self._seconds_since(refresh_time),
             "health_message": "Dados atualizados.",
         }
+
+    def _safe_mode_status_from_health(self, connection_health: str) -> str:
+        normalized = str(connection_health or "").upper()
+        if normalized.startswith("ONLINE"):
+            return "ONLINE"
+        if normalized.startswith("AGUARDANDO_DADOS"):
+            return "AGUARDANDO_DADOS"
+        return "OFFLINE"
 
     def _latest_row_candle_time(self, rows: list[MT5ForexSignalRow]) -> str:
         valid_times = [
@@ -2790,6 +3174,11 @@ class MT5MarketDataService:
 def _create_default_provider() -> ReadOnlyCandleProvider:
     from infrastructure.market_data import MT5MarketDataProvider
 
+    if (
+        os.getenv("TRADERIA_MT5_MARKET_DATA_EXTERNAL_PROCESS_ENABLED", "0").strip()
+        == "1"
+    ):
+        return MT5MarketDataProvider()
     if os.getenv("TRADERIA_MT5_INPROCESS_ENABLED", "0").strip() == "1":
         try:
             import MetaTrader5 as mt5

@@ -83,6 +83,18 @@ class ForexTimeLayerTest(unittest.TestCase):
         self.assertEqual(context.server_day, "2026-07-02")
         self.assertLessEqual(context.minutes_from_server_rollover or 999.0, 5.0)
 
+    def test_relogio_mt5_valido_substitui_fallback_fixo_de_rollover(self) -> None:
+        context = ForexTimeLayer().classify(
+            "EURUSD",
+            "2026-07-01T21:10:00+00:00",
+            server_timestamp="2026-07-01T18:10:00+00:00",
+        )
+
+        self.assertEqual(context.session, "NEW_YORK")
+        self.assertFalse(context.is_rollover_window)
+        self.assertFalse(context.temporal_blocked)
+        self.assertNotIn("ROLLOVER", context.temporal_status)
+
     def test_bloqueia_domingo_abertura(self) -> None:
         context = ForexTimeLayer().classify(
             "EURUSD",

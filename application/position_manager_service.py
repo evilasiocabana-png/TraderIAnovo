@@ -28,6 +28,55 @@ from application.model7_trend_momentum_dynamic import (
     MODEL_7_ID,
     MODEL_7_PROTECTION_ACTIVATION_RR,
 )
+from application.model3_xau_m5_rsi50_flip import (
+    MODEL_3_BETA_ID,
+    MODEL_3_BETA_MODE,
+    MODEL_3_BETA_VERSION,
+    MODEL_3_ID,
+    MODEL_3_STOP_MANAGEMENT,
+    MODEL_3_TIMEFRAME,
+    evaluate_model3_exit,
+)
+from application.model8_xau_m5_sma_rsi_reentry import (
+    MODEL_8_BETA_ID,
+    MODEL_8_BETA_VERSION,
+    MODEL_8_ID,
+    MODEL_8_STOP_MANAGEMENT,
+    MODEL_8_TIMEFRAME,
+    evaluate_model8_exit,
+    evaluate_model8_native_exit,
+    load_model8_runtime_state,
+    update_model8_runtime_state,
+)
+from application.mt5_native_m5_indicators import load_native_m5_indicator_snapshot
+from application.xau_m5_sma_rsi_model_family import (
+    XAU_TREND_FILTER_MODEL_IDS,
+    trend_filter_spec,
+)
+from application.forex_m5_sma_rsi_model_family import (
+    FOREX_SMA_RSI_MODEL_IDS,
+    evaluate_forex_sma_rsi_exit,
+    forex_sma_rsi_spec,
+    load_forex_sma_rsi_runtime_state,
+    update_forex_sma_rsi_runtime_state,
+)
+from application.model15_xau_m5_breakout import (
+    MODEL_15_BETA_ID,
+    MODEL_15_BETA_VERSION,
+    MODEL_15_ID,
+    MODEL_15_PIP_SIZE,
+    MODEL_15_STOP_MANAGEMENT,
+    MODEL_15_TIMEFRAME,
+    model15_previous_candle_stop,
+)
+from application.model16_xau_m5_price_ema_breakout import (
+    MODEL_16_BETA_ID,
+    MODEL_16_BETA_VERSION,
+    MODEL_16_ID,
+    MODEL_16_STOP_MANAGEMENT,
+    MODEL_16_TIMEFRAME,
+    model16_previous_candle_stop,
+)
 from domain.contracts.beta_strategy import BetaDecision, BetaStrategyContext
 
 DEFAULT_BETA_ID = "BETA001"
@@ -901,6 +950,31 @@ class PositionManagerService:
         snapshot: PositionStateSnapshot,
     ) -> PositionManagerDecision:
         policy = self._runtime_policy(plan)
+        if (
+            str(plan.operational_model or "").upper() == MODEL_3_ID
+            or policy == MODEL_3_STOP_MANAGEMENT
+        ):
+            return self._decide_model3_rsi50_flip(plan, snapshot)
+        if (
+            str(plan.operational_model or "").upper()
+            in {
+                MODEL_8_ID,
+                *XAU_TREND_FILTER_MODEL_IDS,
+                *FOREX_SMA_RSI_MODEL_IDS,
+            }
+            or policy == MODEL_8_STOP_MANAGEMENT
+        ):
+            return self._decide_model8_full_exit(plan, snapshot)
+        if (
+            str(plan.operational_model or "").upper() == MODEL_15_ID
+            or policy == MODEL_15_STOP_MANAGEMENT
+        ):
+            return self._decide_model15_previous_candle_trailing(plan, snapshot)
+        if (
+            str(plan.operational_model or "").upper() == MODEL_16_ID
+            or policy == MODEL_16_STOP_MANAGEMENT
+        ):
+            return self._decide_model16_previous_candle_trailing(plan, snapshot)
         if snapshot.state == "BAD_EXECUTION_CONTEXT":
             return PositionManagerDecision(
                 symbol=plan.symbol,
@@ -951,7 +1025,8 @@ class PositionManagerService:
         if _normalize_beta_id(plan.beta_id) == BETA002_ID:
             return self._decide_beta002(plan, snapshot)
         if (
-            self.early_exit_enabled
+            policy != "DYNAMIC_PROTECT_ONLY"
+            and self.early_exit_enabled
             and snapshot.r_multiple >= self._early_exit_activation_r(plan)
             and self._early_exit_confirmed(snapshot)
         ):
@@ -1258,6 +1333,298 @@ class PositionManagerService:
             missing_data=beta_decision.missing_data,
         )
 
+    def _decide_model3_rsi50_flip(
+        self,
+        plan: PositionTradePlan,
+        snapshot: PositionStateSnapshot,
+    ) -> PositionManagerDecision:
+        """M3 fecha a posicao quando o RSI14 M5 muda de lado em relacao a 50."""
+        candles = tuple(
+            self.provider.get_recent_candles(
+                plan.symbol,
+                MODEL_3_TIMEFRAME,
+                32,
+            )
+            or ()
+        )
+        decision = evaluate_model3_exit(candles, snapshot.side)
+        allowed = decision.action == "FULL_EXIT" and self.assisted_execution_enabled
+        return PositionManagerDecision(
+            symbol=plan.symbol,
+            ticket=snapshot.ticket,
+            state=decision.status,
+            action=decision.action,
+            reason=decision.reason,
+            confidence=1.0 if decision.rsi14 is not None else 0.0,
+            beta_id=MODEL_3_BETA_ID,
+            beta_version=MODEL_3_BETA_VERSION,
+            beta_mode=MODEL_3_BETA_MODE,
+            allowed_to_execute=allowed,
+            execution_mode="AUTOMATIC_DEMO" if allowed else "READ_ONLY",
+            requested_close_volume=(
+                snapshot.volume if decision.action == "FULL_EXIT" else None
+            ),
+            final_exit_reason=(
+                decision.reason if decision.action == "FULL_EXIT" else "N/D"
+            ),
+            evidence=snapshot.evidence
+            + (
+                f"M3_RSI14={decision.rsi14}",
+                f"M3_STATUS={decision.status}",
+                "M3_REVERSE_AFTER_CLOSE=TRUE",
+            ),
+            beta_closed_candle_time=decision.closed_candle_time,
+            missing_data=(
+                ("closed_m5_candles",)
+                if decision.status == "M3_EXIT_CANDLES_INSUFICIENTES"
+                else ()
+            ),
+        )
+
+    def _decide_model8_full_exit(
+        self,
+        plan: PositionTradePlan,
+        snapshot: PositionStateSnapshot,
+    ) -> PositionManagerDecision:
+        """M8-M12 fecham por cruzamento RSI 70/30 ou inversao SMA no M5."""
+        candles = tuple(
+            self.provider.get_recent_candles(plan.symbol, MODEL_8_TIMEFRAME, 52)
+            or ()
+        )
+        operational_model = str(plan.operational_model or "").upper()
+        active_entry_order_type = str(
+            dict(plan.stop_management_parameters or {}).get(
+                "active_entry_order_type",
+                "",
+            )
+            or ""
+        ).upper()
+        reentry_position = active_entry_order_type in {"BUY_STOP", "SELL_STOP"}
+        decision = (
+            evaluate_forex_sma_rsi_exit(
+                candles, snapshot.side, reentry_position=reentry_position,
+            )
+            if operational_model in FOREX_SMA_RSI_MODEL_IDS
+            else evaluate_model8_exit(
+                candles, snapshot.side, reentry_position=reentry_position,
+            )
+        )
+        spec = (
+            forex_sma_rsi_spec(operational_model)
+            if operational_model in FOREX_SMA_RSI_MODEL_IDS
+            else trend_filter_spec(operational_model)
+        )
+        if operational_model in FOREX_SMA_RSI_MODEL_IDS:
+            runtime = load_forex_sma_rsi_runtime_state(operational_model, plan.symbol)
+            if str(runtime.get("entry_intent_side") or ""):
+                update_forex_sma_rsi_runtime_state(
+                    operational_model, plan.symbol,
+                    entry_intent_side="", entry_intent_kind="",
+                )
+        elif operational_model in {MODEL_8_ID, *XAU_TREND_FILTER_MODEL_IDS}:
+            runtime = load_model8_runtime_state(
+                operational_model=operational_model,
+            )
+            if str(runtime.get("entry_intent_side") or ""):
+                update_model8_runtime_state(
+                    entry_intent_side="",
+                    entry_intent_kind="",
+                    operational_model=operational_model,
+                )
+        allowed = decision.action == "FULL_EXIT" and self.assisted_execution_enabled
+        return PositionManagerDecision(
+            symbol=plan.symbol,
+            ticket=snapshot.ticket,
+            state=decision.status,
+            action=decision.action,
+            reason=decision.reason,
+            confidence=1.0 if decision.rsi14 is not None else 0.0,
+            beta_id=spec.beta_id if spec is not None else MODEL_8_BETA_ID,
+            beta_version=(
+                spec.beta_version if spec is not None else MODEL_8_BETA_VERSION
+            ),
+            beta_mode="FULL_EXIT_RSI70_30_CROSS_OR_SMA_INVERSION",
+            allowed_to_execute=allowed,
+            execution_mode="AUTOMATIC_DEMO" if allowed else "READ_ONLY",
+            requested_close_volume=(
+                snapshot.volume if decision.action == "FULL_EXIT" else None
+            ),
+            final_exit_reason=(
+                decision.reason if decision.action == "FULL_EXIT" else "N/D"
+            ),
+            evidence=snapshot.evidence
+            + (
+                f"M8_SMA20={decision.sma20}",
+                f"M8_SMA50={decision.sma50}",
+                f"M8_RSI14={decision.rsi14}",
+                f"M8_REENTRY_POSITION={reentry_position}",
+                f"M8_STATUS={decision.status}",
+            ),
+            beta_closed_candle_time=decision.closed_candle_time,
+            missing_data=(
+                ("closed_m5_candles",)
+                if decision.status == "M8_EXIT_CANDLES_INSUFICIENTES"
+                else ()
+            ),
+        )
+
+    def _decide_model15_previous_candle_trailing(
+        self,
+        plan: PositionTradePlan,
+        snapshot: PositionStateSnapshot,
+    ) -> PositionManagerDecision:
+        """Move o SL do M15 pelo ultimo candle M5 fechado, sem TP ou Full Exit."""
+        candles = tuple(
+            self.provider.get_recent_candles(
+                plan.symbol,
+                MODEL_15_TIMEFRAME,
+                3,
+            )
+            or ()
+        )
+        candidate, closed_candle_time = model15_previous_candle_stop(
+            candles,
+            side=snapshot.side,
+            pip_size=MODEL_15_PIP_SIZE,
+        )
+        common = {
+            "symbol": plan.symbol,
+            "ticket": snapshot.ticket,
+            "state": snapshot.state,
+            "beta_id": MODEL_15_BETA_ID,
+            "beta_version": MODEL_15_BETA_VERSION,
+            "beta_mode": "PREVIOUS_CANDLE_TRAILING_ONLY",
+            "beta_closed_candle_time": closed_candle_time,
+        }
+        if candidate is None:
+            return PositionManagerDecision(
+                **common,
+                action="HOLD_POSITION",
+                reason="M15 sem candle M5 fechado suficiente; SL atual preservado.",
+                confidence=0.0,
+                evidence=snapshot.evidence + ("M15_CLOSED_CANDLE_MISSING",),
+                missing_data=("closed_m5_candle",),
+            )
+        if not self._is_better_stop(
+            snapshot.side,
+            candidate,
+            snapshot.current_stop,
+        ):
+            return PositionManagerDecision(
+                **common,
+                action="HOLD_POSITION",
+                reason="M15: extremo do candle M5 anterior nao melhora o SL atual.",
+                confidence=1.0,
+                evidence=snapshot.evidence + ("M15_STOP_NOT_MORE_PROTECTIVE",),
+            )
+        if not self._is_stop_before_market(
+            snapshot.side,
+            candidate,
+            snapshot.current_price,
+        ):
+            return PositionManagerDecision(
+                **common,
+                action="HOLD_POSITION",
+                reason="M15: SL candidato ficaria no lado invalido do preco atual.",
+                confidence=1.0,
+                evidence=snapshot.evidence + ("M15_STOP_INVALID_MARKET_SIDE",),
+            )
+        return PositionManagerDecision(
+            **common,
+            action="PROTECT_POSITION",
+            reason=(
+                "M15: mover SL para o extremo do ultimo candle M5 fechado, "
+                "sem afastar o risco."
+            ),
+            confidence=1.0,
+            allowed_to_execute=self.assisted_execution_enabled,
+            execution_mode=(
+                "AUTOMATIC_DEMO"
+                if self.assisted_execution_enabled
+                else "READ_ONLY"
+            ),
+            requested_stop=candidate,
+            evidence=snapshot.evidence + ("M15_PREVIOUS_CANDLE_TRAILING",),
+        )
+
+    def _decide_model16_previous_candle_trailing(
+        self,
+        plan: PositionTradePlan,
+        snapshot: PositionStateSnapshot,
+    ) -> PositionManagerDecision:
+        """Move o SL do M16 pelo ultimo candle M5 fechado, sem TP ou Full Exit."""
+        candles = tuple(
+            self.provider.get_recent_candles(
+                plan.symbol,
+                MODEL_16_TIMEFRAME,
+                3,
+            )
+            or ()
+        )
+        candidate, closed_candle_time = model16_previous_candle_stop(
+            candles,
+            side=snapshot.side,
+        )
+        common = {
+            "symbol": plan.symbol,
+            "ticket": snapshot.ticket,
+            "state": snapshot.state,
+            "beta_id": MODEL_16_BETA_ID,
+            "beta_version": MODEL_16_BETA_VERSION,
+            "beta_mode": "PREVIOUS_CANDLE_TRAILING_ONLY",
+            "beta_closed_candle_time": closed_candle_time,
+        }
+        if candidate is None:
+            return PositionManagerDecision(
+                **common,
+                action="HOLD_POSITION",
+                reason="M16 sem candle M5 fechado suficiente; SL atual preservado.",
+                confidence=0.0,
+                evidence=snapshot.evidence + ("M16_CLOSED_CANDLE_MISSING",),
+                missing_data=("closed_m5_candle",),
+            )
+        if not self._is_better_stop(
+            snapshot.side,
+            candidate,
+            snapshot.current_stop,
+        ):
+            return PositionManagerDecision(
+                **common,
+                action="HOLD_POSITION",
+                reason="M16: extremo do candle M5 anterior nao melhora o SL atual.",
+                confidence=1.0,
+                evidence=snapshot.evidence + ("M16_STOP_NOT_MORE_PROTECTIVE",),
+            )
+        if not self._is_stop_before_market(
+            snapshot.side,
+            candidate,
+            snapshot.current_price,
+        ):
+            return PositionManagerDecision(
+                **common,
+                action="HOLD_POSITION",
+                reason="M16: SL candidato ficaria no lado invalido do preco atual.",
+                confidence=1.0,
+                evidence=snapshot.evidence + ("M16_STOP_INVALID_MARKET_SIDE",),
+            )
+        return PositionManagerDecision(
+            **common,
+            action="PROTECT_POSITION",
+            reason=(
+                "M16: mover SL para o extremo exato do ultimo candle M5 "
+                "fechado, sem afastar o risco."
+            ),
+            confidence=1.0,
+            allowed_to_execute=self.assisted_execution_enabled,
+            execution_mode=(
+                "AUTOMATIC_DEMO"
+                if self.assisted_execution_enabled
+                else "READ_ONLY"
+            ),
+            requested_stop=candidate,
+            evidence=snapshot.evidence + ("M16_PREVIOUS_CANDLE_TRAILING",),
+        )
+
     def _is_m6_original_plan(self, plan: PositionTradePlan) -> bool:
         """Impede que snapshots M6 antigos reativem gestao dinamica."""
         operational_model = str(plan.operational_model or "").upper()
@@ -1490,6 +1857,31 @@ class PositionManagerService:
         )
         if success:
             self._mark_beta_execution(plan, decision)
+            operational_model = str(plan.operational_model or "").upper()
+            if operational_model in FOREX_SMA_RSI_MODEL_IDS:
+                rsi_exit = decision.state in {
+                    "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
+                    "M8_EXIT_RSI30_CRUZOU_PARA_CIMA_SELL",
+                }
+                update_forex_sma_rsi_runtime_state(
+                    operational_model, plan.symbol,
+                    entry_intent_side=snapshot.side if rsi_exit else "",
+                    entry_intent_kind="REENTRY_AFTER_RSI_EXTREME_EXIT" if rsi_exit else "",
+                    last_exit_status=decision.state,
+                    last_exit_reason=decision.final_exit_reason,
+                )
+            elif operational_model in {MODEL_8_ID, *XAU_TREND_FILTER_MODEL_IDS}:
+                rsi_exit = decision.state in {
+                    "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
+                    "M8_EXIT_RSI30_CRUZOU_PARA_CIMA_SELL",
+                }
+                update_model8_runtime_state(
+                    entry_intent_side=snapshot.side if rsi_exit else "",
+                    entry_intent_kind="REENTRY_AFTER_RSI_EXTREME_EXIT" if rsi_exit else "",
+                    last_exit_status=decision.state,
+                    last_exit_reason=decision.final_exit_reason,
+                    operational_model=operational_model,
+                )
         return self._record(
             result
         )
@@ -1654,6 +2046,7 @@ class PositionManagerService:
             return "STRUCTURE_ABSENT", "Estrutura ausente; SL preservado.", ("structure",)
         if runtime_policy not in {
             "DYNAMIC_POSITION_MANAGER",
+            "DYNAMIC_PROTECT_ONLY",
             "BREAK_EVEN",
             "ATR_TRAILING_STOP",
             "MARKET_AWARE_STOP_PROTECTION",

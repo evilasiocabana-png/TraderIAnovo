@@ -13,11 +13,12 @@ Este protocolo existe para que proximos modelos sejam criados com menos retrabal
 
 Um modelo operacional e um fluxo completo de entrada e saida que pode coexistir com outros modelos no mesmo par, desde que respeite os contratos do sistema.
 
-## Pesquisa de Stop e Alvo Antes da Promocao
+## Pesquisa Historica De Stop E Alvo Antes Da Promocao
 
 Para variantes de timeframe de um modelo existente, a entrada pode ser copiada
 como contrato, mas stop e alvo devem permanecer em pesquisa ate existir replay
-reproduzivel. O protocolo aplicado aos M8, M9 e M10 e:
+reproduzivel. O protocolo abaixo foi aplicado aos antigos contratos M8, M9 e
+M10, hoje aposentados para novas entradas:
 
 ```text
 1. Fixar a regra de entrada e os dois timeframes do modelo.
@@ -380,24 +381,22 @@ Mesmo sem passar no Lab pesado, M5 precisa expor gates, plano, provider, histori
 
 ## Registro do M6
 
-O M6 operacional atual recupera o primeiro setup Forex do marco zero, sem
-recalculo pesado do Lab e sem alterar M1-M5.
+Em 2026-08-04, o M6 anterior foi preservado apenas como identidade historica e
+o numero M6 passou a representar a expansao do Lab M1 para nove pares Forex.
 
 Definicao:
 
 ```text
-Identificador: MODELO_6_TREND_MOMENTUM_ORIGINAL
+Identificador: MODELO_6_LAB_FOREX_EXPANSION
 Nome curto: M6
-Origem: configuracao historica congelada no commit a3bc912
-Timeframe: M1
-Entrada: ultimo candle fechado com media 20/50, momentum 10, volatilidade 20 e RSI14
-Stop inicial: maior distancia entre 2 ATR e 0,10% do preco
-Alvo: RR2 sobre a distancia do stop inicial
-Alpha: ALPHA001 / MARCO_ZERO_A3BC912
-Beta/saida: BETA001_FIXED_SL_TP_RR2_V1
-Contrato de saida: primeiro toque no SL inicial ou TP RR2, sem Position Manager
+Origem: snapshot MT5 compartilhado e pesquisa pesada manual do mesmo Lab do M1
+Escopo: nove pares definidos em domain/market_universe.py
+Selecao: melhor Alpha, timeframe, ATR SL e RR individual de cada par
+Entrada: sinal vivo posterior ao candle fechado do timeframe vencedor
+Stop/alvo: Trade Plan fixo materializado pelo Lab
+Contrato de saida: RESEARCH_FIXED_SL_TP
 Coexistencia: independente de M1-M5 para selecao e envio
-Limite: uma posicao M6 por par; maximo sete posicoes por par apos M7
+Limite: uma posicao M6 por par
 Comentario MT5: TraderIA M6
 Execucao: somente MT5 Demo
 ```
@@ -405,38 +404,29 @@ Execucao: somente MT5 Demo
 Aprendizado:
 
 ```text
-Uma configuracao historica reativada precisa ser congelada e identificada por
-versao. M6 nao depende de um plano M5 nem falsifica origem de Research Lab:
-usa source `M6_ORIGINAL_MARCO_ZERO`, decisao no candle fechado e Trade Plan
-proprio. O identificador legado `MODELO_6_ESPELHO_M5` migra para o M6 atual
-somente no seletor; ordens historicas preservam a identidade registrada.
-
-Uma configuracao de entrada recuperada do historico nao herda automaticamente
-a politica de saida global vigente. Entrada, risco inicial e saida devem ser
-congelados separadamente e comprovados por testes de nao regressao.
+Expandir mercados nao significa copiar o vencedor de outro par. Cada novo par
+precisa dos proprios candles e do proprio vencedor, mas deve reutilizar o motor
+do M1. O snapshot novo e mesclado ao existente para nao apagar o M1.
 ```
 
 ## Registro do M7
 
-O M7 preserva a entrada original do M6, mas isola a versao historica que havia
-recebido protecao dinamica. Ele nao altera nem depende operacionalmente do M6.
+Em 2026-08-04, o M7 dinamico anterior foi preservado somente para historico. O
+M7 atual aplica o mesmo Lab do M1 exclusivamente a ouro e Bitcoin.
 
 Definicao:
 
 ```text
-Identificador: MODELO_7_TREND_MOMENTUM_DYNAMIC
+Identificador: MODELO_7_LAB_XAU_BTC
 Nome curto: M7
-Origem: configuracao historica congelada no commit a3bc912
-Timeframe: M1
-Entrada: ultimo candle fechado com media 20/50, momentum 10, volatilidade 20 e RSI14
-Stop inicial: maior distancia entre 2 ATR e 0,10% do preco
-Alvo inicial: RR2 sobre a distancia do stop inicial
-Alpha: ALPHA001 / MARCO_ZERO_A3BC912
-Beta/saida: BETA007_DYNAMIC_PROTECT_ONLY_V1
-Contrato de saida: HOLD antes de 1,50R; depois permite break-even ou ATR trailing 2,0
-Fechamento antecipado: EARLY_EXIT e FULL_EXIT proibidos
+Origem: snapshot MT5 compartilhado e pesquisa pesada manual do mesmo Lab do M1
+Escopo: XAUUSD e BTCUSD; BITCOIN do CSV e mapeado para BTCUSD
+Selecao: melhor Alpha, timeframe, ATR SL e RR individual por ativo
+Entrada: sinal vivo posterior ao candle fechado do timeframe vencedor
+Stop/alvo: Trade Plan fixo materializado pelo Lab
+Contrato de saida: RESEARCH_FIXED_SL_TP
 Coexistencia: independente de M1-M6 para selecao, envio e gestao
-Limite: uma posicao M7 por par; maximo sete posicoes por par
+Limite: uma posicao M7 por ativo
 Comentario MT5: TraderIA M7
 Execucao: somente MT5 Demo
 ```
@@ -444,11 +434,9 @@ Execucao: somente MT5 Demo
 Aprendizado:
 
 ```text
-Quando uma versao "contaminada" possui valor experimental, ela vira um modelo
-novo e explicitamente versionado. Nao se reintroduz o comportamento no modelo
-original. O R de ativacao do M7 sempre usa entrada e stop iniciais imutaveis;
-um SL ja movido nao pode redefinir o risco original. O Position Manager pode
-somente manter ou melhorar o SL e nunca pode encerrar a posicao antecipadamente.
+Ativos de classes diferentes precisam de simbolo MT5 executavel e pesquisa
+propria. O ID antigo nao pode ser reutilizado, pois faria o Position Manager
+aplicar a saida dinamica historica ao novo Trade Plan fixo.
 ```
 
 ## Substituicao Robusta do M3 em 2026-07-29
@@ -679,6 +667,14 @@ Depois implemente com testes.
 
 O aprendizado principal do M3 e que um modelo operacional precisa nascer como fluxo completo, nao como ajuste isolado.
 
+## Substituicao do M3 por vencedores de todo o Forex em 2026-08-05
+
+O contrato `MODELO_3_LAB_ALPHA_SUGERIDA_2_PLUS` foi aposentado para novas
+entradas. O M3 ativo passou a ser `MODELO_3_LAB_ALL_FOREX_WINNERS`, reunindo os
+vencedores individuais do Lab nos 17 pares de moedas. XAUUSD e BTCUSD continuam
+fora do M3. A substituicao preserva o historico antigo, separa as curvas pelo ID
+e reutiliza o snapshot compartilhado, sem acrescentar pesquisa ao ciclo leve.
+
 O caminho seguro e:
 
 ```text
@@ -686,6 +682,17 @@ configuracao vencedora -> Trade Plan -> gates -> Robo -> Provider -> Relatorio -
 ```
 
 Esse protocolo passa a ser a referencia para qualquer modelo ou variante futura.
+
+## Substituicao do M3 por XAUUSD/M5 RSI14 + SMA20 em 2026-08-11
+
+O contrato `MODELO_3_LAB_ALL_FOREX_WINNERS` foi aposentado para novas entradas.
+O M3 ativo passou a ser `MODELO_3_XAU_M5_RSI50_FLIP`: somente XAUUSD/M5 e
+exatamente as ultimas 52 velas. A compra exige RSI14 fechado acima de 50 e
+fechamento acima da SMA20; a venda exige RSI14 abaixo de 50 e fechamento abaixo
+da SMA20. O Full Exit permanece pelo RSI no lado oposto e a entrada contraria
+ocorre apenas depois do fechamento.
+O ID novo impede que posicoes do M3 antigo recebam a politica nova. O contrato
+completo esta em `OPERATIONAL_MODEL_M3_XAU_M5_RSI50_FLIP.md`.
 
 ## Registro dos M11 ao M20
 
@@ -725,21 +732,86 @@ SL 2,5 ATR, alvo 1,25 ATR e RR 0,5. M9 permanece inalterado; ambos possuem
 identidade, cache, Trade Plan, duplicidade e historico proprios. O contrato
 completo esta em `docs/architecture/OPERATIONAL_MODEL_M22_M9_MIRROR.md`.
 
-## Registro dos M8, M9 e M10
+## Registro das variantes dinamicas M8-M14
 
-Os tres modelos sao variantes independentes do contrato mecanico M2 Trend
-Pullback. A formula nao muda: EMA9/21 no timeframe de entrada, ADX14 maior que
-20, pullback na faixa das medias, candle fechado de continuacao e direcao pela
-EMA20/50 do timeframe superior. SL inicial e fixo em 1,25 ATR e o TP em 2R.
+Em 2026-08-05, o protocolo foi aplicado para criar uma familia A/B sem alterar
+M1-M7. M8-M14 copiam, respectivamente, as entradas M1-M7 e trocam somente a
+gestao pos-entrada para `DYNAMIC_PROTECT_ONLY`.
 
-| Modelo | Direcao/contexto | Entrada | Identificador | Comentario MT5 |
-|---|---|---|---|---|
-| M8 | H1 | M5 | `MODELO_8_TREND_PULLBACK_H1_M5` | `TraderIA M8` |
-| M9 | M15 | M1 | `MODELO_9_TREND_PULLBACK_M15_M1` | `TraderIA M9` |
-| M10 | D1 | M15 | `MODELO_10_TREND_PULLBACK_D1_M15` | `TraderIA M10` |
+| Novo | Origem | Politica | Fechamento antecipado |
+|---|---|---|---|
+| M8 | M1 | protecao depois de 1,50R | proibido |
+| M9 | M2 | protecao depois de 1,50R | proibido |
+| M10 | M3 | protecao depois de 1,50R | proibido |
+| M11 | M4 | protecao depois de 1,50R | proibido |
+| M12 | M5 | protecao depois de 1,50R | proibido |
+| M13 | M6 | protecao depois de 1,50R | proibido |
+| M14 | M7 | protecao depois de 1,50R | proibido |
 
-Todos cobrem os oito pares, entram somente em Demo, possuem cache por modelo,
-par, timeframe e candle fechado, preservam SL/TP fixos e permanecem separados
-do M2 e entre si. O limite deliberado passa a dez posicoes por par, no maximo
-uma de cada M1-M10. A aprovacao operacional nao equivale a certificacao de
-desempenho: replay e forward test continuam pendentes por par.
+O aprendizado adicional e que numero de modelo nao basta como identidade:
+modelos historicos M8-M22 continuam preservados no Relatorio. Desde 2026-08-06,
+esses IDs M8-M16 estao aposentados e nenhum deles pode abrir nova entrada. O contrato
+detalhado esta em `docs/architecture/DYNAMIC_EXIT_MODELS_M8_M14.md`.
+
+## Registro do novo M8 XAUUSD/M5 por RSI50
+
+Em 2026-08-10, o protocolo foi aplicado ao contrato independente
+`MODELO_8_XAU_M5_SMA_RSI_REENTRY`. Os IDs anteriores que usaram o numero M8
+continuam aposentados e auditaveis. O novo M8 opera exclusivamente XAUUSD/M5:
+as ultimas 52 velas alimentam a SMA20/SMA50 simples que define a direcao, e a entrada a mercado ocorre somente
+enquanto RSI14 estiver do lado de 50 correspondente a essa direcao. O SL fica `0,01` alem do ultimo pivo M5
+confirmado 2+2; nao ha TP fixo. O Position Manager faz Full Exit quando candle
+M5 fechado confirma RSI14 de 70 para baixo em BUY ou de 30 para cima em SELL,
+ou quando SMA20/SMA50 invertem. Depois de uma saida pelo RSI, a reentrada usa
+Buy Stop/Sell Stop `0,01` alem do extremo do ultimo candle fechado, condicionada
+ao RSI50 e a direcao valida das medias.
+
+Contrato detalhado:
+`docs/architecture/OPERATIONAL_MODEL_M8_XAU_M5_SMA_RSI_REENTRY.md`.
+
+## Registro dos setups A-E do XAUUSD/M5
+
+Em 2026-08-10, o protocolo também criou quatro contratos incrementais sobre o
+M8/Setup A: M9/Setup B com ADX14 > 25; M10/Setup C com distância entre médias
+normalizada pelo ATR14 >= 0,25; M11/Setup D com inclinação direcional da SMA50
+em um candle normalizada pelo ATR14 >= 0,05; e M12/Setup E exigindo os três
+filtros. Todos mantêm entrada RSI50, SL no pivô 2+2, ausência de TP e Full Exit
+por RSI50 ou inversão SMA20/SMA50. Cada um possui ID, Alpha, Beta, plano,
+comentário MT5 e relatório separados. IDs históricos M8-M12 permanecem
+aposentados.
+
+Contrato detalhado:
+`docs/architecture/OPERATIONAL_MODELS_M8_M12_XAU_TREND_FILTERS.md`.
+
+## Registro do novo M15 XAUUSD/M5
+
+Em 2026-08-05, o protocolo foi aplicado ao modelo canonico
+`MODELO_15_XAU_M5_EMA_BREAKOUT_TRAILING`. Ele opera somente XAUUSD/M5, usa
+EMA20/50 para direcao, entra um pip alem do extremo do candle anterior e inicia
+o SL um pip alem do extremo oposto. Nao existe TP fixo: o Position Manager move
+o SL pelo ultimo candle M5 fechado, somente a favor do trader. O M15 permanece
+independente dos M1-M14 e restrito a Demo. Em 2026-08-06, foi aposentado para
+novas entradas; o registro abaixo permanece apenas como rastreabilidade.
+
+Contrato detalhado:
+`docs/architecture/OPERATIONAL_MODEL_M15_XAU_M5_BREAKOUT.md`.
+
+## Registro do novo M16 XAUUSD/M5
+
+Em 2026-08-06, o protocolo foi aplicado ao
+`MODELO_16_XAU_M5_PRICE_EMA20_BREAKOUT_TRAILING`. O M16 e independente do M15:
+usa preco acima/abaixo da EMA20 para definir BUY/SELL, publica ordem STOP um pip
+alem do extremo anterior, nasce com SL no extremo oposto exato, nao usa TP e
+move o SL somente a favor pelo candle M5 fechado. O antigo
+`MODELO_16_ALPHA012_VWAP_MEAN_REVERSION` permanece aposentado para preservar o
+historico. Em 2026-08-06, o M16 tambem foi aposentado para novas entradas.
+
+Contrato completo:
+`docs/architecture/OPERATIONAL_MODEL_M16_XAU_M5_PRICE_EMA_BREAKOUT.md`.
+
+## Registro dos setups Forex M13-M17
+
+Em 2026-08-10, M13-M17 foram criados sequencialmente para os 17 pares Forex/M5.
+Eles reproduzem os setups A-E de M8-M12, adaptam o buffer para um pip do par e
+isolam estado por modelo/par. Os IDs históricos M13-M16 permanecem aposentados.
+Contrato em `docs/architecture/OPERATIONAL_MODELS_M13_M17_FOREX_TREND_FILTERS.md`.

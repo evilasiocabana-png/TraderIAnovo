@@ -16,6 +16,8 @@
 - Nome visual: `TraderIA Novo`
 - Runtime local: `.traderia/`
 - Repositorio remoto: `evilasiocabana-png/TraderIAnovo`
+- M8-M17: aquecimento inicial de 52 velas M5 persistido; semente local bloqueia
+  envio ate a confirmacao de um candle vivo do MT5.
 
 ## Ultimas Decisoes
 
@@ -30,4 +32,3 @@
 - Banco local ainda precisa de contrato formal.
 - MT5 pode ficar lento ou indisponivel dependendo do terminal.
 - Textos antigos com acentuacao corrompida ainda existem em partes da UI.
-

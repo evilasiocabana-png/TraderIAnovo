@@ -1,5 +1,13 @@
 # Runtime Preservation Policy
 
+## Disponibilidade publica
+
+O launcher oficial `scripts/abrir_traderianovo.ps1` e responsavel por manter a
+sequencia `MT5 -> Streamlit saudavel -> Cloudflare Tunnel`. A porta aberta nao e
+prova de saude: `/_stcore/health` deve responder `ok`. O tunnel so e iniciado
+depois dessa validacao, nao pode ser duplicado e deve ser reiniciado quando o
+processo existir sem resposta HTTP publica valida.
+
 ## Objetivo
 
 Definir a politica de preservacao do runtime do TraderIA Novo. Esta politica orienta futuras missoes do Codex e pedidos gerados via GPT para evitar que melhorias de performance, limpeza, refresh ou diagnostico danifiquem a operacionalidade do sistema.
@@ -247,8 +255,48 @@ duplicado quando o Streamlit renderiza a mesma tela varias vezes no mesmo ciclo.
   registros compactos sem alterar o total historico.
 - o ciclo Forex libera sua fachada pesada enquanto o Robo Demo for o dono do
   ciclo operacional.
+- Streamlit, fragmentos e reconexoes web nunca executam leitura MT5 nem ciclo
+  do Robo Demo como fallback; sem snapshot novo, preservam o ultimo estado.
+- somente os threads de fundo podem produzir snapshots operacionais automaticos;
+  a UI e consumidora read-only desses snapshots.
+- candles, posicoes do exportador visual e auditoria/historico MT5 devem usar
+  processos externos com timeout no runtime Streamlit; uma sonda travada nunca
+  pode retirar a resposta HTTP do dashboard.
+- consultas read-only frequentes do Position Manager e do gate de duplicidade
+  tambem ficam isoladas; falha de leitura bloqueia nova entrada e impede mover
+  stop, nunca libera operacao por ausencia de dado.
+- subprocessos read-only de mercado, Relatorio, execucao e visual compartilham
+  um unico gate no processo Streamlit; Relatorio e visual cedem a vez quando o
+  gate estiver ocupado, preservando o ultimo snapshot valido.
+- posicoes e horario do servidor podem ser reutilizados durante o mesmo ciclo
+  de 10 segundos; isso nao muda a leitura entre ciclos e impede inicializacoes
+  MT5 repetidas para cada modelo.
+- a lista visual de posicoes abertas deve vir de uma leitura leve de
+  `positions_get()`, identificada por ticket. Ela pode complementar o Relatorio
+  pesado, mas nao depende dele para permanecer visivel.
+- uma sonda MT5 ocupada, expirada ou vazia de forma transitoria nunca pode
+  substituir a ultima lista valida de posicoes por uma lista vazia. A lista so
+  e removida por uma leitura MT5 valida sem posicoes ou por um relatorio valido
+  que confirme o encerramento.
+- ao atualizar uma posicao por ticket, preco, SL, TP, lucro e swap podem mudar;
+  modelo, alpha, beta e plano auditado devem ser preservados do registro
+  anterior sempre que existirem.
+- arquivos JSONL operacionais grandes devem ser lidos por cauda limitada ou por
+  offset incremental. E proibido carregar o arquivo inteiro apenas para usar
+  os ultimos registros.
+- modelos de gatilho proprio devem persistir um estado compacto por mudanca de
+  candle/status, permitindo provar se faltou dado, gatilho ou gate de envio.
 - limpeza ou reinicio por RAM nao pode desarmar o robo nem alterar estado
   operacional persistido.
+- o inicializador oficial deve manter exatamente uma instancia do supervisor
+  `traderianovo_ram_guard.ps1`; possuir o script sem manter o processo ativo nao
+  satisfaz a protecao operacional.
+- ao atingir o limite de RAM, somente o processo Streamlit pode ser reciclado.
+  Terminal MT5, tunnel, posicoes, ordens e os arquivos persistidos em
+  `.traderia` devem permanecer intactos.
+- qualquer caminho de recuperacao deve restaurar o Streamlit em
+  `127.0.0.1:8532`; vinculo em `0.0.0.0` e proibido porque o acesso remoto deve
+  passar exclusivamente pelo tunnel HTTPS autenticado.
 
 ## Politica Para Safe Mode E Stop Movel
 

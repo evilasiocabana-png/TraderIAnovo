@@ -6,13 +6,32 @@ from dataclasses import dataclass, field, replace
 
 from application.demo_execution_service import DemoExecutionService
 from application.lab_operational_model_service import (
-    MODEL_8_ID,
-    MODEL_9_ID,
-    MODEL_10_ID,
+    MODEL_3_ID as HISTORICAL_MODEL_3_ID,
+    MODEL_8_ID as HISTORICAL_MODEL_8_ID,
+    MODEL_9_ID as HISTORICAL_MODEL_9_ID,
+    MODEL_10_ID as HISTORICAL_MODEL_10_ID,
 )
+from application.dynamic_exit_model_family import (
+    dynamic_exit_source_model,
+)
+from application.model3_all_forex_winners import (
+    MODEL_3_ID as HISTORICAL_ALL_FOREX_MODEL_3_ID,
+)
+from application.model3_xau_m5_rsi50_flip import MODEL_3_ID
 from application.market_regime_pipeline import MarketRegimePipeline
-from application.model6_original_trend_momentum import MODEL_6_ID
-from application.model7_trend_momentum_dynamic import MODEL_7_ID
+from application.model6_lab_forex_expansion import MODEL_6_ID
+from application.model7_lab_alternative_markets import MODEL_7_ID
+from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
+from application.xau_m5_sma_rsi_model_family import XAU_TREND_FILTER_MODEL_IDS
+from application.forex_m5_sma_rsi_model_family import FOREX_SMA_RSI_MODEL_IDS
+from application.model15_xau_m5_breakout import MODEL_15_ID
+from application.model16_xau_m5_price_ema_breakout import MODEL_16_ID
+from application.model6_original_trend_momentum import (
+    MODEL_6_ID as HISTORICAL_MODEL_6_ID,
+)
+from application.model7_trend_momentum_dynamic import (
+    MODEL_7_ID as HISTORICAL_MODEL_7_ID,
+)
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
 from domain.operational_model_policy import is_retired_operational_model
@@ -178,7 +197,7 @@ class MT5DemoRobotService:
         if is_retired_operational_model(signal.operational_model):
             return self._result(
                 "MODEL_RETIRED",
-                "Modelo operacional aposentado: M6 a M22 nao abrem novas ordens.",
+                "Modelo operacional aposentado nao abre novas ordens.",
                 signal,
                 trade_plan,
             )
@@ -383,16 +402,31 @@ class MT5DemoRobotService:
     ) -> MT5DemoRobotSignal | None:
         """Nao sobrepoe regime legado aos modelos com Alpha canonica completa."""
         model = str(getattr(signal, "operational_model", "") or "").upper()
+        dynamic_source = dynamic_exit_source_model(model)
+        if dynamic_source is not None:
+            # A variante deve repetir todos os gates de entrada da origem. M8
+            # herda o regime adicional do M1; M9-M14 preservam o bypass dos
+            # modelos canonicos M2-M7, que ja calculam o proprio regime.
+            return signal if dynamic_source == DEFAULT_OPERATIONAL_MODEL else None
         if model in {
             "MODELO_2_LAB_ALPHA_SUGERIDA_1_PLUS",
-            "MODELO_3_LAB_ALPHA_SUGERIDA_2_PLUS",
+            MODEL_3_ID,
+            HISTORICAL_MODEL_3_ID,
+            HISTORICAL_ALL_FOREX_MODEL_3_ID,
             "MODELO_4_LAB_CONTEXTUAL_MTF",
             "MODELO_5_LAB_CONSOLIDADO",
             MODEL_6_ID,
             MODEL_7_ID,
+            HISTORICAL_MODEL_6_ID,
+            HISTORICAL_MODEL_7_ID,
+            HISTORICAL_MODEL_8_ID,
+            HISTORICAL_MODEL_9_ID,
+            HISTORICAL_MODEL_10_ID,
             MODEL_8_ID,
-            MODEL_9_ID,
-            MODEL_10_ID,
+            MODEL_15_ID,
+            MODEL_16_ID,
+            *XAU_TREND_FILTER_MODEL_IDS,
+            *FOREX_SMA_RSI_MODEL_IDS,
         }:
             # Sessao, regime, momentum, volatilidade e demais indicadores ja
             # pertencem ao sinal reproduzido pelo adaptador canonico do Lab.
@@ -421,18 +455,41 @@ class MT5DemoRobotService:
             "PRICE_ACTION_MODEL",
             "M6_ORIGINAL_MARCO_ZERO",
             "M7_DYNAMIC_MARCO_ZERO",
+            "MODEL_15_MANUAL_RULE",
+            "MODEL_16_MANUAL_RULE",
+            "MODEL_3_MANUAL_RULE",
+            "MODEL_8_MANUAL_RULE",
+            "MODEL_9_MANUAL_RULE",
+            "MODEL_10_MANUAL_RULE",
+            "MODEL_11_MANUAL_RULE",
+            "MODEL_12_MANUAL_RULE",
+            "MODEL_13_FOREX_MANUAL_RULE",
+            "MODEL_14_FOREX_MANUAL_RULE",
+            "MODEL_15_FOREX_MANUAL_RULE",
+            "MODEL_16_FOREX_MANUAL_RULE",
+            "MODEL_17_FOREX_MANUAL_RULE",
         }:
             return "Plano de trade nao veio de fonte operacional autorizada."
         if trade_plan.status != "PLANO_VALIDO":
             return "Plano do Research Lab nao esta com status PLANO_VALIDO."
-        if trade_plan.risk_reward <= 0:
+        no_target_model = signal.operational_model in {
+            MODEL_3_ID,
+            MODEL_8_ID,
+            MODEL_15_ID,
+            MODEL_16_ID,
+            *XAU_TREND_FILTER_MODEL_IDS,
+            *FOREX_SMA_RSI_MODEL_IDS,
+        }
+        if trade_plan.risk_reward <= 0 and not no_target_model:
             return "Plano do Research Lab sem RR valido."
         if signal.decision == "BUY" and not (
-            trade_plan.stop < trade_plan.entry_price < trade_plan.target
+            trade_plan.stop < trade_plan.entry_price
+            and (no_target_model or trade_plan.entry_price < trade_plan.target)
         ):
             return "Plano BUY invalido: stop/entrada/alvo inconsistentes."
         if signal.decision == "SELL" and not (
-            trade_plan.target < trade_plan.entry_price < trade_plan.stop
+            trade_plan.entry_price < trade_plan.stop
+            and (no_target_model or trade_plan.target < trade_plan.entry_price)
         ):
             return "Plano SELL invalido: alvo/entrada/stop inconsistentes."
         return ""
@@ -464,6 +521,7 @@ class MT5DemoRobotService:
         direction: str,
     ) -> dict[str, object]:
         """Congela os parametros reais usados no envio, sem recalcular depois."""
+        parameters = dict(trade_plan.stop_management_parameters)
         return {
             "schema_version": "1.0",
             "symbol": trade_plan.symbol,
@@ -483,8 +541,13 @@ class MT5DemoRobotService:
             "exit_setup": trade_plan.stop_management,
             "exit_model": trade_plan.exit_model,
             "stop_management": trade_plan.stop_management,
-            "stop_management_parameters": dict(
-                trade_plan.stop_management_parameters
+            "stop_management_parameters": parameters,
+            "indicator_source": parameters.get("indicator_source", "N/D"),
+            "indicator_generated_at": parameters.get(
+                "indicator_generated_at", "N/D"
+            ),
+            "indicator_closed_candle_time": parameters.get(
+                "indicator_closed_candle_time", "N/D"
             ),
             "stop_reason": trade_plan.stop_reason,
             "target_reason": trade_plan.target_reason,

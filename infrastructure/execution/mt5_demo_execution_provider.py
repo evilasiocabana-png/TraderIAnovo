@@ -6,22 +6,48 @@ import importlib
 import json
 import os
 import re
+import subprocess
+import sys
 import threading
+import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
-from domain.operational_model_policy import is_retired_operational_model
+from application.model15_xau_m5_breakout import MODEL_15_ID
+from application.model16_xau_m5_price_ema_breakout import MODEL_16_ID
+from application.model3_xau_m5_rsi50_flip import MODEL_3_ID
+from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
+from application.xau_m5_sma_rsi_model_family import XAU_TREND_FILTER_MODEL_IDS
+from application.forex_m5_sma_rsi_model_family import FOREX_SMA_RSI_MODEL_IDS
+from domain.operational_model_policy import (
+    is_dynamic_exit_operational_model,
+    is_retired_operational_model,
+)
 from domain.contracts.dynamic_exit_demo_sl import DynamicExitDemoSLExecutionResult
+from core.jsonl_tail import read_last_text_lines
+from core.mt5_external_process_gate import (
+    get_mt5_external_cache,
+    mt5_external_process_slot,
+    set_mt5_external_cache,
+)
 from core.mt5_process_probe import resolve_mt5_terminal_path
 
 
 _MT5_ORDER_SEND_LOCK = threading.Lock()
 MAX_OPERATIONAL_MODELS_PER_SYMBOL = 22
 KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 23))
+INDEPENDENT_SMA_RSI_MODEL_IDS = frozenset(
+    {
+        MODEL_8_ID,
+        *XAU_TREND_FILTER_MODEL_IDS,
+        *FOREX_SMA_RSI_MODEL_IDS,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -42,6 +68,10 @@ class MT5DemoExecutionProvider:
     management_log_path: Path = field(
         default_factory=lambda: Path(".traderia") / "mt5_stop_management.jsonl"
     )
+    external_read_cache: dict[str, tuple[float, dict[str, Any]]] = field(
+        default_factory=dict,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         if self.mt5 is None:
@@ -50,6 +80,9 @@ class MT5DemoExecutionProvider:
 
     def has_open_position(self, symbol: str) -> bool:
         """Consulta posicoes abertas para impedir duplicidade por simbolo."""
+        if self._external_reads_enabled():
+            payload = self._external_mt5_read("positions", symbol=symbol)
+            return True if not bool(payload.get("ok")) else bool(payload.get("rows"))
         initialize_check = self._initialize_check()
         if initialize_check is not None:
             return True
@@ -62,25 +95,39 @@ class MT5DemoExecutionProvider:
         operational_model: str,
     ) -> bool:
         """Consulta posicao aberta do mesmo simbolo e modelo operacional."""
-        initialize_check = self._initialize_check()
-        if initialize_check is not None:
-            return True
-        positions = list(self.mt5.positions_get(symbol=symbol) or [])
+        if self._external_reads_enabled():
+            payload = self._external_mt5_read("positions", symbol=symbol)
+            if not bool(payload.get("ok")):
+                return True
+            positions = [
+                SimpleNamespace(**dict(row)) for row in payload.get("rows", [])
+            ]
+        else:
+            initialize_check = self._initialize_check()
+            if initialize_check is not None:
+                return True
+            positions = list(self.mt5.positions_get(symbol=symbol) or [])
         if len(positions) >= MAX_OPERATIONAL_MODELS_PER_SYMBOL:
             return True
         expected = self._model_comment(operational_model)
         for position in positions:
             comment = str(getattr(position, "comment", "") or "").upper()
-            if expected in comment.split():
+            model_tokens = KNOWN_MODEL_COMMENTS & set(comment.split())
+            if expected in model_tokens:
                 return True
-            if "TRADERIA" in comment and not (
-                KNOWN_MODEL_COMMENTS & set(comment.split())
-            ):
+            # Posicao manual (ou de origem nao identificada) no mesmo simbolo
+            # nao pode receber uma segunda ordem automatica. Somente uma
+            # posicao TraderIA claramente marcada como outro modelo pode
+            # coexistir no ativo.
+            if not model_tokens:
                 return True
         return False
 
     def get_open_position(self, symbol: str) -> object | None:
         """Retorna a primeira posicao aberta do simbolo em conta demo."""
+        if self._external_reads_enabled():
+            positions = self._external_positions(symbol)
+            return positions[0] if positions else None
         initialize_check = self._initialize_check()
         if initialize_check is not None:
             return None
@@ -89,6 +136,15 @@ class MT5DemoExecutionProvider:
 
     def get_open_position_by_ticket(self, symbol: str, ticket: int) -> object | None:
         """Retorna a posicao aberta exata pelo ticket."""
+        if self._external_reads_enabled():
+            return next(
+                (
+                    position
+                    for position in self._external_positions(symbol)
+                    if int(getattr(position, "ticket", 0) or 0) == int(ticket or 0)
+                ),
+                None,
+            )
         initialize_check = self._initialize_check()
         if initialize_check is not None:
             return None
@@ -96,6 +152,8 @@ class MT5DemoExecutionProvider:
 
     def list_open_positions(self) -> list[object]:
         """Lista posicoes abertas para gestao por ticket/modelo."""
+        if self._external_reads_enabled():
+            return self._external_positions("")
         initialize_check = self._initialize_check()
         if initialize_check is not None:
             return []
@@ -103,6 +161,13 @@ class MT5DemoExecutionProvider:
 
     def get_current_price(self, symbol: str) -> float | None:
         """Retorna preco atual read-only para validacao de SL."""
+        if self._external_reads_enabled():
+            payload = self._external_mt5_read("tick", symbol=symbol)
+            bid = self._positive_float(payload.get("bid"))
+            ask = self._positive_float(payload.get("ask"))
+            if bid is not None and ask is not None:
+                return (bid + ask) / 2.0
+            return bid if bid is not None else ask
         initialize_check = self._initialize_check()
         if initialize_check is not None:
             return None
@@ -122,6 +187,14 @@ class MT5DemoExecutionProvider:
         limit: int,
     ) -> list[object]:
         """Retorna candles MT5 recentes em modo read-only."""
+        if self._external_reads_enabled():
+            payload = self._external_mt5_read(
+                "candles",
+                symbol=symbol,
+                timeframe=timeframe,
+                limit=max(int(limit), 1),
+            )
+            return [SimpleNamespace(**dict(row)) for row in payload.get("rows", [])]
         initialize_check = self._initialize_check()
         if initialize_check is not None:
             return []
@@ -138,6 +211,122 @@ class MT5DemoExecutionProvider:
         if rates is None:
             return []
         return list(rates)
+
+    def _external_reads_enabled(self) -> bool:
+        return (
+            os.getenv("TRADERIA_MT5_EXECUTION_READ_EXTERNAL_PROCESS_ENABLED", "0")
+            .strip()
+            == "1"
+        )
+
+    def _external_positions(self, symbol: str) -> list[object]:
+        payload = self._external_mt5_read("positions", symbol=symbol)
+        return [SimpleNamespace(**dict(row)) for row in payload.get("rows", [])]
+
+    def _external_mt5_read(self, action: str, **kwargs: Any) -> dict[str, Any]:
+        request = {
+            "action": str(action),
+            "terminal_path": resolve_mt5_terminal_path(),
+            **kwargs,
+        }
+        cache_key = json.dumps(request, sort_keys=True, default=str)
+        shared_cache_key = f"execution_read:{cache_key}"
+        cached = self.external_read_cache.get(cache_key)
+        ttl = max(
+            float(os.getenv("TRADERIA_MT5_EXECUTION_READ_CACHE_SECONDS", "2")),
+            0.0,
+        )
+        if cached and time.monotonic() - cached[0] <= ttl:
+            return dict(cached[1])
+        shared = get_mt5_external_cache(shared_cache_key, ttl_seconds=ttl)
+        if isinstance(shared, dict):
+            self.external_read_cache[cache_key] = (time.monotonic(), shared)
+            return dict(shared)
+        code = r'''
+import json
+import sys
+
+request = json.loads(sys.argv[1])
+import MetaTrader5 as mt5
+
+path = request.get("terminal_path")
+ok = bool(mt5.initialize(path=path) if path else mt5.initialize())
+if not ok:
+    print(json.dumps({"ok": False, "rows": [], "message": str(mt5.last_error())}))
+    raise SystemExit(0)
+
+action = request.get("action")
+if action == "positions":
+    symbol = str(request.get("symbol") or "")
+    values = mt5.positions_get(symbol=symbol) if symbol else mt5.positions_get()
+    rows = [item._asdict() for item in (values or [])]
+    payload = {"ok": True, "rows": rows}
+elif action == "tick":
+    tick = mt5.symbol_info_tick(str(request.get("symbol") or ""))
+    payload = {"ok": tick is not None, **(tick._asdict() if tick else {})}
+elif action == "candles":
+    timeframe = getattr(mt5, "TIMEFRAME_" + str(request.get("timeframe") or "M1").upper(), None)
+    rates = None if timeframe is None else mt5.copy_rates_from_pos(
+        str(request.get("symbol") or ""),
+        timeframe,
+        0,
+        max(int(request.get("limit") or 1), 1),
+    )
+    rows = []
+    for rate in (list(rates) if rates is not None else []):
+        rows.append({
+            "time": int(rate["time"]),
+            "open": float(rate["open"]),
+            "high": float(rate["high"]),
+            "low": float(rate["low"]),
+            "close": float(rate["close"]),
+            "tick_volume": int(rate["tick_volume"]),
+        })
+    payload = {"ok": True, "rows": rows}
+else:
+    payload = {"ok": False, "rows": [], "message": "unknown action"}
+print(json.dumps(payload, default=str))
+mt5.shutdown()
+'''
+        creationflags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            if sys.platform.startswith("win")
+            else 0
+        )
+        process: subprocess.Popen[str] | None = None
+        timeout_seconds = max(
+            float(os.getenv("TRADERIA_MT5_EXECUTION_READ_TIMEOUT_SECONDS", "5")),
+            1.0,
+        )
+        with mt5_external_process_slot(timeout=min(timeout_seconds, 1.0)) as acquired:
+            if not acquired:
+                return dict(cached[1]) if cached else {"ok": False, "rows": []}
+            try:
+                process = subprocess.Popen(
+                    [sys.executable, "-c", code, json.dumps(request)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    creationflags=creationflags,
+                )
+                stdout, _stderr = process.communicate(timeout=timeout_seconds)
+            except (OSError, subprocess.TimeoutExpired):
+                if process is not None:
+                    try:
+                        process.kill()
+                    except OSError:
+                        pass
+                return dict(cached[1]) if cached else {"ok": False, "rows": []}
+        output = (stdout or "").strip().splitlines()
+        if not output:
+            return {"ok": False, "rows": []}
+        try:
+            payload = dict(json.loads(output[-1]))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return {"ok": False, "rows": []}
+        self.external_read_cache[cache_key] = (time.monotonic(), payload)
+        set_mt5_external_cache(shared_cache_key, payload)
+        return payload
 
     def get_atr(
         self,
@@ -423,6 +612,11 @@ class MT5DemoExecutionProvider:
             self._write_log(order, retirement_check)
             return retirement_check
 
+        native_indicator_check = self._native_indicator_source_preflight(order)
+        if native_indicator_check is not None:
+            self._write_log(order, native_indicator_check)
+            return native_indicator_check
+
         initialize_check = self._initialize_check()
         if initialize_check is not None:
             self._write_log(order, initialize_check)
@@ -495,6 +689,10 @@ class MT5DemoExecutionProvider:
                 )
                 self._write_log(order, result)
                 return result
+            pending_replacement = self._replace_pending_stop_order_locked(order)
+            if pending_replacement is not None:
+                self._write_log(order, pending_replacement)
+                return pending_replacement
             try:
                 response = self.mt5.order_send(request)
             except Exception as exc:  # noqa: BLE001 - ponte externa MT5
@@ -1065,6 +1263,36 @@ class MT5DemoExecutionProvider:
 
     def _request(self, order: ExecutionOrder, tick: object) -> dict[str, object]:
         side = order.side.upper()
+        if self._is_pending_stop_order(order):
+            order_type = (
+                self.mt5.ORDER_TYPE_BUY_STOP
+                if side == "BUY"
+                else self.mt5.ORDER_TYPE_SELL_STOP
+            )
+            request: dict[str, object] = {
+                "action": self.mt5.TRADE_ACTION_PENDING,
+                "symbol": order.symbol,
+                "volume": float(order.quantity),
+                "type": order_type,
+                "price": float(order.entry_price),
+                "sl": float(order.stop),
+                "tp": 0.0,
+                "deviation": self.deviation,
+                "magic": self.magic,
+                "comment": self._order_comment(order),
+                "type_time": self.mt5.ORDER_TIME_GTC,
+                "type_filling": getattr(
+                    self.mt5,
+                    "ORDER_FILLING_RETURN",
+                    self.mt5.ORDER_FILLING_IOC,
+                ),
+            }
+            expiration = self._pending_stop_expiration(order)
+            specified = getattr(self.mt5, "ORDER_TIME_SPECIFIED", None)
+            if expiration is not None and specified is not None:
+                request["type_time"] = specified
+                request["expiration"] = expiration
+            return request
         order_type = (
             self.mt5.ORDER_TYPE_BUY if side == "BUY" else self.mt5.ORDER_TYPE_SELL
         )
@@ -1076,7 +1304,7 @@ class MT5DemoExecutionProvider:
             "type": order_type,
             "price": price,
             "sl": float(order.stop),
-            "tp": float(order.target),
+            "tp": 0.0 if self._is_no_target_model(order) else float(order.target),
             "deviation": self.deviation,
             "magic": self.magic,
             "comment": self._order_comment(order),
@@ -1102,16 +1330,66 @@ class MT5DemoExecutionProvider:
                 status="REJECTED",
                 message=f"Preco executavel indisponivel para {order.symbol}.",
             )
-        if stop is None or target is None:
+        no_target = self._is_no_target_model(order)
+        if stop is None or (target is None and not no_target):
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
                 message="Stop Loss e Take Profit invalidos para envio MT5 Demo.",
             )
+        if self._is_pending_stop_order(order):
+            model_label = self._order_comment(order)
+            entry = self._positive_float(getattr(order, "entry_price", None))
+            expiration = self._pending_stop_expiration(order)
+            if expiration is not None and expiration <= int(time.time()) + 1:
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=f"{model_label}: candle M5 expirou antes do envio da ordem pendente.",
+                )
+            if entry is None or bid is None or ask is None:
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=f"{model_label}: preco de gatilho indisponivel para ordem pendente.",
+                )
+            minimum_distance = self._minimum_stop_distance(order.symbol)
+            if side == "BUY" and not (
+                entry > ask and stop < entry and (entry - ask) >= minimum_distance
+            ):
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=(
+                        f"{model_label} BUY STOP invalida ou ja rompida: gatilho deve estar "
+                        "acima do ask e o SL abaixo da entrada."
+                    ),
+                    executed_price=ask,
+                )
+            if side == "SELL" and not (
+                entry < bid and entry < stop and (bid - entry) >= minimum_distance
+            ):
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=(
+                        f"{model_label} SELL STOP invalida ou ja rompida: gatilho deve estar "
+                        "abaixo do bid e o SL acima da entrada."
+                    ),
+                    executed_price=bid,
+                )
+            if side not in {"BUY", "SELL"}:
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=f"Direcao invalida para ordem pendente {model_label}.",
+                )
+            return None
         if side == "BUY" and (
             bid is None
             or ask is None
-            or not (stop < bid and ask < target)
+            or not (stop < bid)
+            or (not no_target and not (ask < float(target)))
         ):
             return ExecutionResult(
                 accepted=False,
@@ -1119,21 +1397,22 @@ class MT5DemoExecutionProvider:
                 message=(
                     "Plano MT5 Demo stale: preco atual tornou SL/TP invalidos "
                     f"para BUY (SL {stop:.6f} < bid {bid or 0.0:.6f}; "
-                    f"ask {ask or 0.0:.6f} < TP {target:.6f})."
+                    f"ask {ask or 0.0:.6f} < TP {float(target or 0.0):.6f})."
                 ),
                 executed_price=price,
             )
         if side == "SELL" and (
             bid is None
             or ask is None
-            or not (target < bid and ask < stop)
+            or not (ask < stop)
+            or (not no_target and not (float(target) < bid))
         ):
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
                 message=(
                     "Plano MT5 Demo stale: preco atual tornou SL/TP invalidos "
-                    f"para SELL (TP {target:.6f} < bid {bid or 0.0:.6f}; "
+                    f"para SELL (TP {float(target or 0.0):.6f} < bid {bid or 0.0:.6f}; "
                     f"ask {ask or 0.0:.6f} < SL {stop:.6f})."
                 ),
                 executed_price=price,
@@ -1147,8 +1426,14 @@ class MT5DemoExecutionProvider:
         minimum_distance = self._minimum_stop_distance(order.symbol)
         if minimum_distance > 0.0:
             stop_distance = abs(float(price) - float(stop))
-            target_distance = abs(float(target) - float(price))
-            if stop_distance < minimum_distance or target_distance < minimum_distance:
+            target_distance = (
+                abs(float(target) - float(price))
+                if target is not None and not no_target
+                else minimum_distance
+            )
+            if stop_distance < minimum_distance or (
+                not no_target and target_distance < minimum_distance
+            ):
                 return ExecutionResult(
                     accepted=False,
                     status="REJECTED",
@@ -1159,6 +1444,113 @@ class MT5DemoExecutionProvider:
                         f"dist SL {stop_distance:.6f}; dist TP {target_distance:.6f})."
                     ),
                     executed_price=price,
+                )
+        return None
+
+    def _is_no_target_model(self, order: ExecutionOrder) -> bool:
+        return str(getattr(order, "operational_model", "") or "").upper() in {
+            MODEL_3_ID,
+            MODEL_8_ID,
+            MODEL_15_ID,
+            MODEL_16_ID,
+            *XAU_TREND_FILTER_MODEL_IDS,
+            *FOREX_SMA_RSI_MODEL_IDS,
+        }
+
+    def _is_pending_stop_order(self, order: ExecutionOrder) -> bool:
+        model = str(getattr(order, "operational_model", "") or "").upper()
+        if model in {MODEL_15_ID, MODEL_16_ID}:
+            return True
+        if model not in {
+            MODEL_8_ID,
+            *XAU_TREND_FILTER_MODEL_IDS,
+            *FOREX_SMA_RSI_MODEL_IDS,
+        }:
+            return False
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        return str(parameters.get("active_entry_order_type") or "").upper() in {
+            "BUY_STOP",
+            "SELL_STOP",
+        }
+
+    def _pending_stop_expiration(self, order: ExecutionOrder) -> int | None:
+        # O terminal valida a expiracao no relogio do servidor da corretora.
+        # O candle MT5 ja carrega esse relogio; usar o UTC da maquina produz
+        # "Invalid expiration" quando o servidor opera com outro deslocamento.
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        raw = str(snapshot.get("candle_time") or "").strip()
+        if not raw or raw.upper() == "N/D":
+            return None
+        try:
+            candle_time = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        model = str(getattr(order, "operational_model", "") or "").upper()
+        validity_minutes = (
+            10
+            if model in {
+                MODEL_8_ID,
+                *XAU_TREND_FILTER_MODEL_IDS,
+                *FOREX_SMA_RSI_MODEL_IDS,
+            }
+            else 5
+        )
+        return int((candle_time + timedelta(minutes=validity_minutes)).timestamp())
+
+    def _replace_pending_stop_order_locked(
+        self,
+        order: ExecutionOrder,
+    ) -> ExecutionResult | None:
+        """Substitui apenas a pendencia anterior do mesmo modelo operacional."""
+        if not self._is_pending_stop_order(order):
+            return None
+        orders_get = getattr(self.mt5, "orders_get", None)
+        if not callable(orders_get):
+            return None
+        try:
+            pending_orders = list(orders_get(symbol=order.symbol) or [])
+        except Exception as exc:  # noqa: BLE001 - ponte externa MT5
+            return ExecutionResult(
+                accepted=False,
+                status="ERROR",
+                message=f"{self._order_comment(order)} nao conseguiu auditar ordens pendentes: {exc}",
+            )
+        expected_comment = self._order_comment(order).upper()
+        pending_types = {
+            value
+            for value in (
+                getattr(self.mt5, "ORDER_TYPE_BUY_STOP", None),
+                getattr(self.mt5, "ORDER_TYPE_SELL_STOP", None),
+            )
+            if value is not None
+        }
+        for pending in pending_orders:
+            if str(getattr(pending, "comment", "") or "").upper() != expected_comment:
+                continue
+            if getattr(pending, "type", None) not in pending_types:
+                continue
+            ticket = int(getattr(pending, "ticket", 0) or 0)
+            if ticket <= 0:
+                continue
+            response = self.mt5.order_send(
+                {
+                    "action": self.mt5.TRADE_ACTION_REMOVE,
+                    "order": ticket,
+                    "symbol": order.symbol,
+                    "comment": f"{self._order_comment(order)} replace",
+                }
+            )
+            result = self._result_from_response(response)
+            if not result.accepted:
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=(
+                        f"{self._order_comment(order)} nao substituiu a ordem pendente anterior: "
+                        f"{result.message}"
+                    ),
+                    error_code=result.error_code,
                 )
         return None
 
@@ -1194,6 +1586,10 @@ class MT5DemoExecutionProvider:
             return None
         current_snapshot = dict(getattr(order, "plan_snapshot", None) or {})
         current_candle = str(current_snapshot.get("candle_time") or "").strip()
+        current_model = str(
+            getattr(order, "operational_model", "")
+            or current_snapshot.get("operational_model", "")
+        ).upper()
         for record in self._read_execution_log_records():
             if not self._record_counts_as_plan_evaluation(record):
                 continue
@@ -1201,6 +1597,29 @@ class MT5DemoExecutionProvider:
             if self._record_plan_key(record) != current_key:
                 continue
             record_snapshot = dict(record.get("plan_snapshot") or {})
+            record_model = str(
+                record.get("operational_model")
+                or record_snapshot.get("operational_model", "")
+            ).upper()
+            if (
+                current_model != record_model
+                and current_model in INDEPENDENT_SMA_RSI_MODEL_IDS
+                and record_model in INDEPENDENT_SMA_RSI_MODEL_IDS
+            ):
+                # M8-M17 sao modelos operacionais independentes. Mesmo quando
+                # compartilham candle, entrada e stop, cada modelo precisa de
+                # sua propria posicao para permitir auditoria A-E separada.
+                continue
+            if (
+                current_model != record_model
+                and (
+                    is_dynamic_exit_operational_model(current_model)
+                    or is_dynamic_exit_operational_model(record_model)
+                )
+            ):
+                # A familia M8-M14 e um experimento operacional independente:
+                # repete a entrada da origem para comparar apenas a saida.
+                continue
             record_candle = str(record_snapshot.get("candle_time") or "").strip()
             same_identity = bool(
                 record_identity
@@ -1229,7 +1648,7 @@ class MT5DemoExecutionProvider:
         self,
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
-        """Defesa final: M6..M22 ficam somente em historico e gestao."""
+        """Defesa final para IDs historicos realmente aposentados."""
         model = getattr(order, "operational_model", "")
         if not is_retired_operational_model(model):
             return None
@@ -1237,8 +1656,8 @@ class MT5DemoExecutionProvider:
             accepted=False,
             status="REJECTED",
             message=(
-                "Modelo operacional aposentado: M6 a M22 nao podem abrir "
-                "novas ordens; historico e posicoes existentes foram preservados."
+                "Modelo operacional aposentado nao pode abrir novas ordens; "
+                "historico e posicoes existentes foram preservados."
             ),
         )
 
@@ -1289,14 +1708,11 @@ class MT5DemoExecutionProvider:
         if not self.log_path.exists():
             return []
         try:
-            lines = self.log_path.read_text(
-                encoding="utf-8",
-                errors="ignore",
-            ).splitlines()
+            lines = read_last_text_lines(self.log_path, limit=2000)
         except OSError:
             return []
         records: list[dict[str, Any]] = []
-        for line in lines[-2000:]:
+        for line in lines:
             if not line.strip():
                 continue
             try:
@@ -1313,7 +1729,11 @@ class MT5DemoExecutionProvider:
     ) -> tuple[str, str, float, float, float] | None:
         entry = self._positive_float(getattr(order, "entry_price", None))
         stop = self._positive_float(getattr(order, "stop", None))
-        target = self._positive_float(getattr(order, "target", None))
+        target = (
+            0.0
+            if self._is_no_target_model(order)
+            else self._positive_float(getattr(order, "target", None))
+        )
         if entry is None or stop is None or target is None:
             return None
         return (
@@ -1330,7 +1750,12 @@ class MT5DemoExecutionProvider:
     ) -> tuple[str, str, float, float, float] | None:
         entry = self._positive_float(record.get("entry_price"))
         stop = self._positive_float(record.get("stop"))
-        target = self._positive_float(record.get("target"))
+        target = (
+            0.0
+            if str(record.get("operational_model") or "").upper()
+            in {MODEL_8_ID, MODEL_15_ID, MODEL_16_ID, *XAU_TREND_FILTER_MODEL_IDS}
+            else self._positive_float(record.get("target"))
+        )
         if entry is None or stop is None or target is None:
             return None
         return (
@@ -1460,6 +1885,48 @@ class MT5DemoExecutionProvider:
             ticket=self._ticket(response),
             executed_price=self._executed_price(response),
             error_code=None if done else retcode,
+        )
+
+    def _native_indicator_source_preflight(
+        self,
+        order: ExecutionOrder,
+    ) -> ExecutionResult | None:
+        """M8-M17 so entram com indicadores nativos do mesmo candle M5."""
+        model = str(getattr(order, "operational_model", "") or "").upper()
+        native_models = {
+            MODEL_8_ID,
+            *XAU_TREND_FILTER_MODEL_IDS,
+            *FOREX_SMA_RSI_MODEL_IDS,
+        }
+        if model not in native_models:
+            return None
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        source = str(
+            snapshot.get("indicator_source")
+            or parameters.get("indicator_source")
+            or ""
+        ).upper()
+        indicator_candle = str(
+            snapshot.get("indicator_closed_candle_time")
+            or parameters.get("indicator_closed_candle_time")
+            or ""
+        ).strip()
+        plan_candle = str(snapshot.get("candle_time") or "").strip()
+        if (
+            source in {"MT5_NATIVE", "LOCAL_MT5_CANDLES_52"}
+            and indicator_candle
+            and indicator_candle == plan_candle
+        ):
+            return None
+        return ExecutionResult(
+            accepted=False,
+            status="REJECTED",
+            message=(
+                "M8-M17 bloqueados: indicadores devem usar lote completo de 52 "
+                "velas do MT5 (ou snapshot MT5 nativo) e pertencer ao mesmo "
+                "candle M5 fechado do Trade Plan."
+            ),
         )
 
     def _ticket(self, response: object) -> int | None:

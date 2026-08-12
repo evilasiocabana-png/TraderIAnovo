@@ -1,5 +1,132 @@
 # Execution Log
 
+## 2026-08-11 - Aquecimento imediato M8-M17 com 52 velas M5
+
+- Sintoma: M13-M17 iniciavam em `AQUECENDO_0_DE_52_CANDLES` ou `Dados TF`,
+  apesar de o historico local ja conter os pares e o MT5 estar aberto.
+- Diagnostico: o lote externo dos 17 pares expirou inclusive com 60 segundos;
+  a ponte Python ficou presa em `initialize()`, enquanto o terminal continuou
+  visualmente responsivo.
+- Correcao: M8-M17 restauram um cache atomico leve de 52 velas por ativo; na
+  ausencia do cache, as 52 ultimas velas M5 do SQLite local pre-aquecem os
+  indicadores.
+- Seguranca: historico local recebe origem `LOCAL_HISTORY_SEED` e nunca libera
+  ordem. Somente uma leitura MT5 valida troca a origem para `LIVE`.
+- Resultado observado: 18/18 ativos com 52 velas; XAUUSD renovado como `LIVE`;
+  17 pares Forex aquecidos e aguardando renovacao viva da ponte MT5.
+- Validacao: compilacao aprovada, 53 testes focados aprovados e health HTTP
+  `200` na porta 8532.
+- Ajuste de memoria: a janela M5 operacional de M8-M17 tambem ficou limitada
+  a 52 velas em RAM; ao receber a 53a, descarta a mais antiga. Teste unitario
+  especifico aprovado em `tests/test_runtime_lightweight_io.py`.
+- Incidente de fonte: uma janela XAUUSD misturou 45 velas de 05/08 com 7 velas
+  de 11/08. A contagem 52 promoveu a serie prematuramente para `LIVE` e gerou
+  uma BUY STOP M12 invalida quando a serie atual tinha SMA20 abaixo da SMA50.
+- Correcao: cache restaurado sempre volta como semente; a promocao para `LIVE`
+  exige um lote integral de 52 candles retornado pelo MT5. Alem disso, o
+  provider de execucao rejeita M8-M17 sem fonte auditada no mesmo candle M5 do
+  plano. Validacao focada: 69 testes aprovados.
+- Decisao final do usuario: baixar exatamente 52 velas M5 do MT5 e calcular
+  SMA20, SMA50, RSI14, ADX14, ATR14, distancia/ATR, inclinacao e pivo 2+2
+  localmente. A fonte operacional passou a ser `LOCAL_MT5_CANDLES_52`.
+- O lote XAUUSD atual permanece `LIVE`. Os 17 pares Forex continuam
+  `LOCAL_HISTORY_SEED` porque tanto a ponte Python quanto a tentativa MQL5 de
+  historico ficaram bloqueadas no terminal; nenhum desses pares foi promovido
+  nem liberado falsamente.
+- Validacao final: 139 testes focados aprovados; Streamlit reiniciado na porta
+  8532 com health HTTP 200. Nenhuma ordem ou posicao foi alterada.
+
+## 2026-08-10 - Família M8-M12 XAUUSD/M5, setups A-E
+
+- M8 permanece como Setup A, a base SMA20/50 + nível RSI50;
+- criado M9/Setup B com ADX14 > 25;
+- criado M10/Setup C com distância SMA20/50 por ATR14 >= 0,25;
+- criado M11/Setup D com inclinação SMA50 de um candle por ATR14 >= 0,05;
+- criado M12/Setup E exigindo simultaneamente os três filtros;
+- cada modelo recebeu ID, Alpha, Beta, fonte, comentário e auditoria próprios;
+- contratos antigos M8-M12 permanecem aposentados;
+- validação ocorreu sem iniciar MT5 ou enviar ordens reais/Demo.
+
+## 2026-08-10 - Novo M8 XAUUSD/M5 por RSI50 e SMA20/50
+
+- criado `MODELO_8_XAU_M5_SMA_RSI_REENTRY`, sem reativar os IDs M8 históricos;
+- SMA20/SMA50 simples funcionam como filtro direcional, nao como preco de entrada;
+- entrada inicial ocorre a mercado quando o RSI14 fechado está do lado de 50 permitido pela direção das médias;
+- após Full Exit extremo, a reentrada ocorre por Buy Stop/Sell Stop exatamente no extremo do último candle M5 fechado, mantendo RSI50 e direção SMA válidos;
+- posição originada por reentrada possui Full Exit adicional no cruzamento fechado do RSI50 contra sua direção;
+- Full Exit por RSI exige confirmação no fechamento M5: BUY cruza de 70 para baixo; SELL cruza de 30 para cima;
+- SL inicial fica `0,01` alem do ultimo pivo M5 confirmado 2+2 e nao ha TP fixo;
+- o Position Manager executa Full Exit se RSI14 perder 50 contra a posicao ou
+  se SMA20/SMA50 inverterem;
+- contrato restrito ao MT5 Demo; nenhuma ordem foi enviada durante a validacao.
+
+## 2026-08-07 - Atalho com supervisao do app e Cloudflare Tunnel
+
+- o atalho `TraderIA Novo` passou a validar `/_stcore/health`, e nao apenas a
+  existencia de um listener na porta 8532;
+- um Streamlit travado e encerrado antes da inicializacao limpa, evitando que o
+  Cloudflare publique uma origem sem resposta;
+- o mesmo atalho inicia o tunnel nomeado por `--token-file`, sem duplicar
+  processos existentes;
+- o endereco publico e testado e um `cloudflared` vivo, mas desconectado, e
+  reiniciado automaticamente;
+- stdout e stderr do tunnel ficam em `logs/cloudflared-traderianovo.*.log`;
+- as leituras MT5 voltaram a processos externos para impedir que uma chamada
+  nativa bloqueante congele o Streamlit e derrube indiretamente o tunnel.
+
+## 2026-08-06 - Aposentadoria operacional dos modelos M8-M16
+
+- M8-M16 foram removidos do conjunto autorizado a criar novas ordens;
+- o seletor e o funil da aba MT5 Forex agora exibem somente M1-M7;
+- os controles e graficos individuais do Relatorio agora exibem somente M1-M7;
+- selecoes persistidas de M8-M16 migram com seguranca para M1;
+- a politica central rejeita M8-M16 mesmo em chamadas diretas;
+- contratos, codigo de leitura e negocios historicos foram preservados para
+  auditoria e compatibilidade, sem apagar resultados passados.
+
+## 2026-08-06 - Modelo 16 XAUUSD/M5 por preco versus EMA20
+
+- criado o M16 independente, exclusivo para XAUUSD/M5;
+- preco acima da EMA20 prepara BUY STOP; abaixo prepara SELL STOP;
+- entrada fica um pip alem do extremo anterior e o SL nasce no extremo oposto
+  exato;
+- nao existe TP fixo, EARLY_EXIT ou FULL_EXIT;
+- Position Manager move o SL somente pelo candle M5 fechado e nunca o afasta;
+- M16 usa o snapshot M5 compartilhado, persistencia compacta por mudanca e nao
+  executa Lab pesado no ciclo leve;
+- o antigo M16 `VWAP_MEAN_REVERSION` permanece aposentado no historico.
+
+## 2026-08-05 - Modelo 15 XAUUSD/M5 por rompimento
+
+- criado o M15 independente, exclusivo para XAUUSD no timeframe M5;
+- EMA20 acima/abaixo da EMA50 define a direcao;
+- entrada e stop inicial recebem margem de um pip (`0,01` no XAUUSD);
+- removido TP fixo somente deste modelo;
+- Position Manager move o SL pelo ultimo candle M5 fechado e nunca o afasta;
+- `EARLY_EXIT` e `FULL_EXIT` permanecem fora do contrato M15;
+- seletor, radar MT5 e graficos do Relatorio passaram a reconhecer o M15;
+- validacao feita sem envio de ordem real ou Demo.
+
+## 2026-08-05 - Travamento de inicializacao do Streamlit no OneDrive
+
+- processos de teste interrompidos foram encerrados para eliminar concorrencia;
+- confirmado que a porta 8532 aceitava conexao, mas nao respondia ao HTTP;
+- o Streamlit basico respondeu normalmente em porta isolada;
+- o guardiao passou a iniciar o app com `--server.fileWatcherType none`;
+- o ciclo MT5, o intervalo de 10 segundos e a gestao de posicao nao foram alterados.
+
+## 2026-08-05 - Independencia M8-M14 e rollover pelo servidor MT5
+
+- confirmado que M8-M14 possuem chave de candle, identidade de plano,
+  comentario MT5, limite de posicao e deduplicacao independentes dos M1-M7;
+- o seletor persistido foi restaurado para `TODOS_MODELOS`;
+- removido o bloqueio indevido da hora inteira das 21h UTC quando o horario do
+  servidor MT5 esta disponivel;
+- mantida a protecao de 5 minutos antes/depois da virada do dia do servidor;
+- o horario UTC fixo permanece somente como fallback se o MT5 nao fornecer hora.
+- M8 passou a repetir tambem o gate de regime do M1; M9-M14 preservam os gates
+  canonicos das respectivas origens M2-M7, sem compartilhar estado de posicao.
+
 ## 2026-08-04 - Resultado bruto, custos e lucro liquido nos graficos MT5
 
 - o antigo cartao `Patrimonio final` foi renomeado para `Lucro bruto`;
@@ -868,6 +995,41 @@ Novas entradas devem registrar:
 - commit gerado;
 - pendencias.
 
+## 2026-08-10 - Integracao visual e relatorios M13-M17
+
+- Sintoma: a aba MT5 ainda declarava M1-M12 e Relatorios oferecia somente os
+  filtros M1-M12, apesar de a familia Forex M13-M17 existir no motor.
+- Correcao: seletor, avisos, rotulos curtos e blocos de entrada MT5 passaram a
+  expor M13-M17; o grafico principal e as curvas individuais passaram a usar
+  M1-M17.
+- Auditoria: M13-M17 foram separados por ID operacional atual e universo dos
+  17 pares Forex, impedindo mistura com os contratos historicos M13-M16.
+- Validacao: compilacao aprovada, 16 testes focados aprovados e conferencia
+  visual confirmou os cinco blocos na aba MT5 e os cinco filtros em Relatorios.
+- Runtime: Streamlit reiniciado na porta 8532; health HTTP 200 confirmado.
+- Seguranca: nenhuma ordem foi enviada ou modificada durante a correcao.
+
+## 2026-08-05 - Modelos M8-M14 com saida dinamica protect-only
+
+- Missao: criar sete variantes independentes de M1-M7 sem alterar os modelos
+  fixos existentes.
+- Implementacao:
+  - M8->M1, M9->M2, M10->M3, M11->M4, M12->M5, M13->M6 e M14->M7;
+  - entrada, Alpha, timeframe, SL inicial, TP e RR preservados integralmente;
+  - politica pos-entrada `DYNAMIC_PROTECT_ONLY`;
+  - protecao liberada somente depois de 1,50R;
+  - `EARLY_EXIT` e `FULL_EXIT` bloqueados inclusive quando a chave global esta
+    ativa;
+  - resultado de entrada do modelo de origem reutilizado no ciclo, sem Lab
+    pesado nem consulta MT5 adicional;
+  - coexistencia A/B entre modelo fixo e sua variante dinamica, mantendo a
+    deduplicacao da mesma variante no mesmo plano/candle.
+- Superacao historica: IDs antigos M8-M22 permanecem no historico e aposentados
+  para novas entradas; somente os novos IDs canonicos M8-M14 estao ativos.
+- Validacao inicial: testes de mapa, identidade, paridade do plano e movimento
+  de SL protect-only aprovados.
+- Commit: pendente de solicitacao explicita.
+
 ## 2026-08-04 - Auditoria e reducao de memoria do runtime
 
 - Sintoma: app lento apos permanecer aberto; processo da porta `8532` usava
@@ -951,3 +1113,179 @@ Novas entradas devem registrar:
   - confirmar o fuso do CSV antes de tratar a associacao temporal como forte;
   - baixar os dez ativos ainda sem historico se for necessaria cobertura maior;
   - nao inferir regras de saida, grade ou lote sem dados adicionais.
+
+## 2026-08-06 - Correcao de travamento por ciclo MT5 na interface
+
+- Sintoma: porta 8532 iniciava, mas `/_stcore/health` deixava de responder apos
+  uma sessao web reconectar, mesmo com uso de memoria proximo de 225 MB.
+- Causa: fallbacks de `_maybe_run_mt5_forex_auto_cycle()` e
+  `_maybe_run_demo_robot_global_cycle()` podiam executar leitura MT5 ou o ciclo
+  completo do Robo Demo dentro do rerender Streamlit.
+- Correcao: ciclos automaticos permanecem nos threads de fundo; Forex, demais
+  abas e fragmentos apenas consomem o snapshot compartilhado.
+- Seguranca: nenhuma regra de entrada, stop, alvo, modelo ou envio foi alterada.
+- Uma segunda origem foi encontrada no exportador visual, que consultava
+  `positions_get()` diretamente, e na auditoria do Relatorio, que consultava
+  sessao, saldo e historico no processo Streamlit.
+- Candles, posicoes visuais e Relatorio passaram a usar processos externos com
+  timeout; `TRADERIA_MT5_INPROCESS_ENABLED=1` continua disponivel para os
+  componentes operacionais que exigem a sessao persistente.
+- Validacao final: 11 sondas consecutivas da rota de saude responderam em
+  73-974 ms durante mais de 80 segundos, com ciclo Forex de fundo e Relatorio
+  ativos, app em aproximadamente 270 MB de RAM e execucao desativada.
+- Testes focados: 48 verificacoes do M15/runtime e 13 do exportador/runtime
+  passaram; compilacao dos modulos alterados e `git diff --check` sem erro.
+- No modo operacional completo, `list_open_positions()` do Position Manager foi
+  a ultima chamada nativa bloqueante identificada. Lista de posicoes,
+  duplicidade, preco e candles recentes passaram para sonda externa fail-closed;
+  modificacao de SL e envio Demo permaneceram no provider operacional.
+- Validacao operacional final: seis sondas consecutivas responderam em 45-153
+  ms depois da inicializacao, com aproximadamente 191 MB de RAM; estado do robo
+  preservado online e ultimo ciclo `NO_SIGNAL`, sem ordem enviada nesse ciclo.
+- Mais 85 testes do provider, Position Manager e M15 passaram apos o isolamento.
+
+## 2026-08-06 - Auditoria de RAM e rastreabilidade do M15
+
+- RAM do Streamlit cresceu de aproximadamente 152 MB para 474 MB em pouco mais
+  de duas horas; uma sonda de Relatorio consumia cerca de 130 MB e concorria
+  com as leituras operacionais do MT5.
+- O log `mt5_demo_execution.jsonl` atingiu aproximadamente 19,6 MB; leitores
+  que precisavam somente dos ultimos 2.000 registros carregavam o arquivo todo.
+- Foi criado um gate unico para os subprocessos MT5. Relatorio e visual agora
+  preservam cache quando o ciclo operacional ocupa o gate.
+- Cache read-only de posicoes e horario foi alinhado ao ciclo de 10 segundos.
+- Leituras de duplicidade e da interface passaram a usar cauda binaria limitada.
+- O M15 passou a gravar `.traderia/model15_runtime_state.json` somente quando
+  candle ou decisao mudam, registrando EMA20/50, gatilho, stop e motivo atual.
+- O guard de RAM passa a reiniciar preventivamente o Streamlit em 900 MB,
+  preservando o estado persistido do robo e do modelo selecionado.
+
+## 2026-08-06 - Preservacao visual das posicoes e entrada M15
+
+- A ausencia intermitente da Saida Teorica foi rastreada a uma dependencia do
+  Relatorio completo: quando a sonda de historico cedia o gate ao ciclo
+  operacional, a interface interpretava a falta temporaria de resposta como
+  ausencia de posicao.
+- A interface passou a complementar o Relatorio com uma leitura leve de
+  `positions_get()`, mesclada por ticket e preservando modelo/plano auditado.
+- Falha transitoria da sonda mantem a ultima lista valida; ela nao apaga mais
+  as posicoes exibidas.
+- O M15 permanece independente no XAUUSD/M5. Seu estado compacto permite que a
+  UI mostre candle fechado, EMA20/50, gatilho e stop mesmo sem carregar candles
+  pesados na sessao Streamlit.
+- Validacao: 43 posicoes abertas recuperadas da conta Demo e classificadas por
+  comentario `TraderIA M#`; 52 testes focados passaram.
+
+## 2026-08-10 - Correcao do monitor M8-M12
+
+- A tabela de indicadores rotulava M8-M12 como M1 e mostrava pares Forex/H1.
+- Causa: ausencia dos casos M8-M12 no rotulo curto e uso indevido do adaptador
+  generico do Lab para uma familia exclusiva XAUUSD/M5.
+- M8-M12 passaram a consumir o mesmo avaliador XAUUSD/M5 usado pelo executor,
+  com uma unica linha por modelo e indicadores especificos de cada setup.
+- Validacao visual confirmou a sequencia M8, M9, M10, M11 e M12 em M5.
+- Compilacao e 24 testes focados passaram; app local e URL publica permaneceram
+  online, sem envio ou modificacao de ordens durante a correcao.
+
+## 2026-08-10 - Supervisor de RAM integrado ao inicializador
+
+## 2026-08-10 - Modelos Forex M13-M17
+
+- M13/Setup A criado nos 17 pares Forex/M5;
+- M14 adiciona ADX; M15 distância/ATR; M16 inclinação SMA50; M17 combina os três;
+- entrada inicial a mercado, reentrada Stop, SL no pivô 2+2, sem TP e Full Exit
+  RSI 70/30 ou inversão SMA foram preservados;
+- buffer adaptado para um pip e estado isolado por modelo/par;
+- identidades históricas M13-M16 preservadas somente para auditoria.
+
+## 2026-08-10 - Supervisor de RAM integrado ao inicializador
+
+- Auditoria operacional encontrou o Streamlit saudavel, mas com aproximadamente
+  1,44 GB de RAM e sem processo persistente do supervisor de RAM.
+- O limite preventivo de 900 MB ja existia em
+  `scripts/traderianovo_ram_guard.ps1`, mas o inicializador nao o mantinha ativo.
+- `scripts/abrir_traderianovo.ps1` passou a iniciar uma unica instancia do
+  supervisor sempre que o app estiver saudavel.
+- Na primeira ativacao, o supervisor reiniciou somente o Streamlit e reduziu o
+  consumo para aproximadamente 113 MB. MT5, posicoes e estado online do Robo
+  Demo foram preservados.
+- O comando de recuperacao do supervisor foi alinhado ao inicializador oficial:
+  escuta apenas em `127.0.0.1`, desativa telemetria do navegador e deixa a
+  publicacao exclusivamente sob responsabilidade do tunnel HTTPS.
+- App local e endereco publico responderam com HTTP 200 apos a recuperacao; a
+  leitura direta confirmou MT5 conectado, negociacao permitida e candles M1.
+# 2026-08-11 - Substituicao do M3 por XAUUSD/M5 RSI14=50
+
+- criado `MODELO_3_XAU_M5_RSI50_FLIP` com RSI14 fechado: BUY acima de 50 e
+  SELL abaixo de 50;
+- Full Exit da posicao quando o RSI fecha no lado oposto e nova entrada
+  contraria somente no ciclo posterior ao fechamento;
+- SL estrutural 0,01 alem do pivo M5 2+2, sem TP fixo;
+- antigo `MODELO_3_LAB_ALL_FOREX_WINNERS` aposentado para novas entradas e
+  preservado por ID nos historicos;
+- plano, gates, Robo Demo, Provider, Position Manager, monitor e curvas
+  discriminam o novo ID;
+- nenhuma ordem foi enviada durante a implementacao e o runtime nao foi
+  reiniciado enquanto o Robo Demo poderia estar armado.
+## 2026-08-11 - Diagnostico MT5: timeout do conector nao e terminal offline
+
+- Confirmado que `terminal64.exe` (PID 3848) permaneceu aberto e responsivo, enquanto a leitura externa read-only expirava.
+- O painel agora diferencia `CONNECTOR_TIMEOUT`/`AGUARDANDO_DADOS_MT5` de `DISCONNECTED`/`OFFLINE`.
+- O gate visual passou a informar `AGUARDA: conector MT5 sem leitura`; o envio continua bloqueado ate haver candles M5 atuais.
+- Streamlit reiniciado isoladamente na porta 8532, saude HTTP 200; terminal MT5 e posicoes nao foram reiniciados nem alterados.
+- Validacao: 129 testes focados aprovados (2 de diagnostico + 127 da familia M8-M17/executor/position manager).
+
+## 2026-08-11 - Janela M5 incremental de 52 velas
+
+- Corrigido o warm cache operacional M8-M17 para preservar 51 velas anteriores e solicitar somente `count=1` no ciclo normal.
+- A vela recebida substitui a vela em formacao do mesmo horario ou entra como a nova vela; a mais antiga e descartada, mantendo exatamente 52.
+- Cache persistido com fonte `LIVE` continua vivo apos reinicio e nao exige novo lote de 52.
+- Download completo de 52 fica restrito ao primeiro carregamento, cache com menos de 52 ou recuperacao de lacuna temporal real.
+- Validacao: 68 testes de market data/cache/modelos + 83 testes de executor e position manager aprovados.
+
+## 2026-08-11 - Recuperacao autorizada do IPC MT5
+
+- Usuario autorizou reinicio do terminal com posicoes abertas.
+- Leitor externo e painel foram encerrados antes do terminal; MT5 fechou normalmente por `CloseMainWindow()` e reabriu na mesma instalacao.
+- Conta `61551556`/`Pepperstone-Demo` reconectada; `initialize()` e `CopyRates(EURUSD, M5, count=1)` retornaram sucesso.
+- Confirmadas 18 posicoes preservadas no servidor; nenhuma ordem foi criada, fechada ou modificada.
+- Streamlit religado na porta 8532 com saude HTTP 200.
+
+## 2026-08-11 - Auditoria operacional e ativacao exclusiva M8-M17
+
+- Criado o chaveamento persistente `MODELOS_8_A_17`; ele avalia e permite
+  novas entradas somente para M8-M12 em XAUUSD/M5 e M13-M17 nos 17 pares
+  Forex/M5. M1-M7 ficaram fora da fila de novas entradas, sem interferir na
+  gestao das posicoes antigas.
+- Eliminada a coexistencia de duas instancias Streamlit na porta 8532. O
+  supervisor passou a manter uma unica instancia oficial saudavel.
+- Cache auditado com exatamente 52 velas M5 `LIVE` em todos os 18 mercados.
+- Corrigida a deduplicacao do executor para considerar M8-M17 modelos
+  independentes. Planos A-E que compartilham par, candle, entrada e stop podem
+  manter uma posicao separada por modelo, preservando a auditoria comparativa.
+- MT5 `61551556`/`Pepperstone-Demo` confirmado conectado e com AlgoTrading
+  liberado. A ativacao ao vivo abriu somente comentarios M8-M15; M16-M17
+  permaneceram corretamente bloqueados pelos filtros do candle atual.
+- Confirmadas posicoes separadas M8, M9, M10, M11 e M12 no XAUUSD e saidas
+  automaticas `TraderIA PM EXIT` nas posicoes Forex M13-M15.
+- O estado de reentrada Forex deixou de herdar `symbol: XAUUSD`; cada arquivo
+  M13-M17 agora persiste o par Forex auditado, inclusive os estados EURNZD ja
+  existentes.
+- Validacao: 7 testes focados do chaveamento/deduplicacao e 137 testes da
+  familia M8-M17, cache, executor e runtime aprovados; mais 75 testes passaram
+  apos a correcao do estado de reentrada por par.
+
+## 2026-08-11 - Recuperacao preventiva de RAM do painel
+
+- O processo Streamlit da porta 8532 consumia 860,2 MB de RAM de trabalho e
+  1.072,8 MB de memoria privada; o Windows estava com 92,1% da RAM em uso.
+- Foram encontradas cinco abas duplicadas do painel MT5 Forex. Quatro copias
+  foram fechadas e uma unica sessao visual foi preservada.
+- Somente o processo Streamlit foi reiniciado pelo supervisor oficial. O
+  terminal MT5, a conta Demo, as posicoes, as ordens e o cache local nao foram
+  alterados.
+- Depois da reconexao e de varios ciclos visuais, o painel estabilizou em
+  aproximadamente 361 MB de RAM de trabalho; a memoria livre do Windows subiu
+  de 1,25 GB para 2,66 GB.
+- Validacao: porta 8532 com HTTP 200, uma unica instancia oficial, supervisor
+  de RAM ativo, terminal64 preservado e selecao operacional M8-M17 mantida.

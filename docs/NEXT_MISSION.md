@@ -52,6 +52,8 @@ mas exige medir e proteger:
 - Mantem a leitura de indicadores necessaria para BETA002 sem bloquear a UI.
 - Gera ou atualiza um registro de incidente quando houver travamento, queda
   aparente ou reinicio manual.
+- Mede separadamente o tempo da ponte Python do MT5 e alerta quando
+  `initialize()` impedir a renovacao do cache M5 vivo de M8-M17.
 
 ## Arquivos Provaveis
 

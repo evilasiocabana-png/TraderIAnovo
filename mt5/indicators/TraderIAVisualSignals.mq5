@@ -11,12 +11,25 @@ input int RefreshSeconds = 2;
 input bool HideNativeTradeLevels = true;
 input bool DrawThinPriceLabels = true;
 input bool AutoAttachToOpenCharts = true;
+input bool ExportNativeM5Indicators = true;
+input string NativeIndicatorFileName = "traderia_native_m5_indicators.csv";
 
 string PREFIX = "TRADERIA_VISUAL_";
 string LAST_VALID_CONTENT = "";
 string LAST_PLAN_TEXT = "";
 string LAST_SIGNAL_DRAW_KEY = "";
 datetime LAST_CHART_POLICY_APPLIED = 0;
+
+string NATIVE_SYMBOLS[] = {
+   "XAUUSD", "AUDUSD", "EURJPY", "EURUSD", "GBPUSD", "NZDUSD",
+   "USDCAD", "USDCHF", "USDJPY", "AUDCAD", "AUDJPY", "CADCHF",
+   "EURNZD", "GBPAUD", "GBPCAD", "GBPNZD", "NZDCAD", "NZDJPY"
+};
+int NATIVE_SMA20_HANDLES[];
+int NATIVE_SMA50_HANDLES[];
+int NATIVE_RSI14_HANDLES[];
+int NATIVE_ADX14_HANDLES[];
+int NATIVE_ATR14_HANDLES[];
 
 int OnInit()
 {
@@ -25,6 +38,8 @@ int OnInit()
    DeleteTraderIAObjects();
 
    EventSetTimer(RefreshSeconds);
+   InitializeNativeIndicatorHandles();
+   ExportNativeIndicatorSnapshot();
    DrawTraderIASignals();
    return(INIT_SUCCEEDED);
 }
@@ -32,6 +47,7 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
+   ReleaseNativeIndicatorHandles();
    DeleteTraderIAObjects();
    Comment("");
 }
@@ -39,7 +55,203 @@ void OnDeinit(const int reason)
 void OnTimer()
 {
    ApplyChartVisualPolicy();
+   ExportNativeIndicatorSnapshot();
    DrawTraderIASignals();
+}
+
+void InitializeNativeIndicatorHandles()
+{
+   int total = ArraySize(NATIVE_SYMBOLS);
+   ArrayResize(NATIVE_SMA20_HANDLES, total);
+   ArrayResize(NATIVE_SMA50_HANDLES, total);
+   ArrayResize(NATIVE_RSI14_HANDLES, total);
+   ArrayResize(NATIVE_ADX14_HANDLES, total);
+   ArrayResize(NATIVE_ATR14_HANDLES, total);
+   ArrayInitialize(NATIVE_SMA20_HANDLES, INVALID_HANDLE);
+   ArrayInitialize(NATIVE_SMA50_HANDLES, INVALID_HANDLE);
+   ArrayInitialize(NATIVE_RSI14_HANDLES, INVALID_HANDLE);
+   ArrayInitialize(NATIVE_ADX14_HANDLES, INVALID_HANDLE);
+   ArrayInitialize(NATIVE_ATR14_HANDLES, INVALID_HANDLE);
+}
+
+void ReleaseNativeIndicatorHandles()
+{
+   for(int i = 0; i < ArraySize(NATIVE_SYMBOLS); i++)
+   {
+      ReleaseNativeHandle(NATIVE_SMA20_HANDLES[i]);
+      ReleaseNativeHandle(NATIVE_SMA50_HANDLES[i]);
+      ReleaseNativeHandle(NATIVE_RSI14_HANDLES[i]);
+      ReleaseNativeHandle(NATIVE_ADX14_HANDLES[i]);
+      ReleaseNativeHandle(NATIVE_ATR14_HANDLES[i]);
+   }
+}
+
+void ReleaseNativeHandle(int &handle)
+{
+   if(handle != INVALID_HANDLE)
+      IndicatorRelease(handle);
+   handle = INVALID_HANDLE;
+}
+
+bool EnsureNativeIndicatorHandles(const int index)
+{
+   string symbol = NATIVE_SYMBOLS[index];
+   if(!SymbolSelect(symbol, true))
+      return(false);
+   if(NATIVE_SMA20_HANDLES[index] == INVALID_HANDLE)
+      NATIVE_SMA20_HANDLES[index] = iMA(symbol, PERIOD_M5, 20, 0, MODE_SMA, PRICE_CLOSE);
+   if(NATIVE_SMA50_HANDLES[index] == INVALID_HANDLE)
+      NATIVE_SMA50_HANDLES[index] = iMA(symbol, PERIOD_M5, 50, 0, MODE_SMA, PRICE_CLOSE);
+   if(NATIVE_RSI14_HANDLES[index] == INVALID_HANDLE)
+      NATIVE_RSI14_HANDLES[index] = iRSI(symbol, PERIOD_M5, 14, PRICE_CLOSE);
+   if(NATIVE_ADX14_HANDLES[index] == INVALID_HANDLE)
+      NATIVE_ADX14_HANDLES[index] = iADX(symbol, PERIOD_M5, 14);
+   if(NATIVE_ATR14_HANDLES[index] == INVALID_HANDLE)
+      NATIVE_ATR14_HANDLES[index] = iATR(symbol, PERIOD_M5, 14);
+   return(
+      NATIVE_SMA20_HANDLES[index] != INVALID_HANDLE &&
+      NATIVE_SMA50_HANDLES[index] != INVALID_HANDLE &&
+      NATIVE_RSI14_HANDLES[index] != INVALID_HANDLE &&
+      NATIVE_ADX14_HANDLES[index] != INVALID_HANDLE &&
+      NATIVE_ATR14_HANDLES[index] != INVALID_HANDLE
+   );
+}
+
+bool ReadNativeBufferValue(const int handle, const int buffer, const int shift, double &value)
+{
+   double values[1];
+   if(CopyBuffer(handle, buffer, shift, 1, values) != 1)
+      return(false);
+   value = values[0];
+   return(MathIsValidNumber(value) && value != EMPTY_VALUE);
+}
+
+void ExportNativeIndicatorSnapshot()
+{
+   if(!ExportNativeM5Indicators || ChartID() != ChartFirst())
+      return;
+   int file = FileOpen(
+      NativeIndicatorFileName,
+      FILE_WRITE|FILE_CSV|FILE_ANSI|FILE_COMMON,
+      ';'
+   );
+   if(file == INVALID_HANDLE)
+      return;
+   FileWrite(
+      file,
+      "generated_at", "symbol", "timeframe", "closed_candle_time",
+      "current_candle_time",
+      "sma20", "sma50", "previous_sma20", "previous_sma50",
+      "rsi14", "previous_rsi14", "adx14", "atr14",
+      "distance_atr", "sma50_slope_atr", "close", "high", "low",
+      "last_swing_low", "last_swing_low_time",
+      "last_swing_high", "last_swing_high_time"
+   );
+   long generated_at = (long)TimeCurrent();
+   for(int i = 0; i < ArraySize(NATIVE_SYMBOLS); i++)
+   {
+      if(!EnsureNativeIndicatorHandles(i))
+         continue;
+      double sma20, sma50, previous_sma20, previous_sma50;
+      double rsi14, previous_rsi14, adx14, atr14;
+      if(
+         !ReadNativeBufferValue(NATIVE_SMA20_HANDLES[i], 0, 1, sma20) ||
+         !ReadNativeBufferValue(NATIVE_SMA50_HANDLES[i], 0, 1, sma50) ||
+         !ReadNativeBufferValue(NATIVE_SMA20_HANDLES[i], 0, 2, previous_sma20) ||
+         !ReadNativeBufferValue(NATIVE_SMA50_HANDLES[i], 0, 2, previous_sma50) ||
+         !ReadNativeBufferValue(NATIVE_RSI14_HANDLES[i], 0, 1, rsi14) ||
+         !ReadNativeBufferValue(NATIVE_RSI14_HANDLES[i], 0, 2, previous_rsi14) ||
+         !ReadNativeBufferValue(NATIVE_ADX14_HANDLES[i], 0, 1, adx14) ||
+         !ReadNativeBufferValue(NATIVE_ATR14_HANDLES[i], 0, 1, atr14) || atr14 <= 0.0
+      )
+         continue;
+      string symbol = NATIVE_SYMBOLS[i];
+      datetime closed_time = iTime(symbol, PERIOD_M5, 1);
+      datetime current_time = iTime(symbol, PERIOD_M5, 0);
+      double last_swing_low, last_swing_high;
+      datetime last_swing_low_time, last_swing_high_time;
+      if(
+         closed_time <= 0 || current_time <= 0 ||
+         !FindLastConfirmedSwing(symbol, true, last_swing_low, last_swing_low_time) ||
+         !FindLastConfirmedSwing(symbol, false, last_swing_high, last_swing_high_time)
+      )
+         continue;
+      double distance_atr = MathAbs(sma20 - sma50) / atr14;
+      double sma50_slope_atr = (sma50 - previous_sma50) / atr14;
+      FileWrite(
+         file,
+         generated_at,
+         symbol,
+         "M5",
+         (long)closed_time,
+         (long)current_time,
+         DoubleToString(sma20, 10),
+         DoubleToString(sma50, 10),
+         DoubleToString(previous_sma20, 10),
+         DoubleToString(previous_sma50, 10),
+         DoubleToString(rsi14, 10),
+         DoubleToString(previous_rsi14, 10),
+         DoubleToString(adx14, 10),
+         DoubleToString(atr14, 10),
+         DoubleToString(distance_atr, 10),
+         DoubleToString(sma50_slope_atr, 10),
+         DoubleToString(iClose(symbol, PERIOD_M5, 1), 10),
+         DoubleToString(iHigh(symbol, PERIOD_M5, 1), 10),
+         DoubleToString(iLow(symbol, PERIOD_M5, 1), 10),
+         DoubleToString(last_swing_low, 10),
+         (long)last_swing_low_time,
+         DoubleToString(last_swing_high, 10),
+         (long)last_swing_high_time
+      );
+   }
+   FileFlush(file);
+   FileClose(file);
+}
+
+bool FindLastConfirmedSwing(
+   const string symbol,
+   const bool find_low,
+   double &price,
+   datetime &candle_time
+)
+{
+   // Shift 3 e o primeiro candle fechado que possui dois candles fechados
+   // mais recentes a direita. Procura o pivo 2+2 mais recente.
+   int available = Bars(symbol, PERIOD_M5);
+   int limit = MathMin(available - 3, 250);
+   for(int shift = 3; shift <= limit; shift++)
+   {
+      double candidate = find_low
+         ? iLow(symbol, PERIOD_M5, shift)
+         : iHigh(symbol, PERIOD_M5, shift);
+      if(candidate <= 0.0)
+         continue;
+      bool confirmed = true;
+      for(int offset = 1; offset <= 2; offset++)
+      {
+         double newer = find_low
+            ? iLow(symbol, PERIOD_M5, shift - offset)
+            : iHigh(symbol, PERIOD_M5, shift - offset);
+         double older = find_low
+            ? iLow(symbol, PERIOD_M5, shift + offset)
+            : iHigh(symbol, PERIOD_M5, shift + offset);
+         if(
+            (find_low && (candidate >= newer || candidate >= older)) ||
+            (!find_low && (candidate <= newer || candidate <= older))
+         )
+         {
+            confirmed = false;
+            break;
+         }
+      }
+      if(confirmed)
+      {
+         price = candidate;
+         candle_time = iTime(symbol, PERIOD_M5, shift);
+         return(candle_time > 0);
+      }
+   }
+   return(false);
 }
 
 void ApplyChartVisualPolicy()
