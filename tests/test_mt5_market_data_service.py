@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import inspect
 import unittest
+from datetime import datetime, timedelta, timezone
 
+from application.operational_indicator_window import (
+    OPERATIONAL_INDICATOR_CLOSED_CANDLES,
+    OPERATIONAL_INDICATOR_RAW_CANDLES,
+)
 from application.mt5_market_data_service import (
     MT5MarketDataService,
     SUPPORTED_MT5_SYMBOLS,
@@ -128,7 +133,7 @@ class ForexProvider:
             close = base + (direction * index * 0.0005)
             candles.append(
                 Candle(
-                    data=f"2026-06-29T{index % 24:02d}:00:00+00:00",
+                    data=self._timestamp(index),
                     abertura=close - (direction * 0.0001),
                     maxima=close + 0.0004,
                     minima=close - 0.0004,
@@ -137,6 +142,11 @@ class ForexProvider:
                 )
             )
         return candles
+
+    @staticmethod
+    def _timestamp(index: int) -> str:
+        base = datetime(2026, 6, 29, tzinfo=timezone.utc)
+        return (base + timedelta(hours=index)).isoformat()
 
     def get_symbol_microstructure(self, symbol: str) -> dict[str, float | None]:
         base = 1.0 + (len(symbol) * 0.01)
@@ -174,7 +184,7 @@ class BatchForexProvider(ForexProvider):
         base = 1.0 + (len(symbol) * 0.01)
         return [
             Candle(
-                data=f"2026-06-29T{index % 24:02d}:00:00+00:00",
+                data=self._timestamp(index),
                 abertura=base + (index * 0.0001),
                 maxima=base + (index * 0.0001) + 0.0004,
                 minima=base + (index * 0.0001) - 0.0004,
@@ -426,7 +436,7 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         self.assertEqual(data.safe_mode_status, "AGUARDANDO_DADOS")
         self.assertIn("Timeout", data.safe_mode_error)
 
-    def test_load_forex_signal_dashboard_le_parametros_simples_do_mt5(
+    def test_fluxo_leve_preserva_janela_canonica_acima_de_configuracao_legada(
         self,
     ) -> None:
         ConfigurationManager.update_configuration(
@@ -438,7 +448,12 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         data = service.load_forex_signal_dashboard("H1")
 
         self.assertTrue(provider.requests)
-        self.assertTrue(all(request[2] == 120 for request in provider.requests))
+        self.assertTrue(
+            all(
+                request[2] == OPERATIONAL_INDICATOR_RAW_CANDLES
+                for request in provider.requests
+            )
+        )
         rows = [row for row in data.pairs if row.status == "OK"]
         self.assertTrue(rows)
         self.assertTrue(all(row.decision in {"BUY", "SELL", "WAIT"} for row in rows))
@@ -476,19 +491,39 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         self.assertEqual(row.spread_average, 0.0002)
         self.assertIsNotNone(row.slippage_estimate)
 
-    def test_default_carrega_1000_candles_por_simbolo(self) -> None:
+    def test_default_carrega_200_fechados_mais_candle_atual_por_simbolo(self) -> None:
         provider = ForexProvider()
         service = MT5MarketDataService(provider=provider, event_bus=EventBus())
 
         data = service.load_forex_signal_dashboard("H1")
 
         self.assertTrue(provider.requests)
-        self.assertTrue(all(request[2] == 1000 for request in provider.requests))
+        self.assertTrue(
+            all(
+                request[2] == OPERATIONAL_INDICATOR_RAW_CANDLES
+                for request in provider.requests
+            )
+        )
         rows = [row for row in data.pairs if row.status == "OK"]
         self.assertTrue(rows)
-        self.assertTrue(all(row.configured_candles == 1000 for row in rows))
-        self.assertTrue(all(row.requested_candles == 1000 for row in rows))
-        self.assertTrue(all(row.received_candles == 1000 for row in rows))
+        self.assertTrue(
+            all(
+                row.configured_candles == OPERATIONAL_INDICATOR_CLOSED_CANDLES
+                for row in rows
+            )
+        )
+        self.assertTrue(
+            all(
+                row.requested_candles == OPERATIONAL_INDICATOR_RAW_CANDLES
+                for row in rows
+            )
+        )
+        self.assertTrue(
+            all(
+                row.received_candles == OPERATIONAL_INDICATOR_CLOSED_CANDLES
+                for row in rows
+            )
+        )
         self.assertTrue(all(row.research_candles_used == 0 for row in rows))
         self.assertTrue(all(row.research_cache_status == "HEURISTIC_ONLY" for row in rows))
         self.assertTrue(data.mt5_safe_mode)
@@ -566,7 +601,10 @@ class MT5MarketDataServiceTest(unittest.TestCase):
                     f"{row.pair} sem indicador do Lab: {indicator}",
                 )
         self.assertEqual(online.safe_mode_source, "MT5_SAFE_MODE")
-        self.assertEqual(online.pairs[0].configured_candles, 1000)
+        self.assertEqual(
+            online.pairs[0].configured_candles,
+            OPERATIONAL_INDICATOR_CLOSED_CANDLES,
+        )
 
     def test_fluxo_forex_nao_aceita_count_publico(self) -> None:
         service_signature = inspect.signature(
@@ -586,12 +624,28 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         rows = [row for row in data.pairs if row.status == "OK"]
         self.assertTrue(rows)
         for row in rows:
-            self.assertEqual(row.configured_candles, 1000)
-            self.assertEqual(row.requested_candles, 1000)
-            self.assertEqual(row.received_candles, 1000)
+            self.assertEqual(
+                row.configured_candles,
+                OPERATIONAL_INDICATOR_CLOSED_CANDLES,
+            )
+            self.assertEqual(
+                row.requested_candles,
+                OPERATIONAL_INDICATOR_RAW_CANDLES,
+            )
+            self.assertEqual(
+                row.received_candles,
+                OPERATIONAL_INDICATOR_CLOSED_CANDLES,
+            )
             self.assertEqual(row.research_candles_used, 0)
-            self.assertIn("configurados=1000", row.diagnostics_log)
-            self.assertIn("solicitados=1000", row.diagnostics_log)
+            self.assertIn(
+                f"configurados={OPERATIONAL_INDICATOR_CLOSED_CANDLES}",
+                row.diagnostics_log,
+            )
+            self.assertIn(
+                f"solicitados={OPERATIONAL_INDICATOR_RAW_CANDLES}",
+                row.diagnostics_log,
+            )
+            self.assertEqual(row.diagnostics_status, "OK")
 
     def test_refresh_leve_consulta_provider_sem_recalcular_score(self) -> None:
         ConfigurationManager.update_configuration(quantitative_score_candles_loaded=80)
@@ -662,7 +716,12 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         ok_rows = [row for row in data.pairs if row.status == "OK"]
         self.assertTrue(ok_rows)
         self.assertTrue(provider.requests)
-        self.assertTrue(all(request[2] == 1000 for request in provider.requests))
+        self.assertTrue(
+            all(
+                request[2] == OPERATIONAL_INDICATOR_RAW_CANDLES
+                for request in provider.requests
+            )
+        )
 
     def test_forex_timeframes_usa_batch_por_padrao(self) -> None:
         provider = BatchForexProvider()
@@ -677,7 +736,7 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         self.assertEqual(len(provider.batch_requests), 1)
         self.assertEqual(provider.requests, [])
         requested_symbols, requested_count = provider.batch_requests[0]
-        self.assertEqual(requested_count, 1000)
+        self.assertEqual(requested_count, OPERATIONAL_INDICATOR_RAW_CANDLES)
         self.assertIn("EURUSD", requested_symbols)
         self.assertIn("USDCAD", requested_symbols)
 

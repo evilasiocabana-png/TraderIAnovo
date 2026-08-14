@@ -974,6 +974,10 @@ class HistoricalProviderMetrics:
     last_gate_evaluation_at: str | None = None
 
 
+class DashboardServiceError(RuntimeError):
+    """Falha de infraestrutura traduzida pela fachada do dashboard."""
+
+
 @dataclass(frozen=True)
 class DashboardService:
     """Fachada unica consumida pelo dashboard visual."""
@@ -2854,12 +2858,17 @@ class DashboardService:
             raise ValueError(f"Recomendacao do Lab nao encontrada para {pair_key}.")
 
         timeframe = str(getattr(scenario, "timeframe", "") or "").upper()
-        row, candles, history_metadata = (
-            self._load_mt5_research_replay_market_from_database(
-                pair_key,
-                timeframe,
+        try:
+            row, candles, history_metadata = (
+                self._load_mt5_research_replay_market_from_database(
+                    pair_key,
+                    timeframe,
+                )
             )
-        )
+        except sqlite3.Error as exc:
+            raise DashboardServiceError(
+                "Falha ao consultar o historico local do Research Lab."
+            ) from exc
         if row is None or not candles:
             raise ValueError(
                 f"Historico bruto {pair_key}/{timeframe} nao encontrado no banco local."

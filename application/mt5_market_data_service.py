@@ -2716,7 +2716,11 @@ class MT5MarketDataService:
         requested_candles: int,
         fallback_status: str,
     ) -> str:
-        if configured_candles != requested_candles:
+        valid_request_counts = {
+            configured_candles,
+            configured_candles + 1,
+        }
+        if requested_candles not in valid_request_counts:
             return "CONFIG_MISMATCH"
         return fallback_status
 

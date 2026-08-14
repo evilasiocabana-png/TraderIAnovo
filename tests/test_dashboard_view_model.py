@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 import application.dashboard_service as dashboard_service_module
 from application.dashboard_service import (
     DashboardService,
+    DashboardServiceError,
     MT5_OPERATIONAL_MODEL_IDS,
     MT5ScenarioHistoricalEvidence,
 )
@@ -1756,6 +1757,33 @@ class DashboardViewModelContractTest(unittest.TestCase):
             payload = json.loads(proof_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["candles"]["count"], 2)
             self.assertEqual(len(payload["trades"]), 1)
+
+    def test_prova_replay_traduz_falha_sqlite_para_excecao_da_fachada(self) -> None:
+        service = DashboardService()
+        scenario = DashboardMT5ScenarioViewModel(
+            alpha_id="ALPHA001",
+            pair="EURUSD",
+            timeframe="M1",
+            model="TREND_MOMENTUM",
+        )
+        research = DashboardMT5HeuristicResearchViewModel(
+            best_scenarios_by_market=[scenario]
+        )
+        object.__setattr__(service, "_load_mt5_research_snapshot", lambda: research)
+
+        def fail_loading(*_args: object) -> object:
+            raise dashboard_service_module.sqlite3.OperationalError("database busy")
+
+        object.__setattr__(
+            service,
+            "_load_mt5_research_replay_market_from_database",
+            fail_loading,
+        )
+
+        with self.assertRaises(DashboardServiceError) as raised:
+            service.get_mt5_research_replay_proof("EURUSD")
+
+        self.assertIn("historico local", str(raised.exception))
 
     def test_replay_gera_gatilho_somente_na_transicao_wait_para_direcao(self) -> None:
         service = DashboardService()

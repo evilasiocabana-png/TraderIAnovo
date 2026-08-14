@@ -1533,3 +1533,22 @@ Novas entradas devem registrar:
 - IDs canonicos atuais M8, M21 e M22 permanecem ativos e independentes;
 - o reparo atua somente sobre novas ordens com identificador historico e nao
   altera posicoes existentes, sinais, SL, TP ou modelos canonicos.
+
+# 2026-08-13 - Reconciliacao da janela operacional 200+1
+
+- testes de dados MT5 passaram a refletir 200 candles fechados para indicadores
+  e um candle atual em formacao, totalizando 201 registros no ciclo leve;
+- fixtures de pesquisa passaram a usar horarios unicos e preservam a prova de
+  5.000 velas no fluxo pesado sob demanda;
+- o diagnostico considera valida a relacao configurado 200 / solicitado 201;
+- nenhum calculo de indicador, sinal ou ordem foi alterado.
+
+# 2026-08-13 - Gate deterministico da refatoracao segura
+
+- criado `scripts/run_safe_refactor_gate.py`, sem conexao MT5, ambiente externo
+  ou Lab pesado;
+- a UI deixou de importar `sqlite3`; erros da prova de replay passam pela
+  excecao `DashboardServiceError` da fachada;
+- gate final: 314 testes e 381 subtestes aprovados em 209,61 segundos;
+- divergencias historicas de pandas offline e SQLite direto na fachada foram
+  documentadas para missoes isoladas, sem mudar trading ou persistencia.

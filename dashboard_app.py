@@ -10,7 +10,6 @@ import math
 import os
 from pathlib import Path
 import re
-import sqlite3
 import subprocess
 import sys
 import threading
@@ -29,7 +28,7 @@ from domain.operational_model_policy import operational_model_number
 import streamlit as st
 import streamlit.components.v1 as components
 
-from application.dashboard_service import DashboardService
+from application.dashboard_service import DashboardService, DashboardServiceError
 from application.lab_operational_model_service import (
     MODEL_IDS as LAB_OPERATIONAL_MODEL_IDS_BY_LABEL,
     OFFICIAL_ALPHA_MODEL_IDS,
@@ -12114,7 +12113,7 @@ def _exibir_mt5_lab_replay_proof(
                 st.session_state[MT5_LAB_REPLAY_PROOF_KEY] = (
                     service.get_mt5_research_replay_proof(selected_pair)
                 )
-        except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+        except (OSError, RuntimeError, ValueError, DashboardServiceError) as exc:
             st.error(f"Nao foi possivel gerar a prova: {exc}")
             return
 

@@ -35,7 +35,9 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                                 'application.research_lab_service.ParameterGridData '
                                                                 '| None',
                                   'clear_research_experiments': '(self) -> None',
-                                  'close_all_demo_positions': "(self, reason: str = 'WEEKLY_FRIDAY_CLOSE') -> dict[str, typing.Any]",
+                                  'close_all_demo_positions': '(self, reason: str = '
+                                                              "'WEEKLY_FRIDAY_CLOSE') -> dict[str, "
+                                                              'typing.Any]',
                                   'compare_research_benchmarks': '(self) -> '
                                                                  'application.research_lab_service.BenchmarkComparisonData',
                                   'delete_configuration_preset': '(self, name: str) -> None',
@@ -44,6 +46,10 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'disarm_demo_robot': "(self, pair: str = 'TODOS', timeframe: str "
                                                        "= 'H1') -> "
                                                        'application.dashboard_view_model.DashboardDemoRobotViewModel',
+                                  'download_multi_ea_trading_full_m15': '(self) -> dict[str, '
+                                                                        'typing.Any]',
+                                  'download_multi_ea_trading_gold': '(self) -> dict[str, '
+                                                                    'typing.Any]',
                                   'enable_replay_auto_run': '(self, speed_seconds: float) -> '
                                                             'application.replay_service.ReplayData',
                                   'evaluate_armed_demo_robot_once': "(self, pair: str = 'TODOS', "
@@ -92,12 +98,16 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'get_fast_mt5_forex_snapshot': '(self) -> '
                                                                  'application.dashboard_view_model.DashboardMT5ForexSignalViewModel '
                                                                  '| None',
+                                  'get_forex_m5_sma_rsi_decision_snapshot': '(self) -> '
+                                                                            'dict[tuple[str, str], '
+                                                                            'object]',
                                   'get_historical_dataset_health_summary': '(self) -> '
                                                                            'application.dashboard_service.HistoricalDatasetHealthSummary',
                                   'get_historical_provider_metrics': '(self) -> dict[str, '
                                                                      'dict[str, object]]',
                                   'get_lab_operational_decision_snapshot': '(self) -> '
-                                                                           'dict[tuple[str, str], object]',
+                                                                           'dict[tuple[str, str], '
+                                                                           'object]',
                                   'get_light_dashboard_view_model': '(self) -> '
                                                                     'application.dashboard_view_model.DashboardViewModel',
                                   'get_live_experiment_summary': '(self) -> '
@@ -106,7 +116,19 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                             'application.dashboard_service.LiveResearchDashboardData',
                                   'get_live_research_session_summary': '(self) -> '
                                                                        'application.dashboard_service.LiveResearchSessionSummaryData',
-                                  'get_multi_ea_trading_lab_report': '(self) -> dict[str, typing.Any]',
+                                  'get_model15_entry_decision': '(self, *, read_only_fallback: '
+                                                                'bool = False) -> '
+                                                                'application.model15_xau_m5_breakout.Model15EntryDecision',
+                                  'get_model15_runtime_state': '(self) -> dict[str, typing.Any]',
+                                  'get_model16_entry_decision': '(self, *, read_only_fallback: '
+                                                                'bool = False) -> '
+                                                                'application.model16_xau_m5_price_ema_breakout.Model16EntryDecision',
+                                  'get_model16_runtime_state': '(self) -> dict[str, typing.Any]',
+                                  'get_model3_entry_decision': '(self) -> '
+                                                               'application.model3_xau_m5_rsi50_flip.Model3EntryDecision',
+                                  'get_model8_entry_decision': '(self) -> '
+                                                               'application.model8_xau_m5_sma_rsi_reentry.Model8EntryDecision',
+                                  'get_model_exit_research': '(self) -> dict[str, typing.Any]',
                                   'get_mt5_alpha_research_ranking': '(self, target_confidence: '
                                                                     'float = 0.7) -> '
                                                                     'list[application.dashboard_view_model.DashboardMT5AlphaResearchReportViewModel]',
@@ -114,10 +136,10 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                                    "'ALPHA001', target_confidence: "
                                                                    'float = 0.7) -> '
                                                                    'application.dashboard_view_model.DashboardMT5AlphaResearchReportViewModel',
-                                  'get_mt5_forex_signals': '(self) -> '
-                                                           'application.mt5_market_data_service.MT5ForexSignalDashboard',
                                   'get_mt5_forex_runtime_view_model': '(self) -> '
                                                                       'application.dashboard_view_model.DashboardMT5ForexSignalViewModel',
+                                  'get_mt5_forex_signals': '(self) -> '
+                                                           'application.mt5_market_data_service.MT5ForexSignalDashboard',
                                   'get_mt5_market_data': '(self) -> '
                                                          'application.mt5_market_data_service.MT5DashboardMarketData',
                                   'get_mt5_operational_model': '(self) -> str',
@@ -126,13 +148,14 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'get_mt5_research_history_candle_count': '(self) -> int',
                                   'get_mt5_research_history_database_path': '(self) -> str',
                                   'get_mt5_research_history_last_update': '(self) -> str',
-                                  'get_model_exit_research': '(self) -> dict[str, typing.Any]',
-                                  'get_mt5_research_report_snapshot': '(self) -> '
-                                                                      'application.dashboard_view_model.DashboardMT5HeuristicResearchViewModel',
                                   'get_mt5_research_replay_proof': '(self, pair: str) -> '
                                                                    'application.dashboard_view_model.DashboardMT5LabReplayProofViewModel',
+                                  'get_mt5_research_report_snapshot': '(self) -> '
+                                                                      'application.dashboard_view_model.DashboardMT5HeuristicResearchViewModel',
                                   'get_mt5_trade_audit_report': '(self) -> '
                                                                 'application.dashboard_view_model.DashboardMT5TradeAuditViewModel',
+                                  'get_multi_ea_trading_lab_report': '(self) -> dict[str, '
+                                                                     'typing.Any]',
                                   'get_research_layer_definitions': '(self) -> list[dict[str, '
                                                                     'object]]',
                                   'get_research_report': '(self) -> '
@@ -148,6 +171,10 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                                                'application.dashboard_service.HistoricalDatasetReadiness',
                                   'get_timeframe_optimization_results': '(self) -> '
                                                                         'list[research.timeframe_optimizer.TimeframeOptimizationResult]',
+                                  'get_xau_m5_operational_decision_snapshot': '(self) -> '
+                                                                              'dict[tuple[str, '
+                                                                              'str], object]',
+                                  'get_xau_trend_filter_entry_decision': '(self, model_id: str)',
                                   'is_replay_auto_run_enabled': '(self) -> bool',
                                   'last_benchmark_comparison': '(self) -> '
                                                                'application.research_lab_service.BenchmarkComparisonData '
@@ -183,6 +210,8 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                                 'list[application.dashboard_service.LiveResearchHistoryRow]',
                                   'list_live_research_signal_quality': '(self) -> '
                                                                        'list[application.dashboard_service.LiveResearchSignalQualityRow]',
+                                  'list_mt5_research_replay_scenarios': '(self) -> '
+                                                                        'list[application.dashboard_view_model.DashboardMT5ScenarioViewModel]',
                                   'list_parameter_grid_results': '(self) -> '
                                                                  'list[application.research_lab_service.ParameterGridData]',
                                   'list_research_benchmarks': '(self) -> '
@@ -229,6 +258,9 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                                    'application.dashboard_service.Alpha001PaperStatusData',
                                   'recalculate_mt5_research': "(self, timeframe: str = 'M1') -> "
                                                               'application.mt5_market_data_service.MT5ForexSignalDashboard',
+                                  'refresh_lab_operational_decision_snapshot': '(self) -> '
+                                                                               'dict[tuple[str, '
+                                                                               'str], object]',
                                   'reset_replay': '(self) -> application.replay_service.ReplayData',
                                   'run_alpha001_parameter_ranking': '(self) -> '
                                                                     'list[application.research_lab_service.Alpha001ParameterRankingData]',
@@ -249,11 +281,12 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'run_mt5_research_calibration': "(self, timeframe: str = 'M1') "
                                                                   '-> '
                                                                   'application.dashboard_view_model.DashboardMT5HeuristicResearchViewModel',
-                                  'run_multi_ea_trading_lab': '(self, source_path: str | None = None) -> dict[str, typing.Any]',
                                   'run_mt5_research_calibration_for_pair': '(self, pair: str, '
                                                                            "timeframe: str = 'M1') "
                                                                            '-> '
                                                                            'application.dashboard_view_model.DashboardMT5HeuristicResearchViewModel',
+                                  'run_multi_ea_trading_lab': '(self, source_path: str | None = '
+                                                              'None) -> dict[str, typing.Any]',
                                   'run_online_demo_robot_cycle': "(self, pair: str = 'TODOS', "
                                                                  "timeframe: str = 'H1') -> "
                                                                  'application.dashboard_view_model.DashboardDemoRobotViewModel',
@@ -272,9 +305,13 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'save_configuration_preset': '(self, name: str) -> None',
                                   'select_historical_dataset': '(self, dataset_id: str) -> '
                                                                'market_data.historical_dataset_catalog.HistoricalDatasetMetadata',
-                                  'set_mt5_operational_model': '(self, model: str) -> None',
                                   'select_replay_strategy': '(self, strategy_name: str) -> '
                                                             'application.replay_service.ReplayData',
+                                  'set_mt5_operational_model': '(self, model: str) -> None',
+                                  'set_mt5_operational_models': '(self, models: tuple[str, ...] | '
+                                                                'list[str], *, basket_mode: bool = '
+                                                                'False, direct_models_enabled: '
+                                                                'bool = True) -> None',
                                   'start_replay': '(self) -> application.replay_service.ReplayData',
                                   'stop_replay': '(self) -> application.replay_service.ReplayData',
                                   'submit_demo_execution_order': '(self, decision_context: '
@@ -290,49 +327,48 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'test_mt5_connection': "(self, symbol: str = 'EURUSD', "
                                                          "timeframe: str = 'H1') -> "
                                                          'application.mt5_market_data_service.MT5ConnectionDiagnostic',
-                                  'download_multi_ea_trading_full_m15': '(self) -> dict[str, typing.Any]',
-                                  'download_multi_ea_trading_gold': '(self) -> dict[str, typing.Any]',
                                   'update_configuration': '(self, **kwargs: object) -> '
                                                           'application.configuration_service.ConfigurationData',
-                                  'list_mt5_research_replay_scenarios': '(self) -> '
-                                                                        'list[application.dashboard_view_model.DashboardMT5ScenarioViewModel]',
-                                  'refresh_lab_operational_decision_snapshot': '(self) -> '
-                                                                               'dict[tuple[str, str], object]',
                                   'update_mt5_research_calculations': '(self, timeframe: str = '
                                                                       "'M1') -> "
                                                                       'application.dashboard_view_model.DashboardMT5HeuristicResearchViewModel',
-                                  'update_mt5_research_calculations_rr3_experimental': "(self, timeframe: str = 'M1', "
-                                                                                      'progress_callback: object | None = None) -> '
-                                                                                      'application.dashboard_view_model.DashboardMT5HeuristicResearchViewModel',
+                                  'update_mt5_research_calculations_rr3_experimental': '(self, '
+                                                                                       'timeframe: '
+                                                                                       'str = '
+                                                                                       "'M1', "
+                                                                                       'progress_callback: '
+                                                                                       'object | '
+                                                                                       'None = '
+                                                                                       'None) -> '
+                                                                                       'application.dashboard_view_model.DashboardMT5HeuristicResearchViewModel',
                                   'update_mt5_research_history': "(self, timeframe: str = 'M1') -> "
                                                                  'application.mt5_market_data_service.MT5ForexSignalDashboard',
                                   'validate_research_benchmarks': '(self) -> '
                                                                   'list[application.research_lab_service.ExperimentValidationData]'},
                       'module': 'application.dashboard_service'},
- 'DemoExecutionService': {'methods': {'get_atr': "(self, symbol: 'str', timeframe: "
-                                                 "'str', period: 'int') -> 'float | "
-                                                 "None'",
-                                      'close_position': "(self, *, symbol: 'str', "
-                                                        "ticket: 'int', side: 'str', "
-                                                        "volume: 'float', reason: "
+ 'DemoExecutionService': {'methods': {'close_position': "(self, *, symbol: 'str', ticket: 'int', "
+                                                        "side: 'str', volume: 'float', reason: "
                                                         "'str') -> 'ExecutionResult'",
-                                      'get_current_price': "(self, symbol: 'str') -> "
-                                                           "'float | None'",
-                                      'get_open_position': "(self, symbol: 'str') -> "
-                                                           "'object | None'",
-                                      'get_open_position_by_ticket': "(self, symbol: 'str', ticket: "
-                                                                     "'int') -> 'object | None'",
+                                      'get_atr': "(self, symbol: 'str', timeframe: 'str', period: "
+                                                 "'int') -> 'float | None'",
+                                      'get_current_price': "(self, symbol: 'str') -> 'float | "
+                                                           "None'",
+                                      'get_open_position': "(self, symbol: 'str') -> 'object | "
+                                                           "None'",
+                                      'get_open_position_by_ticket': "(self, symbol: 'str', "
+                                                                     "ticket: 'int') -> 'object | "
+                                                                     "None'",
+                                      'get_recent_candles': "(self, symbol: 'str', timeframe: "
+                                                            "'str', limit: 'int') -> "
+                                                            "'list[object]'",
                                       'has_open_position_for_model': "(self, symbol: 'str', "
-                                                                     "operational_model: 'str') -> 'bool'",
-                                      'get_recent_candles': "(self, symbol: 'str', "
-                                                            "timeframe: 'str', limit: "
-                                                            "'int') -> 'list[object]'",
+                                                                     "operational_model: 'str') -> "
+                                                                     "'bool'",
                                       'list_audit_log': '(self) -> '
                                                         "'list[DemoExecutionAuditRecord]'",
                                       'list_open_positions': "(self) -> 'list[object]'",
-                                      'modify_position_sl': "(self, symbol: 'str', ticket: "
-                                                            "'int', new_stop: 'float') -> "
-                                                            "'object'",
+                                      'modify_position_sl': "(self, symbol: 'str', ticket: 'int', "
+                                                            "new_stop: 'float') -> 'object'",
                                       'prepare_order': "(self, strategy_signal: 'StrategySignal', "
                                                        "market_snapshot: 'MarketSnapshot', "
                                                        "risk_decision: 'RiskDecision', "
@@ -384,17 +420,24 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                 "'list[ForexSignal]'",
                                  'get_status': "(self) -> 'MT5Status'"},
                      'module': 'application.forex_mt5_service'},
- 'LabOperationalModelService': {
-     'methods': {
-         'evaluate': "(self, *, model_id: 'str', pair: 'str', candles_by_market: 'Mapping[tuple[str, str], Iterable[object]]', current_price: 'float | None', server_timestamp: 'str | None' = None, market_row: 'object | None' = None) -> 'LabOperationalDecision'",
-         'model_label': "(self, model_id: 'str') -> 'str'",
-         'required_timeframes': "(self, model_ids: 'Iterable[str]') -> 'dict[str, set[str]]'",
-         'results': "(self, model_id: 'str') -> 'dict[str, dict[str, Any]]'",
-         'timeframes_by_pair': "(self, model_id: 'str') -> 'dict[str, str]'",
-         'winner': "(self, model_id: 'str', pair: 'str') -> 'dict[str, Any] | None'",
-     },
-     'module': 'application.lab_operational_model_service',
- },
+ 'LabOperationalModelService': {'methods': {'evaluate': "(self, *, model_id: 'str', pair: 'str', "
+                                                        "candles_by_market: 'Mapping[tuple[str, "
+                                                        "str], Iterable[object]]', current_price: "
+                                                        "'float | None', server_timestamp: 'str | "
+                                                        "None' = None, market_row: 'object | None' "
+                                                        "= None, demo_forward_override: 'bool' = "
+                                                        "False) -> 'LabOperationalDecision'",
+                                            'model_label': "(self, model_id: 'str') -> 'str'",
+                                            'required_timeframes': '(self, model_ids: '
+                                                                   "'Iterable[str]') -> 'dict[str, "
+                                                                   "set[str]]'",
+                                            'results': "(self, model_id: 'str') -> 'dict[str, "
+                                                       "dict[str, Any]]'",
+                                            'timeframes_by_pair': "(self, model_id: 'str') -> "
+                                                                  "'dict[str, str]'",
+                                            'winner': "(self, model_id: 'str', pair: 'str') -> "
+                                                      "'dict[str, Any] | None'"},
+                                'module': 'application.lab_operational_model_service'},
  'LabService': {'methods': {'get_latest_result': "(self) -> 'LabResult'"},
                 'module': 'application.lab_service'},
  'LiveResearchService': {'methods': {'get_latest_data': "(self) -> 'LiveResearchData | None'",
@@ -422,6 +465,7 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
  'MT5MarketDataService': {'methods': {'diagnose_mt5_connection': "(self, symbol: 'str' = 'EURUSD', "
                                                                  "timeframe: 'str' = 'M1') -> "
                                                                  "'MT5ConnectionDiagnostic'",
+                                      'ensure_provider_connection': "(self) -> 'bool'",
                                       'get_dashboard_market_data': '(self) -> '
                                                                    "'MT5DashboardMarketData'",
                                       'get_forex_signal_dashboard': '(self) -> '
@@ -438,8 +482,11 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                                     "'MT5DashboardMarketData'",
                                       'load_forex_research_snapshot': "(self, timeframe: 'str' = "
                                                                       "'M1', count: 'int | None' = "
-                                                                      "None, *, preloaded_market_data: "
-                                                                      "'dict[str, dict[str, Any]] | None' = "
+                                                                      'None, *, '
+                                                                      'preloaded_market_data: '
+                                                                      "'dict[str, dict[str, Any]] "
+                                                                      "| None' = None, symbols: "
+                                                                      "'tuple[str, ...] | None' = "
                                                                       'None) -> '
                                                                       "'MT5ForexSignalDashboard'",
                                       'load_forex_signal_dashboard': "(self, timeframe: 'str' = "
@@ -457,9 +504,16 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                       'load_timeframe_optimization_results': "(self, count: 'int | "
                                                                              "None' = None) -> "
                                                                              "'list[TimeframeOptimizationResult]'",
-                                      'refresh_supplemental_forex_candles': "(self, required: 'dict[str, set[str]]', "
-                                                                            "*, full_count: 'int' = 500) -> "
-                                                                            "'dict[str, str]'"},
+                                      'refresh_supplemental_forex_candles': '(self, required: '
+                                                                            "'dict[str, "
+                                                                            "set[str]]', *, "
+                                                                            "full_count: 'int' = "
+                                                                            "500) -> 'dict[str, "
+                                                                            "str]'",
+                                      'seed_supplemental_forex_candles': '(self, markets: '
+                                                                         "'dict[tuple[str, str], "
+                                                                         "list[Candle]]') -> "
+                                                                         "'None'"},
                           'module': 'application.mt5_market_data_service'},
  'MT5TradeAuditService': {'methods': {'build_report': "(self, *, signals: 'list[ForexSignal]', "
                                                       "lab: 'LabResult', positions: "
@@ -489,12 +543,11 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                                        'application.paper_trading_service.PaperTradingResult'},
                          'module': 'application.paper_trading_service'},
  'PositionManagerService': {'methods': {'manage_plan': "(self, plan: 'PositionTradePlan') -> "
-                                                         "'PositionManagerResult'",
-                                        'manage_plans': "(self, plans: 'list[PositionTradePlan]') -> "
-                                                        "'list[PositionManagerResult]'",
-                                        'manage_signals': "(self, signals: 'list[dict[str, "
-                                                          "Any]]') -> "
-                                                          "'list[PositionManagerResult]'"},
+                                                       "'PositionManagerResult'",
+                                        'manage_plans': "(self, plans: 'list[PositionTradePlan]') "
+                                                        "-> 'list[PositionManagerResult]'",
+                                        'manage_signals': "(self, signals: 'list[dict[str, Any]]') "
+                                                          "-> 'list[PositionManagerResult]'"},
                             'module': 'application.position_manager_service'},
  'RegimeService': {'methods': {'analyze': '(self, market_snapshot: '
                                           'domain.contracts.market_snapshot.MarketSnapshot) -> '
@@ -645,42 +698,39 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                      'module': 'application.research_service'},
  'RuntimeGuardService': {'methods': {'cleanup_expired': "(self, state: 'MutableMapping[str, Any]', "
                                                         "timestamps: 'MutableMapping[str, float]', "
-                                                        "*, now: 'float | None' = None, "
-                                                        "dry_run: 'bool' = False) -> "
-                                                        "'RuntimeCleanupResult'",
-                                      'cleanup_temporary': "(self, state: 'MutableMapping[str, Any]', "
-                                                           "*, dry_run: 'bool' = False) -> "
-                                                           "'RuntimeCleanupResult'",
-                                      'health_snapshot': "(self, *, mode: 'str' = 'LIGHT', "
-                                                         "lock_status: 'str' = 'UNKNOWN', "
-                                                         "forex_cycle_status: 'str' = 'IDLE', "
-                                                         "report_cycle_status: 'str' = 'IDLE', "
-                                                         "demo_robot_cycle_status: 'str' = 'IDLE', "
-                                                         "cache_status: 'str' = 'UNKNOWN', "
-                                                         "stale_resources: 'tuple[str, ...]' = (), "
-                                                         "warnings: 'tuple[str, ...]' = (), "
-                                                         "render_durations: 'dict[str, float] | None' "
-                                                         "= None) -> 'RuntimeHealthSnapshot'",
-                                      'mark_cycle_completed': "(self, task_name: 'str', *, now: "
-                                                              "'float | None' = None) -> 'None'",
-                                      'preserve_snapshot': "(self, key: 'str', value: 'Any', *, "
-                                                           "validator: 'Callable[[Any], bool] | None' "
-                                                           "= None) -> 'Any'",
-                                      'request_mt5_read': "(self, key: 'object', *, now: "
-                                                          "'float | None' = None) -> 'bool'",
-                                      'should_run_cycle': "(self, task_name: 'str', *, "
-                                                          "interval_seconds: 'float', now: "
-                                                          "'float | None' = None, "
-                                                          "in_grace_period: 'bool' = False, "
-                                                          "diagnostic_only: 'bool' = False) -> "
-                                                          "'RuntimeScheduleDecision'"},
+                                                        "*, now: 'float | None' = None, dry_run: "
+                                                        "'bool' = False) -> 'RuntimeCleanupResult'",
+                                     'cleanup_temporary': "(self, state: 'MutableMapping[str, "
+                                                          "Any]', *, dry_run: 'bool' = False) -> "
+                                                          "'RuntimeCleanupResult'",
+                                     'health_snapshot': "(self, *, mode: 'str' = 'LIGHT', "
+                                                        "lock_status: 'str' = 'UNKNOWN', "
+                                                        "forex_cycle_status: 'str' = 'IDLE', "
+                                                        "report_cycle_status: 'str' = 'IDLE', "
+                                                        "demo_robot_cycle_status: 'str' = 'IDLE', "
+                                                        "cache_status: 'str' = 'UNKNOWN', "
+                                                        "stale_resources: 'tuple[str, ...]' = (), "
+                                                        "warnings: 'tuple[str, ...]' = (), "
+                                                        "render_durations: 'dict[str, float] | "
+                                                        "None' = None) -> 'RuntimeHealthSnapshot'",
+                                     'mark_cycle_completed': "(self, task_name: 'str', *, now: "
+                                                             "'float | None' = None) -> 'None'",
+                                     'preserve_snapshot': "(self, key: 'str', value: 'Any', *, "
+                                                          "validator: 'Callable[[Any], bool] | "
+                                                          "None' = None) -> 'Any'",
+                                     'request_mt5_read': "(self, key: 'object', *, now: 'float | "
+                                                         "None' = None) -> 'bool'",
+                                     'should_run_cycle': "(self, task_name: 'str', *, "
+                                                         "interval_seconds: 'float', now: 'float | "
+                                                         "None' = None, in_grace_period: 'bool' = "
+                                                         "False, diagnostic_only: 'bool' = False) "
+                                                         "-> 'RuntimeScheduleDecision'"},
                          'module': 'application.runtime_guard_service'},
  'SessionService': {'methods': {'get_session_snapshot': '(self) -> '
                                                         'application.session_service.SessionSnapshot'},
                     'module': 'application.session_service'},
  'SystemService': {'methods': {'get_status': '(self) -> application.system_service.SystemStatus'},
                    'module': 'application.system_service'}}
-
 
 
 

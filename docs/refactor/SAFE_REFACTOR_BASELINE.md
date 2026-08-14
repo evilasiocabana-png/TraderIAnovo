@@ -47,6 +47,12 @@ tests/test_runtime_lock_service.py
 tests/test_weekly_robot_schedule.py
 ```
 
+O comando oficial e:
+
+```text
+python scripts/run_safe_refactor_gate.py
+```
+
 ## Limites
 
 Os testes deste worktree nao conectam ao MT5 e nao enviam ordens. Validacao
@@ -57,18 +63,24 @@ viva permanece separada e somente observa o aplicativo operacional existente.
 - Auditoria arquitetural: manifesto `OK`.
 - Baseline historica: `DRIFT` informativo preservado.
 - Testes de manifesto e baseline: 22 aprovados.
-- Caracterizacao operacional apos o primeiro reparo: 275 aprovados e 7 falhas
-  preexistentes.
+- Caracterizacao operacional apos reconciliacao: 282 aprovados e nenhuma falha
+  nessa suite.
+- Gate seguro consolidado: 314 testes e 381 subtestes aprovados em 209,61 s.
 
 As divergencias nao foram ocultadas:
 
-- sete testes de `MT5MarketDataService` ainda exigem 1.000 candles no ciclo
-  leve, enquanto o contrato atual usa 200 fechados mais o candle corrente;
+- sete testes de `MT5MarketDataService` foram reconciliados com 200 candles
+  fechados mais o candle corrente;
 - os tres escapes de IDs historicos encontrados no provider foram corrigidos;
   os testes correspondentes agora passam e os IDs canonicos seguem ativos.
 
-O grupo restante exige reconciliacao dos testes de caracterizacao com o
-contrato vigente antes de qualquer refatoracao do servico de dados MT5.
+As divergencias conhecidas desta suite foram encerradas sem alterar calculos de
+indicadores, sinais, ordens, SL ou TP.
+
+A suite historica completa permanece separada porque contem dois gates
+preexistentes que exigem missoes arquiteturais proprias e testes de longa
+duracao. Eles estao descritos em `KNOWN_BASELINE_DIVERGENCES.md`; nao foram
+silenciados nem convertidos em falsa aprovacao.
 
 ## Sequencia segura
 
