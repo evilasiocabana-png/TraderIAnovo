@@ -73,3 +73,15 @@ O runtime solicita somente 52 registros MT5: 50 candles úteis para a SMA50,
 um fechado para comparação e o candle atual, que é excluído dos indicadores.
 O rollback desativa somente o ID novo afetado na política central, preservando
 posições e operações históricas identificadas por contrato.
+
+## Regra compartilhada de reentrada (2026-08-13)
+
+M8-M12 e seus derivados M18-M22 usam o mesmo gate estrutural de reentrada:
+
+- SELL exige dois candles M5 fechados com maxima e minima ascendentes e arma
+  SELL STOP na minima do ultimo candle fechado;
+- BUY exige dois candles M5 fechados com maxima e minima descendentes e arma
+  BUY STOP na maxima do ultimo candle fechado.
+
+M9, M11 e M12 permanecem retirados para envio individual. M23 herda esta regra
+quando copiar uma entrada de qualquer fonte XAU pertencente a esta familia.

@@ -22,6 +22,9 @@ _MT5_EXECUTION_LOG_CACHE_LOCK = threading.Lock()
 _MT5_EXECUTION_LOG_CACHE: dict[str, tuple[int, list[dict[str, Any]]]] = {}
 _MODEL15_RUNTIME_STATE_PATH = Path(".traderia") / "model15_runtime_state.json"
 _MODEL16_RUNTIME_STATE_PATH = Path(".traderia") / "model16_runtime_state.json"
+_MT5_TRADE_AUDIT_SNAPSHOT_PATH = (
+    Path(".traderia") / "runtime" / "mt5_trade_audit_report.json"
+)
 
 from application.configuration_service import (
     ConfigurationData,
@@ -39,7 +42,7 @@ from application.lab_operational_model_service import (
     MODEL_8_ID as MT5_HISTORICAL_MODEL_8,
     MODEL_9_ID as MT5_HISTORICAL_MODEL_9,
     MODEL_10_ID as MT5_HISTORICAL_MODEL_10,
-    MODEL_22_ID as MT5_OPERATIONAL_MODEL_22,
+    MODEL_22_ID as MT5_HISTORICAL_MODEL_22,
 )
 from application.model6_original_trend_momentum import (
     MODEL_6_ALPHA_ID,
@@ -109,16 +112,38 @@ from application.model8_xau_m5_sma_rsi_reentry import (
     evaluate_model8_native_entry,
     load_model8_runtime_state,
     model8_parameters,
+    update_model8_runtime_state,
+)
+from application.model23_basket_accumulator import (
+    MODEL_23_ALPHA_ID,
+    MODEL_23_ALPHA_VERSION,
+    MODEL_23_BETA_ID,
+    MODEL_23_BETA_VERSION,
+    MODEL_23_ENTRY_SOURCE,
+    MODEL_23_EXIT_POLICY,
+    MODEL_23_FULL_EXIT_USD,
+    MODEL_23_ID as MT5_OPERATIONAL_MODEL_23,
+    Model23BasketManager,
+    is_model23,
+    model23_entry_gate,
+    model23_variant_id,
 )
 from application.xau_m5_sma_rsi_model_family import (
     MODEL_9_ID as MT5_OPERATIONAL_MODEL_9,
     MODEL_10_ID as MT5_OPERATIONAL_MODEL_10,
     MODEL_11_ID as MT5_OPERATIONAL_MODEL_11,
     MODEL_12_ID as MT5_OPERATIONAL_MODEL_12,
-    XAU_TREND_FILTER_MODEL_IDS,
+    MODEL_18_ID as MT5_OPERATIONAL_MODEL_18,
+    MODEL_19_ID as MT5_OPERATIONAL_MODEL_19,
+    MODEL_20_ID as MT5_OPERATIONAL_MODEL_20,
+    MODEL_21_ID as MT5_OPERATIONAL_MODEL_21,
+    MODEL_22_ID as MT5_OPERATIONAL_MODEL_22,
+    XAU_IMPROVED_REENTRY_MODEL_IDS,
+    XAU_POSITION_MANAGEMENT_MODEL_IDS as XAU_TREND_FILTER_MODEL_IDS,
     evaluate_xau_trend_filter_entry,
     evaluate_xau_native_trend_filter_entry,
     trend_filter_spec,
+    xau_reentry_target,
     xau_trend_filter_parameters,
 )
 from application.model15_xau_m5_breakout import (
@@ -170,7 +195,7 @@ from application.forex_m5_sma_rsi_model_family import (
     MODEL_15_ID as MT5_OPERATIONAL_MODEL_15,
     MODEL_16_ID as MT5_OPERATIONAL_MODEL_16,
     MODEL_17_ID as MT5_OPERATIONAL_MODEL_17,
-    FOREX_SMA_RSI_MODEL_IDS,
+    FOREX_SMA_RSI_POSITION_MANAGEMENT_MODEL_IDS as FOREX_SMA_RSI_MODEL_IDS,
     FOREX_SMA_RSI_PAIRS,
     FOREX_SMA_RSI_TIMEFRAME,
     evaluate_forex_sma_rsi_entry,
@@ -182,6 +207,15 @@ from application.forex_m5_sma_rsi_model_family import (
 from application.mt5_native_m5_indicators import (
     load_native_m5_indicator_snapshot,
     load_native_m5_indicator_snapshots,
+)
+from application.mt5_position_profit_peak_store import (
+    MT5PositionProfitPeak,
+    MT5PositionProfitPeakStore,
+)
+from application.operational_indicator_window import (
+    OPERATIONAL_INDICATOR_CLOSED_CANDLES,
+    OPERATIONAL_INDICATOR_RAW_CANDLES,
+    OPERATIONAL_INDICATOR_SOURCE,
 )
 from application.cost_manager import CostManager
 from application.data_readiness_gate_log import (
@@ -263,7 +297,10 @@ ENTRY_FILTER_SUPPORTED_INDICATORS = {
 }
 MT5_OPERATIONAL_MODEL_1 = "MODELO_1_ALPHA_ATUAL"
 MT5_OPERATIONAL_MODEL_ALL = "TODOS_MODELOS"
-MT5_OPERATIONAL_MODEL_8_TO_17 = "MODELOS_8_A_17"
+MT5_OPERATIONAL_MODEL_CUSTOM = "MODELOS_SELECIONADOS"
+MT5_OPERATIONAL_MODEL_WITH_23 = "MODELOS_SELECIONADOS_COM_M23"
+MT5_OPERATIONAL_MODEL_8_TO_22 = "MODELOS_8_A_22"
+MT5_OPERATIONAL_MODEL_8_TO_17 = MT5_OPERATIONAL_MODEL_8_TO_22
 MT5_OPERATIONAL_MODEL_6_ENABLED = True
 MT5_OPERATIONAL_MODEL_7_ENABLED = True
 MT5_LAB_OPERATIONAL_MODELS = {
@@ -288,39 +325,94 @@ MT5_CUSTOM_OPERATIONAL_MODELS = {
     MT5_OPERATIONAL_MODEL_15,
     MT5_OPERATIONAL_MODEL_16,
     MT5_OPERATIONAL_MODEL_17,
+    MT5_OPERATIONAL_MODEL_18,
+    MT5_OPERATIONAL_MODEL_19,
+    MT5_OPERATIONAL_MODEL_20,
+    MT5_OPERATIONAL_MODEL_21,
+    MT5_OPERATIONAL_MODEL_22,
 }
-MT5_OPERATIONAL_MODEL_IDS = (
+MT5_ACTIVE_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_1,
     MT5_OPERATIONAL_MODEL_2,
-    MT5_OPERATIONAL_MODEL_3,
-    MT5_OPERATIONAL_MODEL_4,
     MT5_OPERATIONAL_MODEL_5,
-    MT5_OPERATIONAL_MODEL_6,
     MT5_OPERATIONAL_MODEL_7,
     MT5_OPERATIONAL_MODEL_8,
-    MT5_OPERATIONAL_MODEL_9,
     MT5_OPERATIONAL_MODEL_10,
+    MT5_OPERATIONAL_MODEL_16,
+    MT5_OPERATIONAL_MODEL_17,
+    MT5_OPERATIONAL_MODEL_18,
+    MT5_OPERATIONAL_MODEL_19,
+    MT5_OPERATIONAL_MODEL_20,
+    MT5_OPERATIONAL_MODEL_21,
+    MT5_OPERATIONAL_MODEL_22,
+)
+MT5_MODEL_23_RETIRED_SOURCE_MODEL_IDS = (
+    MT5_OPERATIONAL_MODEL_3,
+    MT5_OPERATIONAL_MODEL_4,
+    MT5_OPERATIONAL_MODEL_6,
+    MT5_OPERATIONAL_MODEL_9,
     MT5_OPERATIONAL_MODEL_11,
     MT5_OPERATIONAL_MODEL_12,
     MT5_OPERATIONAL_MODEL_13,
     MT5_OPERATIONAL_MODEL_14,
     MT5_OPERATIONAL_MODEL_15,
-    MT5_OPERATIONAL_MODEL_16,
-    MT5_OPERATIONAL_MODEL_17,
 )
-MT5_OPERATIONAL_MODEL_8_TO_17_IDS = (
+# O M23 acompanha somente o conjunto ainda autorizado para novas entradas.
+MT5_MODEL_23_SOURCE_MODEL_IDS = MT5_ACTIVE_SOURCE_MODEL_IDS
+MT5_OPERATIONAL_MODEL_IDS = (
+    *MT5_ACTIVE_SOURCE_MODEL_IDS,
+    MT5_OPERATIONAL_MODEL_23,
+)
+MT5_SELECTABLE_OPERATIONAL_MODEL_IDS = (
+    *MT5_OPERATIONAL_MODEL_IDS,
+)
+MT5_OPERATIONAL_MODEL_8_TO_22_IDS = (
     MT5_OPERATIONAL_MODEL_8,
-    MT5_OPERATIONAL_MODEL_9,
     MT5_OPERATIONAL_MODEL_10,
+    MT5_OPERATIONAL_MODEL_16,
+    MT5_OPERATIONAL_MODEL_17,
+    MT5_OPERATIONAL_MODEL_18,
+    MT5_OPERATIONAL_MODEL_19,
+    MT5_OPERATIONAL_MODEL_20,
+    MT5_OPERATIONAL_MODEL_21,
+    MT5_OPERATIONAL_MODEL_22,
+)
+MT5_OPERATIONAL_MODEL_8_TO_17_IDS = MT5_OPERATIONAL_MODEL_8_TO_22_IDS
+MT5_OPERATIONAL_MODEL_BY_NUMBER = {
+    1: MT5_OPERATIONAL_MODEL_1,
+    2: MT5_OPERATIONAL_MODEL_2,
+    3: MT5_OPERATIONAL_MODEL_3,
+    4: MT5_OPERATIONAL_MODEL_4,
+    5: MT5_OPERATIONAL_MODEL_5,
+    6: MT5_OPERATIONAL_MODEL_6,
+    7: MT5_OPERATIONAL_MODEL_7,
+    8: MT5_OPERATIONAL_MODEL_8,
+    9: MT5_OPERATIONAL_MODEL_9,
+    10: MT5_OPERATIONAL_MODEL_10,
+    11: MT5_OPERATIONAL_MODEL_11,
+    12: MT5_OPERATIONAL_MODEL_12,
+    13: MT5_OPERATIONAL_MODEL_13,
+    14: MT5_OPERATIONAL_MODEL_14,
+    15: MT5_OPERATIONAL_MODEL_15,
+    16: MT5_OPERATIONAL_MODEL_16,
+    17: MT5_OPERATIONAL_MODEL_17,
+    18: MT5_OPERATIONAL_MODEL_18,
+    19: MT5_OPERATIONAL_MODEL_19,
+    20: MT5_OPERATIONAL_MODEL_20,
+    21: MT5_OPERATIONAL_MODEL_21,
+    22: MT5_OPERATIONAL_MODEL_22,
+    23: MT5_OPERATIONAL_MODEL_23,
+}
+MT5_RETIRED_OPERATIONAL_MODEL_IDS = (
+    MT5_OPERATIONAL_MODEL_3,
+    MT5_OPERATIONAL_MODEL_4,
+    MT5_OPERATIONAL_MODEL_6,
+    MT5_OPERATIONAL_MODEL_9,
     MT5_OPERATIONAL_MODEL_11,
     MT5_OPERATIONAL_MODEL_12,
     MT5_OPERATIONAL_MODEL_13,
     MT5_OPERATIONAL_MODEL_14,
     MT5_OPERATIONAL_MODEL_15,
-    MT5_OPERATIONAL_MODEL_16,
-    MT5_OPERATIONAL_MODEL_17,
-)
-MT5_RETIRED_OPERATIONAL_MODEL_IDS = (
     MT5_HISTORICAL_MODEL_3,
     MT5_HISTORICAL_ALL_FOREX_MODEL_3,
     MT5_HISTORICAL_MODEL_8,
@@ -336,7 +428,7 @@ MT5_RETIRED_OPERATIONAL_MODEL_IDS = (
     MT5_HISTORICAL_XAU_MODEL_15,
     MT5_HISTORICAL_XAU_MODEL_16,
     *OFFICIAL_ALPHA_MODEL_IDS,
-    MT5_OPERATIONAL_MODEL_22,
+    MT5_HISTORICAL_MODEL_22,
 )
 LEGACY_MT5_OPERATIONAL_MODELS = {
     "MODELO_2_ESPELHO_BETA2_RR1": MT5_OPERATIONAL_MODEL_2,
@@ -346,6 +438,7 @@ LEGACY_MT5_OPERATIONAL_MODELS = {
     MODEL_6_LEGACY_ID: MT5_OPERATIONAL_MODEL_6,
     MT5_HISTORICAL_MODEL_6: MT5_OPERATIONAL_MODEL_6,
     MT5_HISTORICAL_MODEL_7: MT5_OPERATIONAL_MODEL_7,
+    "MODELOS_8_A_17": MT5_OPERATIONAL_MODEL_8_TO_22,
 }
 MT5_OPERATIONAL_MODEL_5_ENTRY_TIMEFRAME = "M5"
 MT5_RR3_MIN_SAMPLE_SIZE = 150
@@ -433,6 +526,7 @@ from domain.contracts.execution_result import ExecutionResult
 from domain.contracts.market_snapshot import MarketSnapshot
 from domain.contracts.risk_decision import RiskDecision
 from domain.contracts.strategy_signal import StrategySignal
+from domain.operational_model_policy import operational_model_number
 from infrastructure.mt5_visual_signal_path_resolver import (
     MT5VisualSignalPathResolver,
 )
@@ -972,10 +1066,16 @@ class DashboardService:
         default_factory=DashboardDemoRobotViewModel
     )
     mt5_trade_history_cache: dict[int, dict[str, Any]] = field(default_factory=dict)
+    mt5_position_profit_peak_store: MT5PositionProfitPeakStore = field(
+        default_factory=MT5PositionProfitPeakStore,
+        repr=False,
+        compare=False,
+    )
     mt5_trade_open_ticket_cache: set[int] = field(default_factory=set)
     mt5_trade_history_cache_status: str = "SEM_CACHE"
     mt5_trade_history_cache_message: str = "Historico MT5 ainda nao carregado."
     mt5_trade_audit_report_cache: DashboardMT5TradeAuditViewModel | None = None
+    mt5_trade_audit_snapshot_signature: str = ""
     mt5_demo_execution_records_cache: list[dict[str, Any]] = field(
         default_factory=list
     )
@@ -1057,12 +1157,82 @@ class DashboardService:
         normalized = str(model or MT5_OPERATIONAL_MODEL_1).upper()
         normalized = LEGACY_MT5_OPERATIONAL_MODELS.get(normalized, normalized)
         if normalized not in {
-            *MT5_OPERATIONAL_MODEL_IDS,
+            *MT5_SELECTABLE_OPERATIONAL_MODEL_IDS,
             MT5_OPERATIONAL_MODEL_ALL,
+            MT5_OPERATIONAL_MODEL_CUSTOM,
+            MT5_OPERATIONAL_MODEL_WITH_23,
             MT5_OPERATIONAL_MODEL_8_TO_17,
         }:
             normalized = MT5_OPERATIONAL_MODEL_1
         object.__setattr__(self, "mt5_operational_model", normalized)
+        object.__setattr__(
+            self,
+            "mt5_model23_enabled",
+            normalized in {MT5_OPERATIONAL_MODEL_23, MT5_OPERATIONAL_MODEL_WITH_23},
+        )
+        object.__setattr__(
+            self,
+            "mt5_direct_models_enabled",
+            normalized != MT5_OPERATIONAL_MODEL_23,
+        )
+        if normalized == MT5_OPERATIONAL_MODEL_ALL:
+            object.__setattr__(
+                self,
+                "mt5_selected_operational_models",
+                MT5_ACTIVE_SOURCE_MODEL_IDS,
+            )
+        elif normalized == MT5_OPERATIONAL_MODEL_8_TO_17:
+            object.__setattr__(
+                self,
+                "mt5_selected_operational_models",
+                MT5_OPERATIONAL_MODEL_8_TO_17_IDS,
+            )
+        elif normalized not in {
+            MT5_OPERATIONAL_MODEL_CUSTOM,
+            MT5_OPERATIONAL_MODEL_23,
+            MT5_OPERATIONAL_MODEL_WITH_23,
+        }:
+            object.__setattr__(self, "mt5_selected_operational_models", (normalized,))
+
+    def set_mt5_operational_models(
+        self,
+        models: tuple[str, ...] | list[str],
+        *,
+        basket_mode: bool = False,
+        direct_models_enabled: bool = True,
+    ) -> None:
+        """Seleciona livremente um subconjunto M1-M22 para novas entradas."""
+        selected: list[str] = []
+        for model in models:
+            normalized = LEGACY_MT5_OPERATIONAL_MODELS.get(
+                str(model or "").upper(),
+                str(model or "").upper(),
+            )
+            if (
+                normalized in MT5_ACTIVE_SOURCE_MODEL_IDS
+                and normalized not in selected
+            ):
+                selected.append(normalized)
+        if not selected:
+            selected = [MT5_OPERATIONAL_MODEL_1]
+        object.__setattr__(self, "mt5_selected_operational_models", tuple(selected))
+        object.__setattr__(self, "mt5_model23_enabled", bool(basket_mode))
+        object.__setattr__(
+            self,
+            "mt5_direct_models_enabled",
+            bool(direct_models_enabled),
+        )
+        if basket_mode and direct_models_enabled:
+            mode = MT5_OPERATIONAL_MODEL_WITH_23
+        elif basket_mode:
+            mode = MT5_OPERATIONAL_MODEL_23
+        elif tuple(selected) == MT5_ACTIVE_SOURCE_MODEL_IDS:
+            mode = MT5_OPERATIONAL_MODEL_ALL
+        elif len(selected) == 1:
+            mode = selected[0]
+        else:
+            mode = MT5_OPERATIONAL_MODEL_CUSTOM
+        object.__setattr__(self, "mt5_operational_model", mode)
 
     def get_mt5_operational_model(self) -> str:
         selected = str(
@@ -1071,8 +1241,10 @@ class DashboardService:
         ).upper()
         migrated = LEGACY_MT5_OPERATIONAL_MODELS.get(selected, selected)
         if migrated not in {
-            *MT5_OPERATIONAL_MODEL_IDS,
+            *MT5_SELECTABLE_OPERATIONAL_MODEL_IDS,
             MT5_OPERATIONAL_MODEL_ALL,
+            MT5_OPERATIONAL_MODEL_CUSTOM,
+            MT5_OPERATIONAL_MODEL_WITH_23,
             MT5_OPERATIONAL_MODEL_8_TO_17,
         }:
             return MT5_OPERATIONAL_MODEL_1
@@ -1104,7 +1276,22 @@ class DashboardService:
     def _mt5_operational_models_to_evaluate(self) -> tuple[str, ...]:
         selected = self.get_mt5_operational_model()
         if selected == MT5_OPERATIONAL_MODEL_ALL:
-            return MT5_OPERATIONAL_MODEL_IDS
+            return MT5_ACTIVE_SOURCE_MODEL_IDS
+        if selected == MT5_OPERATIONAL_MODEL_23:
+            configured = tuple(
+                getattr(self, "mt5_selected_operational_models", ()) or ()
+            )
+            return configured or MT5_MODEL_23_SOURCE_MODEL_IDS
+        if selected == MT5_OPERATIONAL_MODEL_CUSTOM:
+            configured = tuple(
+                getattr(self, "mt5_selected_operational_models", ()) or ()
+            )
+            return configured or (MT5_OPERATIONAL_MODEL_1,)
+        if selected == MT5_OPERATIONAL_MODEL_WITH_23:
+            configured = tuple(
+                getattr(self, "mt5_selected_operational_models", ()) or ()
+            )
+            return configured or MT5_MODEL_23_SOURCE_MODEL_IDS
         if selected == MT5_OPERATIONAL_MODEL_8_TO_17:
             return MT5_OPERATIONAL_MODEL_8_TO_17_IDS
         return (selected,)
@@ -1112,8 +1299,20 @@ class DashboardService:
     def _mt5_multi_model_selection_active(self) -> bool:
         return self.get_mt5_operational_model() in {
             MT5_OPERATIONAL_MODEL_ALL,
+            MT5_OPERATIONAL_MODEL_CUSTOM,
+            MT5_OPERATIONAL_MODEL_WITH_23,
             MT5_OPERATIONAL_MODEL_8_TO_17,
+            MT5_OPERATIONAL_MODEL_23,
         }
+
+    def _mt5_model23_routing_enabled(self) -> bool:
+        return self.get_mt5_operational_model() in {
+            MT5_OPERATIONAL_MODEL_23,
+            MT5_OPERATIONAL_MODEL_WITH_23,
+        }
+
+    def _mt5_direct_routing_enabled(self) -> bool:
+        return self.get_mt5_operational_model() != MT5_OPERATIONAL_MODEL_23
 
     def _mt5_entry_source_models_to_evaluate(self) -> tuple[str, ...]:
         """Collapse dynamic variants onto their fixed entry calculations."""
@@ -1132,6 +1331,7 @@ class DashboardService:
         self,
     ) -> dict[tuple[str, str], object]:
         """Atualiza o monitor com candles ja coletados, sem nova leitura MT5."""
+        demo_forward_override = self._mt5_model23_routing_enabled()
         selected_models = tuple(
             model_id
             for model_id in self._mt5_entry_source_models_to_evaluate()
@@ -1174,6 +1374,7 @@ class DashboardService:
                     ),
                     server_timestamp=self._mt5_server_timestamp(pair),
                     market_row=source_row,
+                    demo_forward_override=demo_forward_override,
                 )
                 refreshed[(str(model_id).upper(), pair)] = decision
         self.lab_operational_decision_cache.clear()
@@ -1480,7 +1681,7 @@ class DashboardService:
             # entre a leitura H1 e a leitura suplementar.
             self.mt5_market_data_service.refresh_supplemental_forex_candles(
                 {MODEL_8_SYMBOL: {MODEL_8_TIMEFRAME}},
-                full_count=52,
+                full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
             )
         if {
             MT5_OPERATIONAL_MODEL_8,
@@ -1491,12 +1692,12 @@ class DashboardService:
         }.intersection(selected_models):
             self.mt5_market_data_service.refresh_supplemental_forex_candles(
                 {MODEL_8_SYMBOL: {MODEL_8_TIMEFRAME}},
-                full_count=52,
+                full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
             )
         if set(FOREX_SMA_RSI_MODEL_IDS).intersection(selected_models):
             self.mt5_market_data_service.refresh_supplemental_forex_candles(
                 {pair: {FOREX_SMA_RSI_TIMEFRAME} for pair in FOREX_SMA_RSI_PAIRS},
-                full_count=52,
+                full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
             )
         timeframes_by_pair = self._mt5_lab_timeframes_by_pair()
         if timeframes_by_pair and hasattr(
@@ -1526,7 +1727,7 @@ class DashboardService:
         if required:
             self.mt5_market_data_service.refresh_supplemental_forex_candles(
                 required,
-                full_count=500,
+                full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
             )
         self._auto_export_mt5_visual_signals()
         return data
@@ -1535,7 +1736,7 @@ class DashboardService:
         self,
         selected_models: tuple[str, ...],
     ) -> None:
-        """Preaquece M3 e M8-M17 com 52 velas locais sem liberar dado stale."""
+        """Preaquece M3 e M8-M17 com 200 fechadas mais a atual, sem dado stale."""
         requested: set[str] = set()
         if {
             MT5_OPERATIONAL_MODEL_3,
@@ -1556,7 +1757,8 @@ class DashboardService:
         missing = {
             pair
             for pair in requested
-            if len(list(candles_by_market.get((pair, "M5"), []) or [])) < 52
+            if len(list(candles_by_market.get((pair, "M5"), []) or []))
+            < OPERATIONAL_INDICATOR_RAW_CANDLES
         }
         if not missing:
             return
@@ -1574,11 +1776,11 @@ class DashboardService:
                         FROM mt5_history_candles
                         WHERE pair = ? AND timeframe = 'M5'
                         ORDER BY candle_time DESC
-                        LIMIT 52
+                        LIMIT ?
                         """,
-                        (pair,),
+                        (pair, OPERATIONAL_INDICATOR_RAW_CANDLES),
                     ).fetchall()
-                    if len(records) != 52:
+                    if len(records) != OPERATIONAL_INDICATOR_RAW_CANDLES:
                         continue
                     seeded[(pair, "M5")] = [
                         Candle(
@@ -4257,6 +4459,9 @@ class DashboardService:
                         self._dynamic_exit_demo_sl_assisted_enabled()
                     ),
                 )
+                Model23BasketManager(
+                    execution_service=self.demo_robot_execution_service,
+                ).evaluate_once()
                 plans = self._position_manager_plans_from_open_execution_records()
                 if plans:
                     manager.manage_plans(plans)
@@ -4268,7 +4473,7 @@ class DashboardService:
     def _position_manager_plans_from_open_execution_records(
         self,
     ) -> list[PositionTradePlan]:
-        """Usa o plano original de cada ordem aberta para gerir M1-M22 por ticket."""
+        """Usa o plano original de cada ordem aberta para gerir cada ticket."""
         list_positions = getattr(self.demo_robot_execution_service, "list_open_positions", None)
         if not callable(list_positions):
             return []
@@ -4301,6 +4506,31 @@ class DashboardService:
         record: dict[str, Any],
     ) -> dict[str, Any]:
         snapshot = dict(record.get("plan_snapshot") or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        recorded_model = str(
+            record.get("operational_model")
+            or snapshot.get("operational_model")
+            or ""
+        ).upper()
+        basket_source_model = str(
+            parameters.get("source_operational_model") or ""
+        ).upper()
+        effective_model = (
+            basket_source_model
+            if is_model23(recorded_model) and basket_source_model
+            else recorded_model
+        )
+        recorded_management = (
+            record.get("exit_policy")
+            or record.get("exit_setup")
+            or snapshot.get("stop_management")
+            or snapshot.get("exit_model")
+        )
+        effective_management = (
+            parameters.get("source_stop_management") or recorded_management
+            if is_model23(recorded_model)
+            else recorded_management
+        )
         indicators = {
             "atr": snapshot.get("atr"),
             "momentum": snapshot.get("momentum"),
@@ -4319,29 +4549,30 @@ class DashboardService:
             "stop": record.get("stop") or snapshot.get("initial_stop"),
             "target": record.get("target") or snapshot.get("target"),
             "risk_reward": record.get("risk_reward") or snapshot.get("risk_reward"),
-            "stop_management": (
-                record.get("exit_policy")
-                or record.get("exit_setup")
-                or snapshot.get("stop_management")
-                or snapshot.get("exit_model")
-            ),
-            "stop_management_parameters": snapshot.get(
-                "stop_management_parameters",
-                {},
-            ),
+            "stop_management": effective_management,
+            "stop_management_parameters": parameters,
             "alpha_id": record.get("alpha_id") or snapshot.get("alpha_id"),
             "alpha_version": record.get("alpha_version") or snapshot.get("alpha_version"),
-            "beta_id": record.get("beta_id") or snapshot.get("beta_id"),
-            "beta_version": record.get("beta_version") or snapshot.get("beta_version"),
-            "beta_mode": record.get("beta_mode") or snapshot.get("beta_mode"),
+            "beta_id": (
+                parameters.get("source_beta_id")
+                or record.get("beta_id")
+                or snapshot.get("beta_id")
+            ),
+            "beta_version": (
+                parameters.get("source_beta_version")
+                or record.get("beta_version")
+                or snapshot.get("beta_version")
+            ),
+            "beta_mode": (
+                parameters.get("source_beta_mode")
+                or record.get("beta_mode")
+                or snapshot.get("beta_mode")
+            ),
             "timeframe": snapshot.get("timeframe") or record.get("timeframe"),
             "last_candle_time": snapshot.get("candle_time"),
             "plan_status": snapshot.get("status") or "PLANO_VALIDO",
             "lab_configuration_source": snapshot.get("source") or "EXECUTION_RECORD",
-            "operational_model": (
-                record.get("operational_model")
-                or snapshot.get("operational_model")
-            ),
+            "operational_model": effective_model,
             "entry_setup": (
                 record.get("entry_setup")
                 or snapshot.get("entry_setup")
@@ -4615,8 +4846,13 @@ class DashboardService:
             if external is not None:
                 merged = self._merge_lightweight_open_positions(external)
                 object.__setattr__(self, "mt5_trade_audit_report_cache", merged)
+                self._save_mt5_trade_audit_report_snapshot(merged)
                 return merged
             cached = self.mt5_trade_audit_report_cache
+            if cached is None or not self._mt5_trade_audit_has_closed_rows(cached):
+                persisted = self._load_mt5_trade_audit_report_snapshot()
+                if persisted is not None:
+                    cached = persisted
             if cached is not None:
                 merged = self._merge_lightweight_open_positions(cached)
                 object.__setattr__(self, "mt5_trade_audit_report_cache", merged)
@@ -4651,14 +4887,14 @@ class DashboardService:
         """Atualiza posicoes abertas sem reler todo o historico MT5."""
         lightweight = self._lightweight_open_positions_report(report)
         if lightweight is None:
-            return report
+            return self._with_mt5_position_profit_peaks(report)
         open_statuses = {"ABERTA", "ORDEM_ABERTA"}
         closed_rows = [
             row
             for row in report.rows
             if str(row.operation_status or "").upper() not in open_statuses
         ]
-        return replace(
+        merged = replace(
             report,
             rows=[*lightweight.rows, *closed_rows],
             mt5_connection_status="CONNECTED",
@@ -4666,6 +4902,7 @@ class DashboardService:
             mt5_source=lightweight.mt5_source,
             message=lightweight.message,
         )
+        return self._with_mt5_position_profit_peaks(merged)
 
     def _lightweight_open_positions_report(
         self,
@@ -4681,6 +4918,8 @@ class DashboardService:
         if not positions:
             return None
 
+        peaks = self.mt5_position_profit_peak_store.observe_positions(positions)
+
         existing_by_ticket = {
             int(ticket): row
             for row in list(getattr(base_report, "rows", []) or [])
@@ -4692,6 +4931,7 @@ class DashboardService:
                 existing_by_ticket.get(
                     int(getattr(position, "ticket", 0) or 0)
                 ),
+                peaks.get(int(getattr(position, "ticket", 0) or 0)),
             )
             for position in positions
         ]
@@ -4734,6 +4974,7 @@ class DashboardService:
         self,
         position: object,
         existing: DashboardMT5TradeAuditRowViewModel | None,
+        peak: MT5PositionProfitPeak | None = None,
     ) -> DashboardMT5TradeAuditRowViewModel:
         ticket = int(getattr(position, "ticket", 0) or 0)
         symbol = str(getattr(position, "symbol", "N/D") or "N/D").upper()
@@ -4771,6 +5012,12 @@ class DashboardService:
             "mt5_realized_profit": float(
                 getattr(position, "profit", 0.0) or 0.0
             ),
+            "mt5_peak_open_profit": (
+                float(peak.peak_profit) if peak is not None else None
+            ),
+            "mt5_peak_open_profit_at": (
+                str(peak.peak_at) if peak is not None else "N/D"
+            ),
             "mt5_swap": float(getattr(position, "swap", 0.0) or 0.0),
             "mt5_time": opened_at,
             "audit_status": "MT5_OPEN",
@@ -4800,9 +5047,47 @@ class DashboardService:
         for token in normalized.split():
             if token.startswith("M") and token[1:].isdigit():
                 number = int(token[1:])
-                if 1 <= number <= len(MT5_OPERATIONAL_MODEL_IDS):
-                    return MT5_OPERATIONAL_MODEL_IDS[number - 1]
+                model = MT5_OPERATIONAL_MODEL_BY_NUMBER.get(number)
+                if model is not None:
+                    return model
         return "N/D"
+
+    def _with_mt5_position_profit_peaks(
+        self,
+        report: DashboardMT5TradeAuditViewModel,
+    ) -> DashboardMT5TradeAuditViewModel:
+        candidates = {
+            int(ticket)
+            for row in report.rows
+            for ticket in (row.mt5_ticket, row.local_ticket)
+            if ticket is not None and int(ticket) > 0
+        }
+        peaks = self.mt5_position_profit_peak_store.get_many(candidates)
+        if not peaks:
+            return report
+        rows: list[DashboardMT5TradeAuditRowViewModel] = []
+        changed = False
+        for row in report.rows:
+            peak = next(
+                (
+                    peaks[int(ticket)]
+                    for ticket in (row.mt5_ticket, row.local_ticket)
+                    if ticket is not None and int(ticket) in peaks
+                ),
+                None,
+            )
+            if peak is None:
+                rows.append(row)
+                continue
+            rows.append(
+                replace(
+                    row,
+                    mt5_peak_open_profit=float(peak.peak_profit),
+                    mt5_peak_open_profit_at=str(peak.peak_at),
+                )
+            )
+            changed = True
+        return replace(report, rows=rows) if changed else report
 
     def _get_mt5_trade_audit_report_external(
         self,
@@ -4824,8 +5109,17 @@ class DashboardService:
             if sys.platform.startswith("win")
             else 0
         )
+        slot_wait_seconds = max(
+            float(
+                os.getenv(
+                    "TRADERIA_MT5_REPORT_EXTERNAL_SLOT_WAIT_SECONDS",
+                    "2",
+                )
+            ),
+            0.05,
+        )
         process: subprocess.Popen[str] | None = None
-        with mt5_external_process_slot(timeout=0.05) as acquired:
+        with mt5_external_process_slot(timeout=slot_wait_seconds) as acquired:
             if not acquired:
                 return None
             try:
@@ -4857,6 +5151,103 @@ class DashboardService:
             return DashboardMT5TradeAuditViewModel(rows=rows, **payload)
         except (json.JSONDecodeError, TypeError, ValueError):
             return None
+
+    def _save_mt5_trade_audit_report_snapshot(
+        self,
+        report: DashboardMT5TradeAuditViewModel,
+    ) -> None:
+        """Persiste o ultimo relatorio completo sem bloquear sua leitura futura."""
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return
+        signature = self._mt5_trade_audit_closed_rows_signature(report)
+        if signature == self.mt5_trade_audit_snapshot_signature:
+            return
+        target = _MT5_TRADE_AUDIT_SNAPSHOT_PATH
+        temporary = target.with_name(
+            f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+        )
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(
+                json.dumps(asdict(report), ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+            temporary.replace(target)
+        except OSError:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+        object.__setattr__(
+            self,
+            "mt5_trade_audit_snapshot_signature",
+            signature,
+        )
+
+    def _load_mt5_trade_audit_report_snapshot(
+        self,
+    ) -> DashboardMT5TradeAuditViewModel | None:
+        """Restaura curvas encerradas enquanto a sonda MT5 estiver ocupada."""
+        target = _MT5_TRADE_AUDIT_SNAPSHOT_PATH
+        try:
+            payload = json.loads(target.read_text(encoding="utf-8"))
+            rows = [
+                DashboardMT5TradeAuditRowViewModel(**dict(row))
+                for row in list(payload.pop("rows", []))
+            ]
+            report = DashboardMT5TradeAuditViewModel(rows=rows, **payload)
+            object.__setattr__(
+                self,
+                "mt5_trade_audit_snapshot_signature",
+                self._mt5_trade_audit_closed_rows_signature(report),
+            )
+            return report
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            return None
+
+    def _mt5_trade_audit_closed_rows_signature(
+        self,
+        report: DashboardMT5TradeAuditViewModel,
+    ) -> str:
+        """Assina apenas o historico fechado para evitar escrita a cada tick."""
+        open_statuses = {"ABERTA", "ORDEM_ABERTA"}
+        rows = [
+            (
+                getattr(row, "mt5_ticket", None),
+                getattr(row, "local_ticket", None),
+                str(getattr(row, "operation_status", "") or "").upper(),
+                str(getattr(row, "operational_model", "") or ""),
+                float(getattr(row, "mt5_realized_profit", 0.0) or 0.0),
+                getattr(row, "mt5_peak_open_profit", None),
+                str(getattr(row, "mt5_peak_open_profit_at", "") or ""),
+                float(getattr(row, "mt5_commission", 0.0) or 0.0),
+                float(getattr(row, "mt5_swap", 0.0) or 0.0),
+                float(getattr(row, "mt5_fee", 0.0) or 0.0),
+                str(getattr(row, "mt5_time", "") or ""),
+            )
+            for row in report.rows
+            if str(getattr(row, "operation_status", "") or "").upper()
+            not in open_statuses
+        ]
+        encoded = json.dumps(
+            rows,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def _mt5_trade_audit_has_closed_rows(
+        self,
+        report: DashboardMT5TradeAuditViewModel,
+    ) -> bool:
+        open_statuses = {"ABERTA", "ORDEM_ABERTA"}
+        return any(
+            str(getattr(row, "operation_status", "") or "").upper()
+            not in open_statuses
+            for row in report.rows
+        )
 
     def _get_mt5_trade_audit_report_inline(self) -> DashboardMT5TradeAuditViewModel:
         """Confronta ordens originadas no TraderIA com historico read-only do MT5."""
@@ -4988,7 +5379,8 @@ class DashboardService:
             )
         start, end = self._mt5_trade_history_query_window()
         current_trades: dict[int, dict[str, Any]] = {}
-        self._merge_mt5_current_positions(mt5, current_trades)
+        positions = self._merge_mt5_current_positions(mt5, current_trades) or []
+        self.mt5_position_profit_peak_store.observe_positions(positions)
         self._merge_mt5_current_orders(mt5, current_trades)
         current_tickets = set(current_trades)
 
@@ -5027,6 +5419,8 @@ class DashboardService:
                 **history.get(ticket, {}),
                 **payload,
             }
+
+        self._attach_mt5_position_profit_peaks(history)
 
         if not history:
             return history, "SEM_HISTORICO", "MT5 conectado, mas sem historico retornado."
@@ -5068,11 +5462,11 @@ class DashboardService:
         self,
         mt5: object,
         history: dict[int, dict[str, Any]],
-    ) -> None:
+    ) -> list[object]:
         positions_get = getattr(mt5, "positions_get", None)
         if not callable(positions_get):
-            return
-        positions = positions_get() or []
+            return []
+        positions = list(positions_get() or [])
         for position in positions:
             data = self._mt5_namedtuple_dict(position)
             ticket = self._int_or_none(data.get("ticket"))
@@ -5083,6 +5477,76 @@ class DashboardService:
                 ticket,
                 self._mt5_history_payload(data, ticket, source="POSITION"),
             )
+        return positions
+
+    def _attach_mt5_position_profit_peaks(
+        self,
+        history: dict[int, dict[str, Any]],
+    ) -> None:
+        tickets = {
+            int(candidate)
+            for ticket, payload in history.items()
+            for candidate in (
+                ticket,
+                self._int_or_none(payload.get("ticket")),
+                self._int_or_none(payload.get("position_id")),
+                self._int_or_none(payload.get("order")),
+            )
+            if candidate is not None and int(candidate) > 0
+        }
+        peaks = self.mt5_position_profit_peak_store.get_many(tickets)
+        if not peaks:
+            return
+        closing_samples: list[tuple[int, str, float, str]] = []
+        for ticket, payload in history.items():
+            if self._mt5_operation_status(payload) != "FECHADA/HISTORICO":
+                continue
+            matched_ticket = next(
+                (
+                    int(candidate)
+                    for candidate in (
+                        ticket,
+                        self._int_or_none(payload.get("ticket")),
+                        self._int_or_none(payload.get("position_id")),
+                        self._int_or_none(payload.get("order")),
+                    )
+                    if candidate is not None and int(candidate) in peaks
+                ),
+                None,
+            )
+            if matched_ticket is None:
+                continue
+            closing_samples.append(
+                (
+                    matched_ticket,
+                    str(payload.get("symbol") or peaks[matched_ticket].symbol),
+                    float(payload.get("profit") or 0.0),
+                    str(payload.get("time") or datetime.now(timezone.utc).isoformat()),
+                )
+            )
+        if closing_samples:
+            peaks.update(
+                self.mt5_position_profit_peak_store.raise_existing_peaks(
+                    closing_samples
+                )
+            )
+        for ticket, payload in history.items():
+            peak = next(
+                (
+                    peaks[int(candidate)]
+                    for candidate in (
+                        ticket,
+                        self._int_or_none(payload.get("ticket")),
+                        self._int_or_none(payload.get("position_id")),
+                        self._int_or_none(payload.get("order")),
+                    )
+                    if candidate is not None and int(candidate) in peaks
+                ),
+                None,
+            )
+            if peak is not None:
+                payload["peak_open_profit"] = float(peak.peak_profit)
+                payload["peak_open_profit_at"] = str(peak.peak_at)
 
     def _merge_mt5_current_orders(
         self,
@@ -5488,6 +5952,12 @@ class DashboardService:
             mt5_price=float(mt5_record.get("price") or 0),
             mt5_stop=self._float_or_none(mt5_record.get("stop")),
             mt5_realized_profit=float(mt5_record.get("profit") or 0),
+            mt5_peak_open_profit=self._float_or_none(
+                mt5_record.get("peak_open_profit")
+            ),
+            mt5_peak_open_profit_at=str(
+                mt5_record.get("peak_open_profit_at") or "N/D"
+            ),
             mt5_commission=float(mt5_record.get("commission") or 0),
             mt5_swap=float(mt5_record.get("swap") or 0),
             mt5_fee=float(mt5_record.get("fee") or 0),
@@ -5664,6 +6134,12 @@ class DashboardService:
             mt5_price=float(mt5_record.get("price") or 0),
             mt5_stop=self._float_or_none(mt5_record.get("stop")),
             mt5_realized_profit=float(mt5_record.get("profit") or 0),
+            mt5_peak_open_profit=self._float_or_none(
+                mt5_record.get("peak_open_profit")
+            ),
+            mt5_peak_open_profit_at=str(
+                mt5_record.get("peak_open_profit_at") or "N/D"
+            ),
             mt5_commission=float(mt5_record.get("commission") or 0),
             mt5_swap=float(mt5_record.get("swap") or 0),
             mt5_fee=float(mt5_record.get("fee") or 0),
@@ -6312,8 +6788,17 @@ class DashboardService:
 
         last_waiting: DashboardDemoRobotViewModel | None = None
         last_executed: DashboardDemoRobotViewModel | None = None
+        basket_mode = self._mt5_model23_routing_enabled()
+        direct_mode = self._mt5_direct_routing_enabled()
+        basket_block = self._evaluate_model23_risk_gate(pair, timeframe)
+        if basket_block is not None:
+            return basket_block
         selected_models = self._mt5_operational_models_to_evaluate()
         for source_row in rows:
+            if basket_mode:
+                basket_block = self._evaluate_model23_risk_gate(pair, timeframe)
+                if basket_block is not None:
+                    return basket_block
             active_model = self._active_mt5_research_model_for_row(
                 source_row,
                 active_models,
@@ -6362,37 +6847,67 @@ class DashboardService:
                 continue
             model_candidates: list[tuple[str, DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]] = []
             entry_source_results: dict[
-                str,
+                tuple[str, bool],
                 tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan],
             ] = {}
             for operational_model in selected_models:
-                source_model = dynamic_exit_source_model(operational_model)
-                if source_model is None:
-                    model_row, model_plan = self._mt5_apply_operational_model(
-                        row,
-                        plan,
-                        operational_model=operational_model,
-                    )
-                    entry_source_results[operational_model] = (model_row, model_plan)
-                else:
-                    source_result = entry_source_results.get(source_model)
-                    if source_result is None:
-                        source_result = self._mt5_apply_operational_model(
-                            row,
-                            plan,
-                            operational_model=source_model,
+                routes = (
+                    *((False,) if direct_mode else ()),
+                    *((True,) if basket_mode else ()),
+                )
+                for route_to_basket in routes:
+                    source_model = dynamic_exit_source_model(operational_model)
+                    if source_model is None:
+                        cache_key = (operational_model, route_to_basket)
+                        source_result = entry_source_results.get(cache_key)
+                        if source_result is None:
+                            source_result = self._mt5_apply_operational_model(
+                                row,
+                                plan,
+                                operational_model=operational_model,
+                                allow_demo_forward_override=route_to_basket,
+                            )
+                            entry_source_results[cache_key] = source_result
+                        model_row, model_plan = source_result
+                    else:
+                        cache_key = (source_model, route_to_basket)
+                        source_result = entry_source_results.get(cache_key)
+                        if source_result is None:
+                            source_result = self._mt5_apply_operational_model(
+                                row,
+                                plan,
+                                operational_model=source_model,
+                                allow_demo_forward_override=route_to_basket,
+                            )
+                            entry_source_results[cache_key] = source_result
+                        model_row, model_plan = self._mt5_dynamic_exit_variant_from_source(
+                            *source_result,
+                            operational_model=operational_model,
                         )
-                        entry_source_results[source_model] = source_result
-                    model_row, model_plan = self._mt5_dynamic_exit_variant_from_source(
-                        *source_result,
-                        operational_model=operational_model,
-                    )
-                if (
-                    str(getattr(model_row, "decision", "") or "").upper()
-                    in {"BUY", "SELL"}
-                    and model_plan.status == "PLANO_VALIDO"
-                ):
-                    model_candidates.append((operational_model, model_row, model_plan))
+                    if not (
+                        str(getattr(model_row, "decision", "") or "").upper()
+                        in {"BUY", "SELL"}
+                        and model_plan.status == "PLANO_VALIDO"
+                    ):
+                        continue
+                    if route_to_basket:
+                        basket_model = model23_variant_id(operational_model)
+                        model_row, model_plan = self._mt5_model23_variant_from_source(
+                            model_row,
+                            model_plan,
+                            source_operational_model=operational_model,
+                        )
+                        if not (
+                            str(getattr(model_row, "decision", "") or "").upper()
+                            in {"BUY", "SELL"}
+                            and model_plan.status == "PLANO_VALIDO"
+                        ):
+                            continue
+                        model_candidates.append((basket_model, model_row, model_plan))
+                    else:
+                        model_candidates.append(
+                            (operational_model, model_row, model_plan)
+                        )
             if self._mt5_multi_model_selection_active():
                 model_candidates = self._ordered_demo_model_candidates_per_pair(
                     model_candidates,
@@ -6444,20 +6959,50 @@ class DashboardService:
                 )
                 continue
             for operational_model, model_row, model_plan in model_candidates:
-                signal_candle_time = str(
-                    getattr(model_row, "theoretical_entry_candle", "")
-                    if operational_model in (
-                        MT5_LAB_OPERATIONAL_MODELS
-                        | MT5_SCOPED_M1_OPERATIONAL_MODELS
-                        | MT5_DYNAMIC_EXIT_OPERATIONAL_MODELS
-                        | MT5_CUSTOM_OPERATIONAL_MODELS
-                    )
-                    else getattr(source_row, "last_candle_time", "")
+                candidate_is_m23 = is_model23(operational_model)
+                if candidate_is_m23:
+                    basket_block = self._evaluate_model23_risk_gate(pair, timeframe)
+                    if basket_block is not None:
+                        return basket_block
+                model_candle_time = str(
+                    getattr(model_row, "theoretical_entry_candle", "") or ""
+                ).strip()
+                signal_candle_time = (
+                    model_candle_time
+                    if model_candle_time.upper() not in {"", "N/D", "NONE"}
+                    else str(getattr(source_row, "last_candle_time", "") or "")
                 )
+                if candidate_is_m23:
+                    entry_allowed, entry_gate_reason = model23_entry_gate(
+                        signal_candle_time
+                    )
+                    if not entry_allowed:
+                        last_waiting = self._demo_robot_view_model(
+                            row=model_row,
+                            status="ARMED_WAITING",
+                            message="M23 aguardando sinal novo apos zeragem completa.",
+                            result_status="M23_ROUND_GATE",
+                            result_message=entry_gate_reason,
+                            entry_price=model_plan.entry_price,
+                            stop=model_plan.stop,
+                            target=model_plan.target,
+                            provider="MT5_DEMO",
+                            mt5_order_send_enabled=True,
+                            rejection_tree=self._demo_robot_rejection_tree(
+                                model_row,
+                                model_plan,
+                                enabled=self.mt5_demo_robot_service.enabled,
+                                mt5_order_send_enabled=True,
+                                result_status="M23_ROUND_GATE",
+                                result_message=entry_gate_reason,
+                            ),
+                        )
+                        continue
                 time_context = self.forex_time_layer.classify(
                     model_row.pair,
                     str(getattr(source_row, "last_candle_time", "")),
                     server_timestamp=self._mt5_server_timestamp(model_row.pair),
+                    allow_static_rollover=False,
                 )
                 signal = self._mt5_demo_signal_from_view_row(
                     model_row,
@@ -6511,6 +7056,21 @@ class DashboardService:
                     )
                     object.__setattr__(self, "last_demo_robot_status", status_view)
                     self._append_demo_robot_visual_signal(status_view)
+                    if candidate_is_m23 and result.status == "EXECUTED":
+                        # O M23 pode receber muitos sinais independentes no
+                        # mesmo lote. Reavaliar a cesta depois de cada aceite
+                        # confirma o Full Exit antes da proxima exposicao.
+                        basket_after_entry = self._evaluate_model23_risk_gate(
+                            pair,
+                            timeframe,
+                        )
+                        if basket_after_entry is not None:
+                            return basket_after_entry
+                        # Serializar a acumulacao deixa a defesa financeira
+                        # observar a cesta entre duas novas exposicoes. As
+                        # demais fontes continuam independentes e voltam a ser
+                        # avaliadas no proximo ciclo automatico.
+                        return status_view
                     if not self._mt5_multi_model_selection_active():
                         return status_view
                     last_executed = status_view
@@ -6658,10 +7218,67 @@ class DashboardService:
         """Atualiza MT5 e avalia o robo armado em um ciclo online."""
         self.lab_operational_decision_cache.clear()
         if self.mt5_demo_robot_service.enabled and self._mt5_demo_execution_enabled():
+            self._enable_mt5_demo_provider()
+            basket_block = self._evaluate_model23_risk_gate(pair, timeframe)
+            if basket_block is not None:
+                return basket_block
             self.load_mt5_forex_signals(timeframe=timeframe)
         if str(pair or "TODOS").upper() in {"TODOS", "ALL"}:
             return self.run_demo_robot_for_all(timeframe=timeframe)
         return self.evaluate_armed_demo_robot_once(pair=pair, timeframe=timeframe)
+
+    def _evaluate_model23_risk_gate(
+        self,
+        pair: str,
+        timeframe: str,
+    ) -> DashboardDemoRobotViewModel | None:
+        """Prioriza a defesa financeira M23 antes de candles e novas entradas."""
+        if not self._mt5_model23_routing_enabled():
+            return None
+        try:
+            snapshot = Model23BasketManager(
+                execution_service=self.demo_robot_execution_service,
+            ).evaluate_once()
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            blocked = DashboardDemoRobotViewModel(
+                status="M23_RISK_READ_BLOCKED",
+                message=(
+                    "M23 bloqueado: nao foi possivel confirmar o resultado "
+                    "financeiro atual da cesta no MT5."
+                ),
+                selected_pair=pair,
+                timeframe=timeframe,
+                model=MT5_OPERATIONAL_MODEL_23,
+                decision="WAIT",
+                result_status="M23_RISK_READ_ERROR",
+                result_message=str(exc),
+                provider="MT5_DEMO",
+                mt5_order_send_enabled=False,
+                audit_log=self._demo_robot_audit_rows(),
+            )
+            object.__setattr__(self, "last_demo_robot_status", blocked)
+            return blocked
+        if snapshot.status not in {"CLOSING", "EXIT_SUBMITTED", "EXIT_PARTIAL"}:
+            return None
+        blocked = DashboardDemoRobotViewModel(
+            status=snapshot.status,
+            message="M23 zerando a cesta; novas entradas permanecem bloqueadas.",
+            selected_pair=pair,
+            timeframe=timeframe,
+            model=MT5_OPERATIONAL_MODEL_23,
+            decision="WAIT",
+            result_status=snapshot.exit_reason or snapshot.status,
+            result_message=(
+                f"Fechados neste ciclo: {snapshot.closed}; "
+                f"rejeitados: {snapshot.rejected}; "
+                f"a confirmar no MT5: {snapshot.positions}."
+            ),
+            provider="MT5_DEMO",
+            mt5_order_send_enabled=False,
+            audit_log=self._demo_robot_audit_rows(),
+        )
+        object.__setattr__(self, "last_demo_robot_status", blocked)
+        return blocked
 
     def run_demo_robot_once(
         self,
@@ -6730,6 +7347,15 @@ class DashboardService:
                 ),
             )
             return self.last_demo_robot_status
+
+        if self._mt5_model23_routing_enabled():
+            # O roteamento M23 ja percorre todos os pares e fontes selecionadas
+            # dentro de evaluate_armed_demo_robot_once("TODOS"). No modo
+            # combinado, a mesma passagem tambem produz as ordens diretas.
+            return self.evaluate_armed_demo_robot_once(
+                pair="TODOS",
+                timeframe=timeframe,
+            )
 
         audit_start = len(self.demo_robot_execution_service.list_audit_log())
         results = [
@@ -6808,6 +7434,11 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_15: 150,
             MT5_OPERATIONAL_MODEL_16: 160,
             MT5_OPERATIONAL_MODEL_17: 170,
+            MT5_OPERATIONAL_MODEL_18: 180,
+            MT5_OPERATIONAL_MODEL_19: 190,
+            MT5_OPERATIONAL_MODEL_20: 200,
+            MT5_OPERATIONAL_MODEL_21: 210,
+            MT5_OPERATIONAL_MODEL_22: 220,
         }
         return sorted(candidates, key=lambda item: priority.get(item[0], 999))
 
@@ -6829,6 +7460,165 @@ class DashboardService:
             for row in rows
             if str(getattr(row, "pair", "")).upper() == requested
         ]
+
+    def _mt5_model23_variant_from_source(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        plan: MT5ResearchTradePlan,
+        *,
+        source_operational_model: str,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        """Preserva todo o contrato da fonte e adiciona a gestao da cesta."""
+        source_number = operational_model_number(source_operational_model)
+        source_label = f"M{source_number}" if source_number is not None else "N/D"
+        normalized_source = str(source_operational_model or "").upper()
+        parameters = dict(plan.stop_management_parameters or {})
+        entry_order_type = str(
+            parameters.get("active_entry_order_type") or ""
+        ).upper()
+        structural_target = self._positive_float(
+            parameters.get("structural_target_price"),
+            0.0,
+        )
+        entry_price = self._positive_float(plan.entry_price, 0.0)
+        stop_price = self._positive_float(plan.stop, 0.0)
+        is_xau_reentry = (
+            normalized_source in {
+                MT5_OPERATIONAL_MODEL_8,
+                *XAU_TREND_FILTER_MODEL_IDS,
+            }
+            and entry_order_type in {"BUY_STOP", "SELL_STOP"}
+        )
+        structural_target_valid = bool(
+            is_xau_reentry
+            and structural_target > 0.0
+            and entry_price > 0.0
+            and (
+                structural_target > entry_price
+                if str(plan.direction or "").upper() == "BUY"
+                else structural_target < entry_price
+            )
+        )
+        basket_target = structural_target if structural_target_valid else plan.target
+        basket_risk = abs(entry_price - stop_price)
+        basket_reward = float(plan.reward_pips or 0.0)
+        basket_risk_reward = float(plan.risk_reward or 0.0)
+        if structural_target_valid:
+            basket_reward = abs(float(basket_target) - entry_price)
+            basket_risk_reward = (
+                basket_reward / basket_risk
+                if basket_risk > 0.0 and basket_reward > 0.0
+                else 0.0
+            )
+        parameters.update(
+            {
+                "source_operational_model": normalized_source,
+                "source_model_label": source_label,
+                "source_initial_stop": plan.stop,
+                "source_target": plan.target,
+                "source_exit_model": plan.exit_model,
+                "source_stop_management": plan.stop_management,
+                "source_stop_management_reason": plan.stop_management_reason,
+                "source_beta_id": plan.beta_id,
+                "source_beta_version": plan.beta_version,
+                "source_beta_mode": plan.beta_mode,
+                "full_exit_usd": MODEL_23_FULL_EXIT_USD,
+                "m23_structural_target_enabled": structural_target_valid,
+                "m23_structural_target_price": (
+                    structural_target if structural_target_valid else None
+                ),
+            }
+        )
+        if is_xau_reentry and not structural_target_valid:
+            status = "M23_XAU_AGUARDA_ALVO_ESTRUTURAL_CONFIRMADO"
+            reason = (
+                "M23 aguardando ultimo topo/fundo M5 confirmado no lado "
+                "favoravel antes de armar a reentrada XAU."
+            )
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status=status,
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=reason,
+                    research_plan_status=status,
+                    research_plan_entry_price=None,
+                    research_plan_stop=None,
+                    research_plan_target=None,
+                    research_plan_reason=reason,
+                ),
+                replace(
+                    plan,
+                    direction="WAIT",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    status=status,
+                    reason=reason,
+                    invalid_reason=status,
+                    invalid_fields=("structural_target",),
+                    stop_management_parameters=parameters,
+                ),
+            )
+        basket_plan = replace(
+            plan,
+            target=basket_target,
+            risk_reward=basket_risk_reward,
+            reward_pips=basket_reward,
+            reward_percent=(
+                abs(basket_reward / entry_price)
+                if structural_target_valid and entry_price > 0.0
+                else float(plan.reward_percent or 0.0)
+            ),
+            exit_model=MODEL_23_BETA_VERSION,
+            stop_reason=f"M23 copiou o SL individual do {source_label}: {plan.stop_reason}",
+            target_reason=(
+                "M23 XAU usa o ultimo topo/fundo M5 estrutural confirmado; "
+                "a cesta tambem encerra em +US$1.000, o que ocorrer primeiro."
+                if structural_target_valid
+                else f"M23 copiou o TP individual do {source_label}: {plan.target_reason}"
+            ),
+            stop_management=MODEL_23_EXIT_POLICY,
+            stop_management_parameters=parameters,
+            stop_management_reason=(
+                "Entrada, SL, TP e saida dinamica permanecem sob o contrato da "
+                "fonte; adicionalmente, a cesta faz Full Exit a mercado em "
+                "+US$1.000."
+            ),
+            alpha_id=MODEL_23_ALPHA_ID,
+            alpha_version=MODEL_23_ALPHA_VERSION,
+            beta_id=MODEL_23_BETA_ID,
+            beta_version=MODEL_23_BETA_VERSION,
+            beta_mode="FULL_EXIT_1000_ONLY",
+            beta_reason="Zeragem coletiva somente em +US$1.000 liquidos.",
+            source=MODEL_23_ENTRY_SOURCE,
+            reason=(
+                f"M23 herdou o contrato operacional completo do {source_label}: "
+                f"{plan.reason}"
+            ),
+        )
+        basket_row = replace(
+            row,
+            active_model=f"M23 <- {source_label} | {row.active_model}",
+            reason=f"M23 captou a entrada valida do {source_label}. {row.reason}",
+            lab_alpha_id=MODEL_23_ALPHA_ID,
+            lab_alpha_version=MODEL_23_ALPHA_VERSION,
+            beta_id=MODEL_23_BETA_ID,
+            beta_version=MODEL_23_BETA_VERSION,
+            beta_mode="FULL_EXIT_1000_ONLY",
+            lab_parameters=parameters,
+            lab_configuration_source=MODEL_23_ENTRY_SOURCE,
+            research_plan_source=MODEL_23_ENTRY_SOURCE,
+            research_plan_reason=(
+                f"Entrada e saidas nativas originadas no {source_label}; "
+                "Full Exit coletivo adicional em +US$1.000."
+            ),
+            research_plan_target=basket_target,
+            research_plan_risk_reward=basket_risk_reward,
+        )
+        return basket_row, basket_plan
 
     def _to_mt5_demo_trade_plan(
         self,
@@ -6872,6 +7662,8 @@ class DashboardService:
         row: DashboardMT5ForexSignalRowViewModel,
         plan: MT5ResearchTradePlan,
         operational_model: str | None = None,
+        *,
+        allow_demo_forward_override: bool = False,
     ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
         selected_model = str(
             operational_model or self.get_mt5_operational_model()
@@ -6882,6 +7674,7 @@ class DashboardService:
                 row,
                 plan,
                 operational_model=source_model,
+                allow_demo_forward_override=allow_demo_forward_override,
             )
             return self._mt5_dynamic_exit_variant_from_source(
                 source_row,
@@ -6899,7 +7692,12 @@ class DashboardService:
         if selected_model == MT5_OPERATIONAL_MODEL_3:
             return self._mt5_model3_xau_m5_plan(row, plan)
         if selected_model in MT5_LAB_OPERATIONAL_MODELS:
-            return self._mt5_lab_operational_plan(row, plan, selected_model)
+            return self._mt5_lab_operational_plan(
+                row,
+                plan,
+                selected_model,
+                allow_demo_forward_override=allow_demo_forward_override,
+            )
         if selected_model == MT5_OPERATIONAL_MODEL_6:
             return self._mt5_scoped_m1_plan(
                 row,
@@ -6951,7 +7749,7 @@ class DashboardService:
         parameters["active_entry_order_type"] = decision.base.entry_order_type
         parameters.update(
             {
-                "indicator_source": "LOCAL_MT5_CANDLES_52",
+                "indicator_source": OPERATIONAL_INDICATOR_SOURCE,
                 "indicator_generated_at": decision.base.current_candle_time,
                 "indicator_closed_candle_time": decision.base.closed_candle_time,
             }
@@ -7051,7 +7849,8 @@ class DashboardService:
         """Avalia o M3 somente com o snapshot XAUUSD/M5 compartilhado."""
         candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
         rows = (
-            list(candles.get((MODEL_3_SYMBOL, MODEL_3_TIMEFRAME), []) or [])[-52:]
+            list(candles.get((MODEL_3_SYMBOL, MODEL_3_TIMEFRAME), []) or [
+            ])[-OPERATIONAL_INDICATOR_RAW_CANDLES:]
             if isinstance(candles, dict)
             else []
         )
@@ -7060,9 +7859,9 @@ class DashboardService:
             return replace(
                 decision,
                 direction="WAIT",
-                status="M3_AQUECIDO_52_CANDLES_AGUARDA_ATUALIZACAO_MT5",
+                status="M3_AQUECIDO_200_FECHADOS_AGUARDA_ATUALIZACAO_MT5",
                 reason=(
-                    "M3 possui 52 velas M5 para indicadores, mas aguarda "
+                    "M3 possui 200 velas M5 fechadas para indicadores, mas aguarda "
                     "um candle atual confirmado pelo MT5 antes de operar."
                 ),
                 entry_price=None,
@@ -7071,10 +7870,11 @@ class DashboardService:
         return decision
 
     def get_model8_entry_decision(self) -> Model8EntryDecision:
-        """Avalia M8 localmente sobre exatamente 52 velas XAUUSD/M5 do MT5."""
+        """Avalia M8 sobre 200 velas XAUUSD/M5 fechadas mais a vela atual."""
         candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
         rows = (
-            list(candles.get((MODEL_8_SYMBOL, MODEL_8_TIMEFRAME), []) or [])[-52:]
+            list(candles.get((MODEL_8_SYMBOL, MODEL_8_TIMEFRAME), []) or [
+            ])[-OPERATIONAL_INDICATOR_RAW_CANDLES:]
             if isinstance(candles, dict)
             else []
         )
@@ -7086,10 +7886,10 @@ class DashboardService:
         if self._supplemental_m5_is_seed_only(MODEL_8_SYMBOL):
             return replace(
                 decision, direction="WAIT",
-                status="M8_AQUECIDO_52_CANDLES_AGUARDA_ATUALIZACAO_MT5",
+                status="M8_AQUECIDO_200_FECHADOS_AGUARDA_ATUALIZACAO_MT5",
                 reason=(
-                    "M8 possui 52 velas locais, mas aguarda lote completo e atual "
-                    "de 52 velas do MT5 antes de calcular/liberar entrada."
+                    "M8 possui 200 velas fechadas locais, mas aguarda lote completo "
+                    "e atual do MT5 antes de calcular/liberar entrada."
                 ),
                 signal_kind="NONE", entry_order_type="NONE",
                 entry_price=None, initial_stop=None,
@@ -7097,12 +7897,13 @@ class DashboardService:
         return decision
 
     def get_xau_trend_filter_entry_decision(self, model_id: str):
-        """Avalia M9-M12 no snapshot XAUUSD/M5 compartilhado do runtime."""
+        """Avalia M9-M12 e M18-M22 no snapshot XAUUSD/M5 compartilhado."""
         if trend_filter_spec(model_id) is None:
             raise ValueError(f"Modelo XAU/M5 desconhecido: {model_id}")
         candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
         rows = (
-            list(candles.get((MODEL_8_SYMBOL, MODEL_8_TIMEFRAME), []) or [])[-52:]
+            list(candles.get((MODEL_8_SYMBOL, MODEL_8_TIMEFRAME), []) or [
+            ])[-OPERATIONAL_INDICATOR_RAW_CANDLES:]
             if isinstance(candles, dict)
             else []
         )
@@ -7111,10 +7912,54 @@ class DashboardService:
             model_id, rows,
             awaiting_reentry_side=str(runtime.get("entry_intent_side") or ""),
         )
+        if model_id in XAU_IMPROVED_REENTRY_MODEL_IDS and decision.base.direction in {
+            "BUY",
+            "SELL",
+        }:
+            cycle_side = str(runtime.get("signal_cycle_side") or "").upper()
+            if cycle_side != decision.base.direction:
+                runtime = update_model8_runtime_state(
+                    operational_model=model_id,
+                    signal_cycle_side=decision.base.direction,
+                    initial_entry_consumed=False,
+                    reentry_consumed=False,
+                    entry_intent_side="",
+                    entry_intent_kind="",
+                )
+                decision = evaluate_xau_trend_filter_entry(model_id, rows)
+            is_reentry = decision.base.entry_order_type in {"BUY_STOP", "SELL_STOP"}
+            blocked = (
+                False
+                if is_reentry
+                else bool(runtime.get("initial_entry_consumed"))
+            )
+            if blocked:
+                stage = "REENTRADA" if is_reentry else "ENTRADA_INICIAL"
+                status = f"M{trend_filter_spec(model_id).number}_{stage}_JA_CONSUMIDA"
+                reason = (
+                    f"{stage.replace('_', ' ').title()} ja executada neste ciclo; "
+                    "aguardando nova direcao SMA/RSI para rearmar o modelo."
+                )
+                decision = replace(
+                    decision,
+                    base=replace(
+                        decision.base,
+                        direction="WAIT",
+                        status=status,
+                        reason=reason,
+                        signal_kind="NONE",
+                        entry_order_type="NONE",
+                        entry_price=None,
+                        initial_stop=None,
+                    ),
+                    filter_allowed=False,
+                    status=status,
+                    reason=reason,
+                )
         if self._supplemental_m5_is_seed_only(MODEL_8_SYMBOL):
             spec = trend_filter_spec(model_id)
-            status = f"M{spec.number}_AQUECIDO_52_CANDLES_AGUARDA_ATUALIZACAO_MT5"
-            reason = "Aguardando lote completo e atual de 52 velas M5 do MT5."
+            status = f"M{spec.number}_AQUECIDO_200_FECHADOS_AGUARDA_ATUALIZACAO_MT5"
+            reason = "Aguardando 200 velas M5 fechadas e a vela atual do MT5."
             return replace(
                 decision,
                 base=replace(
@@ -7123,7 +7968,9 @@ class DashboardService:
                     entry_price=None, initial_stop=None,
                 ),
                 filter_allowed=False, status=status, reason=reason,
-                failed_filters=tuple(dict.fromkeys((*decision.failed_filters, "LIVE_CANDLES_52"))),
+                failed_filters=tuple(
+                    dict.fromkeys((*decision.failed_filters, "LIVE_CLOSED_CANDLES_200"))
+                ),
             )
         return decision
 
@@ -7140,12 +7987,12 @@ class DashboardService:
             return decision
         spec = forex_sma_rsi_spec(decision.model_id)
         status = (
-            f"M{spec.number}_AQUECIDO_52_CANDLES_AGUARDA_ATUALIZACAO_MT5"
+            f"M{spec.number}_AQUECIDO_200_FECHADOS_AGUARDA_ATUALIZACAO_MT5"
             if spec is not None
-            else "AQUECIDO_52_CANDLES_AGUARDA_ATUALIZACAO_MT5"
+            else "AQUECIDO_200_FECHADOS_AGUARDA_ATUALIZACAO_MT5"
         )
         reason = (
-            f"{str(pair).upper()} possui 52 velas M5 locais para indicadores, "
+            f"{str(pair).upper()} possui 200 velas M5 fechadas para indicadores, "
             "mas aguarda candle atual confirmado pelo MT5 antes de operar."
         )
         return replace(
@@ -7171,23 +8018,21 @@ class DashboardService:
     def get_xau_m5_operational_decision_snapshot(
         self,
     ) -> dict[tuple[str, str], object]:
-        """Expoe M3 e M8-M12 calculados sobre o cache M5 do ciclo de fundo."""
+        """Expoe os modelos XAU ativos calculados sobre o cache M5 do ciclo."""
         selected = set(self._mt5_entry_source_models_to_evaluate())
         active = selected.intersection(
             {
                 MT5_OPERATIONAL_MODEL_3,
                 MT5_OPERATIONAL_MODEL_8,
-                MT5_OPERATIONAL_MODEL_9,
                 MT5_OPERATIONAL_MODEL_10,
-                MT5_OPERATIONAL_MODEL_11,
-                MT5_OPERATIONAL_MODEL_12,
+                *XAU_TREND_FILTER_MODEL_IDS,
             }
         )
         decisions: dict[tuple[str, str], object] = {}
         decisions[("__XAU_M5__", "CANDLE_COUNT")] = len(
             list(getattr(self.mt5_market_data_service, "latest_forex_candles", {}).get(
                 (MODEL_8_SYMBOL, MODEL_8_TIMEFRAME), [],
-            ) or [])[-52:]
+            ) or [])[-OPERATIONAL_INDICATOR_RAW_CANDLES:]
         )
         if MT5_OPERATIONAL_MODEL_3 in active:
             decisions[(MT5_OPERATIONAL_MODEL_3, MODEL_3_SYMBOL)] = (
@@ -7207,7 +8052,7 @@ class DashboardService:
     def get_forex_m5_sma_rsi_decision_snapshot(
         self,
     ) -> dict[tuple[str, str], object]:
-        """Publica M13-M17 e a contagem das 52 velas M5 do mesmo ciclo."""
+        """Publica M13-M17 e a contagem da janela M5 do mesmo ciclo."""
         active = set(self._mt5_entry_source_models_to_evaluate()).intersection(
             FOREX_SMA_RSI_MODEL_IDS
         )
@@ -7216,7 +8061,9 @@ class DashboardService:
             candles_by_market = {}
         decisions: dict[tuple[str, str], object] = {}
         for pair in FOREX_SMA_RSI_PAIRS:
-            rows = list(candles_by_market.get((pair, FOREX_SMA_RSI_TIMEFRAME), []) or [])[-52:]
+            rows = list(
+                candles_by_market.get((pair, FOREX_SMA_RSI_TIMEFRAME), []) or []
+            )[-OPERATIONAL_INDICATOR_RAW_CANDLES:]
             decisions[("__FOREX_M5__", pair)] = len(rows)
             for model_id in active:
                 runtime = load_forex_sma_rsi_runtime_state(model_id, pair)
@@ -7464,9 +8311,11 @@ class DashboardService:
         parameters["active_entry_order_type"] = decision.entry_order_type
         parameters.update(
             {
-                "indicator_source": "LOCAL_MT5_CANDLES_52",
+                "indicator_source": OPERATIONAL_INDICATOR_SOURCE,
                 "indicator_generated_at": decision.current_candle_time,
                 "indicator_closed_candle_time": decision.closed_candle_time,
+                "structural_target_price": decision.structural_target_price,
+                "structural_target_time": decision.structural_target_time,
             }
         )
         diagnostics = (
@@ -7475,6 +8324,7 @@ class DashboardService:
             f"RSI14={decision.rsi14 if decision.rsi14 is not None else 'N/D'}",
             f"SIGNAL_KIND={decision.signal_kind}",
             f"LAST_SWING={decision.last_swing_price or 'N/D'}",
+            f"STRUCTURAL_TARGET={decision.structural_target_price or 'N/D'}",
             f"ENTRY={decision.entry_order_type}",
             "TAKE_PROFIT=DISABLED",
         )
@@ -7643,19 +8493,39 @@ class DashboardService:
             return (
                 replace(
                     base_row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    theoretical_entry_price=None,
                     theoretical_entry_reason=reason,
+                    research_plan_status="PLANO_INVALIDO",
+                    research_plan_entry_price=None,
+                    research_plan_stop=None,
+                    research_plan_target=None,
                     research_plan_reason=reason,
                 ),
-                replace(base_plan, reason=reason),
+                replace(
+                    base_plan,
+                    direction="WAIT",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    status="PLANO_INVALIDO",
+                    reason=reason,
+                    invalid_reason="PAIR_OUTSIDE_MODEL_SCOPE",
+                    invalid_fields=("symbol",),
+                ),
             )
         decision = self.get_xau_trend_filter_entry_decision(model_id)
         parameters = xau_trend_filter_parameters(model_id)
         parameters["active_entry_order_type"] = decision.base.entry_order_type
         parameters.update(
             {
-                "indicator_source": "LOCAL_MT5_CANDLES_52",
+                "indicator_source": OPERATIONAL_INDICATOR_SOURCE,
                 "indicator_generated_at": decision.base.current_candle_time,
                 "indicator_closed_candle_time": decision.base.closed_candle_time,
+                "structural_target_price": decision.base.structural_target_price,
+                "structural_target_time": decision.base.structural_target_time,
             }
         )
         diagnostics = tuple(base_row.active_model_indicators) + (
@@ -7728,13 +8598,32 @@ class DashboardService:
         entry = float(decision.base.entry_price or 0.0)
         stop = float(decision.base.initial_stop or 0.0)
         risk = abs(entry - stop)
+        target = xau_reentry_target(
+            model_id,
+            decision.base.direction,
+            entry,
+            decision.base.entry_order_type,
+            decision.base.structural_target_price,
+        )
+        reward = abs(target - entry) if target else 0.0
+        risk_reward = reward / risk if risk > 0.0 and reward > 0.0 else 0.0
         plan = replace(
             base_plan,
             direction=decision.base.direction,
             entry_price=entry,
             stop=stop,
+            target=target,
+            risk_reward=risk_reward,
             risk_pips=risk,
+            reward_pips=reward,
             risk_percent=abs(risk / entry) if entry else 0.0,
+            reward_percent=abs(reward / entry) if entry else 0.0,
+            target_reason=(
+                "Reentrada com TP no topo/fundo M5 confirmado antes da correcao; "
+                "Full Exit por perda do RSI50 ou inversao SMA permanece ativo."
+                if target
+                else "Entrada inicial sem TP; Full Exit do modelo permanece ativo."
+            ),
             status="PLANO_VALIDO",
             reason=decision.reason,
             invalid_reason="",
@@ -7769,6 +8658,8 @@ class DashboardService:
                 research_plan_source=spec.source,
                 research_plan_entry_price=entry,
                 research_plan_stop=stop,
+                research_plan_target=target,
+                research_plan_risk_reward=risk_reward,
                 research_plan_risk_pips=risk,
                 research_plan_stop_management=spec.stop_management,
                 research_plan_stop_management_parameters=parameters,
@@ -8592,6 +9483,8 @@ class DashboardService:
         row: DashboardMT5ForexSignalRowViewModel,
         fallback_plan: MT5ResearchTradePlan,
         model_id: str,
+        *,
+        allow_demo_forward_override: bool = False,
     ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
         """Materializa no MT5 o vencedor pesquisado, sem reinterpretar a Alpha."""
         winner = self.lab_operational_model_service.winner(model_id, row.pair)
@@ -8603,7 +9496,10 @@ class DashboardService:
                 status="PAIR_NOT_IN_LAB_MODEL",
                 reason="Par ausente do modelo operacional pesquisado no Lab.",
             )
-        if not bool(winner.get("demo_forward_enabled", False)):
+        if (
+            not bool(winner.get("demo_forward_enabled", False))
+            and not allow_demo_forward_override
+        ):
             return self._mt5_lab_operational_wait(
                 row,
                 fallback_plan,
@@ -8633,6 +9529,7 @@ class DashboardService:
             current_price=row.last_price,
             server_timestamp=self._mt5_server_timestamp(row.pair),
             market_row=row,
+            demo_forward_override=allow_demo_forward_override,
         )
         self.lab_operational_decision_cache[
             (str(model_id).upper(), str(row.pair).upper())
@@ -13350,10 +14247,19 @@ class DashboardService:
         try:
             value = str(get_server_time(symbol) or "N/D")
         except (OSError, RuntimeError, ValueError, TypeError):
-            return "N/D"
+            value = "N/D"
         if value != "N/D":
             object.__setattr__(self, "mt5_server_timestamp_cache_value", value)
             object.__setattr__(self, "mt5_server_timestamp_cache_started", now)
+        elif self.mt5_server_timestamp_cache_value != "N/D":
+            try:
+                cached = datetime.fromisoformat(
+                    self.mt5_server_timestamp_cache_value.replace("Z", "+00:00")
+                )
+                elapsed = max(0.0, now - self.mt5_server_timestamp_cache_started)
+                value = (cached + timedelta(seconds=elapsed)).isoformat()
+            except (TypeError, ValueError):
+                value = "N/D"
         return value
 
     def _mt5_scenario_time_context(
@@ -13380,6 +14286,7 @@ class DashboardService:
             server_timestamp=(
                 server_timestamp if include_live_server_rollover else None
             ),
+            allow_static_rollover=not include_live_server_rollover,
         )
         self.mt5_scenario_time_context_cache[key] = context
         return context

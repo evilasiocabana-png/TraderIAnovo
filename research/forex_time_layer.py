@@ -89,6 +89,7 @@ class ForexTimeLayer:
         *,
         server_timestamp: object | None = None,
         rollover_guard_minutes: int = 5,
+        allow_static_rollover: bool = True,
     ) -> ForexTimeContext:
         """Retorna a classificacao temporal do candle informado."""
         source = str(timestamp or "").strip()
@@ -136,7 +137,9 @@ class ForexTimeLayer:
             guard_minutes=rollover_guard_minutes,
         )
         fallback_rollover = bool(
-            server_dt is None and self._is_rollover_window(utc_dt.hour)
+            allow_static_rollover
+            and server_dt is None
+            and self._is_rollover_window(utc_dt.hour)
         )
         session = (
             "ROLLOVER"
@@ -149,7 +152,7 @@ class ForexTimeLayer:
             utc_dt,
             preferred_sessions,
             server_rollover=server_rollover,
-            allow_static_rollover=server_dt is None,
+            allow_static_rollover=allow_static_rollover and server_dt is None,
         )
         return ForexTimeContext(
             pair=normalized_pair,

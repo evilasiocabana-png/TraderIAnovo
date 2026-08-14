@@ -15,12 +15,14 @@ from application.mt5_demo_robot_service import (
     MT5DemoTradePlan,
 )
 from application.mt5_market_data_service import MT5MarketDataService
+from application.operational_indicator_window import OPERATIONAL_INDICATOR_RAW_CANDLES
 from application.position_manager_service import PositionManagerService, PositionTradePlan
 from application.xau_m5_sma_rsi_model_family import (
     MODEL_9_ID,
     MODEL_10_ID,
     MODEL_11_ID,
     MODEL_12_ID,
+    XAU_RETIRED_BASE_TREND_FILTER_MODEL_IDS,
     XAU_TREND_FILTER_MODEL_IDS,
     evaluate_xau_trend_filter_entry,
     trend_filter_spec,
@@ -36,9 +38,14 @@ from tests.test_model8_xau_m5_sma_rsi_reentry import _candles
 
 
 def _strong_buy_cross() -> list[dict[str, float | str]]:
+    closes = ([100.0] * 150) + ([98.0] * 49) + [120.0]
+    return _candles(closes, pivot="low")
+
+
+def _strong_buy_pullback() -> list[dict[str, float | str]]:
     closes = [100.0 + (index * 0.2) for index in range(80)]
     peak = closes[-1]
-    closes.extend((peak - 2.0, peak - 4.0, peak + 4.0))
+    closes.extend((peak - 2.0, peak - 4.0, peak + 4.0, peak + 3.0))
     return _candles(closes, pivot="low")
 
 
@@ -47,7 +54,12 @@ class XAUTrendFilterModelFamilyTest(unittest.TestCase):
         rows = _candles([100.0 + (index * 0.2) for index in range(60)], pivot="low")
         decisions = {
             model_id: evaluate_xau_trend_filter_entry(model_id, rows)
-            for model_id in XAU_TREND_FILTER_MODEL_IDS
+            for model_id in (
+                MODEL_9_ID,
+                MODEL_10_ID,
+                MODEL_11_ID,
+                MODEL_12_ID,
+            )
         }
         self.assertIn("ADX", decisions[MODEL_9_ID].status)
         self.assertIn("DISTANCIA_ATR", decisions[MODEL_10_ID].status)
@@ -55,40 +67,60 @@ class XAUTrendFilterModelFamilyTest(unittest.TestCase):
         self.assertIn("FILTROS_COMBINADOS", decisions[MODEL_12_ID].status)
         self.assertEqual(len({decision.status for decision in decisions.values()}), 4)
 
-    def test_cache_primario_curto_recebe_aquecimento_minimo_de_52_candles(self) -> None:
+    def test_cache_primario_curto_recebe_janela_de_200_fechados(self) -> None:
         service = MT5MarketDataService.__new__(MT5MarketDataService)
         service.latest_forex_signal_dashboard = SimpleNamespace(
             pairs=[SimpleNamespace(pair="XAUUSD", timeframe="M5")]
         )
-        service.latest_forex_candles = {("XAUUSD", "M5"): [object()] * 51}
+        service.latest_forex_candles = {
+            ("XAUUSD", "M5"): [object()] * (OPERATIONAL_INDICATOR_RAW_CANDLES - 1)
+        }
         service.supplemental_forex_refresh_started = {}
         service._read_supplemental_forex_batch = Mock(return_value={})
 
         service.refresh_supplemental_forex_candles(
             {"XAUUSD": {"M5"}},
-            full_count=52,
+            full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
         )
 
         service._read_supplemental_forex_batch.assert_called_once_with(
             {"M5": {"XAUUSD"}},
-            count=52,
+            count=OPERATIONAL_INDICATOR_RAW_CANDLES,
         )
 
     def test_status_de_aquecimento_mostra_recebidos_e_exigidos(self) -> None:
-        decision = evaluate_xau_trend_filter_entry(MODEL_12_ID, [object()] * 51)
-        self.assertEqual(decision.status, "M12_AQUECENDO_51_DE_52_CANDLES")
-        self.assertIn("recebeu 51 de 52", decision.reason)
+        decision = evaluate_xau_trend_filter_entry(
+            MODEL_12_ID,
+            [object()] * (OPERATIONAL_INDICATOR_RAW_CANDLES - 1),
+        )
+        self.assertEqual(decision.status, "M12_AQUECENDO_200_DE_201_CANDLES")
+        self.assertIn("recebeu 200 de 201", decision.reason)
 
-    def test_identidades_novas_sao_ativas_e_legados_continuam_aposentados(self) -> None:
+    def test_m10_permanece_ativo_e_m9_m11_m12_sao_retirados(self) -> None:
         self.assertEqual(
             XAU_TREND_FILTER_MODEL_IDS,
-            (MODEL_9_ID, MODEL_10_ID, MODEL_11_ID, MODEL_12_ID),
+            (MODEL_10_ID,),
         )
         for model_id in XAU_TREND_FILTER_MODEL_IDS:
             self.assertTrue(is_active_operational_model(model_id))
             self.assertFalse(is_retired_operational_model(model_id))
+        for model_id in (MODEL_9_ID, MODEL_11_ID, MODEL_12_ID):
+            self.assertFalse(is_active_operational_model(model_id))
+            self.assertTrue(is_retired_operational_model(model_id))
         self.assertTrue(is_retired_operational_model("MODELO_9_DYNAMIC_EXIT_FROM_M2"))
         self.assertTrue(is_retired_operational_model("MODELO_10_TREND_PULLBACK_D1_M15"))
+
+    def test_comentario_preserva_numero_do_modelo_com_lacunas_ativas(self) -> None:
+        service = DashboardService.__new__(DashboardService)
+
+        self.assertEqual(
+            service._mt5_model_from_position_comment("TraderIA M10"),
+            MODEL_10_ID,
+        )
+        self.assertEqual(
+            service._mt5_model_from_position_comment("TraderIA M12"),
+            MODEL_12_ID,
+        )
 
     def test_setup_b_exige_adx_acima_de_25(self) -> None:
         decision = evaluate_xau_trend_filter_entry(MODEL_9_ID, _strong_buy_cross())
@@ -115,7 +147,7 @@ class XAUTrendFilterModelFamilyTest(unittest.TestCase):
     def test_setup_e_herda_reentrada_buy_stop_do_modelo_base(self) -> None:
         decision = evaluate_xau_trend_filter_entry(
             MODEL_12_ID,
-            _strong_buy_cross(),
+            _strong_buy_pullback(),
             awaiting_reentry_side="BUY",
         )
         self.assertTrue(decision.ready)
@@ -164,7 +196,7 @@ class XAUTrendFilterModelFamilyTest(unittest.TestCase):
         self.assertEqual(plan.target, 0.0)
 
     def test_dashboard_materializa_reentrada_setup_e_com_buy_stop(self) -> None:
-        candles = _strong_buy_cross()
+        candles = _strong_buy_pullback()
         service = DashboardService.__new__(DashboardService)
         object.__setattr__(
             service,

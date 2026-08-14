@@ -32,6 +32,7 @@ from research.mt5_research_trade_plan import MT5ResearchTradePlan
 
 
 def _candles(closes: list[float], *, pivot: str = "low") -> list[dict[str, float | str]]:
+    closes = [closes[0]] * max(200 - len(closes), 0) + list(closes)
     rows: list[dict[str, float | str]] = []
     for index, close in enumerate(closes):
         low = close - 0.5
@@ -43,7 +44,7 @@ def _candles(closes: list[float], *, pivot: str = "low") -> list[dict[str, float
                 high = close + 2.0
         rows.append(
             {
-                "time": f"2026-08-10T{index:02d}:00:00+00:00",
+                "time": f"2026-08-{index // 288 + 1:02d}T{(index % 288) // 12:02d}:{(index % 12) * 5:02d}:00+00:00",
                 "open": close,
                 "high": high,
                 "low": low,
@@ -53,7 +54,7 @@ def _candles(closes: list[float], *, pivot: str = "low") -> list[dict[str, float
     current = closes[-1]
     rows.append(
         {
-            "time": "2026-08-10T23:55:00+00:00",
+            "time": "2026-08-02T00:00:00+00:00",
             "open": current,
             "high": current + 0.4,
             "low": current - 0.4,
@@ -72,7 +73,11 @@ class Model8XauM5Test(unittest.TestCase):
         self.assertEqual(params["sma_fast"], 20)
         self.assertEqual(params["sma_slow"], 50)
         self.assertEqual(params["rsi_period"], 14)
-        self.assertEqual(params["entry_order_type"], "MARKET_ON_CLOSED_M5_RSI50_LEVEL")
+        self.assertEqual(
+            params["entry_order_type"],
+            "MARKET_ON_CONFIRMED_CLOSED_M5_SMA20_50_CROSS_WITH_RSI50",
+        )
+        self.assertTrue(params["initial_entry_requires_fresh_sma_cross"])
         self.assertFalse(params["take_profit_enabled"])
         self.assertTrue(params["full_exit_enabled"])
         self.assertTrue(is_active_operational_model(MODEL_8_ID))
@@ -86,16 +91,20 @@ class Model8XauM5Test(unittest.TestCase):
         decision = evaluate_model8_entry(_candles(closes, pivot="low"))
         self.assertTrue(decision.ready)
         self.assertEqual(decision.direction, "BUY")
-        self.assertEqual(decision.signal_kind, "RSI50_LEVEL")
+        self.assertEqual(decision.signal_kind, "SMA20_50_CROSS")
         self.assertGreater(decision.rsi14 or 0.0, 50.0)
         self.assertLess(decision.initial_stop or 0.0, decision.entry_price or 0.0)
 
-    def test_compra_nao_exige_cruzamento_novo_do_rsi50(self) -> None:
+    def test_tendencia_buy_ja_cruzada_nao_vira_primeira_entrada(self) -> None:
         closes = [100.0 + (index * 0.2) for index in range(60)]
         decision = evaluate_model8_entry(_candles(closes, pivot="low"))
-        self.assertTrue(decision.ready)
-        self.assertEqual(decision.direction, "BUY")
-        self.assertEqual(decision.signal_kind, "RSI50_LEVEL")
+        self.assertFalse(decision.ready)
+        self.assertEqual(decision.direction, "WAIT")
+        self.assertEqual(decision.signal_kind, "REENTRY")
+        self.assertEqual(
+            decision.status,
+            "M8_REENTRY_AGUARDA_RECUO_ESTRUTURAL_M5",
+        )
         self.assertGreater(decision.rsi14 or 0.0, 50.0)
         self.assertGreater(decision.sma20 or 0.0, decision.sma50 or 0.0)
 
@@ -104,14 +113,16 @@ class Model8XauM5Test(unittest.TestCase):
         decision = evaluate_model8_entry(_candles(closes, pivot="high"))
         self.assertTrue(decision.ready)
         self.assertEqual(decision.direction, "SELL")
-        self.assertEqual(decision.signal_kind, "RSI50_LEVEL")
+        self.assertEqual(decision.signal_kind, "SMA20_50_CROSS")
         self.assertLess(decision.rsi14 or 100.0, 50.0)
         self.assertGreater(decision.initial_stop or 0.0, decision.entry_price or 0.0)
 
     def test_reentrada_buy_pelo_rsi_enquanto_tendencia_permanece(self) -> None:
-        closes = ([100.0 + (index * 0.2) for index in range(58)]) + [105.0, 111.8]
+        closes = ([100.0 + (index * 0.2) for index in range(58)]) + [112.0, 111.0]
+        candles = _candles(closes, pivot="low")
+        candles[-4]["high"] = 120.0
         decision = evaluate_model8_entry(
-            _candles(closes, pivot="low"),
+            candles,
             awaiting_reentry_side="BUY",
         )
         self.assertTrue(decision.ready)
@@ -119,11 +130,14 @@ class Model8XauM5Test(unittest.TestCase):
         self.assertEqual(decision.signal_kind, "REENTRY")
         self.assertEqual(decision.entry_order_type, "BUY_STOP")
         self.assertAlmostEqual(decision.entry_price or 0.0, closes[-1] + 0.5)
+        self.assertEqual(decision.structural_target_price, 120.0)
 
-    def test_reentrada_sell_stop_abaixo_do_fundo_do_candle_anterior(self) -> None:
-        closes = [120.0 - (index * 0.2) for index in range(60)]
+    def test_reentrada_sell_stop_apos_recuo_ascendente(self) -> None:
+        closes = [120.0 - (index * 0.2) for index in range(58)] + [108.0, 109.0]
+        candles = _candles(closes, pivot="high")
+        candles[-4]["low"] = 100.0
         decision = evaluate_model8_entry(
-            _candles(closes, pivot="high"),
+            candles,
             awaiting_reentry_side="SELL",
         )
         self.assertTrue(decision.ready)
@@ -131,6 +145,45 @@ class Model8XauM5Test(unittest.TestCase):
         self.assertEqual(decision.signal_kind, "REENTRY")
         self.assertEqual(decision.entry_order_type, "SELL_STOP")
         self.assertAlmostEqual(decision.entry_price or 0.0, closes[-1] - 0.5)
+        self.assertEqual(decision.structural_target_price, 100.0)
+
+    def test_sell_ja_cruzado_sem_estado_usa_reentrada_stop_apos_recuo(self) -> None:
+        closes = [120.0 - (index * 0.2) for index in range(58)] + [108.0, 109.0]
+        candles = _candles(closes, pivot="high")
+        candles[-4]["low"] = 100.0
+
+        decision = evaluate_model8_entry(candles)
+
+        self.assertTrue(decision.ready)
+        self.assertEqual(decision.direction, "SELL")
+        self.assertEqual(decision.signal_kind, "REENTRY")
+        self.assertEqual(decision.entry_order_type, "SELL_STOP")
+
+    def test_reentrada_sell_aguarda_recuo_ascendente(self) -> None:
+        closes = [120.0 - (index * 0.2) for index in range(60)]
+        decision = evaluate_model8_entry(
+            _candles(closes, pivot="high"),
+            awaiting_reentry_side="SELL",
+        )
+        self.assertFalse(decision.ready)
+        self.assertEqual(decision.direction, "WAIT")
+        self.assertEqual(
+            decision.status,
+            "M8_REENTRY_AGUARDA_RECUO_ESTRUTURAL_M5",
+        )
+
+    def test_reentrada_buy_aguarda_recuo_descendente(self) -> None:
+        closes = [100.0 + (index * 0.2) for index in range(60)]
+        decision = evaluate_model8_entry(
+            _candles(closes, pivot="low"),
+            awaiting_reentry_side="BUY",
+        )
+        self.assertFalse(decision.ready)
+        self.assertEqual(decision.direction, "WAIT")
+        self.assertEqual(
+            decision.status,
+            "M8_REENTRY_AGUARDA_RECUO_ESTRUTURAL_M5",
+        )
 
     def test_compra_permanece_aberta_enquanto_rsi_esta_acima_de_50(self) -> None:
         closes = [100.0 + (index * 0.2) for index in range(60)]
@@ -196,6 +249,32 @@ class Model8XauM5Test(unittest.TestCase):
             decision.status,
             "M8_REENTRY_EXIT_RSI50_CRUZOU_PARA_CIMA_SELL",
         )
+
+    def test_reentrada_buy_fecha_mesmo_se_app_reiniciou_apos_perder_rsi50(self) -> None:
+        closes = [100.0 + (index * 0.2) for index in range(60)]
+        with patch(
+            "application.model8_xau_m5_sma_rsi_reentry._wilder_rsi",
+            side_effect=(45.0, 45.0),
+        ):
+            decision = evaluate_model8_exit(
+                _candles(closes),
+                "BUY",
+                reentry_position=True,
+            )
+        self.assertEqual(decision.action, "FULL_EXIT")
+
+    def test_reentrada_sell_fecha_mesmo_se_app_reiniciou_apos_perder_rsi50(self) -> None:
+        closes = [120.0 - (index * 0.2) for index in range(60)]
+        with patch(
+            "application.model8_xau_m5_sma_rsi_reentry._wilder_rsi",
+            side_effect=(55.0, 55.0),
+        ):
+            decision = evaluate_model8_exit(
+                _candles(closes),
+                "SELL",
+                reentry_position=True,
+            )
+        self.assertEqual(decision.action, "FULL_EXIT")
 
     def test_entrada_inicial_nao_usa_saida_adicional_do_rsi50(self) -> None:
         closes = [100.0 + (index * 0.2) for index in range(60)]
@@ -309,7 +388,7 @@ class Model8XauM5Test(unittest.TestCase):
         self.assertEqual(plan.entry_price, closes[-1])
 
     def test_dashboard_materializa_reentrada_m8_com_buy_stop(self) -> None:
-        closes = [100.0 + (index * 0.2) for index in range(60)]
+        closes = [100.0 + (index * 0.2) for index in range(58)] + [112.0, 111.0]
         service = DashboardService.__new__(DashboardService)
         object.__setattr__(
             service,
@@ -381,6 +460,57 @@ class Model8XauM5Test(unittest.TestCase):
         self.assertEqual(result.status, "POSITION_CLOSED")
         self.assertEqual(provider.close_calls, 1)
         state_update.assert_called_once()
+
+    def test_position_manager_rearma_reentrada_xau_apos_saida_rsi50(self) -> None:
+        closes = [120.0 - (index * 0.2) for index in range(60)]
+        provider = _PositionProvider(_candles(closes))
+        provider.position.side = "SELL"
+        provider.position.type = 1
+        provider.position.price_open = 110.0
+        provider.position.sl = 115.0
+        base = Path(tempfile.gettempdir())
+        manager = PositionManagerService(
+            provider=provider,
+            assisted_execution_enabled=True,
+            log_path=base / "traderia-m8-reentry-position-test.jsonl",
+            state_path=base / "traderia-m8-reentry-position-state.json",
+            current_state_path=base / "traderia-m8-reentry-position-current.json",
+        )
+        plan = PositionTradePlan(
+            symbol="XAUUSD",
+            side="SELL",
+            entry=110.0,
+            stop=115.0,
+            target=100.0,
+            stop_management="M8_SMA_RSI_FULL_EXIT",
+            stop_management_parameters={"active_entry_order_type": "SELL_STOP"},
+            beta_id="BETAXAU8_RSI70_30_SMA_FULL_EXIT",
+            beta_version="M8_EXIT_V3",
+            beta_mode="FULL_EXIT_RSI70_30_CROSS_OR_SMA_INVERSION",
+            timeframe="M5",
+            operational_model=MODEL_8_ID,
+        )
+        with (
+            patch(
+                "application.model8_xau_m5_sma_rsi_reentry._wilder_rsi",
+                side_effect=(55.0, 40.0),
+            ),
+            patch(
+                "application.position_manager_service.load_model8_runtime_state",
+                return_value={},
+            ),
+            patch(
+                "application.position_manager_service.update_model8_runtime_state"
+            ) as state_update,
+        ):
+            result = manager.manage_plan(plan)
+
+        self.assertEqual(result.status, "POSITION_CLOSED")
+        self.assertEqual(provider.close_calls, 1)
+        self.assertEqual(
+            state_update.call_args.kwargs["entry_intent_side"],
+            "SELL",
+        )
 
 
 class _PositionProvider:

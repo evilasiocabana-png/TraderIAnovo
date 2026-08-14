@@ -1,5 +1,142 @@
 # Execution Log
 
+## 2026-08-13 - Cruzamento inicial e reentradas ilimitadas da familia SMA20/50
+
+- M7 permaneceu inalterado.
+- Do M8 em diante, nos modelos baseados em SMA20/50 + RSI50, primeira entrada exige
+  cruzamento novo no ultimo candle M5 fechado e os filtros proprios aprovados.
+- Tendencia ja cruzada passa ao fluxo de reentrada, sem entrada imediata a mercado.
+- Reentradas deixam de ter limite numerico: continuam exigindo posicao anterior
+  encerrada, recuo estrutural, retomada e novo candle/plano nao duplicado.
+- M23 herda o contrato da fonte e conserva como regra adicional somente o Full Exit
+  coletivo de +US$1.000 sobre as suas proprias posicoes.
+
+## 2026-08-13 - M23 passa a herdar tambem a saida dinamica da fonte
+
+- removido o bloqueio que excluia tickets M23 do Position Manager;
+- o registro da ordem M23 agora conserva modelo, politica e Beta nativos da fonte;
+- cada posicao M23 continua com SL/TP individual e volta a obedecer ao Full Exit
+  dinamico de sua origem;
+- o Full Exit coletivo de +US$1.000 permanece como regra adicional e exclusiva
+  da cesta M23;
+- 12 vendas XAUUSD/M23 antigas, abertas pelas fontes M8/M10 e ja invalidadas
+  pelo cruzamento SMA20/SMA50, foram encerradas na conta Pepperstone-Demo.
+
+## 2026-08-13 - Janela deslizante canonica de 200 velas fechadas
+
+- A janela anterior solicitava 52 registros e removia a vela atual, deixando
+  apenas 51 velas fechadas para os indicadores.
+- A auditoria de ordens confirmou `LOCAL_MT5_CANDLES_52` e encontrou leitura
+  indicadora defasada em relacao ao horario de geracao do plano.
+- O runtime agora solicita 201 registros, ordena e deduplica por timestamp,
+  exclui a vela em formacao e calcula sobre exatamente 200 fechamentos.
+- A regra foi aplicada ao fluxo principal, modelos M5, adaptadores do Lab,
+  contextos e Position Manager. Os parametros do Lab permanecem congelados.
+- A fonte nova e `LOCAL_MT5_CLOSED_CANDLES_200`; a fonte antiga permanece aceita
+  apenas para compatibilidade de auditoria de ordens legadas.
+- Testes provam que mudar a vela em formacao nao altera indicadores e que a
+  janela so desliza quando surge um novo candle.
+
+## 2026-08-12 - M23 habilitado junto com modelos diretos
+
+- criado modo persistente `MODELOS_SELECIONADOS_COM_M23`;
+- permitida selecao simultanea de fontes diretas e M23 no chaveamento;
+- cada sinal aprovado pode gerar uma ordem direta e uma copia M23 auditavel;
+- preservados entrada, SL, TP, candle e deduplicacao de cada rota;
+- mantida uma unica leitura compartilhada do universo por ciclo;
+- mantido como unica regra coletiva do M23 o Full Exit em +US$1.000 liquidos.
+
+## 2026-08-12 - M23 simplificado para Full Exit unico
+
+- removidos do caminho operacional o stop financeiro global e o trailing da cesta;
+- removido o gate de orcamento agregado dos SL antes de novas entradas;
+- mantidos os SL/TP individuais herdados de cada modelo-fonte;
+- permitidas reentradas da mesma fonte/par quando houver novo sinal executavel;
+- mantida a deduplicacao do mesmo plano no mesmo candle;
+- definida como unica zeragem coletiva o Full Exit a mercado em +US$1.000 liquidos;
+- estados persistidos pelas regras antigas sao migrados sem disparar fechamento.
+
+## 2026-08-12 - M23 acumulador financeiro
+
+- criado o roteamento exclusivo das entradas dos modelos ativos para M23;
+- preservados os gates de cada fonte e removidos SL/TP individuais da cesta;
+- implementado limite de uma posicao por modelo-fonte e par;
+- implementados stop global em -US$300 e trailing apos +US$300 com recuo de 25%;
+- definido Full Exit de toda a cesta **a mercado** ao atingir +US$1.000;
+- adicionados estado persistente, auditoria, trava de zeragem e candle novo;
+- isolado o M23 do Position Manager legado;
+- adicionados seletor, status leve e curva M23 no Relatorio;
+- validado sem envio ao MT5 real por testes automatizados.
+
+## 2026-08-12 - Retirada operacional de M3, M4, M6, M13, M14 e M15
+
+- M3, M4, M6, M13, M14 e M15 foram removidos do seletor, do radar de entrada
+  MT5 e dos graficos e filtros ativos do Relatorio.
+- O conjunto operacional passou a ser M1, M2, M5, M7, M8, M10 e M16-M22.
+- O Robo Demo e o provider rejeitam qualquer nova ordem dos modelos retirados.
+- Historico, comentarios MT5 e contratos de saida foram preservados para
+  auditoria e gestao segura de posicoes abertas antes da retirada.
+- M5 continua ativo e pode consultar evidencias historicas de M1-M4 sem
+  reativar M3 ou M4 como modelos independentes.
+- Selecionar internamente um numero retirado no filtro patrimonial agora retorna
+  zero linhas, em vez de cair no conjunto de todos os modelos ativos.
+
+## 2026-08-12 - Retirada operacional de M9, M11 e M12
+
+- M9, M11 e M12 foram removidos da selecao de modelos, do radar de entrada
+  MT5 e dos filtros e paineis individuais do Relatorio.
+- Os tres IDs foram retirados da politica de novas entradas e nao podem mais
+  produzir ordens.
+- O historico foi preservado e continua reconhecendo os comentarios M9, M11 e
+  M12 pelo numero exato, sem deslocamento causado pelas lacunas na lista ativa.
+- Posicoes legadas continuam sob gestao ate o encerramento; retirar entrada nao
+  pode abandonar uma posicao ja aberta.
+- M19, M21 e M22 permanecem ativos e independentes. Suas definicoes matematicas
+  podem consultar os contratos-base, mas nao reativam M9, M11 ou M12.
+
+## 2026-08-12 - Graficos do Relatorio vazios apos reinicio
+
+- Sintoma: a aba Relatorios mostrava posicoes abertas, mas todas as curvas
+  patrimoniais tinham zero linhas.
+- Causa: a sonda historica aguardava apenas 0,05 segundo pelo canal MT5; ao
+  falhar, o relatorio leve de `positions_get` substituia um cache ainda vazio.
+- Correcao: espera limitada de 2 segundos para a sonda completa e snapshot
+  persistente do ultimo relatorio auditado em `.traderia/runtime`.
+- Desempenho: assinatura das linhas encerradas impede regravar o snapshot de
+  aproximadamente 16 MB durante atualizacoes de preco aberto.
+- Guardrail: posicoes abertas podem atualizar o snapshot, mas nunca apagar as
+  operacoes fechadas usadas nos graficos.
+- Complemento: sessoes de navegador anteriores a correcao agora reconhecem o
+  cache leve incompleto e restauram o historico automaticamente.
+
+## 2026-08-12 - Curvas M18-M22 isoladas dos modelos legados
+
+- Sintoma: os novos paineis M18-M22 exibiam resultados dos IDs antigos que
+  reutilizavam os mesmos numeros.
+- Causa: o filtro patrimonial usava somente o numero quando nao encontrava um
+  contrato ativo protegido.
+- Correcao: M18-M22 agora exigem correspondencia com o ID operacional completo;
+  as curvas novas iniciam vazias e recebem somente negociacoes dos novos modelos.
+
+## 2026-08-12 - Reinicio obrigatorio apos alteracao de imports
+
+- Sintoma: `ImportError` para `MODEL_18_ID` mesmo com o simbolo presente no arquivo.
+- Causa: Streamlit iniciado antes da alteracao com `server.fileWatcherType=none`.
+- Correcao: encerrada somente a arvore antiga do TraderIAnovo e iniciada uma
+  instancia limpa pela rotina `scripts/abrir_traderianovo.ps1`.
+- Prevencao: manter o watcher desligado para preservar desempenho, mas reiniciar
+  o processo do app depois de qualquer implantacao que altere imports ou contratos.
+
+## 2026-08-12 - M18-M22 XAU Reentry TP75
+
+- Criados M18<-M8, M19<-M9, M20<-M10, M21<-M11 e M22<-M12.
+- M8-M12 preservados sem alteracao de contrato.
+- Entrada inicial sem TP; uma reentrada por ciclo com TP de 7,50 pontos.
+- SL estrutural e Full Exit de contingencia preservados.
+- Provider Demo passou a enviar TP na ordem pendente dos novos modelos.
+- Seletor, radar MT5 e Relatorio ampliados ate M22.
+- IDs M18-M22 antigos permanecem apenas historicos.
+
 ## 2026-08-11 - Aquecimento imediato M8-M17 com 52 velas M5
 
 - Sintoma: M13-M17 iniciavam em `AQUECENDO_0_DE_52_CANDLES` ou `Dados TF`,
@@ -1289,3 +1426,76 @@ Novas entradas devem registrar:
   de 1,25 GB para 2,66 GB.
 - Validacao: porta 8532 com HTTP 200, uma unica instancia oficial, supervisor
   de RAM ativo, terminal64 preservado e selecao operacional M8-M17 mantida.
+# 2026-08-12 - Rollover vivo e entradas teoricas M23
+
+- restauradas as tabelas individuais de entrada teorica M1-M22 abaixo do consolidado M23, reutilizando o mesmo snapshot;
+- eliminada a falsa janela de rollover de uma hora causada pelo horario do candle H1 quando a sonda do servidor estava ocupada;
+- preservado e extrapolado o ultimo horario MT5 valido entre leituras transitorias;
+- mantida a rejeicao final `Market closed` no provider MT5 para instrumentos realmente fechados;
+- validacao focada: 42 testes aprovados para Camada Tempo, Robo Demo e cesta M23.
+
+# 2026-08-13 - Pico de lucro aberto preservado no historico
+
+- adicionado rastreamento monotonicamente crescente do maior `profit` MT5 por
+  ticket aberto;
+- persistencia local leve em SQLite, sem chamada adicional ao MT5 e sem Lab;
+- historico fechado e CSV passam a informar pico e horario observado;
+- dados anteriores a implantacao permanecem `N/D`, sem estimativa artificial;
+- testes cobrem crescimento, nao regressao, tickets independentes e preservacao
+  do pico apos o fechamento.
+- auditoria posterior identificou fechamentos entre ciclos cujo resultado final
+  superava o ultimo pico amostrado; para tickets ja monitorados, o fechamento
+  agora eleva o pico ao valor realizado, sem preencher operacoes antigas.
+- o launcher passou a restaurar o terminal MT5 antes do Streamlit quando ambos
+  nao voltarem automaticamente depois de uma reinicializacao do computador.
+
+## 2026-08-13 - Reentrada XAU condicionada ao recuo estrutural M5
+
+- preservadas integralmente a primeira entrada, filtros, SL, TP e saidas;
+- SELL agora exige dois candles fechados com maxima/minima ascendentes antes de
+  armar SELL STOP na minima do ultimo candle M5 fechado;
+- BUY aplica a regra oposta e arma BUY STOP na maxima do ultimo candle fechado;
+- regra compartilhada por M8-M12, derivados M18-M22 e copias dessas fontes no M23;
+- reentrada em tendencia reta, sem recuo oposto, passou a falhar fechada.
+
+## 2026-08-13 - TP estrutural XAU no M23 e sincronismo do relogio MT5
+
+- confirmada janela deslizante com 200 velas M5 fechadas mais a atual;
+- indicadores continuam usando somente candles fechados;
+- expiracao de pendencias passou a comparar com `tick.time` do servidor MT5,
+  eliminando mistura com o UTC da maquina;
+- reentrada SELL do XAU permanece `SELL_STOP` na minima do ultimo M5 fechado
+  apos correcao ascendente; BUY aplica a regra oposta;
+- M23 usa ultimo fundo confirmado como TP do SELL e ultimo topo confirmado como
+  TP do BUY; sem estrutura valida, a rota M23 aguarda;
+- novo candle fechado pode substituir o gatilho pendente da mesma estrategia;
+- apos Full Exit RSI50 de uma reentrada, o estado volta a aguardar nova correcao
+  e nao retorna indevidamente para entrada inicial a mercado;
+- Full Exit coletivo do M23 permanece em +US$1.000 liquidos.
+# 2026-08-13 - M18-M22 com TP estrutural e Full Exit RSI50
+
+- A primeira entrada de M18-M22 permanece sem TP.
+- Reentrada BUY exige RSI14 fechado acima de 50 e recebe TP no ultimo topo M5
+  confirmado antes da correcao; SELL exige RSI14 abaixo de 50 e recebe TP no
+  ultimo fundo M5 confirmado antes da correcao.
+- Reentrada BUY executa Full Exit na perda fechada do RSI50; SELL executa Full
+  Exit na retomada fechada acima de 50. Inversao SMA20/SMA50 tambem encerra.
+- M23 herda entrada, SL, TP estrutural e Full Exit da fonte, mantendo como regra
+  adicional exclusiva a zeragem das posicoes M23 ao atingir US$ 1.000 na cesta.
+- Ordem Stop nao executada vale por um candle M5 e e substituida no fechamento
+  seguinte pelo novo extremo, sem manter gatilho antigo congelado.
+- IDs operacionais M18-M22 foram preservados para compatibilidade com historico
+  e posicoes; novos Alpha/Beta/fonte declaram explicitamente o alvo estrutural.
+
+# 2026-08-13 - Reconciliacao obrigatoria do cache operacional M5
+
+- auditoria encontrou cache persistido `LIVE` divergente do lote atual do MT5
+  depois de periodo offline, inclusive com fechamentos parciais antigos;
+- todo cache M5 restaurado passou a ser somente aquecimento e exige substituicao
+  integral pelas 201 barras do terminal antes de liberar sinal operacional;
+- o ciclo leve passou a ler a barra fechada anterior e a barra atual, corrigindo
+  o fechamento definitivo sem recalcular Lab;
+- lacuna, retorno fora de ordem ou cauda incompleta acionam recuperacao integral
+  e mantem a entrada bloqueada ate a reconciliacao;
+- adicionados testes de regressao para reinicio, fechamento parcial e retorno do
+  MT5 apos lacuna de varios candles.

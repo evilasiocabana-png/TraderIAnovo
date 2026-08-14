@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable
 
+from application.operational_indicator_window import (
+    OPERATIONAL_INDICATOR_CLOSED_CANDLES,
+    OPERATIONAL_INDICATOR_RAW_CANDLES,
+)
+
 
 MODEL_3_ID = "MODELO_3_XAU_M5_RSI50_FLIP"
 MODEL_3_SHORT_NAME = "M3"
@@ -21,7 +26,7 @@ MODEL_3_ENTRY_ORDER_TYPE = "MARKET_ON_CLOSED_M5_RSI50_AND_SMA20"
 MODEL_3_RSI_PERIOD = 14
 MODEL_3_RSI_LEVEL = 50.0
 MODEL_3_SMA_PERIOD = 20
-MODEL_3_LOOKBACK_CANDLES = 52
+MODEL_3_LOOKBACK_CANDLES = OPERATIONAL_INDICATOR_RAW_CANDLES
 MODEL_3_SWING_LEFT = 2
 MODEL_3_SWING_RIGHT = 2
 MODEL_3_STOP_BUFFER = 0.01
@@ -74,7 +79,7 @@ def evaluate_model3_entry(
             status=f"M3_AQUECENDO_{len(rows)}_DE_{minimum}_CANDLES",
             reason=(
                 f"M3 recebeu {len(rows)} de {minimum} candles M5 necessarios, "
-                "incluindo o candle atual."
+                "incluindo 200 fechados e o candle atual em formacao."
             ),
         )
     rows = rows[-MODEL_3_LOOKBACK_CANDLES:]
@@ -235,7 +240,8 @@ def model3_parameters() -> dict[str, object]:
         "rsi_period": MODEL_3_RSI_PERIOD,
         "rsi_level": MODEL_3_RSI_LEVEL,
         "sma_period": MODEL_3_SMA_PERIOD,
-        "lookback_candles": MODEL_3_LOOKBACK_CANDLES,
+        "lookback_candles": OPERATIONAL_INDICATOR_CLOSED_CANDLES,
+        "raw_candles_requested": MODEL_3_LOOKBACK_CANDLES,
         "buy_rule": "CLOSED_RSI14>50_AND_CLOSE>SMA20",
         "sell_rule": "CLOSED_RSI14<50_AND_CLOSE<SMA20",
         "neutral_rule": "CLOSED_RSI14==50_HOLD_OR_WAIT",

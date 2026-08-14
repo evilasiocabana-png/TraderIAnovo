@@ -1,5 +1,6 @@
 import inspect
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 import tempfile
@@ -395,36 +396,163 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             finally:
                 dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
 
-    def test_seletor_operacional_expoe_m1_a_m17(self) -> None:
+    def test_seletor_operacional_expoe_somente_modelos_ativos(self) -> None:
         labels = dashboard_app._mt5_operational_model_labels()
+        from domain.operational_model_policy import operational_model_number
 
         self.assertEqual(
             labels[dashboard_app.MT5_OPERATIONAL_MODEL_ALL],
-            "Todos - M1 a M17",
+            "Todos os modelos ativos",
         )
+        for model_id in dashboard_app.MT5_SELECTABLE_OPERATIONAL_MODEL_IDS:
+            self.assertIn(model_id, labels)
         self.assertEqual(
-            set(labels),
+            tuple(
+                operational_model_number(model_id)
+                for model_id in dashboard_app.MT5_SELECTABLE_OPERATIONAL_MODEL_IDS
+            ),
+            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23),
+        )
+        for restored_source in (
+            dashboard_app.MT5_OPERATIONAL_MODEL_3,
+            dashboard_app.MT5_OPERATIONAL_MODEL_4,
+            dashboard_app.MT5_OPERATIONAL_MODEL_6,
+            dashboard_app.MT5_OPERATIONAL_MODEL_9,
+            dashboard_app.MT5_OPERATIONAL_MODEL_11,
+            dashboard_app.MT5_OPERATIONAL_MODEL_12,
+            dashboard_app.MT5_OPERATIONAL_MODEL_13,
+            dashboard_app.MT5_OPERATIONAL_MODEL_14,
+            dashboard_app.MT5_OPERATIONAL_MODEL_15,
+        ):
+            self.assertNotIn(
+                restored_source,
+                dashboard_app.MT5_SELECTABLE_OPERATIONAL_MODEL_IDS,
+            )
+            self.assertIn(restored_source, labels)
+
+    def test_resumo_entrada_teorica_m23_expoe_fontes_e_gargalos(self) -> None:
+        rows = dashboard_app._model23_theoretical_entry_summary_rows(
             {
-                *dashboard_app.MT5_OPERATIONAL_MODEL_IDS,
-                dashboard_app.MT5_OPERATIONAL_MODEL_8_TO_17,
-                dashboard_app.MT5_OPERATIONAL_MODEL_ALL,
+                dashboard_app.MT5_OPERATIONAL_MODEL_1: [
+                    {"Par": "EURUSD", "Envio": "PRONTO"},
+                    {"Par": "GBPUSD", "Envio": "AGUARDA: sem gatilho"},
+                ],
+                dashboard_app.MT5_OPERATIONAL_MODEL_3: [
+                    {"Par": "XAUUSD", "Envio": "BLOQ: plano ausente"},
+                ],
+            }
+        )
+
+        self.assertEqual([row["Fonte"] for row in rows], ["M1", "M3"])
+        self.assertEqual(rows[0]["Modelo"], "M23")
+        self.assertEqual(rows[0]["Status entrada"], "PRONTO: 1")
+        self.assertEqual(rows[0]["Pares prontos"], "EURUSD")
+        self.assertEqual(rows[0]["Aguardando"], 1)
+        self.assertEqual(rows[1]["Bloqueados"], 1)
+        self.assertEqual(rows[1]["Gargalo atual"], "BLOQ: plano ausente")
+
+    def test_detalhe_entrada_teorica_m23_preserva_cada_ativo(self) -> None:
+        rows = dashboard_app._model23_theoretical_entry_detail_rows(
+            {
+                dashboard_app.MT5_OPERATIONAL_MODEL_1: [
+                    {
+                        "Par": "EURUSD",
+                        "Timeframe": "H1",
+                        "Envio": "PRONTO",
+                        "Modelo": "OK: modelo selecionado",
+                        "Sinal": "OK",
+                    },
+                    {
+                        "Par": "GBPUSD",
+                        "Timeframe": "H1",
+                        "Envio": "AGUARDA: sem gatilho",
+                        "Modelo": "OK: modelo selecionado",
+                        "Sinal": "AGUARDA",
+                    },
+                ],
+            }
+        )
+
+        m1_rows = [row for row in rows if row["Fonte"] == "M1"]
+        self.assertEqual(len(m1_rows), 2)
+        self.assertEqual([row["Par"] for row in m1_rows], ["EURUSD", "GBPUSD"])
+        self.assertEqual(m1_rows[0]["Modelo"], "M23")
+        self.assertEqual(m1_rows[0]["Fonte habilitada"], "OK: modelo selecionado")
+        self.assertIn("Sinal", m1_rows[0])
+        self.assertEqual(
+            {row["Fonte"] for row in rows},
+            {
+                f"M{number}"
+                for number in (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22)
             },
         )
-        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_3, labels)
-        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_6, labels)
-        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_7, labels)
-        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_8, labels)
-        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_9, labels)
-        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_12, labels)
-        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_16, labels)
-        self.assertIn(dashboard_app.MT5_OPERATIONAL_MODEL_17, labels)
-        self.assertNotIn(dashboard_app.MT5_OPERATIONAL_MODEL_22, labels)
 
-    def test_grupo_m8_a_m17_e_valido_e_nao_habilita_m1_a_m7(self) -> None:
+    def test_m23_habilita_somente_fontes_ativas_internamente(self) -> None:
+        from domain.operational_model_policy import operational_model_number
+
+        self.assertEqual(
+            tuple(
+                operational_model_number(model_id)
+                for model_id in dashboard_app.MT5_MODEL_23_SOURCE_MODEL_IDS
+            ),
+            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22),
+        )
+        for model_id in dashboard_app.MT5_MODEL_23_SOURCE_MODEL_IDS:
+            self.assertTrue(
+                dashboard_app._mt5_operational_model_enabled(
+                    dashboard_app.MT5_OPERATIONAL_MODEL_23,
+                    model_id,
+                )
+            )
+
+    def test_m15_e_m16_forex_expoem_todos_os_pares_no_m23(self) -> None:
+        for model_id in (
+            dashboard_app.MT5_OPERATIONAL_MODEL_15,
+            dashboard_app.MT5_OPERATIONAL_MODEL_16,
+        ):
+            rows = dashboard_app._mt5_theoretical_entry_source_rows(
+                [],
+                source_model_id=model_id,
+            )
+            self.assertEqual(len(rows), len(dashboard_app.FOREX_SMA_RSI_PAIRS))
+
+    def test_m18_a_m22_expoem_somente_xauusd_m5_no_m23(self) -> None:
+        for model_id in dashboard_app.XAU_IMPROVED_REENTRY_MODEL_IDS:
+            rows = dashboard_app._mt5_theoretical_entry_source_rows(
+                [{"Par": "EURUSD"}, {"Par": "XAUUSD"}],
+                source_model_id=model_id,
+            )
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["Par"], "XAUUSD")
+            self.assertEqual(rows[0]["Periodo de tempo"], "M5")
+
+    def test_m23_expoe_fontes_ativas_e_aparece_no_relatorio(self) -> None:
+        self.assertTrue(
+            dashboard_app._mt5_operational_model_enabled(
+                dashboard_app.MT5_OPERATIONAL_MODEL_23,
+                dashboard_app.MT5_OPERATIONAL_MODEL_1,
+            )
+        )
+        row = SimpleNamespace(
+            operational_model=(
+                "MODELO_23_BASKET_ACCUMULATOR_SOURCE_M10"
+            ),
+            plan_snapshot={},
+        )
+        self.assertEqual(
+            dashboard_app._mt5_equity_row_model_key(row),
+            "MODELO23",
+        )
+        self.assertIn(
+            "Full Exit a mercado em +US$1.000",
+            dashboard_app._mt5_equity_model_setup_summary("MODELO 23"),
+        )
+
+    def test_grupo_m8_a_m22_e_valido_e_nao_habilita_m1_a_m7(self) -> None:
         group = dashboard_app.MT5_OPERATIONAL_MODEL_8_TO_17
 
         self.assertEqual(dashboard_app._valid_mt5_operational_model(group), group)
-        self.assertEqual(dashboard_app._mt5_operational_model_short_label(group), "M8-M17")
+        self.assertEqual(dashboard_app._mt5_operational_model_short_label(group), "M8-M22")
         self.assertFalse(
             dashboard_app._mt5_operational_model_enabled(
                 group,
@@ -434,7 +562,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         for model in dashboard_app.MT5_OPERATIONAL_MODEL_8_TO_17_IDS:
             self.assertTrue(dashboard_app._mt5_operational_model_enabled(group, model))
 
-    def test_novo_m8_e_valido_e_m8_historico_retorna_para_m1(self) -> None:
+    def test_modelo_m8_e_valido_e_m12_retirado_retorna_para_m1(self) -> None:
         self.assertEqual(
             dashboard_app._valid_mt5_operational_model(
                 dashboard_app.MT5_OPERATIONAL_MODEL_8,
@@ -451,7 +579,13 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             dashboard_app._valid_mt5_operational_model(
                 dashboard_app.MT5_OPERATIONAL_MODEL_12,
             ),
-            dashboard_app.MT5_OPERATIONAL_MODEL_12,
+            dashboard_app.MT5_OPERATIONAL_MODEL_1,
+        )
+        self.assertEqual(
+            dashboard_app._valid_mt5_operational_model(
+                dashboard_app.MT5_OPERATIONAL_MODEL_10,
+            ),
+            dashboard_app.MT5_OPERATIONAL_MODEL_10,
         )
         self.assertEqual(
             dashboard_app._valid_mt5_operational_model(
@@ -466,12 +600,12 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             dashboard_app.MT5_OPERATIONAL_MODEL_1,
         )
 
-    def test_novo_m3_e_valido_e_m3_all_forex_retorna_para_m1(self) -> None:
+    def test_m3_retirado_nao_e_selecionavel(self) -> None:
         self.assertEqual(
             dashboard_app._valid_mt5_operational_model(
                 dashboard_app.MT5_OPERATIONAL_MODEL_3,
             ),
-            dashboard_app.MT5_OPERATIONAL_MODEL_3,
+            dashboard_app.MT5_OPERATIONAL_MODEL_1,
         )
         self.assertEqual(
             dashboard_app._valid_mt5_operational_model(
@@ -537,7 +671,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
     def test_aquecimento_m8_e_espera_nao_bloqueiam_trade_plan(self) -> None:
         for reason in (
             "M8_CANDLES_INSUFICIENTES",
-            "M8_AQUECENDO_0_DE_52_CANDLES",
+            "M8_AQUECENDO_0_DE_201_CANDLES",
             "M8_AGUARDA_NIVEL_RSI50_E_DIRECAO_SMA",
         ):
             gate = dashboard_app._entry_plan_gate(
@@ -649,11 +783,9 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
     def test_chaveamento_persiste_no_evento_antes_do_rerender(self) -> None:
         original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
-        labels = dashboard_app._mt5_operational_model_labels()
+        selected = dashboard_app.MT5_OPERATIONAL_MODEL_23
         session_state = {
-            dashboard_app.MT5_OPERATIONAL_MODEL_WIDGET_KEY: labels[
-                dashboard_app.MT5_OPERATIONAL_MODEL_ALL
-            ],
+            dashboard_app._mt5_operational_model_checkbox_key(selected): True,
         }
         with tempfile.TemporaryDirectory() as temp_dir:
             dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = (
@@ -661,22 +793,164 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             )
             try:
                 with patch.object(dashboard_app.st, "session_state", session_state):
-                    dashboard_app._persist_mt5_operational_model_widget_selection()
+                    dashboard_app._persist_mt5_operational_model_checkbox_selection(
+                        selected
+                    )
 
                 self.assertEqual(
                     dashboard_app._load_persisted_mt5_operational_model(),
-                    dashboard_app.MT5_OPERATIONAL_MODEL_ALL,
+                    selected,
                 )
                 self.assertEqual(
                     session_state[dashboard_app.MT5_OPERATIONAL_MODEL_KEY],
-                    dashboard_app.MT5_OPERATIONAL_MODEL_ALL,
+                    selected,
                 )
                 self.assertEqual(
                     session_state[dashboard_app.MT5_OPERATIONAL_MODEL_SYNC_KEY],
+                    selected,
+                )
+                options = (
                     dashboard_app.MT5_OPERATIONAL_MODEL_ALL,
+                    *dashboard_app.MT5_SELECTABLE_OPERATIONAL_MODEL_IDS,
+                )
+                self.assertEqual(
+                    [
+                        candidate
+                        for candidate in options
+                        if session_state[
+                            dashboard_app._mt5_operational_model_checkbox_key(
+                                candidate
+                            )
+                        ]
+                    ],
+                    [selected],
                 )
             finally:
                 dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
+
+    def test_chaveamento_permite_varios_modelos_ao_mesmo_tempo(self) -> None:
+        original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
+        model1 = dashboard_app.MT5_OPERATIONAL_MODEL_1
+        model8 = dashboard_app.MT5_OPERATIONAL_MODEL_8
+        session_state = {
+            dashboard_app._mt5_operational_model_checkbox_key(model1): True,
+            dashboard_app._mt5_operational_model_checkbox_key(model8): True,
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = (
+                Path(temp_dir) / "mt5_operational_model.json"
+            )
+            try:
+                with patch.object(dashboard_app.st, "session_state", session_state):
+                    dashboard_app._persist_mt5_operational_model_checkbox_selection(
+                        model8
+                    )
+
+                self.assertEqual(
+                    dashboard_app._load_persisted_mt5_operational_model(),
+                    dashboard_app.MT5_OPERATIONAL_MODEL_CUSTOM,
+                )
+                self.assertEqual(
+                    dashboard_app._load_persisted_mt5_operational_models(),
+                    (model1, model8),
+                )
+                self.assertTrue(
+                    dashboard_app._mt5_operational_model_enabled(
+                        dashboard_app.MT5_OPERATIONAL_MODEL_CUSTOM,
+                        model1,
+                    )
+                )
+                self.assertTrue(
+                    dashboard_app._mt5_operational_model_enabled(
+                        dashboard_app.MT5_OPERATIONAL_MODEL_CUSTOM,
+                        model8,
+                    )
+                )
+            finally:
+                dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
+
+    def test_formulario_confirma_modelos_sem_on_change_automatico(self) -> None:
+        original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
+        model1 = dashboard_app.MT5_OPERATIONAL_MODEL_1
+        model8 = dashboard_app.MT5_OPERATIONAL_MODEL_8
+        session_state = {
+            dashboard_app._mt5_operational_model_checkbox_key(
+                dashboard_app.MT5_OPERATIONAL_MODEL_ALL
+            ): False,
+            dashboard_app._mt5_operational_model_checkbox_key(model1): True,
+            dashboard_app._mt5_operational_model_checkbox_key(model8): True,
+            dashboard_app._mt5_operational_model_checkbox_key(
+                dashboard_app.MT5_OPERATIONAL_MODEL_23
+            ): False,
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = (
+                Path(temp_dir) / "mt5_operational_model.json"
+            )
+            try:
+                dashboard_app._persist_mt5_operational_model(model1)
+                with patch.object(dashboard_app.st, "session_state", session_state):
+                    selected = (
+                        dashboard_app._persist_mt5_operational_model_form_selection()
+                    )
+
+                self.assertEqual(
+                    selected,
+                    dashboard_app.MT5_OPERATIONAL_MODEL_CUSTOM,
+                )
+                self.assertEqual(
+                    dashboard_app._load_persisted_mt5_operational_models(),
+                    (model1, model8),
+                )
+            finally:
+                dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
+
+    def test_formulario_permite_m23_junto_com_modelos_diretos(self) -> None:
+        original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
+        model1 = dashboard_app.MT5_OPERATIONAL_MODEL_1
+        model8 = dashboard_app.MT5_OPERATIONAL_MODEL_8
+        session_state = {
+            dashboard_app._mt5_operational_model_checkbox_key(
+                dashboard_app.MT5_OPERATIONAL_MODEL_ALL
+            ): False,
+            dashboard_app._mt5_operational_model_checkbox_key(model1): True,
+            dashboard_app._mt5_operational_model_checkbox_key(model8): True,
+            dashboard_app._mt5_operational_model_checkbox_key(
+                dashboard_app.MT5_OPERATIONAL_MODEL_23
+            ): True,
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = (
+                Path(temp_dir) / "mt5_operational_model.json"
+            )
+            try:
+                dashboard_app._persist_mt5_operational_model(model1)
+                with patch.object(dashboard_app.st, "session_state", session_state):
+                    selected = (
+                        dashboard_app._persist_mt5_operational_model_form_selection()
+                    )
+
+                self.assertEqual(
+                    selected,
+                    dashboard_app.MT5_OPERATIONAL_MODEL_WITH_23,
+                )
+                self.assertEqual(
+                    dashboard_app._load_persisted_mt5_operational_models(),
+                    (model1, model8),
+                )
+            finally:
+                dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
+
+    def test_chaveamento_renderiza_grade_visivel_sem_lista_suspensa(self) -> None:
+        source = inspect.getsource(
+            dashboard_app._render_mt5_operational_model_selector
+        )
+
+        self.assertIn("checkbox", source)
+        self.assertIn("MT5_SELECTABLE_OPERATIONAL_MODEL_IDS", source)
+        self.assertIn("form_submit_button", source)
+        self.assertNotIn("on_change=", source)
+        self.assertNotIn("selectbox", source)
 
     def test_chaveamento_sincroniza_aba_antiga_com_estado_persistido(self) -> None:
         selected, should_persist = (
@@ -724,11 +998,11 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             dashboard_app._resolve_mt5_operational_model_for_render(
                 persisted_model=dashboard_app.MT5_OPERATIONAL_MODEL_ALL,
                 last_synced_model=dashboard_app.MT5_OPERATIONAL_MODEL_ALL,
-                widget_model=dashboard_app.MT5_OPERATIONAL_MODEL_4,
+                widget_model=dashboard_app.MT5_OPERATIONAL_MODEL_7,
             )
         )
 
-        self.assertEqual(selected, dashboard_app.MT5_OPERATIONAL_MODEL_4)
+        self.assertEqual(selected, dashboard_app.MT5_OPERATIONAL_MODEL_7)
         self.assertTrue(should_persist)
 
     def test_workbench_renderiza_layout_profissional_sem_excecoes(self) -> None:
@@ -751,6 +1025,71 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertIn("Reiniciar", self._buttons(app))
         self.assertIn("MT5 Safe Mode", self._subheaders(app))
         self.assertIn("Replay", self._navigation_labels(app))
+
+    def test_mt5_forex_exibe_todas_as_caixas_e_m23_marcado(self) -> None:
+        state_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
+        previous_state = state_path.read_bytes() if state_path.exists() else None
+        try:
+            dashboard_app._persist_mt5_operational_model(
+                dashboard_app.MT5_OPERATIONAL_MODEL_23
+            )
+            app = self._run_app()
+        finally:
+            if previous_state is None:
+                state_path.unlink(missing_ok=True)
+            else:
+                state_path.parent.mkdir(parents=True, exist_ok=True)
+                state_path.write_bytes(previous_state)
+
+        model_boxes = {
+            checkbox.label: bool(checkbox.value)
+            for checkbox in app.checkbox
+            if checkbox.label == "Todos"
+            or re.fullmatch(r"M(?:[1-9]|1\d|2[0-3])", checkbox.label)
+        }
+        self.assertEqual(
+            set(model_boxes),
+            {
+                "Todos",
+                *(f"M{number}" for number in (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23)),
+            },
+        )
+        self.assertEqual(
+            [label for label, checked in model_boxes.items() if checked],
+            ["M23"],
+        )
+
+    def test_refresh_preserva_combinacao_livre_de_modelos(self) -> None:
+        state_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
+        previous_state = state_path.read_bytes() if state_path.exists() else None
+        selected_models = (
+            dashboard_app.MT5_OPERATIONAL_MODEL_1,
+            dashboard_app.MT5_OPERATIONAL_MODEL_8,
+        )
+        try:
+            dashboard_app._persist_mt5_operational_model(
+                dashboard_app.MT5_OPERATIONAL_MODEL_CUSTOM,
+                models=selected_models,
+            )
+            app = self._run_app()
+            app.run(timeout=30)
+        finally:
+            if previous_state is None:
+                state_path.unlink(missing_ok=True)
+            else:
+                state_path.parent.mkdir(parents=True, exist_ok=True)
+                state_path.write_bytes(previous_state)
+
+        model_boxes = {
+            checkbox.label: bool(checkbox.value)
+            for checkbox in app.checkbox
+            if checkbox.label == "Todos"
+            or re.fullmatch(r"M(?:[1-9]|1\d|2[0-3])", checkbox.label)
+        }
+        self.assertEqual(
+            [label for label, checked in model_boxes.items() if checked],
+            ["M1", "M8"],
+        )
 
     def test_research_lab_exibe_ativos_mt5_e_melhor_heuristica(self) -> None:
         """Research Lab deve mostrar apenas configuracoes operacionais por padrao."""
@@ -1961,30 +2300,30 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertIn("base M13 + distancia", summaries[14])
         self.assertIn("base M13 + inclinacao", summaries[15])
         self.assertIn("ADX + distancia/ATR", summaries[16])
-        self.assertIn("ALPHA016", summaries[19])
-        self.assertIn("ALPHA015_M19_MIRROR", summaries[20])
-        self.assertIn("Espelho M9", summaries[21])
+        self.assertIn("M8 melhorado", summaries[17])
+        self.assertIn("M9 melhorado", summaries[18])
+        self.assertIn("M10 melhorado", summaries[19])
+        self.assertIn("M11 melhorado", summaries[20])
+        self.assertIn("M12 melhorado", summaries[21])
+        self.assertTrue(all("7,5" in summary for summary in summaries[17:22]))
         self.assertEqual(
             dashboard_app._mt5_equity_model_setup_summary("M1 + M2"),
             "",
         )
 
-    def test_relatorio_ativo_renderiza_paineis_individuais_m1_a_m17(self) -> None:
+    def test_relatorio_ativo_omite_modelos_retirados(self) -> None:
         source = inspect.getsource(dashboard_app._exibir_evolucao_patrimonial_mt5)
 
         self.assertEqual(
             dashboard_app.MT5_ACTIVE_REPORT_MODEL_NUMBERS,
-            tuple(range(1, 18)),
+            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23),
         )
         self.assertIn("MT5_ACTIVE_REPORT_MODEL_NUMBERS", source)
 
-    def test_relatorio_m13_a_m17_separa_contratos_forex_dos_historicos(self) -> None:
+    def test_relatorio_exibe_m16_m17_e_omite_m13_m15(self) -> None:
         active_rows = [
             SimpleNamespace(operational_model=model_id, symbol="EURUSD")
             for model_id in (
-                dashboard_app.MT5_OPERATIONAL_MODEL_13,
-                dashboard_app.MT5_OPERATIONAL_MODEL_14,
-                dashboard_app.MT5_OPERATIONAL_MODEL_15,
                 dashboard_app.MT5_OPERATIONAL_MODEL_16,
                 dashboard_app.MT5_OPERATIONAL_MODEL_17,
             )
@@ -2009,12 +2348,58 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         ]
         rows = active_rows + retired_rows
 
-        for offset, number in enumerate(range(13, 18)):
+        for number in (13, 14, 15):
+            filtered = dashboard_app._mt5_rows_for_equity_model_selection(
+                rows,
+                f"M{number}",
+            )
+            self.assertEqual(filtered, [])
+        for offset, number in enumerate((16, 17)):
             filtered = dashboard_app._mt5_rows_for_equity_model_selection(
                 rows,
                 f"M{number}",
             )
             self.assertEqual(filtered, [active_rows[offset]])
+
+    def test_relatorio_m18_a_m22_nao_mistura_ids_legados(self) -> None:
+        active_models = (
+            dashboard_app.MT5_OPERATIONAL_MODEL_18,
+            dashboard_app.MT5_OPERATIONAL_MODEL_19,
+            dashboard_app.MT5_OPERATIONAL_MODEL_20,
+            dashboard_app.MT5_OPERATIONAL_MODEL_21,
+            dashboard_app.MT5_OPERATIONAL_MODEL_22,
+        )
+        legacy_models = (
+            "MODELO_18_ALPHA014_MULTI_TIMEFRAME",
+            "MODELO_19_ALPHA015_LIQUIDITY_SPREAD",
+            "MODELO_20_ALPHA016_REVERSAL",
+            "MODELO_21_ESPELHO_M19",
+            "MODELO_22_ESPELHO_M9",
+        )
+        active_rows = [
+            SimpleNamespace(operational_model=model_id, symbol="XAUUSD")
+            for model_id in active_models
+        ]
+        legacy_rows = [
+            SimpleNamespace(operational_model=model_id, symbol="XAUUSD")
+            for model_id in legacy_models
+        ]
+        rows = active_rows + legacy_rows
+
+        for offset, number in enumerate(range(18, 23)):
+            filtered = dashboard_app._mt5_rows_for_equity_model_selection(
+                rows,
+                f"M{number}",
+            )
+            self.assertEqual(filtered, [active_rows[offset]])
+        caption = dashboard_app._mt5_equity_model_filter_caption(
+            rows,
+            active_rows,
+            "M18 + M19 + M20 + M21 + M22",
+        )
+        self.assertIn("M18: 1", caption)
+        self.assertIn("M22: 1", caption)
+        self.assertIn("M0: 5", caption)
 
     def test_resumo_em_negociacao_soma_lucros_das_operacoes_abertas(self) -> None:
         rows = [
@@ -2347,7 +2732,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(model6, [rows[5]])
         self.assertEqual(model7, [rows[6]])
 
-    def test_grafico_principal_nao_mistura_m6_m7_antigos_com_os_novos(self) -> None:
+    def test_grafico_principal_omite_m6_retirado_e_preserva_m7(self) -> None:
         rows = [
             SimpleNamespace(
                 operational_model="MODELO_6_LAB_FOREX_EXPANSION",
@@ -2372,7 +2757,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "M6 + M7",
         )
 
-        self.assertEqual(filtered, rows[:2])
+        self.assertEqual(filtered, [rows[1]])
 
     def test_curva_m3_nova_exclui_historico_do_contrato_anterior(self) -> None:
         rows = [
@@ -4699,7 +5084,10 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         def fake_loader(service):
             calls.append(service)
-            return SimpleNamespace(total_audited=len(calls))
+            return SimpleNamespace(
+                total_audited=len(calls),
+                rows=[SimpleNamespace(operation_status="FECHADA")],
+            )
 
         dashboard_app.st = fake_st
         dashboard_app._load_mt5_trade_audit_report_locked = fake_loader
@@ -4719,6 +5107,39 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             dashboard_app._mt5_report_auto_refresh_enabled = original_enabled
 
         self.assertIs(first, second)
+        self.assertEqual(len(calls), 1)
+
+    def test_relatorio_substitui_cache_leve_sem_fechamentos(self) -> None:
+        original_st = dashboard_app.st
+        original_loader = dashboard_app._load_mt5_trade_audit_report_locked
+        original_enabled = dashboard_app._mt5_report_auto_refresh_enabled
+        fake_st = self._fake_streamlit(button_clicked=False)
+        lightweight = SimpleNamespace(
+            rows=[SimpleNamespace(operation_status="ABERTA")],
+        )
+        complete = SimpleNamespace(
+            rows=[SimpleNamespace(operation_status="FECHADA")],
+        )
+        calls = []
+
+        def fake_loader(service):
+            calls.append(service)
+            return complete
+
+        dashboard_app.st = fake_st
+        dashboard_app._load_mt5_trade_audit_report_locked = fake_loader
+        dashboard_app._mt5_report_auto_refresh_enabled = lambda: False
+        try:
+            refreshed = dashboard_app._maybe_refresh_mt5_trade_audit_report(
+                SimpleNamespace(),
+                lightweight,
+            )
+        finally:
+            dashboard_app.st = original_st
+            dashboard_app._load_mt5_trade_audit_report_locked = original_loader
+            dashboard_app._mt5_report_auto_refresh_enabled = original_enabled
+
+        self.assertIs(refreshed, complete)
         self.assertEqual(len(calls), 1)
 
     def _run_app(self, selected_tab: str | None = None) -> AppTest:

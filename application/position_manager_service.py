@@ -49,12 +49,14 @@ from application.model8_xau_m5_sma_rsi_reentry import (
     update_model8_runtime_state,
 )
 from application.mt5_native_m5_indicators import load_native_m5_indicator_snapshot
+from application.operational_indicator_window import OPERATIONAL_INDICATOR_RAW_CANDLES
 from application.xau_m5_sma_rsi_model_family import (
-    XAU_TREND_FILTER_MODEL_IDS,
+    XAU_IMPROVED_REENTRY_MODEL_IDS,
+    XAU_POSITION_MANAGEMENT_MODEL_IDS as XAU_TREND_FILTER_MODEL_IDS,
     trend_filter_spec,
 )
 from application.forex_m5_sma_rsi_model_family import (
-    FOREX_SMA_RSI_MODEL_IDS,
+    FOREX_SMA_RSI_POSITION_MANAGEMENT_MODEL_IDS as FOREX_SMA_RSI_MODEL_IDS,
     evaluate_forex_sma_rsi_exit,
     forex_sma_rsi_spec,
     load_forex_sma_rsi_runtime_state,
@@ -1388,7 +1390,11 @@ class PositionManagerService:
     ) -> PositionManagerDecision:
         """M8-M12 fecham por cruzamento RSI 70/30 ou inversao SMA no M5."""
         candles = tuple(
-            self.provider.get_recent_candles(plan.symbol, MODEL_8_TIMEFRAME, 52)
+            self.provider.get_recent_candles(
+                plan.symbol,
+                MODEL_8_TIMEFRAME,
+                OPERATIONAL_INDICATOR_RAW_CANDLES,
+            )
             or ()
         )
         operational_model = str(plan.operational_model or "").upper()
@@ -1425,7 +1431,22 @@ class PositionManagerService:
             runtime = load_model8_runtime_state(
                 operational_model=operational_model,
             )
-            if str(runtime.get("entry_intent_side") or ""):
+            if operational_model in XAU_IMPROVED_REENTRY_MODEL_IDS:
+                changes = {
+                    "entry_intent_side": "",
+                    "entry_intent_kind": "",
+                    "signal_cycle_side": snapshot.side,
+                    "last_entry_kind": "REENTRY" if reentry_position else "INITIAL",
+                    "initial_entry_consumed": True,
+                    "reentry_consumed": (
+                        True if reentry_position else bool(runtime.get("reentry_consumed"))
+                    ),
+                }
+                update_model8_runtime_state(
+                    operational_model=operational_model,
+                    **changes,
+                )
+            elif str(runtime.get("entry_intent_side") or ""):
                 update_model8_runtime_state(
                     entry_intent_side="",
                     entry_intent_kind="",
@@ -1874,10 +1895,27 @@ class PositionManagerService:
                 rsi_exit = decision.state in {
                     "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
                     "M8_EXIT_RSI30_CRUZOU_PARA_CIMA_SELL",
+                    "M8_REENTRY_EXIT_RSI50_CRUZOU_PARA_BAIXO_BUY",
+                    "M8_REENTRY_EXIT_RSI50_CRUZOU_PARA_CIMA_SELL",
                 }
                 update_model8_runtime_state(
                     entry_intent_side=snapshot.side if rsi_exit else "",
                     entry_intent_kind="REENTRY_AFTER_RSI_EXTREME_EXIT" if rsi_exit else "",
+                    initial_entry_consumed=(
+                        True
+                        if operational_model in XAU_IMPROVED_REENTRY_MODEL_IDS
+                        else None
+                    ),
+                    reentry_consumed=(
+                        False
+                        if operational_model in XAU_IMPROVED_REENTRY_MODEL_IDS and rsi_exit
+                        else None
+                    ),
+                    last_entry_kind=(
+                        "INITIAL_EXIT"
+                        if operational_model in XAU_IMPROVED_REENTRY_MODEL_IDS and rsi_exit
+                        else None
+                    ),
                     last_exit_status=decision.state,
                     last_exit_reason=decision.final_exit_reason,
                     operational_model=operational_model,

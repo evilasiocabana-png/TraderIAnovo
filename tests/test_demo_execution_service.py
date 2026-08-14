@@ -8,7 +8,7 @@ from application.demo_execution_service import (
     DemoExecutionPolicy,
     DemoExecutionService,
 )
-from application.dashboard_service import DashboardService
+from application.dashboard_service import DashboardService, MT5_OPERATIONAL_MODEL_23
 from application.dashboard_view_model import (
     DashboardMT5ForexSignalRowViewModel,
     DashboardMT5HeuristicResearchRowViewModel,
@@ -29,6 +29,36 @@ from research.mt5_research_trade_plan import MT5ResearchTradePlan
 
 class DemoExecutionServiceTest(unittest.TestCase):
     """Valida travas obrigatorias antes do provider demo."""
+
+    def test_m23_percorre_todos_os_pares_em_uma_unica_passagem(self) -> None:
+        service = DashboardService()
+        service.mt5_market_data_service.latest_forex_signal_dashboard = (
+            self._forex_dashboard(include_multiple_pairs=True)
+        )
+        calls: list[tuple[str, str]] = []
+        expected = service.last_demo_robot_status
+        object.__setattr__(
+            service,
+            "get_mt5_operational_model",
+            lambda: MT5_OPERATIONAL_MODEL_23,
+        )
+        object.__setattr__(
+            service,
+            "evaluate_armed_demo_robot_once",
+            lambda pair, timeframe: calls.append((pair, timeframe)) or expected,
+        )
+        os.environ["TRADERIA_DEMO_EXECUTION_ENABLED"] = "1"
+
+        try:
+            result = service.run_demo_robot_for_all(
+                ["EURUSD", "GBPUSD", "USDJPY"],
+                "H1",
+            )
+        finally:
+            os.environ.pop("TRADERIA_DEMO_EXECUTION_ENABLED", None)
+
+        self.assertIs(result, expected)
+        self.assertEqual(calls, [("TODOS", "H1")])
 
     def test_prepara_ordem_depois_de_decision_pipeline_e_risco(self) -> None:
         service = DemoExecutionService(provider=_AcceptingProvider())

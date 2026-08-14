@@ -24,6 +24,7 @@ from application.lab_operational_model_service import (
     OFFICIAL_ALPHA_MODEL_SPECS,
     SUPPORTED_FOREX_PAIRS,
 )
+from application.operational_indicator_window import OPERATIONAL_INDICATOR_RAW_CANDLES
 
 
 class LabOperationalModelServiceTest(unittest.TestCase):
@@ -282,7 +283,7 @@ class LabOperationalModelServiceTest(unittest.TestCase):
                     current_price=1.201,
                 )
 
-            self.assertEqual(normalize.call_count, len(candles))
+            self.assertEqual(normalize.call_count, OPERATIONAL_INDICATOR_RAW_CANDLES)
 
     def test_manifest_block_is_a_hard_runtime_block(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -299,6 +300,33 @@ class LabOperationalModelServiceTest(unittest.TestCase):
 
         self.assertFalse(decision.ready)
         self.assertEqual(decision.status, "BLOCKED_BY_EXECUTABLE_PARITY")
+
+    def test_m23_override_bypasses_only_the_demo_forward_parity_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "manifest.json"
+            self._write_manifest(manifest, enabled=False)
+            service = LabOperationalModelService(manifest_path=manifest)
+
+            direct = service.evaluate(
+                model_id=MODEL_2_ID,
+                pair="EURUSD",
+                candles_by_market={},
+                current_price=1.2,
+            )
+            routed_by_m23 = service.evaluate(
+                model_id=MODEL_2_ID,
+                pair="EURUSD",
+                candles_by_market={},
+                current_price=1.2,
+                demo_forward_override=True,
+            )
+
+        self.assertEqual(direct.status, "BLOCKED_BY_EXECUTABLE_PARITY")
+        self.assertNotEqual(
+            routed_by_m23.status,
+            "BLOCKED_BY_EXECUTABLE_PARITY",
+        )
+        self.assertFalse(routed_by_m23.ready)
 
     def test_m5_m1_source_delegates_to_the_official_lab_plan(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

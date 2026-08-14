@@ -14,7 +14,7 @@ from typing import Any
 from core.configuration_manager import ConfigurationManager
 from core.event_bus import EventBus
 from core.events import NEW_CANDLE
-from core.mt5_process_probe import resolve_mt5_terminal_path
+from core.mt5_process_probe import resolve_mt5_terminal_path, terminate_process_tree
 from core.mt5_external_process_gate import mt5_external_process_slot
 from domain.candle import Candle
 
@@ -979,10 +979,7 @@ finally:
                 stdout, stderr = process.communicate(timeout=timeout_seconds)
             except subprocess.TimeoutExpired:
                 if process is not None:
-                    try:
-                        process.kill()
-                    except OSError:
-                        pass
+                    terminate_process_tree(process)
                 return {
                     "ok": False,
                     "message": (

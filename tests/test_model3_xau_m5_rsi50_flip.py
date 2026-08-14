@@ -30,9 +30,10 @@ from domain.operational_model_policy import (
 
 
 def candles(closes: list[float]) -> list[dict[str, object]]:
+    closes = [closes[0]] * max(201 - len(closes), 0) + list(closes)
     return [
         {
-            "time": f"2026-08-11 10:{index:02d}",
+            "time": f"2026-08-{index // 288 + 1:02d} {(index % 288) // 12:02d}:{(index % 12) * 5:02d}",
             "open": close,
             "high": close + 1.0,
             "low": close - 1.0,
@@ -46,8 +47,8 @@ class Model3XauM5Rsi50FlipTests(unittest.TestCase):
     def test_identity_scope_and_retirement_are_isolated(self) -> None:
         self.assertEqual(MODEL_3_SYMBOL, "XAUUSD")
         self.assertEqual(MODEL_3_TIMEFRAME, "M5")
-        self.assertTrue(is_active_operational_model(MODEL_3_ID))
-        self.assertFalse(is_retired_operational_model(MODEL_3_ID))
+        self.assertFalse(is_active_operational_model(MODEL_3_ID))
+        self.assertTrue(is_retired_operational_model(MODEL_3_ID))
         self.assertFalse(is_active_operational_model(HISTORICAL_MODEL_3_ID))
         self.assertTrue(is_retired_operational_model(HISTORICAL_MODEL_3_ID))
 
@@ -90,7 +91,7 @@ class Model3XauM5Rsi50FlipTests(unittest.TestCase):
         self.assertEqual(parameters["buy_rule"], "CLOSED_RSI14>50_AND_CLOSE>SMA20")
         self.assertEqual(parameters["sell_rule"], "CLOSED_RSI14<50_AND_CLOSE<SMA20")
         self.assertEqual(parameters["sma_period"], 20)
-        self.assertEqual(parameters["lookback_candles"], 52)
+        self.assertEqual(parameters["lookback_candles"], 200)
         self.assertTrue(parameters["reverse_after_full_exit"])
         self.assertFalse(parameters["take_profit_enabled"])
 

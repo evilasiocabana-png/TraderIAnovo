@@ -3,6 +3,10 @@
 import unittest
 
 from application.demo_execution_service import DemoExecutionService
+from application.model23_basket_accumulator import (
+    MODEL_23_ENTRY_SOURCE,
+    model23_variant_id,
+)
 from application.mt5_demo_robot_service import (
     MT5DemoRobotService,
     MT5DemoRobotSignal,
@@ -126,6 +130,38 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
             "MODELO_2_ESPELHO_BETA2_RR1",
         )
 
+    def test_m23_executa_entrada_com_sl_tp_individuais_da_fonte(self) -> None:
+        provider = _AcceptingProvider()
+        service = MT5DemoRobotService(
+            execution_service=DemoExecutionService(provider=provider),
+            enabled=True,
+        )
+        model = model23_variant_id("MODELO_1_ALPHA_ATUAL")
+        signal = MT5DemoRobotSignal(
+            **{
+                **self._signal("BUY").__dict__,
+                "operational_model": model,
+                "trend": "INDEFINIDA",
+            }
+        )
+        plan = MT5DemoTradePlan(
+            **{
+                **self._plan("BUY").__dict__,
+                "source": MODEL_23_ENTRY_SOURCE,
+                "operational_model": model,
+                "stop_management_parameters": {
+                    "source_operational_model": "MODELO_1_ALPHA_ATUAL",
+                },
+            }
+        )
+
+        result = service.evaluate_once(signal, plan)
+
+        self.assertEqual(result.status, "EXECUTED")
+        self.assertEqual(len(provider.orders), 1)
+        self.assertEqual(provider.orders[0].stop, plan.stop)
+        self.assertEqual(provider.orders[0].target, plan.target)
+
     def test_plano_stale_consumir_candle_para_nao_repetir_rejeicao(self) -> None:
         provider = _RejectingProvider(
             ExecutionResult(
@@ -217,7 +253,7 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
         self.assertFalse(result.executed)
         self.assertEqual(provider.orders, [])
 
-    def test_modelo4_herda_o_gate_de_regime_do_modelo1(self) -> None:
+    def test_modelo4_retirado_bloqueia_antes_do_gate_de_regime(self) -> None:
         provider = _AcceptingProvider()
         service = MT5DemoRobotService(
             execution_service=DemoExecutionService(provider=provider),
@@ -246,7 +282,7 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
 
         result = service.evaluate_once(signal, plan)
 
-        self.assertEqual(result.status, "REGIME_INDEFINIDO")
+        self.assertEqual(result.status, "MODEL_RETIRED")
         self.assertFalse(result.executed)
         self.assertEqual(provider.orders, [])
 

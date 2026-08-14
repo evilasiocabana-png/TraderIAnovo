@@ -1,5 +1,16 @@
 # Protocolo de Criacao de Modelo Operacional
 
+## Extensao: variante com reentrada limitada
+
+Quando um novo modelo reutilizar outro e alterar apenas a reentrada, o contrato
+deve registrar separadamente: modelo de origem, entrada inicial, condicao que arma
+a reentrada, tipo da ordem pendente, alvo exclusivo da reentrada, fallback de
+saida e quantidade maxima de reentradas por ciclo. O provider nao pode classificar
+o modelo inteiro como `sem TP`: a decisao depende de `active_entry_order_type`.
+
+M18-M22 sao a referencia implementada desse padrao. Consulte
+`OPERATIONAL_MODELS_M18_M22_XAU_REENTRY_TP75.md`.
+
 Data: 2026-07-16
 Projeto: TraderIA Novo
 Status: protocolo operacional e retrospectiva de aprendizado
@@ -12,6 +23,14 @@ Registrar o processo correto para criar novos modelos operacionais no TraderIA N
 Este protocolo existe para que proximos modelos sejam criados com menos retrabalho, menos ambiguidade e menor risco de quebrar a operacao atual.
 
 Um modelo operacional e um fluxo completo de entrada e saida que pode coexistir com outros modelos no mesmo par, desde que respeite os contratos do sistema.
+
+## Extensao: modelo acumulador financeiro
+
+Quando um modelo agrega entradas de outros modelos, como o M23, o protocolo
+tambem exige: lista explicita de fontes ativas, selecao exclusiva, identidade por
+fonte e par, separacao dos SL/TP originais, estado persistente da cesta, trava de
+nova rodada, formula financeira com custos expostos e fechamento ticket por
+ticket. Consulte `OPERATIONAL_MODEL_23_ACCUMULATOR.md`.
 
 ## Pesquisa Historica De Stop E Alvo Antes Da Promocao
 

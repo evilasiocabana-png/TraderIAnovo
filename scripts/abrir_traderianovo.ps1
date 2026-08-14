@@ -34,6 +34,27 @@ function Test-TraderIAHealth {
     return $LASTEXITCODE -eq 0 -and "$response".Trim().ToLowerInvariant() -eq "ok"
 }
 
+function Start-TraderIAMT5 {
+    $terminal = Get-Process -Name "terminal64" -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($null -ne $terminal) {
+        return
+    }
+    if (-not (Test-Path -LiteralPath $mt5Path)) {
+        return
+    }
+    Start-Process `
+        -FilePath $mt5Path `
+        -WorkingDirectory (Split-Path -Parent $mt5Path) `
+        -WindowStyle Hidden
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        if (Get-Process -Name "terminal64" -ErrorAction SilentlyContinue) {
+            break
+        }
+        Start-Sleep -Seconds 1
+    }
+}
+
 function Get-TraderIACloudflaredProcesses {
     return @(
         Get-CimInstance Win32_Process -Filter "Name='cloudflared.exe'" `
@@ -135,6 +156,8 @@ if ((Test-TraderIAPort) -and -not (Test-TraderIAHealth)) {
     }
     Start-Sleep -Seconds 2
 }
+
+Start-TraderIAMT5
 
 if (-not (Test-TraderIAHealth)) {
     $env:TRADERIA_DEMO_EXECUTION_ENABLED = "1"

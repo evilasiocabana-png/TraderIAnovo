@@ -239,9 +239,12 @@ class MT5MarketDataProviderTest(unittest.TestCase):
                 "infrastructure.market_data.mt5_market_data_provider.subprocess.Popen",
                 return_value=process,
             ):
-                result = provider._external_mt5_call("server_time", symbol="EURUSD")
+                with patch(
+                    "infrastructure.market_data.mt5_market_data_provider.terminate_process_tree"
+                ) as terminate:
+                    result = provider._external_mt5_call("server_time", symbol="EURUSD")
 
-        process.kill.assert_called_once_with()
+        terminate.assert_called_once_with(process)
         self.assertFalse(result["ok"])
         self.assertIn("Timeout de 1s", result["message"])
 

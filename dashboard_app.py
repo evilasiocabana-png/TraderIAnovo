@@ -24,6 +24,7 @@ from domain.market_universe import (
     MODEL_6_FOREX_EXPANSION_PAIRS,
     MODEL_7_ALTERNATIVE_MARKETS,
 )
+from domain.operational_model_policy import operational_model_number
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -40,7 +41,7 @@ from application.lab_operational_model_service import (
     MODEL_8_ID as MT5_HISTORICAL_MODEL_8,
     MODEL_9_ID as MT5_HISTORICAL_MODEL_9,
     MODEL_10_ID as MT5_HISTORICAL_MODEL_10,
-    MODEL_22_ID as MT5_OPERATIONAL_MODEL_22,
+    MODEL_22_ID as MT5_HISTORICAL_MODEL_22,
 )
 from application.model6_original_trend_momentum import (
     MODEL_6_BETA_ID,
@@ -96,12 +97,21 @@ from application.model8_xau_m5_sma_rsi_reentry import (
     MODEL_8_STOP_MANAGEMENT,
     model8_parameters,
 )
+from application.model23_basket_accumulator import (
+    MODEL_23_ID as MT5_OPERATIONAL_MODEL_23,
+)
 from application.xau_m5_sma_rsi_model_family import (
     MODEL_9_ID as MT5_OPERATIONAL_MODEL_9,
     MODEL_10_ID as MT5_OPERATIONAL_MODEL_10,
     MODEL_11_ID as MT5_OPERATIONAL_MODEL_11,
     MODEL_12_ID as MT5_OPERATIONAL_MODEL_12,
-    XAU_TREND_FILTER_MODEL_IDS,
+    MODEL_18_ID as MT5_OPERATIONAL_MODEL_18,
+    MODEL_19_ID as MT5_OPERATIONAL_MODEL_19,
+    MODEL_20_ID as MT5_OPERATIONAL_MODEL_20,
+    MODEL_21_ID as MT5_OPERATIONAL_MODEL_21,
+    MODEL_22_ID as MT5_OPERATIONAL_MODEL_22,
+    XAU_IMPROVED_REENTRY_MODEL_IDS,
+    XAU_POSITION_MANAGEMENT_MODEL_IDS as XAU_TREND_FILTER_MODEL_IDS,
     trend_filter_spec,
     xau_trend_filter_parameters,
 )
@@ -124,11 +134,15 @@ from application.forex_m5_sma_rsi_model_family import (
     MODEL_15_ID as MT5_OPERATIONAL_MODEL_15,
     MODEL_16_ID as MT5_OPERATIONAL_MODEL_16,
     MODEL_17_ID as MT5_OPERATIONAL_MODEL_17,
-    FOREX_SMA_RSI_MODEL_IDS,
+    FOREX_SMA_RSI_POSITION_MANAGEMENT_MODEL_IDS as FOREX_SMA_RSI_MODEL_IDS,
     FOREX_SMA_RSI_PAIRS,
     evaluate_forex_sma_rsi_entry,
     forex_sma_rsi_spec,
     load_forex_sma_rsi_runtime_state,
+)
+from application.operational_indicator_window import (
+    OPERATIONAL_INDICATOR_CLOSED_CANDLES,
+    OPERATIONAL_INDICATOR_RAW_CANDLES,
 )
 from application.dashboard_view_model import (
     DASHBOARD_VIEW_MODEL_CONTRACT_VERSION,
@@ -213,7 +227,10 @@ MT5_ENTRY_FILTER_MODE_KEY = "mt5_entry_filter_mode"
 MT5_ENTRY_FILTER_RULES_CACHE_KEY = "mt5_entry_filter_rules_cache"
 MT5_OPERATIONAL_MODEL_KEY = "mt5_operational_model"
 MT5_OPERATIONAL_MODEL_WIDGET_KEY = "mt5_operational_model_selector"
+MT5_OPERATIONAL_MODEL_CHECKBOX_PREFIX = "mt5_operational_model_checkbox"
 MT5_OPERATIONAL_MODEL_SYNC_KEY = "mt5_operational_model_last_synced"
+MT5_OPERATIONAL_MODEL_FORM_KEY = "mt5_operational_model_form"
+MT5_OPERATIONAL_MODEL_REVISION_KEY = "mt5_operational_model_revision"
 MT5_MODEL_INDICATOR_PREVIOUS_VALUES_KEY = "mt5_model_indicator_previous_values"
 MT5_LAB_RR3_EXPERIMENTAL_SNAPSHOT_KEY = "mt5_lab_rr3_experimental_snapshot"
 MT5_LAB_REPLAY_PROOF_KEY = "mt5_lab_replay_proof"
@@ -250,7 +267,10 @@ MT5_RR3_MIN_CONFIDENCE = 0.50
 MT5_RR3_MIN_SCORE = 0.60
 MT5_OPERATIONAL_MODEL_1 = "MODELO_1_ALPHA_ATUAL"
 MT5_OPERATIONAL_MODEL_ALL = "TODOS_MODELOS"
-MT5_OPERATIONAL_MODEL_8_TO_17 = "MODELOS_8_A_17"
+MT5_OPERATIONAL_MODEL_CUSTOM = "MODELOS_SELECIONADOS"
+MT5_OPERATIONAL_MODEL_WITH_23 = "MODELOS_SELECIONADOS_COM_M23"
+MT5_OPERATIONAL_MODEL_8_TO_22 = "MODELOS_8_A_22"
+MT5_OPERATIONAL_MODEL_8_TO_17 = MT5_OPERATIONAL_MODEL_8_TO_22
 MT5_LAB_OPERATIONAL_MODELS = {
     MT5_OPERATIONAL_MODEL_2,
     MT5_OPERATIONAL_MODEL_4,
@@ -279,21 +299,56 @@ MT5_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_15,
     MT5_OPERATIONAL_MODEL_16,
     MT5_OPERATIONAL_MODEL_17,
+    MT5_OPERATIONAL_MODEL_18,
+    MT5_OPERATIONAL_MODEL_19,
+    MT5_OPERATIONAL_MODEL_20,
+    MT5_OPERATIONAL_MODEL_21,
+    MT5_OPERATIONAL_MODEL_22,
+    MT5_OPERATIONAL_MODEL_23,
 )
-MT5_OPERATIONAL_MODEL_8_TO_17_IDS = (
+MT5_ACTIVE_SOURCE_MODEL_IDS = (
+    MT5_OPERATIONAL_MODEL_1,
+    MT5_OPERATIONAL_MODEL_2,
+    MT5_OPERATIONAL_MODEL_5,
+    MT5_OPERATIONAL_MODEL_7,
     MT5_OPERATIONAL_MODEL_8,
-    MT5_OPERATIONAL_MODEL_9,
     MT5_OPERATIONAL_MODEL_10,
+    MT5_OPERATIONAL_MODEL_16,
+    MT5_OPERATIONAL_MODEL_17,
+    MT5_OPERATIONAL_MODEL_18,
+    MT5_OPERATIONAL_MODEL_19,
+    MT5_OPERATIONAL_MODEL_20,
+    MT5_OPERATIONAL_MODEL_21,
+    MT5_OPERATIONAL_MODEL_22,
+)
+MT5_SELECTABLE_OPERATIONAL_MODEL_IDS = (
+    *MT5_ACTIVE_SOURCE_MODEL_IDS,
+    MT5_OPERATIONAL_MODEL_23,
+)
+MT5_MODEL_23_SOURCE_MODEL_IDS = MT5_ACTIVE_SOURCE_MODEL_IDS
+MT5_OPERATIONAL_MODEL_8_TO_22_IDS = (
+    MT5_OPERATIONAL_MODEL_8,
+    MT5_OPERATIONAL_MODEL_10,
+    MT5_OPERATIONAL_MODEL_16,
+    MT5_OPERATIONAL_MODEL_17,
+    MT5_OPERATIONAL_MODEL_18,
+    MT5_OPERATIONAL_MODEL_19,
+    MT5_OPERATIONAL_MODEL_20,
+    MT5_OPERATIONAL_MODEL_21,
+    MT5_OPERATIONAL_MODEL_22,
+)
+MT5_OPERATIONAL_MODEL_8_TO_17_IDS = MT5_OPERATIONAL_MODEL_8_TO_22_IDS
+from core.jsonl_tail import read_last_text_lines
+MT5_RETIRED_OPERATIONAL_MODEL_IDS = (
+    MT5_OPERATIONAL_MODEL_3,
+    MT5_OPERATIONAL_MODEL_4,
+    MT5_OPERATIONAL_MODEL_6,
+    MT5_OPERATIONAL_MODEL_9,
     MT5_OPERATIONAL_MODEL_11,
     MT5_OPERATIONAL_MODEL_12,
     MT5_OPERATIONAL_MODEL_13,
     MT5_OPERATIONAL_MODEL_14,
     MT5_OPERATIONAL_MODEL_15,
-    MT5_OPERATIONAL_MODEL_16,
-    MT5_OPERATIONAL_MODEL_17,
-)
-from core.jsonl_tail import read_last_text_lines
-MT5_RETIRED_OPERATIONAL_MODEL_IDS = (
     MT5_HISTORICAL_MODEL_3,
     MT5_HISTORICAL_ALL_FOREX_MODEL_3,
     MT5_HISTORICAL_MODEL_8,
@@ -309,7 +364,7 @@ MT5_RETIRED_OPERATIONAL_MODEL_IDS = (
     MT5_HISTORICAL_XAU_MODEL_15,
     MT5_HISTORICAL_XAU_MODEL_16,
     *OFFICIAL_ALPHA_MODEL_IDS,
-    MT5_OPERATIONAL_MODEL_22,
+    MT5_HISTORICAL_MODEL_22,
 )
 MT5_HISTORICAL_OPERATIONAL_MODEL_IDS = (
     *MT5_OPERATIONAL_MODEL_IDS,
@@ -326,10 +381,14 @@ LEGACY_MT5_OPERATIONAL_MODELS = {
     MODEL_6_LEGACY_ID: MT5_OPERATIONAL_MODEL_6,
     MT5_HISTORICAL_MODEL_6: MT5_OPERATIONAL_MODEL_6,
     MT5_HISTORICAL_MODEL_7: MT5_OPERATIONAL_MODEL_7,
+    "MODELOS_8_A_17": MT5_OPERATIONAL_MODEL_8_TO_22,
 }
 MT5_OPERATIONAL_MODEL_5_ENTRY_TIMEFRAME = "M5"
 MT5_OPERATIONAL_MODEL_STATE_PATH = Path(".traderia") / "mt5_operational_model.json"
-MT5_ACTIVE_REPORT_MODEL_NUMBERS = tuple(range(1, 18))
+MT5_MODEL23_BASKET_STATE_PATH = Path(".traderia") / "model23_basket_state.json"
+MT5_ACTIVE_REPORT_MODEL_NUMBERS = (
+    1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23,
+)
 MT5_DEMO_ROBOT_ONLINE_STATE_PATH = (
     Path(".traderia") / "mt5_demo_robot_online_state.json"
 )
@@ -813,6 +872,22 @@ def _apply_persisted_operational_model_to_service(service: DashboardService) -> 
         return
     model = str(payload.get("model") or "").strip().upper()
     if not model:
+        return
+    models = tuple(
+        str(item or "").strip().upper()
+        for item in list(payload.get("models") or [])
+        if str(item or "").strip().upper() in MT5_MODEL_23_SOURCE_MODEL_IDS
+    )
+    multi_setter = getattr(service, "set_mt5_operational_models", None)
+    if callable(multi_setter) and models:
+        multi_setter(
+            models,
+            basket_mode=model in {
+                MT5_OPERATIONAL_MODEL_23,
+                MT5_OPERATIONAL_MODEL_WITH_23,
+            },
+            direct_models_enabled=model != MT5_OPERATIONAL_MODEL_23,
+        )
         return
     setter = getattr(service, "set_mt5_operational_model", None)
     if callable(setter):
@@ -1671,7 +1746,11 @@ def _maybe_refresh_mt5_trade_audit_report(
     force: bool = False,
 ) -> object | None:
     guard = get_runtime_guard_service()
-    if not force and cached_report is not None:
+    cache_is_incomplete = (
+        cached_report is not None
+        and not _mt5_trade_audit_report_has_closed_rows(cached_report)
+    )
+    if not force and cached_report is not None and not cache_is_incomplete:
         if not _mt5_report_auto_refresh_enabled():
             return cached_report
         now = time.monotonic()
@@ -1693,6 +1772,16 @@ def _maybe_refresh_mt5_trade_audit_report(
     guard.mark_cycle_completed("report_refresh", now=now)
     st.session_state[MT5_REPORT_LAST_AUTO_LOAD_KEY] = now
     return report
+
+
+def _mt5_trade_audit_report_has_closed_rows(report: object) -> bool:
+    """Distingue o snapshot completo da leitura leve de posicoes abertas."""
+    open_statuses = {"ABERTA", "ORDEM_ABERTA"}
+    return any(
+        str(getattr(row, "operation_status", "") or "").upper()
+        not in open_statuses
+        for row in list(getattr(report, "rows", []) or [])
+    )
 
 
 def get_dashboard_view_model_or_stop(service: DashboardService) -> object:
@@ -2277,98 +2366,251 @@ def _mt5_operational_model_labels() -> dict[str, str]:
     labels = {
         MT5_OPERATIONAL_MODEL_1: "Modelo 1 - Lab oficial",
         MT5_OPERATIONAL_MODEL_2: "Modelo 2 - Trend Pullback M15/H1",
-        MT5_OPERATIONAL_MODEL_3: "Modelo 3 - XAUUSD M5 RSI14/50 + SMA20",
-        MT5_OPERATIONAL_MODEL_4: "Modelo 4 - contexto M30/H1/H4",
+        MT5_OPERATIONAL_MODEL_3: "Modelo 3 - XAU M5 RSI50",
+        MT5_OPERATIONAL_MODEL_4: "Modelo 4 - Lab contextual MTF",
         MT5_OPERATIONAL_MODEL_5: "Modelo 5 - consolidado M1-M4",
-        MT5_OPERATIONAL_MODEL_6: "Modelo 6 - Lab Forex expandido",
+        MT5_OPERATIONAL_MODEL_6: "Modelo 6 - expansao Forex Lab",
         MT5_OPERATIONAL_MODEL_7: "Modelo 7 - Lab Ouro e Bitcoin",
         MT5_OPERATIONAL_MODEL_8: "Modelo 8 - XAUUSD M5 SMA20/50 + RSI14",
-        MT5_OPERATIONAL_MODEL_9: "Modelo 9 - Setup B: M8 + ADX14",
+        MT5_OPERATIONAL_MODEL_9: "Modelo 9 - XAUUSD M5 + ADX",
         MT5_OPERATIONAL_MODEL_10: "Modelo 10 - Setup C: M8 + distancia/ATR",
-        MT5_OPERATIONAL_MODEL_11: "Modelo 11 - Setup D: M8 + inclinacao SMA50",
-        MT5_OPERATIONAL_MODEL_12: "Modelo 12 - Setup E: filtros combinados",
-        MT5_OPERATIONAL_MODEL_13: "Modelo 13 - Forex Setup A: SMA/RSI",
-        MT5_OPERATIONAL_MODEL_14: "Modelo 14 - Forex Setup B: + ADX",
-        MT5_OPERATIONAL_MODEL_15: "Modelo 15 - Forex Setup C: + distancia/ATR",
+        MT5_OPERATIONAL_MODEL_11: "Modelo 11 - XAUUSD M5 + inclinacao SMA50",
+        MT5_OPERATIONAL_MODEL_12: "Modelo 12 - XAUUSD M5 filtros combinados",
+        MT5_OPERATIONAL_MODEL_13: "Modelo 13 - Forex M5 reentrada",
+        MT5_OPERATIONAL_MODEL_14: "Modelo 14 - Forex M5 + ADX",
+        MT5_OPERATIONAL_MODEL_15: "Modelo 15 - Forex M5 distancia/ATR",
         MT5_OPERATIONAL_MODEL_16: "Modelo 16 - Forex Setup D: + inclinacao SMA50",
         MT5_OPERATIONAL_MODEL_17: "Modelo 17 - Forex Setup E: filtros combinados",
+        MT5_OPERATIONAL_MODEL_23: "Modelo 23 - acumulador financeiro",
     }
-    labels[MT5_OPERATIONAL_MODEL_8_TO_17] = "Modelos 8 a 17 - XAU + Forex M5"
-    labels[MT5_OPERATIONAL_MODEL_ALL] = "Todos - M1 a M17"
+    for model_id in XAU_IMPROVED_REENTRY_MODEL_IDS:
+        spec = trend_filter_spec(model_id)
+        if spec is not None:
+            labels[model_id] = (
+                f"Modelo {spec.number} - M{spec.number - 10} melhorado, "
+                "TP 7,5 so na reentrada"
+            )
+    labels[MT5_OPERATIONAL_MODEL_8_TO_22] = "Modelos M8-M22"
+    labels[MT5_OPERATIONAL_MODEL_ALL] = "Todos os modelos ativos"
     return labels
 
 
-def _persist_mt5_operational_model_widget_selection() -> None:
-    """Grava o chaveamento antes do rerender pesado do painel MT5."""
+def _mt5_operational_model_checkbox_key(model: str) -> str:
+    number = operational_model_number(model)
+    suffix = f"m{number}" if number is not None else "todos"
+    return f"{MT5_OPERATIONAL_MODEL_CHECKBOX_PREFIX}_{suffix}"
+
+
+def _persist_mt5_operational_model_checkbox_selection(model: str) -> None:
+    """Persiste modelos diretos e M23 como selecoes independentes."""
     _mark_ui_critical_interaction()
-    labels_to_models = {
-        label: model for model, label in _mt5_operational_model_labels().items()
-    }
-    selected_label = str(
-        st.session_state.get(MT5_OPERATIONAL_MODEL_WIDGET_KEY, "") or ""
+    changed = _valid_mt5_operational_model(model)
+    sources = tuple(
+        candidate
+        for candidate in MT5_SELECTABLE_OPERATIONAL_MODEL_IDS
+        if candidate != MT5_OPERATIONAL_MODEL_23
     )
-    selected = labels_to_models.get(selected_label)
-    if selected is None:
-        return
-    selected = _valid_mt5_operational_model(selected)
-    _persist_mt5_operational_model(selected)
+    for source in sources:
+        st.session_state.setdefault(
+            _mt5_operational_model_checkbox_key(source),
+            False,
+        )
+    st.session_state.setdefault(
+        _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_23),
+        False,
+    )
+    if changed == MT5_OPERATIONAL_MODEL_ALL:
+        checked = bool(
+            st.session_state.get(
+                _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_ALL),
+                False,
+            )
+        )
+        for source in sources:
+            st.session_state[_mt5_operational_model_checkbox_key(source)] = checked
+
+    selected_models = tuple(
+        source
+        for source in sources
+        if bool(
+            st.session_state.get(_mt5_operational_model_checkbox_key(source), False)
+        )
+    )
+    basket_checked = bool(
+        st.session_state.get(
+            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_23),
+            False,
+        )
+    )
+    if not selected_models and not basket_checked:
+        selected_models = (MT5_OPERATIONAL_MODEL_1,)
+        st.session_state[
+            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_1)
+        ] = True
+    all_selected = len(selected_models) == len(sources)
+    st.session_state[
+        _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_ALL)
+    ] = all_selected
+    if basket_checked and selected_models:
+        selected = MT5_OPERATIONAL_MODEL_WITH_23
+    elif basket_checked:
+        selected = MT5_OPERATIONAL_MODEL_23
+    elif all_selected:
+        selected = MT5_OPERATIONAL_MODEL_ALL
+    elif len(selected_models) == 1:
+        selected = selected_models[0]
+    else:
+        selected = MT5_OPERATIONAL_MODEL_CUSTOM
+    persisted_models = selected_models or sources
+    _persist_mt5_operational_model(selected, models=persisted_models)
     st.session_state[MT5_OPERATIONAL_MODEL_KEY] = selected
     st.session_state[MT5_OPERATIONAL_MODEL_SYNC_KEY] = selected
 
 
+def _persist_mt5_operational_model_form_selection() -> str:
+    """Confirma a selecao manual sem permitir gravacao causada por refresh."""
+    _mark_ui_critical_interaction()
+    current = _load_persisted_mt5_operational_model()
+    sources = MT5_ACTIVE_SOURCE_MODEL_IDS
+    persisted_models = _load_persisted_mt5_operational_models()
+    persisted_direct_all = (
+        current != MT5_OPERATIONAL_MODEL_23
+        and len(persisted_models) == len(sources)
+    )
+    all_checked = bool(
+        st.session_state.get(
+            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_ALL),
+            False,
+        )
+    )
+    basket_checked = bool(
+        st.session_state.get(
+            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_23),
+            False,
+        )
+    )
+    selected_models = tuple(
+        source
+        for source in sources
+        if bool(
+            st.session_state.get(_mt5_operational_model_checkbox_key(source), False)
+        )
+    )
+
+    # "Todos" marca o conjunto inteiro. Quando todos ja estavam marcados,
+    # desmarcar uma fonte prevalece sobre o checkbox agregado.
+    if all_checked and not persisted_direct_all:
+        selected_models = sources
+    direct_enabled = bool(selected_models)
+    direct_all = len(selected_models) == len(sources)
+
+    if basket_checked and direct_enabled:
+        selected = MT5_OPERATIONAL_MODEL_WITH_23
+        persisted_models = selected_models
+    elif basket_checked:
+        selected = MT5_OPERATIONAL_MODEL_23
+        persisted_models = sources
+    elif direct_all:
+        selected = MT5_OPERATIONAL_MODEL_ALL
+        persisted_models = sources
+    elif direct_enabled:
+        selected = (
+            selected_models[0]
+            if len(selected_models) == 1
+            else MT5_OPERATIONAL_MODEL_CUSTOM
+        )
+        persisted_models = selected_models
+    else:
+        selected = MT5_OPERATIONAL_MODEL_1
+        persisted_models = (MT5_OPERATIONAL_MODEL_1,)
+
+    _persist_mt5_operational_model(selected, models=persisted_models)
+    st.session_state[MT5_OPERATIONAL_MODEL_KEY] = selected
+    st.session_state[MT5_OPERATIONAL_MODEL_SYNC_KEY] = selected
+    return selected
+
+
+def _mt5_operational_model_state_revision() -> str:
+    try:
+        payload = json.loads(
+            MT5_OPERATIONAL_MODEL_STATE_PATH.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return "SEM_ESTADO"
+    return str(payload.get("updated_at") or payload.get("model") or "SEM_ESTADO")
+
+
 def _render_mt5_operational_model_selector() -> str:
     labels = _mt5_operational_model_labels()
-    labels_to_models = {label: model for model, label in labels.items()}
-    persisted = _load_persisted_mt5_operational_model()
-    last_synced = st.session_state.get(MT5_OPERATIONAL_MODEL_SYNC_KEY)
-    widget_model = labels_to_models.get(
-        str(st.session_state.get(MT5_OPERATIONAL_MODEL_WIDGET_KEY, "") or "")
+    current = _load_persisted_mt5_operational_model()
+    persisted_models = _load_persisted_mt5_operational_models()
+    options = (MT5_OPERATIONAL_MODEL_ALL, *MT5_SELECTABLE_OPERATIONAL_MODEL_IDS)
+    basket_mode = current in {
+        MT5_OPERATIONAL_MODEL_23,
+        MT5_OPERATIONAL_MODEL_WITH_23,
+    }
+    direct_mode = current != MT5_OPERATIONAL_MODEL_23
+    persisted_revision = _mt5_operational_model_state_revision()
+    refresh_widgets = (
+        st.session_state.get(MT5_OPERATIONAL_MODEL_REVISION_KEY)
+        != persisted_revision
     )
-    current, changed_by_user = _resolve_mt5_operational_model_for_render(
-        persisted_model=persisted,
-        last_synced_model=last_synced,
-        widget_model=widget_model,
-    )
-    if changed_by_user:
-        _persist_mt5_operational_model(current)
-    else:
-        expected_label = labels[current]
-        if st.session_state.get(MT5_OPERATIONAL_MODEL_WIDGET_KEY) != expected_label:
-            st.session_state[MT5_OPERATIONAL_MODEL_WIDGET_KEY] = expected_label
+    for candidate in options:
+        checked = (
+            basket_mode
+            if candidate == MT5_OPERATIONAL_MODEL_23
+            else direct_mode and candidate in persisted_models
+        )
+        if candidate == MT5_OPERATIONAL_MODEL_ALL:
+            checked = (
+                direct_mode
+                and len(persisted_models) == len(MT5_MODEL_23_SOURCE_MODEL_IDS)
+            )
+        checkbox_key = _mt5_operational_model_checkbox_key(candidate)
+        if refresh_widgets or checkbox_key not in st.session_state:
+            st.session_state[checkbox_key] = checked
+    st.session_state[MT5_OPERATIONAL_MODEL_REVISION_KEY] = persisted_revision
     st.session_state[MT5_OPERATIONAL_MODEL_KEY] = current
     with st.container(border=True):
         st.markdown("#### Chaveamento operacional")
-        columns = st.columns([1.4, 1.2, 2.4])
-        selected_label = columns[0].selectbox(
-            "Modelo ativo para envio",
-            list(labels.values()),
-            key=MT5_OPERATIONAL_MODEL_WIDGET_KEY,
-            on_change=_persist_mt5_operational_model_widget_selection,
-            help=(
-                "Controla quais modelos podem criar novas entradas. Posicoes "
-                "ja abertas continuam gerenciadas ate o encerramento."
-            ),
+        summary = st.columns([1.0, 3.0])
+        summary_label = (
+            "M23"
+            if basket_mode and not direct_mode
+            else f"{len(persisted_models)} MODELOS + M23"
+            if basket_mode
+            else "TODOS"
+            if current == MT5_OPERATIONAL_MODEL_ALL
+            else _mt5_operational_model_short_label(current)
+            if len(persisted_models) == 1
+            else f"{len(persisted_models)} MODELOS"
         )
-        selected = next(key for key, value in labels.items() if value == selected_label)
-        if selected != current:
-            _persist_mt5_operational_model(selected)
-        columns[1].metric(
-            "Modelo operacional",
-            _mt5_operational_model_short_label(selected),
+        summary[0].metric("Modelo operacional", summary_label)
+        summary[1].caption(
+            "Os modelos ativos ficam visiveis e podem ser combinados livremente; "
+            "Todos executa o conjunto completo. O M23 pode operar junto e cria "
+            "uma copia separada do contrato completo de cada fonte selecionada."
         )
-        columns[2].caption(
-            "M1 e M4-M5 preservam seus contratos do Lab. M2 usa o contrato "
-            "independente Trend Pullback M15/H1 nos oito pares. M2-M5 "
-            "entram no preco vivo depois do candle fechado e usam SL/TP fixos. "
-            "M3 opera XAUUSD/M5: BUY com RSI14>50 e fechamento>SMA20; SELL "
-            "com RSI14<50 e fechamento<SMA20. Inverte apos fechar a posicao "
-            "no lado oposto. M6 reutiliza o "
-            "Lab M1 nos nove pares Forex novos; M7 faz o mesmo para XAUUSD e "
-            "BTCUSD. M8-M12 sao os setups A-E em XAUUSD/M5. M13-M17 replicam "
-            "os setups A-E nos 17 pares Forex/M5, com entrada pelo RSI50 e "
-            "filtros incrementais de tendencia. Os contratos antigos "
-            "que usavam M8-M12 e os M13-M16 permanecem no historico."
-        )
+        st.caption("Modelo ativo para envio")
+        with st.form(MT5_OPERATIONAL_MODEL_FORM_KEY, border=False):
+            checkbox_columns = st.columns(6)
+            for index, candidate in enumerate(options):
+                model_number = operational_model_number(candidate)
+                short_label = (
+                    "Todos"
+                    if candidate == MT5_OPERATIONAL_MODEL_ALL
+                    else f"M{model_number}"
+                )
+                checkbox_columns[index % 6].checkbox(
+                    short_label,
+                    key=_mt5_operational_model_checkbox_key(candidate),
+                    help=labels.get(candidate, short_label),
+                )
+            apply_selection = st.form_submit_button("Aplicar modelos")
+        selected = current
+        if apply_selection:
+            selected = _persist_mt5_operational_model_form_selection()
+            st.rerun()
     st.session_state[MT5_OPERATIONAL_MODEL_KEY] = selected
     st.session_state[MT5_OPERATIONAL_MODEL_SYNC_KEY] = selected
     st.caption(
@@ -2382,39 +2624,47 @@ def _render_mt5_operational_model_selector() -> str:
             "ADX14 > 20, pullback entre as medias e candle fechado de "
             "confirmacao. SL inicial 1,25 ATR e TP fixo 2R."
         )
-    if selected == MT5_OPERATIONAL_MODEL_ALL:
+    if selected in {MT5_OPERATIONAL_MODEL_ALL, MT5_OPERATIONAL_MODEL_WITH_23}:
         st.warning(
-            "Todos os modelos ativos: M1-M17 podem enviar ordem. "
-            "O mesmo par pode ter uma posicao por modelo."
+            "Todos os modelos ativos marcados podem enviar ordem. "
+            "O mesmo sinal pode gerar a ordem direta do modelo e outra ordem "
+            "separada da cesta M23 quando ela estiver marcada."
         )
+    if selected in {
+        MT5_OPERATIONAL_MODEL_CUSTOM,
+        MT5_OPERATIONAL_MODEL_WITH_23,
+    }:
+        selected_labels = ", ".join(
+            _mt5_operational_model_short_label(model)
+            for model in persisted_models
+        )
+        st.success(f"Modelos liberados para novas entradas: {selected_labels}.")
+    if selected in {
+        MT5_OPERATIONAL_MODEL_23,
+        MT5_OPERATIONAL_MODEL_WITH_23,
+    }:
+        st.warning(
+            "M23 ativo: herda entrada e todas as saidas nativas dos modelos "
+            "ativos. Como protecao adicional, zera coletivamente a mercado "
+            "quando a cesta atingir +US$1.000 liquidos."
+        )
+        basket = _load_mt5_model23_basket_state()
+        basket_columns = st.columns(4)
+        basket_columns[0].metric("Estado M23", str(basket.get("status", "AGUARDANDO")))
+        basket_columns[1].metric("Posicoes M23", int(basket.get("positions", 0) or 0))
+        basket_columns[2].metric(
+            "Resultado cesta",
+            f"US$ {float(basket.get('net_result_usd', 0.0) or 0.0):.2f}",
+        )
+        basket_columns[3].metric("Full Exit", "+US$ 1.000,00")
     if selected == MT5_OPERATIONAL_MODEL_8_TO_17:
         st.success(
-            "Grupo operacional M8-M17 ativo: somente M8-M12 no XAUUSD/M5 e "
-            "M13-M17 nos 17 pares Forex/M5 podem criar novas entradas."
-        )
-    if selected == MT5_OPERATIONAL_MODEL_3:
-        st.warning(
-            "M3 ativo somente em XAUUSD/M5: compra com RSI14>50 e fechamento "
-            "acima da SMA20; vende com RSI14<50 e fechamento abaixo da SMA20. "
-            "No RSI oposto, faz Full Exit e libera a inversao no ciclo seguinte. "
-            "Usa as ultimas 52 velas, sem TP fixo e com SL estrutural no pivo 2+2."
-        )
-    if selected == MT5_OPERATIONAL_MODEL_4:
-        st.warning(
-            "M4 experimental ativo nos oito pares Demo: Liquidity Reclaim M30, "
-            "somente BUY, EMA34/144, ADX 28-35, wick minimo 0,5, SL 2,5 ATR e "
-            "TP 3R. AUDUSD e a origem da melhor evidencia disponivel, ainda "
-            "sem certificacao por amostra pequena."
+            "Grupo operacional M8-M22 ativo conforme o escopo proprio de cada setup."
         )
     if selected == MT5_OPERATIONAL_MODEL_5:
         st.warning(
             "M5 ativo: consolidado que escolhe, por par, o melhor plano entre "
             "M1-M4 e delega ao adaptador original sem criar uma segunda formula."
-        )
-    if selected == MT5_OPERATIONAL_MODEL_6:
-        st.warning(
-            "M6 ativo: usa o mesmo Lab e Trade Plan do M1 somente nos nove "
-            "pares Forex novos, sem alterar os oito pares originais."
         )
     if selected == MT5_OPERATIONAL_MODEL_7:
         st.warning(
@@ -2441,7 +2691,11 @@ def _render_mt5_operational_model_selector() -> str:
             st.warning(
                 f"M{spec.number} / Setup {spec.setup} ativo somente em XAUUSD/M5. "
                 "Mantem entrada RSI50, reentrada Stop, SL estrutural e Full Exit 70/30 do M8; "
-                "o filtro adicional de lateralidade precisa estar liberado."
+                + (
+                    "a entrada inicial nao usa TP, a unica reentrada usa TP de 7,5 pontos."
+                    if selected in XAU_IMPROVED_REENTRY_MODEL_IDS
+                    else "o filtro adicional de lateralidade precisa estar liberado."
+                )
             )
     if selected in FOREX_SMA_RSI_MODEL_IDS:
         spec = forex_sma_rsi_spec(selected)
@@ -2451,12 +2705,6 @@ def _render_mt5_operational_model_selector() -> str:
                 "Entrada inicial a mercado, reentrada Stop, SL no pivo 2+2, "
                 "sem TP e Full Exit por RSI 70/30 ou inversao SMA20/50."
             )
-    if selected == MT5_OPERATIONAL_MODEL_22:
-        st.warning(
-            "M22 ativo: espelho independente do M9. Usa o mesmo gatilho "
-            "Trend Pullback M15/M1, inverte BUY/SELL, coloca o SL no TP do "
-            "M9 e o TP no SL do M9. SL 2,5 ATR, alvo 1,25 ATR e RR 0,5."
-        )
     selected_label = next(
         (
             label
@@ -2503,8 +2751,10 @@ def _valid_mt5_operational_model(model: object) -> str:
     normalized = str(model or MT5_OPERATIONAL_MODEL_1).upper()
     normalized = LEGACY_MT5_OPERATIONAL_MODELS.get(normalized, normalized)
     if normalized in {
-        *MT5_OPERATIONAL_MODEL_IDS,
+        *MT5_SELECTABLE_OPERATIONAL_MODEL_IDS,
         MT5_OPERATIONAL_MODEL_ALL,
+        MT5_OPERATIONAL_MODEL_CUSTOM,
+        MT5_OPERATIONAL_MODEL_WITH_23,
         MT5_OPERATIONAL_MODEL_8_TO_17,
     }:
         return normalized
@@ -2521,8 +2771,64 @@ def _load_persisted_mt5_operational_model() -> str:
     return _valid_mt5_operational_model(data.get("model"))
 
 
-def _persist_mt5_operational_model(model: object) -> None:
+def _load_persisted_mt5_operational_models() -> tuple[str, ...]:
+    try:
+        data = json.loads(MT5_OPERATIONAL_MODEL_STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return (MT5_OPERATIONAL_MODEL_1,)
+    if not isinstance(data, dict):
+        return (MT5_OPERATIONAL_MODEL_1,)
+    selected: list[str] = []
+    for item in list(data.get("models") or []):
+        normalized = LEGACY_MT5_OPERATIONAL_MODELS.get(
+            str(item or "").upper(),
+            str(item or "").upper(),
+        )
+        if normalized in MT5_MODEL_23_SOURCE_MODEL_IDS and normalized not in selected:
+            selected.append(normalized)
+    if selected:
+        return tuple(selected)
+    mode = _valid_mt5_operational_model(data.get("model"))
+    if mode in {
+        MT5_OPERATIONAL_MODEL_ALL,
+        MT5_OPERATIONAL_MODEL_23,
+        MT5_OPERATIONAL_MODEL_WITH_23,
+    }:
+        return MT5_MODEL_23_SOURCE_MODEL_IDS
+    if mode == MT5_OPERATIONAL_MODEL_8_TO_17:
+        return MT5_OPERATIONAL_MODEL_8_TO_17_IDS
+    if mode in MT5_MODEL_23_SOURCE_MODEL_IDS:
+        return (mode,)
+    return (MT5_OPERATIONAL_MODEL_1,)
+
+
+def _persist_mt5_operational_model(
+    model: object,
+    *,
+    models: tuple[str, ...] | list[str] | None = None,
+) -> None:
     normalized = _valid_mt5_operational_model(model)
+    selected: list[str] = []
+    for item in list(models or []):
+        candidate = LEGACY_MT5_OPERATIONAL_MODELS.get(
+            str(item or "").upper(),
+            str(item or "").upper(),
+        )
+        if candidate in MT5_MODEL_23_SOURCE_MODEL_IDS and candidate not in selected:
+            selected.append(candidate)
+    if not selected:
+        if normalized in {
+            MT5_OPERATIONAL_MODEL_ALL,
+            MT5_OPERATIONAL_MODEL_23,
+            MT5_OPERATIONAL_MODEL_WITH_23,
+        }:
+            selected = list(MT5_MODEL_23_SOURCE_MODEL_IDS)
+        elif normalized == MT5_OPERATIONAL_MODEL_8_TO_17:
+            selected = list(MT5_OPERATIONAL_MODEL_8_TO_17_IDS)
+        elif normalized in MT5_MODEL_23_SOURCE_MODEL_IDS:
+            selected = [normalized]
+        else:
+            selected = [MT5_OPERATIONAL_MODEL_1]
     temporary = MT5_OPERATIONAL_MODEL_STATE_PATH.with_name(
         f".{MT5_OPERATIONAL_MODEL_STATE_PATH.name}."
         f"{os.getpid()}.{threading.get_ident()}.tmp"
@@ -2533,6 +2839,7 @@ def _persist_mt5_operational_model(model: object) -> None:
             json.dumps(
                 {
                     "model": normalized,
+                    "models": selected,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 },
                 ensure_ascii=False,
@@ -2560,6 +2867,18 @@ def _sync_mt5_operational_model_with_service(service: DashboardService) -> str:
     ).upper()
     model = _valid_mt5_operational_model(model)
     st.session_state[MT5_OPERATIONAL_MODEL_KEY] = model
+    models = _load_persisted_mt5_operational_models()
+    multi_setter = getattr(service, "set_mt5_operational_models", None)
+    if callable(multi_setter):
+        multi_setter(
+            models,
+            basket_mode=model in {
+                MT5_OPERATIONAL_MODEL_23,
+                MT5_OPERATIONAL_MODEL_WITH_23,
+            },
+            direct_models_enabled=model != MT5_OPERATIONAL_MODEL_23,
+        )
+        return model
     setter = getattr(service, "set_mt5_operational_model", None)
     if callable(setter):
         setter(model)
@@ -2568,6 +2887,10 @@ def _sync_mt5_operational_model_with_service(service: DashboardService) -> str:
 
 def _mt5_operational_model_short_label(model: str) -> str:
     normalized = str(model or "").upper()
+    if normalized == MT5_OPERATIONAL_MODEL_CUSTOM:
+        return "SELECIONADOS"
+    if normalized == MT5_OPERATIONAL_MODEL_WITH_23:
+        return "SELECIONADOS + M23"
     dynamic_spec = dynamic_exit_model_spec(normalized)
     if dynamic_spec is not None:
         return dynamic_spec.short_name
@@ -2603,15 +2926,18 @@ def _mt5_operational_model_short_label(model: str) -> str:
         return "M16"
     if normalized == MT5_OPERATIONAL_MODEL_17:
         return "M17"
-    if normalized == MT5_OPERATIONAL_MODEL_22:
-        return "M22"
+    if normalized in XAU_IMPROVED_REENTRY_MODEL_IDS:
+        spec = trend_filter_spec(normalized)
+        return f"M{spec.number}" if spec is not None else "XAU+"
+    if normalized == MT5_OPERATIONAL_MODEL_23:
+        return "M23"
     for label, model_id in LAB_OPERATIONAL_MODEL_IDS_BY_LABEL.items():
         if normalized == model_id:
             return label
     if normalized == MT5_OPERATIONAL_MODEL_ALL:
         return "TODOS"
     if normalized == MT5_OPERATIONAL_MODEL_8_TO_17:
-        return "M8-M17"
+        return "M8-M22"
     return "MODELO 1"
 
 
@@ -2621,10 +2947,30 @@ def _mt5_operational_model_enabled(selected: str, model: str) -> bool:
         normalized == MT5_OPERATIONAL_MODEL_ALL
         or normalized == model
         or (
+            normalized in {
+                MT5_OPERATIONAL_MODEL_CUSTOM,
+                MT5_OPERATIONAL_MODEL_WITH_23,
+            }
+            and model in _load_persisted_mt5_operational_models()
+        )
+        or (
+            normalized == MT5_OPERATIONAL_MODEL_23
+            and model in MT5_MODEL_23_SOURCE_MODEL_IDS
+        )
+        or (
             normalized == MT5_OPERATIONAL_MODEL_8_TO_17
             and model in MT5_OPERATIONAL_MODEL_8_TO_17_IDS
         )
     )
+
+
+def _load_mt5_model23_basket_state() -> dict[str, object]:
+    """Le o estado compacto do M23 sem consultar o MT5 nem recalcular modelos."""
+    try:
+        payload = json.loads(MT5_MODEL23_BASKET_STATE_PATH.read_text(encoding="utf-8"))
+        return dict(payload) if isinstance(payload, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
 
 
 def _sync_mt5_entry_filter_mode_with_service(
@@ -3020,9 +3366,22 @@ def _mt5_position_manager_status_message(rows: list[object]) -> str:
     )
 
 
+def _is_model23_trade_row(row: object) -> bool:
+    model = str(getattr(row, "operational_model", "") or "").upper()
+    comment = str(getattr(row, "mt5_comment", "") or "").upper()
+    return model.startswith(MT5_OPERATIONAL_MODEL_23) or " M23" in comment
+
+
 def _mt5_open_profit_summary(rows: list[object]) -> dict[str, str]:
-    projected_profit = sum(float(getattr(row, "projected_profit", 0.0) or 0.0) for row in rows)
-    projected_loss = sum(float(getattr(row, "projected_loss", 0.0) or 0.0) for row in rows)
+    projected_rows = [row for row in rows if not _is_model23_trade_row(row)]
+    projected_profit = sum(
+        float(getattr(row, "projected_profit", 0.0) or 0.0)
+        for row in projected_rows
+    )
+    projected_loss = sum(
+        float(getattr(row, "projected_loss", 0.0) or 0.0)
+        for row in projected_rows
+    )
     open_cost = sum(float(getattr(row, "mt5_open_cost", 0.0) or 0.0) for row in rows)
     projected_open_cost = sum(
         float(getattr(row, "mt5_projected_open_cost", 0.0) or 0.0)
@@ -3271,8 +3630,14 @@ def _mt5_open_trade_compact_row(row: object) -> dict[str, object]:
         "Par": str(getattr(row, "symbol", "N/D")),
         "Lado": _mt5_trade_side_label(row),
         "Resultado MT5": _mt5_open_trade_money(row, "mt5_realized_profit"),
-        "Lucro projetado": _mt5_open_trade_money(row, "projected_profit"),
-        "Risco atual": _mt5_open_trade_money(row, "projected_loss"),
+        "Lucro projetado": (
+            "CESTA GLOBAL" if _is_model23_trade_row(row)
+            else _mt5_open_trade_money(row, "projected_profit")
+        ),
+        "Risco atual": (
+            "SL FONTE + STOP GLOBAL US$ -300" if _is_model23_trade_row(row)
+            else _mt5_open_trade_money(row, "projected_loss")
+        ),
         "Entrada": _optional_price(
             getattr(row, "mt5_price", None) or getattr(row, "entry_price", None)
         ),
@@ -3292,6 +3657,9 @@ def _mt5_trade_audit_compact_row(row: object) -> dict[str, object]:
         "Par": str(getattr(row, "symbol", "N/D")),
         "Lado": _mt5_trade_side_label(row),
         "Resultado MT5": f"{float(getattr(row, 'mt5_realized_profit', 0.0) or 0.0):.2f}",
+        "Pico lucro aberto": _optional_number(
+            getattr(row, "mt5_peak_open_profit", None)
+        ),
         "Lucro projetado": f"{float(getattr(row, 'projected_profit', 0.0) or 0.0):.2f}",
         "Risco projetado": f"{float(getattr(row, 'projected_loss', 0.0) or 0.0):.2f}",
         "Setup entrada": str(getattr(row, "entry_setup", "N/D")),
@@ -3448,7 +3816,7 @@ def _mt5_equity_main_chart_model_selection() -> str:
         "Todos",
         value=True,
         key="mt5_report_equity_main_all",
-        help="Marca M1 a M17 no grafico principal.",
+        help="Marca todos os modelos operacionais ativos no grafico principal.",
     )
     selected_models: list[str] = []
     for start in range(0, len(MT5_ACTIVE_REPORT_MODEL_NUMBERS), 5):
@@ -3491,15 +3859,17 @@ def _mt5_rows_for_equity_model_selection(
         ]
     selected_keys = {
         part for part in normalized.split("+")
-        if re.fullmatch(r"(?:M|MODELO)(?:[1-9]|1[0-7])", part)
+        if re.fullmatch(r"(?:M|MODELO)(?:[1-9]|1\d|2[0-3])", part)
     }
     model_keys = {
         alias: f"MODELO{index}"
         for index in MT5_ACTIVE_REPORT_MODEL_NUMBERS
         for alias in (f"M{index}", f"MODELO{index}")
     }
-    targets = {model_keys[key] for key in selected_keys}
+    targets = {model_keys[key] for key in selected_keys if key in model_keys}
     if not targets:
+        if selected_keys:
+            return []
         targets = active_keys
     return [
         row
@@ -3615,7 +3985,8 @@ def _mt5_equity_model_setup_summary(model_filter: str) -> str:
         ),
         "MODELO 3": (
             "XAUUSD/M5 | BUY RSI14>50 + fechamento>SMA20 | SELL RSI14<50 + "
-            "fechamento<SMA20 | janela 52 velas | Full Exit pelo RSI oposto | "
+            "fechamento<SMA20 | janela deslizante 200 velas fechadas | "
+            "Full Exit pelo RSI oposto | "
             "SL no pivo 2+2 | sem TP fixo"
         ),
         "MODELO 4": (
@@ -3667,8 +4038,30 @@ def _mt5_equity_model_setup_summary(model_filter: str) -> str:
             "Setup E nos 17 pares Forex/M5 | ADX + distancia/ATR + "
             "inclinacao SMA50"
         ),
+        "MODELO 18": (
+            "M8 melhorado | entrada inicial sem TP | uma reentrada Stop por ciclo "
+            "com TP 7,5 pontos | Full Exit fallback"
+        ),
+        "MODELO 19": (
+            "M9 melhorado | base + ADX14 > 25 | entrada inicial sem TP | "
+            "uma reentrada com TP 7,5 pontos"
+        ),
+        "MODELO 20": (
+            "M10 melhorado | distancia SMA/ATR >= 0,25 | entrada inicial sem TP | "
+            "uma reentrada com TP 7,5 pontos"
+        ),
+        "MODELO 21": (
+            "M11 melhorado | inclinacao SMA50/ATR >= 0,05 | entrada inicial sem TP | "
+            "uma reentrada com TP 7,5 pontos"
+        ),
         "MODELO 22": (
-            "Espelho M9 M15 -> M1 | direcao invertida | SL 2,5 ATR | alvo 1,25 ATR | RR 0,5"
+            "M12 melhorado | ADX + distancia/ATR + inclinacao | entrada inicial "
+            "sem TP | uma reentrada com TP 7,5 pontos"
+        ),
+        "MODELO 23": (
+            "Acumulador dos modelos ativos | sem SL/TP individual | stop global "
+            "SL/TP da fonte | -US$300 | trailing apos +US$300 com recuo de 25% | Full Exit "
+            "a mercado em +US$1.000"
         ),
     }
     if normalized in summaries:
@@ -3747,6 +4140,11 @@ def _mt5_equity_row_matches_active_model(row: object, model_key: str) -> bool:
         "MODELO10": MT5_OPERATIONAL_MODEL_10,
         "MODELO11": MT5_OPERATIONAL_MODEL_11,
         "MODELO12": MT5_OPERATIONAL_MODEL_12,
+        "MODELO18": MT5_OPERATIONAL_MODEL_18,
+        "MODELO19": MT5_OPERATIONAL_MODEL_19,
+        "MODELO20": MT5_OPERATIONAL_MODEL_20,
+        "MODELO21": MT5_OPERATIONAL_MODEL_21,
+        "MODELO22": MT5_OPERATIONAL_MODEL_22,
     }
     active_xau_model = active_xau_models.get(target)
     if active_xau_model is not None:
@@ -3838,12 +4236,19 @@ def _mt5_equity_model_filter_caption(
     filtered_rows: list[object],
     model_filter: str,
 ) -> str:
-    counts = {f"MODELO{index}": 0 for index in range(0, 23)}
+    visible_numbers = (0, *MT5_ACTIVE_REPORT_MODEL_NUMBERS)
+    counts = {f"MODELO{index}": 0 for index in visible_numbers}
     for row in rows:
         key = _mt5_equity_row_model_key(row)
+        if key in {"MODELO18", "MODELO19", "MODELO20", "MODELO21", "MODELO22"}:
+            if not _mt5_equity_row_matches_active_model(row, key):
+                key = "MODELO0"
+        model_number = int(key.removeprefix("MODELO")) if key.removeprefix("MODELO").isdigit() else 0
+        if model_number and model_number not in MT5_ACTIVE_REPORT_MODEL_NUMBERS:
+            continue
         counts[key if key in counts else "MODELO0"] += 1
     details = " | ".join(
-        f"M{index}: {counts[f'MODELO{index}']}" for index in range(0, 23)
+        f"M{index}: {counts[f'MODELO{index}']}" for index in visible_numbers
     )
     return (
         f"Filtro aplicado: {model_filter} | linhas na curva: {len(filtered_rows)} | "
@@ -3873,7 +4278,7 @@ def _mt5_equity_row_model_key(row: object) -> str:
     match = re.search(r"(?:MODELO[_ ]?|\bM)(\d{1,2})(?:_|\b)", model)
     if match is not None:
         number = int(match.group(1))
-        if 1 <= number <= 22:
+        if 1 <= number <= 23:
             return f"MODELO{number}"
     if "MODELO_10" in model or "MODELO 10" in model or model == "M10":
         return "MODELO10"
@@ -4054,6 +4459,12 @@ def _mt5_trade_audit_row(
         "Par": str(getattr(row, "symbol", "N/D")),
         "Lucro projetado app": f"{float(getattr(row, 'projected_profit', 0.0) or 0.0):.2f}",
         "Lucro realizado MT5": f"{float(getattr(row, 'mt5_realized_profit', 0.0) or 0.0):.2f}",
+        "Pico lucro aberto": _optional_number(
+            getattr(row, "mt5_peak_open_profit", None)
+        ),
+        "Horario pico lucro": str(
+            getattr(row, "mt5_peak_open_profit_at", "N/D") or "N/D"
+        ),
         "Prejuizo projetado app": f"{float(getattr(row, 'projected_loss', 0.0) or 0.0):.2f}",
         "Modelo envio": _mt5_sender_model_label(row),
         "Parametros": _mt5_trade_audit_parameters_label(row),
@@ -5079,6 +5490,85 @@ def _demo_robot_audit_row(row: object) -> dict[str, object]:
     }
 
 
+def _model23_theoretical_entry_summary_rows(
+    rows_by_source: dict[str, list[dict[str, object]]],
+) -> list[dict[str, object]]:
+    """Resume as copias M1-M22 sem repetir calculos ou leituras do MT5."""
+    summary: list[dict[str, object]] = []
+    ordered_sources = sorted(
+        rows_by_source,
+        key=lambda model_id: operational_model_number(model_id) or 999,
+    )
+    for source_model_id in ordered_sources:
+        source_number = operational_model_number(source_model_id)
+        source_rows = list(rows_by_source.get(source_model_id, []) or [])
+        ready_pairs: list[str] = []
+        waiting = 0
+        blocked = 0
+        bottlenecks: list[str] = []
+        for row in source_rows:
+            status = str(row.get("Envio", "AGUARDA: sem leitura") or "").strip()
+            normalized = status.upper()
+            if normalized.startswith("PRONTO"):
+                pair = str(row.get("Par", "N/D") or "N/D").upper()
+                if pair not in ready_pairs:
+                    ready_pairs.append(pair)
+                continue
+            if normalized.startswith(("BLOQ", "REJEIT", "ERRO")):
+                blocked += 1
+            else:
+                waiting += 1
+            if status and status not in bottlenecks:
+                bottlenecks.append(status)
+        ready = len(ready_pairs)
+        summary.append(
+            {
+                "Modelo": "M23",
+                "Fonte": f"M{source_number}" if source_number is not None else "N/D",
+                "Status entrada": f"PRONTO: {ready}" if ready else "AGUARDA",
+                "Pares prontos": ", ".join(ready_pairs) if ready_pairs else "NENHUM",
+                "Aguardando": waiting,
+                "Bloqueados": blocked,
+                "Gargalo atual": " | ".join(bottlenecks[:2]) or "SEM_GARGALO",
+            }
+        )
+    return summary
+
+
+def _model23_theoretical_entry_detail_rows(
+    rows_by_source: dict[str, list[dict[str, object]]],
+) -> list[dict[str, object]]:
+    """Materializa cada ativo das fontes ativas sob a identidade M23."""
+    details: list[dict[str, object]] = []
+    for source_model_id in MT5_MODEL_23_SOURCE_MODEL_IDS:
+        source_number = operational_model_number(source_model_id)
+        source_label = f"M{source_number}" if source_number is not None else "N/D"
+        source_rows = list(rows_by_source.get(source_model_id, []) or [])
+        if not source_rows:
+            source_rows = [
+                {
+                    "Par": "N/D",
+                    "Timeframe": "N/D",
+                    "Envio": "AGUARDA: fonte sem dados",
+                    "Modelo": "OK: fonte interna M23",
+                }
+            ]
+        for row in source_rows:
+            cloned = dict(row)
+            source_gate = cloned.pop("Modelo", "OK: fonte interna M23")
+            detail = {
+                "Modelo": "M23",
+                "Fonte": source_label,
+                "Par": cloned.pop("Par", "N/D"),
+                "Timeframe": cloned.pop("Timeframe", "N/D"),
+                "Envio": cloned.pop("Envio", "AGUARDA: sem leitura"),
+                "Fonte habilitada": source_gate,
+            }
+            detail.update(cloned)
+            details.append(detail)
+    return details
+
+
 def _exibir_entradas_teoricas_mt5(
     service: DashboardService,
     rows: list[dict[str, object]],
@@ -5099,14 +5589,13 @@ def _exibir_entradas_teoricas_mt5(
         ),
         (
             MT5_OPERATIONAL_MODEL_3,
-            "Modelo 3 - XAUUSD M5 RSI14/50 + SMA20",
-            "Compra com RSI14>50 e fechamento>SMA20; venda usa o inverso. "
-            "Avalia as ultimas 52 velas e inverte apos Full Exit pelo RSI.",
+            "Modelo 3 - XAUUSD M5 RSI50 invertido",
+            "Copia M23 do gatilho XAU/M5 invertido pelo RSI14 em torno de 50.",
         ),
         (
             MT5_OPERATIONAL_MODEL_4,
-            "Modelo 4 - contexto M30/H1/H4",
-            "Le M30 e confirma contexto fechado H1/H4 e forca relativa.",
+            "Modelo 4 - contexto multi-timeframe",
+            "Copia M23 do plano contextual pesquisado no Lab.",
         ),
         (
             MT5_OPERATIONAL_MODEL_5,
@@ -5115,8 +5604,8 @@ def _exibir_entradas_teoricas_mt5(
         ),
         (
             MT5_OPERATIONAL_MODEL_6,
-            "Modelo 6 - Lab Forex expandido",
-            "Reutiliza o plano vencedor do M1 somente nos nove pares Forex novos.",
+            "Modelo 6 - expansao Forex Lab",
+            "Copia M23 dos vencedores M1 nos pares Forex de expansao.",
         ),
         (
             MT5_OPERATIONAL_MODEL_7,
@@ -5128,26 +5617,26 @@ def _exibir_entradas_teoricas_mt5(
             "Modelo 8 - XAUUSD M5 SMA20/50 + RSI14",
             "Entra a mercado enquanto o RSI estiver do lado de 50 permitido pela direcao SMA20/50.",
         ),
+    ) + tuple(
         (
-            MT5_OPERATIONAL_MODEL_9,
-            "Modelo 9 - Setup B com ADX",
-            "Base M8 liberada somente com ADX14 acima de 25.",
-        ),
+            model_id,
+            f"Modelo {spec.number} - XAUUSD Setup {spec.setup}",
+            "Copia M23 do setup XAU/M5 SMA20/50 + RSI14 com seu filtro proprio.",
+        )
+        for model_id in XAU_TREND_FILTER_MODEL_IDS
+        if (spec := trend_filter_spec(model_id)) is not None
+        and model_id not in XAU_IMPROVED_REENTRY_MODEL_IDS
+    ) + tuple(
         (
-            MT5_OPERATIONAL_MODEL_10,
-            "Modelo 10 - Setup C com distancia/ATR",
-            "Base M8 liberada com separacao SMA20/50 de ao menos 0,25 ATR.",
-        ),
-        (
-            MT5_OPERATIONAL_MODEL_11,
-            "Modelo 11 - Setup D com inclinacao SMA50",
-            "Base M8 liberada com inclinacao SMA50 de 1 candle na direcao.",
-        ),
-        (
-            MT5_OPERATIONAL_MODEL_12,
-            "Modelo 12 - Setup E combinado",
-            "Base M8 exige simultaneamente ADX, distancia/ATR e inclinacao SMA50.",
-        ),
+            model_id,
+            f"Modelo {spec.number} - Setup {spec.setup} com TP de reentrada",
+            (
+                f"Deriva do M{spec.number - 10}; entrada inicial sem TP, "
+                "uma reentrada Stop com TP fixo de 7,5 pontos e Full Exit fallback."
+            ),
+        )
+        for model_id in XAU_IMPROVED_REENTRY_MODEL_IDS
+        if (spec := trend_filter_spec(model_id)) is not None
     ) + tuple(
         (
             model_id,
@@ -5250,6 +5739,7 @@ def _exibir_entradas_teoricas_mt5(
             MT5_OPERATIONAL_MODEL_10,
             MT5_OPERATIONAL_MODEL_11,
             MT5_OPERATIONAL_MODEL_12,
+            *XAU_IMPROVED_REENTRY_MODEL_IDS,
         }:
             row_builder = lambda source_row: _xau_m5_sma_rsi_entry_row(
                 service,
@@ -5265,6 +5755,13 @@ def _exibir_entradas_teoricas_mt5(
                 model_id=source_model_id,
                 evaluate_live=execution_enabled,
                 decision_snapshot=shared_decisions,
+                allow_demo_forward_override=(
+                    operational_model
+                    in {
+                        MT5_OPERATIONAL_MODEL_23,
+                        MT5_OPERATIONAL_MODEL_WITH_23,
+                    }
+                ),
             )
         if dynamic_spec is not None and source_model_id != MT5_OPERATIONAL_MODEL_1:
             source_builder = row_builder
@@ -5298,11 +5795,6 @@ def _exibir_entradas_teoricas_mt5(
                         )
                 )
             )
-            and (
-                source_model_id
-                not in {MT5_OPERATIONAL_MODEL_15, MT5_OPERATIONAL_MODEL_16}
-                or str(row.get("Par", "") or "").upper() == "XAUUSD"
-            )
         ]
 
     st.markdown(
@@ -5321,6 +5813,72 @@ def _exibir_entradas_teoricas_mt5(
     for model_rows in researched_rows_by_model.values():
         temporal_source_rows.extend(model_rows)
     temporal_gates = _entry_temporal_gates_by_pair(service, temporal_source_rows)
+    model1_entry_rows = [
+        _forex_theoretical_entry_row(
+            _with_mt5_open_position_context(
+                row,
+                model_id=MT5_OPERATIONAL_MODEL_1,
+                position_context=open_position_context,
+            ),
+            robot_online=robot_online,
+            mt5_online=mt5_online,
+            execution_enabled=_mt5_operational_model_enabled(
+                operational_model,
+                MT5_OPERATIONAL_MODEL_1,
+            ),
+            operational_model=MT5_OPERATIONAL_MODEL_1,
+            temporal_gate=temporal_gates.get(
+                str(row.get("Par", "") or "").upper(),
+                "AGUARDA: tempo indisponivel",
+            ),
+            execution_records=execution_records,
+        )
+        for row in rows
+        if str(row.get("Par", "") or "").upper() in set(MODEL_1_FOREX_PAIRS)
+    ]
+    entry_rows_by_model: dict[str, list[dict[str, object]]] = {
+        MT5_OPERATIONAL_MODEL_1: model1_entry_rows,
+    }
+    for model_id, _title, _caption in researched_models:
+        execution_enabled = _mt5_operational_model_enabled(
+            operational_model,
+            model_id,
+        )
+        entry_rows_by_model[model_id] = [
+            _forex_theoretical_entry_row(
+                row,
+                robot_online=robot_online,
+                mt5_online=mt5_online,
+                execution_enabled=execution_enabled,
+                operational_model=model_id,
+                temporal_gate=temporal_gates.get(
+                    str(row.get("Par", "") or "").upper(),
+                    "AGUARDA: tempo indisponivel",
+                ),
+                execution_records=execution_records,
+            )
+            for row in researched_rows_by_model[model_id]
+        ]
+    if operational_model in {
+        MT5_OPERATIONAL_MODEL_23,
+        MT5_OPERATIONAL_MODEL_WITH_23,
+    }:
+        st.subheader("Entrada Teorica MT5 - Modelo 23")
+        st.caption(
+            "Detalhamento completo das copias internas M1-M22: uma linha por "
+            "fonte e ativo. Os calculos sao reutilizados sem nova consulta ao MT5."
+        )
+        _render_stable_readonly_table(
+            _model23_theoretical_entry_detail_rows(entry_rows_by_model),
+            model_column="Fonte",
+            decision_column="Direcao",
+            color_status_cells=True,
+            color_model_rows=True,
+        )
+        st.caption(
+            "As tabelas individuais M1-M22 continuam abaixo para conferencia; "
+            "todas reutilizam este mesmo ciclo e nao fazem nova leitura do MT5."
+        )
     st.subheader("Monitor de Indicadores MT5 - modelos ativos")
     st.caption(
         "Cada linha acompanha um indicador usado pelo modelo no ultimo candle "
@@ -5351,29 +5909,7 @@ def _exibir_entradas_teoricas_mt5(
         "envia ordem somente quando Modelo 1 ou Todos estiver selecionado."
     )
     _render_stable_readonly_table(
-        [
-            _forex_theoretical_entry_row(
-                _with_mt5_open_position_context(
-                    row,
-                    model_id=MT5_OPERATIONAL_MODEL_1,
-                    position_context=open_position_context,
-                ),
-                robot_online=robot_online,
-                mt5_online=mt5_online,
-                execution_enabled=_mt5_operational_model_enabled(
-                    operational_model,
-                    MT5_OPERATIONAL_MODEL_1,
-                ),
-                operational_model=MT5_OPERATIONAL_MODEL_1,
-                temporal_gate=temporal_gates.get(
-                    str(row.get("Par", "") or "").upper(),
-                    "AGUARDA: tempo indisponivel",
-                ),
-                execution_records=execution_records,
-            )
-            for row in rows
-            if str(row.get("Par", "") or "").upper() in set(MODEL_1_FOREX_PAIRS)
-        ],
+        model1_entry_rows,
         model_column="Modelo ativo",
         decision_column="Direcao",
         color_status_cells=True,
@@ -5394,21 +5930,7 @@ def _exibir_entradas_teoricas_mt5(
                 "risco inicial e liberacao Demo rastreados por etapa."
             )
         _render_stable_readonly_table(
-            [
-                _forex_theoretical_entry_row(
-                    row,
-                    robot_online=robot_online,
-                    mt5_online=mt5_online,
-                    execution_enabled=execution_enabled,
-                    operational_model=model_id,
-                    temporal_gate=temporal_gates.get(
-                        str(row.get("Par", "") or "").upper(),
-                        "AGUARDA: tempo indisponivel",
-                    ),
-                    execution_records=execution_records,
-                )
-                for row in researched_rows_by_model[model_id]
-            ],
+            entry_rows_by_model[model_id],
             model_column="Modelo ativo",
             decision_column="Direcao",
             color_status_cells=True,
@@ -5444,6 +5966,7 @@ def _mt5_theoretical_entry_source_rows(
         MT5_OPERATIONAL_MODEL_10,
         MT5_OPERATIONAL_MODEL_11,
         MT5_OPERATIONAL_MODEL_12,
+        *XAU_IMPROVED_REENTRY_MODEL_IDS,
     }
     if source_model_id not in xau_m5_models:
         return source_rows
@@ -5489,7 +6012,7 @@ def _forex_m5_sma_rsi_entry_row(
             getattr(service.mt5_market_data_service, "latest_forex_candles", {}).get(
                 (pair, "M5"), []
             ) or []
-        )[-52:]
+        )[-OPERATIONAL_INDICATOR_RAW_CANDLES:]
         candle_count = len(candles)
         runtime = load_forex_sma_rsi_runtime_state(model_id, pair)
         decision = evaluate_forex_sma_rsi_entry(
@@ -5517,7 +6040,7 @@ def _forex_m5_sma_rsi_entry_row(
             "Motivo Entrada": decision.reason,
             "Status indicadores": decision.status,
             "Leitura indicadores": diagnostics,
-            "Candles recebidos": candle_count,
+            "Candles recebidos": max(candle_count - 1, 0),
             "Candle Gatilho": decision.base.closed_candle_time,
             "Candle do Sinal": decision.base.closed_candle_time,
             "Candle atual modelo": decision.base.current_candle_time,
@@ -5560,7 +6083,7 @@ def _model3_xau_m5_rsi50_entry_row(
                     ("XAUUSD", "M5"), []
                 )
                 or []
-            )[-52:]
+            )[-OPERATIONAL_INDICATOR_RAW_CANDLES:]
         )
     parameters = {**model3_parameters(), "family": "XAU_RSI50_SMA20_FLIP"}
     ready = bool(decision.ready)
@@ -5593,7 +6116,7 @@ def _model3_xau_m5_rsi50_entry_row(
             "Candle Gatilho": decision.closed_candle_time,
             "Candle do Sinal": decision.closed_candle_time,
             "Candle atual modelo": decision.current_candle_time,
-            "Candles recebidos": candle_count,
+            "Candles recebidos": max(candle_count - 1, 0),
             "Status indicadores": status,
             "Leitura indicadores": diagnostics,
             "Motivo Entrada": reason,
@@ -5663,7 +6186,7 @@ def _xau_m5_sma_rsi_entry_row(
                     [],
                 )
                 or []
-            )[-52:]
+            )[-OPERATIONAL_INDICATOR_RAW_CANDLES:]
         )
     if model_id == MT5_OPERATIONAL_MODEL_8:
         decision = shared_decision or service.get_model8_entry_decision()
@@ -5737,7 +6260,7 @@ def _xau_m5_sma_rsi_entry_row(
             "Candle do Sinal": base.closed_candle_time,
             "Candle atual modelo": base.current_candle_time,
             "Horario": base.current_candle_time,
-            "Candles recebidos": candle_count,
+            "Candles recebidos": max(candle_count - 1, 0),
             "Status indicadores": status,
             "Leitura indicadores": diagnostics,
             "RSI14": base.rsi14,
@@ -5973,6 +6496,7 @@ def _lab_operational_entry_row(
     model_id: str,
     evaluate_live: bool,
     decision_snapshot: dict[tuple[str, str], object] | None = None,
+    allow_demo_forward_override: bool = False,
 ) -> dict[str, object]:
     """Projeta na tabela o mesmo manifesto e adaptador usados pelo executor."""
     cloned = dict(row)
@@ -6015,6 +6539,9 @@ def _lab_operational_entry_row(
     source_model = str(winner.get("source_model") or model_label).upper()
     parameters = dict(winner.get("parameters") or {})
     demo_forward_enabled = bool(winner.get("demo_forward_enabled", False))
+    effective_demo_forward_enabled = (
+        demo_forward_enabled or allow_demo_forward_override
+    )
     evidence_enabled = bool(
         winner.get("evidence_demo_forward_enabled", demo_forward_enabled)
     )
@@ -6029,7 +6556,13 @@ def _lab_operational_entry_row(
     cloned["Periodo de tempo"] = timeframe
     cloned["Fonte Lab"] = source_model
     cloned["Familia Lab"] = str(parameters.get("family") or source_model)
-    cloned["Paridade Demo"] = "APROVADA" if demo_forward_enabled else "BLOQUEADA"
+    cloned["Paridade Demo"] = (
+        "APROVADA_M23"
+        if allow_demo_forward_override and not demo_forward_enabled
+        else "APROVADA"
+        if demo_forward_enabled
+        else "BLOQUEADA"
+    )
     cloned["Evidencia Lab"] = (
         f"OK: {evidence_status}"
         if evidence_enabled
@@ -6045,7 +6578,7 @@ def _lab_operational_entry_row(
     cloned["Parametros Lab"] = " | ".join(
         f"{key}={value}" for key, value in parameters.items()
     )
-    if not demo_forward_enabled:
+    if not effective_demo_forward_enabled:
         status = str(winner.get("parity_status") or "BLOCKED_BY_EXECUTABLE_PARITY")
         cloned["Status indicadores"] = status
         cloned["Leitura indicadores"] = "NAO_AVALIADA: PARIDADE_BLOQUEADA"
@@ -6442,6 +6975,13 @@ def _mt5_model_indicator_monitor_rows(
     selected = _valid_mt5_operational_model(operational_model)
     if selected == MT5_OPERATIONAL_MODEL_ALL:
         selected_models = MT5_OPERATIONAL_MODEL_IDS
+    elif selected in {
+        MT5_OPERATIONAL_MODEL_CUSTOM,
+        MT5_OPERATIONAL_MODEL_WITH_23,
+    }:
+        selected_models = _load_persisted_mt5_operational_models()
+    elif selected == MT5_OPERATIONAL_MODEL_23:
+        selected_models = MT5_MODEL_23_SOURCE_MODEL_IDS
     elif selected == MT5_OPERATIONAL_MODEL_8_TO_17:
         selected_models = MT5_OPERATIONAL_MODEL_8_TO_17_IDS
     else:
@@ -7222,6 +7762,7 @@ def _exibir_saidas_teoricas_mt5(
     st.caption(
         "Somente leitura: acompanha posicoes abertas usando o modelo registrado "
         "na ordem. M1-M7 preservam SL/TP fixos. M8-M17 usam Full Exit por "
+        "regra propria. M18-M22 usam TP apenas na reentrada e Full Exit fallback por "
         "cruzamento fechado RSI 70/30 ou inversao SMA20/SMA50. Os antigos M8-M14 reutilizavam as "
         "entradas de origem e permanecem somente no historico. Posicoes "
         "legadas continuam identificadas pelo contrato gravado quando abertas."
@@ -7863,7 +8404,7 @@ def _mt5_theoretical_exit_cell_class(row: dict[str, object], column: str) -> str
     if column == "Modelo envio":
         model = str(row.get(column, "") or "").upper()
         match = re.fullmatch(r"MODELO (\d{1,2})", model)
-        if match is not None and 11 <= int(match.group(1)) <= 22:
+        if match is not None and 11 <= int(match.group(1)) <= 23:
             return f"traderia-cell-model{match.group(1)}"
         if model == "MODELO 4":
             return "traderia-cell-model4"
@@ -8501,6 +9042,7 @@ def _entry_temporal_gates_by_pair(
             server_timestamp=(
                 server_timestamp if server_timestamp.upper() != "N/D" else None
             ),
+            allow_static_rollover=False,
         )
         status = str(getattr(context, "temporal_status", "N/D") or "N/D").upper()
         session = str(getattr(context, "session_label", "N/D") or "N/D")
@@ -8534,8 +9076,12 @@ def _entry_demo_release_gate(
     if not raw_status and str(row.get("Plano Research", "") or "").upper() == "PLANO_VALIDO":
         return "OK: plano operacional valido"
     status = raw_status or "BLOQUEADA"
-    if status == "APROVADA":
-        return "OK: par liberado Demo"
+    if status in {"APROVADA", "APROVADA_M23"}:
+        return (
+            "OK: liberado para copia M23 Demo"
+            if status == "APROVADA_M23"
+            else "OK: par liberado Demo"
+        )
     return f"BLOQ: {status}"
 
 
@@ -9724,6 +10270,7 @@ def _inject_dashboard_css() -> None:
         .traderia-row-model20 td { background: #FCE7F3 !important; color: #831843 !important; font-weight: 800; }
         .traderia-row-model21 td { background: #E2E8F0 !important; color: #0F172A !important; font-weight: 800; }
         .traderia-row-model22 td { background: #FAE8FF !important; color: #701A75 !important; font-weight: 800; }
+        .traderia-row-model23 td { background: #DCFCE7 !important; color: #14532D !important; font-weight: 800; }
         .traderia-stable-table td.traderia-cell-active {
             background: #DBEAFE !important;
             color: #0F172A !important;
@@ -9796,6 +10343,7 @@ def _inject_dashboard_css() -> None:
         .traderia-stable-table td.traderia-cell-model20 { background: #FBCFE8 !important; color: #831843 !important; font-weight: 900; }
         .traderia-stable-table td.traderia-cell-model21 { background: #CBD5E1 !important; color: #0F172A !important; font-weight: 900; }
         .traderia-stable-table td.traderia-cell-model22 { background: #F5D0FE !important; color: #701A75 !important; font-weight: 900; }
+        .traderia-stable-table td.traderia-cell-model23 { background: #DCFCE7 !important; color: #14532D !important; font-weight: 900; }
         .traderia-stable-table td.traderia-cell-result-positive {
             background: #DDF7E3 !important;
             color: #0F3D24 !important;

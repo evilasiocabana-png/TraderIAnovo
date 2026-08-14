@@ -95,6 +95,18 @@ class ForexTimeLayerTest(unittest.TestCase):
         self.assertFalse(context.temporal_blocked)
         self.assertNotIn("ROLLOVER", context.temporal_status)
 
+    def test_runtime_sem_relogio_mt5_nao_bloqueia_hora_inteira_pelo_candle(self) -> None:
+        context = ForexTimeLayer().classify(
+            "EURUSD",
+            "2026-07-01T21:00:00+00:00",
+            allow_static_rollover=False,
+        )
+
+        self.assertEqual(context.session, "NEW_YORK")
+        self.assertFalse(context.is_rollover_window)
+        self.assertFalse(context.temporal_blocked)
+        self.assertNotIn("ROLLOVER", context.temporal_status)
+
     def test_bloqueia_domingo_abertura(self) -> None:
         context = ForexTimeLayer().classify(
             "EURUSD",

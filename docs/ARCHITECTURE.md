@@ -1,5 +1,29 @@
 # Architecture
 
+## Modelo 23
+
+O M23 e o acumulador financeiro das entradas validas dos modelos selecionados e
+pode operar sozinho ou junto com as ordens diretas dessas fontes. Ele copia os
+SL/TP individuais e acrescenta somente o Full Exit coletivo a mercado quando a
+cesta atingir +US$1.000 liquidos; nao usa stop ou trailing financeiro global.
+Contrato completo em
+`docs/architecture/OPERATIONAL_MODEL_23_ACCUMULATOR.md`.
+
+## Implantacao local com watcher desligado
+
+O Streamlit operacional usa `server.fileWatcherType=none` para reduzir consumo de
+CPU e memoria. Por isso, alteracoes de imports nao entram em um processo ja vivo.
+Depois dessas alteracoes, o fluxo oficial deve reiniciar o TraderIAnovo por
+`scripts/abrir_traderianovo.ps1` e validar `/_stcore/health` e a pagina principal.
+
+## Modelos XAU de reentrada controlada
+
+M18-M22 derivam de M8-M12 sem modificar suas origens. A diferenca operacional
+esta limitada a uma reentrada por ciclo com TP de 7,50 pontos. A entrada inicial
+permanece sem TP fixo e a saida dinamica original funciona como fallback. O
+contrato detalhado esta em
+`docs/architecture/OPERATIONAL_MODELS_M18_M22_XAU_REENTRY_TP75.md`.
+
 ## Visao Geral
 
 TraderIA Novo e uma aplicacao local Streamlit com camadas de aplicacao,
@@ -87,7 +111,8 @@ Responsabilidade:
   `ALPHA_SUGERIDA_002_PLUS`; M4 usa contexto causal M30/H1/H4; M5 delega ao
   melhor vencedor consolidado por par.
 - O consolidado operacional chama-se somente M5. Nao existe M5-P operacional.
-- M3 opera exclusivamente XAUUSD/M5 sobre as ultimas 52 velas: BUY exige RSI14
+- M3 opera exclusivamente XAUUSD/M5 sobre uma janela deslizante das ultimas
+  200 velas fechadas: BUY exige RSI14
   fechado acima de 50 e fechamento acima da SMA20; SELL exige RSI14 abaixo de
   50 e fechamento abaixo da SMA20. O Full Exit continua sendo pelo RSI no lado
   oposto e a inversao ocorre no ciclo seguinte. Usa SL estrutural 2+2 e nao
@@ -196,9 +221,22 @@ Essa pasta e ignorada pelo Git.
 
 - Audita `.traderia/mt5_demo_execution.jsonl` contra historico MT5/local.
 - Carrega uma vez, cacheia na sessao e atualiza por botao.
-- As curvas operacionais ativas exibem M1-M17. M13-M17 aceitam somente os IDs
+- A leitura leve `positions_get` atualiza apenas posicoes abertas e nunca pode
+  substituir o historico fechado usado nas curvas patrimoniais.
+- O ultimo relatorio completo fica persistido em
+  `.traderia/runtime/mt5_trade_audit_report.json`, permitindo restaurar os
+  graficos apos reinicio mesmo quando o canal externo MT5 estiver ocupado.
+- O snapshot e assinado pelas operacoes fechadas e so volta a ser gravado
+  quando esse conjunto muda; ticks e lucro flutuante nao geram escrita.
+- Uma sessao Streamlit que ainda retenha apenas linhas `ABERTA` ou
+  `ORDEM_ABERTA` deve considerar esse cache incompleto e hidrata-lo
+  automaticamente com o snapshot completo, sem exigir limpeza do navegador.
+- A sonda completa continua isolada em subprocesso e aguarda somente uma
+  janela curta pelo canal compartilhado; o ciclo de mercado permanece prioritario.
+- As curvas operacionais ativas exibem M1-M22. M13-M17 aceitam somente os IDs
   atuais da familia Forex/M5 e os 17 pares canonicos, sem misturar contratos
-  historicos que reutilizavam os numeros M13-M16.
+  historicos que reutilizavam os numeros M13-M16. M18-M22 tambem exigem seus
+  IDs operacionais completos para nao incorporar os contratos legados.
 
 ## Politica De Travamentos E Regressao De Velocidade
 
@@ -377,23 +415,30 @@ inicial, reentrada Stop, saída RSI 70/30, inversão SMA e filtros são avaliado
 em M5 fechado. XAUUSD/BTCUSD ficam fora do escopo e conta real segue bloqueada.
 Contrato: `docs/architecture/OPERATIONAL_MODELS_M13_M17_FOREX_TREND_FILTERS.md`.
 
-M8-M17 iniciam com um cache leve de exatamente 52 velas M5 por ativo. A janela
-e deslizante tanto em RAM quanto no arquivo persistido: a vela nova substitui
-uma vela do mesmo horario ou remove a mais antiga, sem ultrapassar 52. Quando
+M8-M17 iniciam com 201 registros M5 por ativo: 200 velas fechadas e a vela
+atual em formacao. A janela e deslizante tanto em RAM quanto no arquivo
+persistido: a vela nova substitui uma vela do mesmo horario ou remove a mais
+antiga, sem ultrapassar 201. Quando
 o ultimo lote vivo ainda nao esta disponivel, o runtime pode preaquecer os
-indicadores com as 52 velas mais recentes do banco local, mas marca a serie
+indicadores com os 201 registros mais recentes do banco local, mas marca a serie
 como `LOCAL_HISTORY_SEED` e bloqueia qualquer Trade Plan. A primeira leitura
 MT5 valida substitui a semente, muda a origem para `LIVE` e somente entao o
 modelo pode liberar entrada. O cache fica em `.traderia/`, usa escrita atomica
 e nunca e versionado.
 
 Os indicadores de M8-M17 sao calculados localmente somente depois que o MT5
-entrega um lote integral, atual e cronologicamente coerente de 52 velas M5. O
-plano registra `indicator_source=LOCAL_MT5_CANDLES_52` e o provider exige
+entrega um lote integral, atual e cronologicamente coerente de 201 registros M5.
+A vela atual e excluida do calculo. O plano registra
+`indicator_source=LOCAL_MT5_CLOSED_CANDLES_200` e o provider exige
 `indicator_closed_candle_time` igual ao candle fechado do Trade Plan. Lote
 parcial, semente local, mistura de periodos ou cache antigo podem ser exibidos
 para diagnostico, mas nunca autorizam ordem. A janela continua deslizante: a
-53a vela remove a mais antiga e mantem exatamente 52 em RAM e no cache.
+202a observacao remove a mais antiga e mantem exatamente 201 em RAM e no cache.
+
+O mesmo contrato vale para os modelos materializados pelo Lab. O Lab congela
+os parametros pesquisados; o runtime atualiza EMA, SMA, RSI, ATR, ADX, momentum,
+volatilidade e demais leituras com os 200 fechamentos atuais, sem executar
+backtest nem recalcular o Lab pesado.
 
 ## Regra De Correcao Interligada
 
@@ -447,6 +492,26 @@ Resultados com `research_only=true` ou `operational_eligible=false` podem ser
 exibidos no ranking de pesquisa, mas devem falhar fechado em selecao de setup,
 configuracao vencedora operacional e construcao de Trade Plan.
 
+## Retirada operacional sem perda de rastreabilidade
+
+M3, M4, M6, M9, M11, M12, M13, M14 e M15 estao retirados desde 2026-08-12. A
+lista de modelos autorizados para novas entradas nao pode conter esses IDs, e a
+UI MT5/Relatorio nao deve oferece-los como selecao ativa. Seus contratos e
+registros nao sao apagados: continuam disponiveis para historico, auditoria e
+gestao de posicao legada.
+
+O conjunto operacional vigente e M1, M2, M5, M7, M8, M10 e M16-M22. M5 pode
+consultar resultados historicos de M1-M4, mas essa composicao nao concede
+permissao de entrada aos modelos retirados M3 e M4.
+
+O mapeamento de comentarios MT5 usa o numero canonico do modelo, nunca o indice
+na lista de modelos ativos. Isso evita que a ausencia de M9, M11 ou M12 associe
+um comentario `M10`, `M13` ou posterior ao contrato errado.
+
+M19, M21 e M22 sao modelos ativos independentes. A reutilizacao de calculos ou
+parametros de M9, M11 e M12 e uma dependencia matematica somente; nao autoriza
+novas ordens dos modelos-base retirados.
+
 O ranking do sublaboratorio seleciona candidatos exclusivamente no treino
 cronologico. Score, classificacao e desempenho do holdout nao participam da
 ordenacao; o holdout e somente auditoria posterior. O score e ajustado contra
@@ -457,3 +522,11 @@ em varias series.
 O bootstrap do extrato e feito pela fachada com `source_path` ou, em instalacao
 limpa, pela variavel `TRADERIA_MULTI_EA_POSITIONS_CSV`. A tela nao acessa o CSV
 diretamente.
+
+## Historico do pico intratrade
+
+O maior lucro flutuante observado por ticket pertence a camada de auditoria,
+nao a estrategia. A leitura leve de posicoes atualiza um acumulador monotono em
+`.traderia/runtime/mt5_position_profit_peaks.sqlite3`; o Relatorio consulta esse
+estado quando a ordem estiver aberta ou fechada. Essa telemetria nao pode abrir
+ou fechar ordem, mover SL/TP, recalcular indicadores ou iniciar o Lab.

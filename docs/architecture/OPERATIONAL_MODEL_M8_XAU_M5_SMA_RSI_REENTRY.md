@@ -26,12 +26,27 @@ no histórico. O novo ID não herda entrada ou gestão desses contratos.
 Origem do plano: regra manual aprovada pelo usuário
 Fonte preferencial: último candle M5 fechado e snapshot M5 compartilhado
 Fonte fallback: nenhuma; ausência de candles falha fechado
-Janela operacional: exatamente as ultimas 52 velas M5, incluindo a vela atual
+Janela operacional: 200 velas M5 fechadas mais a vela atual em formacao
 Pesquisa pesada no runtime: proibida
 Métricas históricas: diagnóstico, não gate operacional
 ```
 
 ## Entrada
+
+### Primeira entrada versus reentrada
+
+- M7 nao participa desta regra e permanece inalterado.
+- Do M8 em diante, somente os modelos que reutilizam SMA20/50 + RSI50 seguem este
+  contrato.
+- A primeira entrada BUY exige cruzamento novo da SMA20 de baixo para cima da SMA50
+  no ultimo candle M5 fechado, com RSI14 acima de 50 e filtros do modelo aprovados.
+- A primeira entrada SELL exige o cruzamento oposto, com RSI14 abaixo de 50.
+- Se as medias ja estavam cruzadas quando o robo foi ligado, nao existe primeira
+  entrada a mercado: o movimento e tratado como candidato a reentrada.
+- As reentradas sao ilimitadas enquanto a tendencia e os filtros permanecerem
+  validos. Cada reentrada exige que a posicao anterior esteja encerrada, recuo
+  estrutural de dois candles e retomada por BUY_STOP/SELL_STOP no extremo correto.
+- O mesmo candle/plano nao pode ser executado duas vezes.
 
 - médias aritméticas simples SMA20 e SMA50;
 - RSI de Wilder com 14 períodos;
@@ -71,3 +86,23 @@ Plano, ordem, histórico e saída registram SMA20, SMA50, RSI14, último pivô,
 estado do RSI50, tipo de sinal e motivo final. O rollback consiste em retirar
 somente `MODELO_8_XAU_M5_SMA_RSI_REENTRY` do conjunto ativo; contratos M8
 históricos permanecem inalterados.
+
+## Reentrada estrutural M5 (2026-08-13)
+
+A primeira entrada e todos os demais contratos permanecem inalterados. Somente
+a reentrada passou a exigir recuo oposto confirmado nos dois ultimos candles
+M5 fechados:
+
+- SELL: maxima e minima ascendentes; arma SELL STOP na minima do ultimo candle;
+- BUY: maxima e minima descendentes; arma BUY STOP na maxima do ultimo candle.
+
+O SL, os filtros SMA/RSI, o Full Exit e a gestao posterior continuam iguais.
+Uma tendencia reta, sem o recuo estrutural, nao autoriza mais reentrada.
+
+O alvo estrutural complementar e calculado na mesma janela fechada:
+
+- SELL: ultimo fundo M5 confirmado por pivo 2+2, abaixo do gatilho;
+- BUY: ultimo topo M5 confirmado por pivo 2+2, acima do gatilho.
+
+Esse alvo nao altera o contrato individual do M8. Ele e transportado como
+evidencia para que a copia XAU do M23 possa materializar seu TP individual.

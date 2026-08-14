@@ -35,6 +35,10 @@ aplicação e não duplica o conteúdo dos documentos referenciados.
   - Protocolo oficial para criar novos modelos operacionais, baseado na
     retrospectiva do M3 RR3, cobrindo snapshot, Trade Plan, gates, Robo Demo,
     Provider MT5, Position Manager, relatorio e testes.
+- [architecture/OPERATIONAL_MODEL_23_ACCUMULATOR.md](architecture/OPERATIONAL_MODEL_23_ACCUMULATOR.md)
+  - Contrato do acumulador financeiro M23: fontes ativas, entrada exclusiva sem
+    SL/TP individual, stop global, trailing, Full Exit a mercado em US$1.000,
+    estado persistente, auditoria e nova rodada.
 - [architecture/DYNAMIC_EXIT_MODELS_M8_M14.md](architecture/DYNAMIC_EXIT_MODELS_M8_M14.md)
   - Contrato oficial das sete variantes independentes de saida dinamica:
     M8->M1 ate M14->M7, com entrada preservada e protecao de SL sem Full Exit.
@@ -70,7 +74,7 @@ aplicação e não duplica o conteúdo dos documentos referenciados.
     BUY_ONLY, EMA34/144, ADX 28-35, stop 2,5 ATR e alvo fixo 3R; AUDUSD
     preserva a melhor evidencia disponivel, ainda sem certificacao final.
 - [architecture/END_TO_END_OPERATIONAL_FLOW.md](architecture/END_TO_END_OPERATIONAL_FLOW.md)
-  - Mapa canonico das relacoes entre Lab, ciclo Forex, modelos M1-M22, Trade
+  - Mapa canonico das relacoes entre Lab, ciclo Forex, modelos M1-M23, Trade
     Plan, Robo Demo, MT5, Position Manager, Relatorio, estados e testes.
 - [architecture/WEEKLY_ROBOT_SCHEDULE.md](architecture/WEEKLY_ROBOT_SCHEDULE.md)
   - Agenda obrigatoria em Brasilia: robo Demo sempre ON de domingo 18:01 a

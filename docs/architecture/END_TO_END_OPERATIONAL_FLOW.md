@@ -1,12 +1,74 @@
 # TraderIA Novo - Fluxo Operacional E Relacoes De Ponta A Ponta
 
+## Rota Combinavel M23
+
+Quando M23 esta selecionado, os modelos marcados continuam calculando seus sinais
+e gates. O M23 copia entrada e o contrato completo de saida da origem. Se a fonte tambem estiver
+marcada para operacao direta, o mesmo sinal gera uma ordem da fonte e uma copia
+M23, com comentarios e deduplicacao separados. A unica regra coletiva da cesta e
+o Full Exit a mercado em +US$1.000; nao ha stop nem trailing financeiro global.
+Esse Full Exit seleciona somente tickets identificados como M23; as posicoes
+diretas M1-M22 nao entram no resultado da cesta e preservam suas saidas normais.
+
+## Conjunto operacional vigente em 2026-08-12
+
+M1, M2, M5, M7, M8, M10 e M16-M22 ficam visiveis no chaveamento e podem ser
+selecionados livremente em qualquer combinacao. A selecao e persistida e
+restaurada apos refresh, ciclo e reinicio. `Todos` marca somente esse conjunto;
+M23 pode ser marcado junto com esse conjunto. Nesse modo, a duplicacao direta +
+cesta e deliberada e precisa permanecer visivel na auditoria e no historico.
+
+O executor avalia somente o conjunto marcado. Desmarcar um modelo bloqueia
+apenas novas entradas dele e nao altera posicoes ja abertas.
+
+M3, M4, M6, M9, M11, M12, M13, M14 e M15 permanecem fora do seletor e do
+funil de novas ordens. Seus IDs continuam reconhecidos somente para historico e
+gestao segura de posicoes legadas.
+
+Retirada operacional nao apaga dados nem abandona risco existente. Comentarios,
+historico e contratos de Position Manager permanecem reconhecidos para que uma
+posicao legada possa ser acompanhada e encerrada pela regra com que nasceu.
+
+M5 permanece independente e pode consultar pesquisa historica de M1-M4 para
+materializar seu proprio plano. M3 e M4 somente geram suas proprias ordens quando
+suas caixas estiverem marcadas; a consulta feita pelo M5 nao os ativa sozinha.
+
+## Compatibilidade Com Modelos Historicos
+
+IDs historicos continuam disponiveis para auditoria e para administrar com
+seguranca posicoes antigas. Eles nao substituem os IDs canonicos M1-M22 usados
+no chaveamento atual.
+
+Os derivados M19, M21 e M22 permanecem modelos operacionais independentes.
+Consultar a formula-base de um modelo retirado nao concede permissao de entrada
+ao modelo de origem.
+
+## Variante M18-M22
+
+```text
+snapshot XAUUSD/M5 compartilhado
+  -> avaliador da origem M8/M9/M10/M11/M12
+  -> entrada inicial MARKET, SL estrutural, sem TP
+  -> Position Manager / Full Exit extremo
+  -> estado local arma uma reentrada
+  -> BUY_STOP ou SELL_STOP no candle M5 fechado
+  -> TP no topo/fundo M5 confirmado antes da correcao enviado ao MT5
+  -> TP do broker ou Full Exit pela perda do RSI50/inversao SMA
+  -> novos recuos podem gerar novas reentradas sem duplicar candle/plano
+```
+
+Todos os modelos consomem a mesma janela deslizante de 200 velas fechadas mais
+a vela atual em formacao. M18-M22 nao
+iniciam Lab, backtest nem uma segunda leitura MT5 no ciclo leve; seus filtros
+locais percorrem apenas esse lote pequeno ja carregado.
+
 Status: referencia arquitetural canonica
 Atualizado em: 2026-08-06
 
 ## Finalidade
 
 Este documento e o mapa unico das relacoes operacionais do TraderIA Novo. Ele
-deve ser consultado antes de alterar Lab, Forex, modelos ativos M1-M12, Robo Demo, MT5,
+deve ser consultado antes de alterar Lab, Forex, modelos ativos, Robo Demo, MT5,
 Position Manager, Relatorio, persistencia local ou ciclos em segundo plano.
 
 `docs/ARCHITECTURE.md` define camadas e invariantes gerais. Este documento
@@ -200,7 +262,8 @@ operacional separado. M1-M17 sao os contratos ativos e independentes.
 Os IDs históricos M8-M12 e M13-M16 permanecem fora do seletor; os IDs novos e
 isolados das familias M8-M12 e M13-M17 aparecem no funil de novas entradas.
 
-O ciclo restaura 52 velas M5 por ativo antes de avaliar M8-M17. Uma semente do
+O ciclo restaura 201 registros M5 por ativo antes de avaliar M8-M17 e calcula
+os indicadores apenas sobre os 200 fechados. Uma semente do
 SQLite local aquece os indicadores, mas permanece `WAIT` ate que uma leitura
 MT5 valida marque a serie como `LIVE`.
 
@@ -369,6 +432,9 @@ Toda falha que atravesse mais de um componente deve entrar nesta secao e no
 | FLOW-020 | Depois de reiniciar o app fora do horario operacional, o diagnostico MT5 respondia, mas os monitores desapareciam aguardando o primeiro snapshot | O bloqueio correto dos ciclos de fim de semana tambem impedia a leitura inicial read-only e o snapshot existia apenas na memoria do processo encerrado | Inicializacao Streamlit, DashboardService, snapshot compartilhado, MT5 Forex e Relatorio | Na ausencia de snapshot valido, a inicializacao faz uma unica leitura historica read-only, publica o resultado compartilhado e nao arma o Robo nem envia ordens; ciclos automaticos e execucao continuam sujeitos aos bloqueios temporais |
 | FLOW-021 | O grafico patrimonial mostrava `Patrimonio final` usando somente `profit` do MT5 | Comissao, swap/rollover e fee existem em campos separados nos deals MT5 | Historico MT5, auditoria, graficos por modelo e Relatorio | Cada painel mostra lucro bruto, custos MT5, lucro liquido e detalha comissao, swap/rollover e taxas; somente operacoes fechadas, encontradas no MT5 e dentro da mesma data-base entram na conta |
 | FLOW-022 | O app abria e depois deixava de responder, mesmo com RAM baixa | A interface possuia fallbacks que executavam leitura MT5 e ciclo completo do Robo Demo durante o rerender quando o thread de fundo ainda nao estava ativo; uma sessao reconectada podia bloquear o servidor inteiro | Streamlit, ciclo Forex, ciclo Robo Demo, snapshot compartilhado, MT5 e guardiao de RAM | A UI nunca executa ciclo operacional nem leitura MT5 automatica; threads de fundo sao os unicos donos dessas operacoes e a tela apenas consome o ultimo snapshot publicado |
+| FLOW-023 | M23 fez somente uma entrada e varias fontes ficaram uma hora inteira em `ROLLOVER_BLOQUEADO` | Quando a sonda do horario do servidor estava ocupada, o runtime reutilizava o horario do candle H1 fechado; a barra `21:00 UTC` mantinha o fallback de rollover ativo durante toda a formacao do candle | ForexTimeLayer, cache de horario MT5, ciclo Robo Demo, funil M23 e UI | No fluxo ao vivo, rollover usa exclusivamente o horario vivo ou extrapolado do servidor; sem esse relogio, o candle fechado nunca cria bloqueio estatico. A barreira historica permanece apenas em Lab/Replay, e o provider MT5 continua sendo a autoridade final para `Market closed` |
+| FLOW-024 | M23 encerrava ou bloqueava a cesta por stop global, trailing e orcamento agregado de SL | Regras financeiras transitorias competiam com os SL/TP herdados e impediam reentradas normais | Model23BasketManager, DashboardService, provider MT5, UI e testes | M23 preserva SL/TP das fontes, permite reentrada em novo sinal e possui uma unica zeragem coletiva: Full Exit a mercado em +US$1.000 liquidos. O mesmo sinal/candle continua deduplicado |
+| FLOW-025 | Position Manager ignorava todo ticket M23 | A cesta preservava SL/TP, mas descartava a saida dinamica do modelo-fonte; uma inversao SMA podia permanecer aberta ate o SL | DashboardService, PositionManagerService, M23, UI, documentacao e testes | Cada ticket M23 e reconstruido com o modelo e a politica de saida da fonte; SL/TP e saida dinamica continuam validos, com Full Exit coletivo adicional em +US$1.000 |
 
 ## Regra De Mudanca Interligada
 
@@ -485,3 +551,27 @@ Nenhum fragmento, rerender, troca de aba ou reconexao web pode assumir o ciclo
 operacional como fallback. Se o snapshot ainda nao existir, a tela preserva o
 ultimo estado leve e aguarda a publicacao do thread de fundo. Isso mantem a rota
 de saude responsiva mesmo quando uma chamada nativa do MT5 demora.
+
+## Auditoria do pico antes do fechamento
+
+Enquanto uma posicao esta aberta, a mesma leitura leve usada pelo Relatorio
+compara o lucro flutuante MT5 com o pico persistido do ticket. Somente um novo
+maximo gera atualizacao local. Quando o ticket migra para
+`FECHADA/HISTORICO`, o Relatorio apresenta lado a lado o resultado realizado e
+o `Pico lucro aberto`, incluindo o horario UTC em que o maximo foi observado.
+Esse fluxo e somente leitura e nao interfere na entrada, no SL, no TP ou no
+Position Manager.
+
+## Invariante da janela operacional M5
+
+A persistencia `.traderia/mt5_m5_warm_cache.json` serve somente para aquecer a
+tela e os indicadores. Depois de qualquer reinicio do processo, mesmo quando o
+arquivo declarar fonte `LIVE`, a janela permanece bloqueada para ordens ate ser
+substituida por 201 candles obtidos diretamente do terminal MT5.
+
+Durante o runtime leve, cada atualizacao M5 le duas barras: a barra anterior ja
+fechada e a barra atual em formacao. Isso corrige no cache o fechamento final da
+barra anterior e impede que uma cotacao parcial seja congelada como candle
+fechado. Se essas duas barras nao tiverem sobreposicao ou continuidade com a
+janela corrente, o runtime baixa novamente as 201 barras e continua bloqueado
+ate a reconciliacao terminar. Lab pesado e backtest permanecem fora desse ciclo.

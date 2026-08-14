@@ -15,6 +15,7 @@ from application.model8_xau_m5_sma_rsi_reentry import (
     update_model8_runtime_state,
     _sma,
 )
+from application.operational_indicator_window import OPERATIONAL_INDICATOR_RAW_CANDLES
 from application.mt5_native_m5_indicators import MT5NativeM5IndicatorSnapshot
 from application.xau_m5_sma_rsi_model_family import (
     MODEL_ADX_PERIOD,
@@ -35,12 +36,18 @@ MODEL_14_ID = "MODELO_14_FOREX_M5_SMA_RSI_ADX"
 MODEL_15_ID = "MODELO_15_FOREX_M5_SMA_RSI_MA_DISTANCE_ATR"
 MODEL_16_ID = "MODELO_16_FOREX_M5_SMA_RSI_SMA50_SLOPE"
 MODEL_17_ID = "MODELO_17_FOREX_M5_SMA_RSI_TREND_FILTERS"
-FOREX_SMA_RSI_MODEL_IDS = (
+FOREX_SMA_RSI_RETIRED_MODEL_IDS = (
     MODEL_13_ID,
     MODEL_14_ID,
     MODEL_15_ID,
+)
+FOREX_SMA_RSI_MODEL_IDS = (
     MODEL_16_ID,
     MODEL_17_ID,
+)
+FOREX_SMA_RSI_POSITION_MANAGEMENT_MODEL_IDS = (
+    *FOREX_SMA_RSI_RETIRED_MODEL_IDS,
+    *FOREX_SMA_RSI_MODEL_IDS,
 )
 FOREX_SMA_RSI_PAIRS = MODEL_3_ALL_FOREX_PAIRS
 FOREX_SMA_RSI_TIMEFRAME = "M5"
@@ -150,7 +157,7 @@ def evaluate_forex_sma_rsi_entry(
             base.status, base.reason, failed_filters=("PAIR_SCOPE",),
         )
     rows = list(candles or ())
-    required_rows = 52
+    required_rows = OPERATIONAL_INDICATOR_RAW_CANDLES
     if len(rows) < required_rows:
         status = f"M{spec.number}_AQUECENDO_{len(rows)}_DE_{required_rows}_CANDLES"
         base = replace(evaluate_model8_entry(rows), status=status)
@@ -301,7 +308,8 @@ def forex_sma_rsi_parameters(model_id: str, pair: str) -> dict[str, object]:
         "sma50_slope_lookback": 1 if spec.requires_sma50_slope else None,
         "sma50_slope_atr_min": 0.05 if spec.requires_sma50_slope else None,
         "pip_size": pip,
-        "initial_entry_order_type": "MARKET",
+        "initial_entry_order_type": "MARKET_ON_CONFIRMED_CLOSED_M5_SMA20_50_CROSS",
+        "initial_entry_requires_fresh_sma_cross": True,
         "reentry_order_type": "BUY_STOP_OR_SELL_STOP_AT_PREVIOUS_CANDLE_EXTREME_EXACT",
         "stop": "PIVOT_2X2_PLUS_ONE_PIP",
         "take_profit_enabled": False,

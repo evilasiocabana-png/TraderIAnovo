@@ -3,7 +3,7 @@ param(
     [int]$MemoryLimitMB = 900,
     [int]$CheckIntervalSeconds = 60,
     [int]$HealthyLogIntervalSeconds = 600,
-    [int]$HealthFailureThreshold = 3,
+    [int]$HealthFailureThreshold = 5,
     [switch]$Once
 )
 
@@ -115,7 +115,7 @@ function Test-TraderIAStreamlitHealth {
         $response = Invoke-WebRequest `
             -Uri "http://127.0.0.1:$Port/_stcore/health" `
             -UseBasicParsing `
-            -TimeoutSec 5 `
+            -TimeoutSec 15 `
             -ErrorAction Stop
         return [int]$response.StatusCode -eq 200
     } catch {

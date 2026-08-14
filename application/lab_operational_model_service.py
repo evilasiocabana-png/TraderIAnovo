@@ -11,6 +11,11 @@ from typing import Any, Callable, Iterable, Mapping
 
 import numpy as np
 
+from application.operational_indicator_window import (
+    OPERATIONAL_INDICATOR_CLOSED_CANDLES,
+    OPERATIONAL_INDICATOR_RAW_CANDLES,
+)
+
 from research.alpha_suggested.alpha_suggested_1_plus_discovery import (
     build_signal as build_m2_signal,
     engineer_features,
@@ -458,6 +463,7 @@ class LabOperationalModelService:
         current_price: float | None,
         server_timestamp: str | None = None,
         market_row: object | None = None,
+        demo_forward_override: bool = False,
     ) -> LabOperationalDecision:
         normalized_model = str(model_id or "").upper()
         normalized_pair = str(pair or "").upper()
@@ -472,7 +478,7 @@ class LabOperationalModelService:
             )
         timeframe = str(winner.get("timeframe") or "N/D").upper()
         common = self._winner_values(winner)
-        if not bool(winner.get("demo_forward_enabled", False)):
+        if not bool(winner.get("demo_forward_enabled", False)) and not demo_forward_override:
             return self._wait(
                 normalized_model,
                 normalized_pair,
@@ -571,13 +577,16 @@ class LabOperationalModelService:
         timeframe = str(winner.get("timeframe") or "M1").upper()
         candles = self._candles(candles_by_market, pair, timeframe)
         common = self._winner_values(winner)
-        if len(candles) < 220:
+        if len(candles) < OPERATIONAL_INDICATOR_RAW_CANDLES:
             return self._wait(
                 model_id,
                 pair,
                 timeframe,
                 "INSUFFICIENT_LIVE_CANDLES",
-                f"Alpha oficial exige 220 candles; recebeu {len(candles)}.",
+                (
+                    "Alpha oficial exige janela deslizante de 200 candles "
+                    f"fechados; recebeu {max(len(candles) - 1, 0)}."
+                ),
                 **common,
             )
         signal_time = str(candles[-2]["data"])
@@ -602,15 +611,16 @@ class LabOperationalModelService:
                     pair,
                     context_timeframe,
                 )
-                if len(context_candles) < 220:
+                if len(context_candles) < OPERATIONAL_INDICATOR_RAW_CANDLES:
                     return self._wait(
                         model_id,
                         pair,
                         timeframe,
                         "INSUFFICIENT_CONTEXT_CANDLES",
                         (
-                            f"{common['alpha_id']} exige 220 candles em "
-                            f"{context_timeframe}; recebeu {len(context_candles)}."
+                            f"{common['alpha_id']} exige 200 candles fechados em "
+                            f"{context_timeframe}; recebeu "
+                            f"{max(len(context_candles) - 1, 0)}."
                         ),
                         signal_candle_time=signal_time,
                         current_bar_time=current_time,
@@ -836,13 +846,16 @@ class LabOperationalModelService:
     ) -> LabOperationalDecision:
         candles = self._candles(candles_by_market, pair, timeframe)
         common = self._winner_values(winner)
-        if len(candles) < 260:
+        if len(candles) < OPERATIONAL_INDICATOR_RAW_CANDLES:
             return self._wait(
                 model_id,
                 pair,
                 timeframe,
                 "INSUFFICIENT_LIVE_CANDLES",
-                f"Modelo exige 260 candles; recebeu {len(candles)}.",
+                (
+                    "Modelo exige janela deslizante de 200 candles fechados; "
+                    f"recebeu {max(len(candles) - 1, 0)}."
+                ),
                 **common,
             )
         signal_time = str(candles[-2]["data"])
@@ -930,7 +943,7 @@ class LabOperationalModelService:
             primary = self._candles(candles_by_market, market_pair, "M30")
             h1 = self._candles(candles_by_market, market_pair, "H1")
             h4 = self._candles(candles_by_market, market_pair, "H4")
-            if min(len(primary), len(h1), len(h4)) < 260:
+            if min(len(primary), len(h1), len(h4)) < OPERATIONAL_INDICATOR_RAW_CANDLES:
                 return self._wait(
                     model_id,
                     pair,
@@ -1560,7 +1573,17 @@ class LabOperationalModelService:
     ) -> list[dict[str, Any]]:
         normalized_pair = pair.upper()
         normalized_timeframe = timeframe.upper()
-        values = list(source.get((normalized_pair, normalized_timeframe), []) or [])
+        raw_values = list(
+            source.get((normalized_pair, normalized_timeframe), []) or []
+        )
+        deduplicated = {
+            str(self._raw_candle_value(candle, "data")): candle
+            for candle in raw_values
+            if str(self._raw_candle_value(candle, "data"))
+        }
+        values = [deduplicated[key] for key in sorted(deduplicated)][
+            -OPERATIONAL_INDICATOR_RAW_CANDLES:
+        ]
         if not values:
             return []
         signal = values[-2] if len(values) >= 2 else values[-1]

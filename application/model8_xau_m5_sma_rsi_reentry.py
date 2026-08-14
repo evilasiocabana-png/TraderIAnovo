@@ -11,6 +11,10 @@ import threading
 from typing import Any, Iterable
 
 from application.mt5_native_m5_indicators import MT5NativeM5IndicatorSnapshot
+from application.operational_indicator_window import (
+    OPERATIONAL_INDICATOR_CLOSED_CANDLES,
+    OPERATIONAL_INDICATOR_RAW_CANDLES,
+)
 
 
 MODEL_8_ID = "MODELO_8_XAU_M5_SMA_RSI_REENTRY"
@@ -23,7 +27,7 @@ MODEL_8_ALPHA_VERSION = "M8_ENTRY_V3"
 MODEL_8_BETA_ID = "BETAXAU8_RSI70_30_SMA_FULL_EXIT"
 MODEL_8_BETA_VERSION = "M8_EXIT_V3"
 MODEL_8_STOP_MANAGEMENT = "M8_SMA_RSI_FULL_EXIT"
-MODEL_8_ENTRY_ORDER_TYPE = "MARKET_ON_CLOSED_M5_RSI50_LEVEL"
+MODEL_8_ENTRY_ORDER_TYPE = "MARKET_ON_CONFIRMED_CLOSED_M5_SMA20_50_CROSS_WITH_RSI50"
 MODEL_8_REENTRY_ORDER_TYPE = "PENDING_STOP_PREVIOUS_CLOSED_M5_EXTREME"
 MODEL_8_SMA_FAST = 20
 MODEL_8_SMA_SLOW = 50
@@ -32,10 +36,11 @@ MODEL_8_RSI_BUY_FILTER = 50.0
 MODEL_8_RSI_SELL_FILTER = 50.0
 MODEL_8_RSI_BUY_EXIT = 70.0
 MODEL_8_RSI_SELL_EXIT = 30.0
-MODEL_8_LOOKBACK_CANDLES = 52
+MODEL_8_LOOKBACK_CANDLES = OPERATIONAL_INDICATOR_RAW_CANDLES
 MODEL_8_SWING_LEFT = 2
 MODEL_8_SWING_RIGHT = 2
 MODEL_8_STOP_BUFFER = 0.01
+MODEL_8_REENTRY_PULLBACK_CANDLES = 2
 MODEL_8_RUNTIME_STATE_PATH = Path(".traderia") / "model8_runtime_state.json"
 _MODEL_8_STATE_LOCK = threading.RLock()
 
@@ -60,6 +65,8 @@ class Model8EntryDecision:
     previous_sma50: float | None = None
     last_swing_price: float | None = None
     last_swing_time: str = "N/D"
+    structural_target_price: float | None = None
+    structural_target_time: str = "N/D"
     indicator_source: str = "LOCAL_CANDLES"
     indicator_generated_at: str = "N/D"
 
@@ -123,8 +130,27 @@ def evaluate_model8_native_entry(
             **common,
         )
 
+    crossed_now = (
+        snapshot.previous_sma20 <= snapshot.previous_sma50
+        and snapshot.sma20 > snapshot.sma50
+        if direction == "BUY"
+        else snapshot.previous_sma20 >= snapshot.previous_sma50
+        and snapshot.sma20 < snapshot.sma50
+    )
     is_reentry = reentry_side == direction
-    signal_kind = "REENTRY" if is_reentry else "RSI50_LEVEL"
+    if not crossed_now and not is_reentry:
+        return Model8EntryDecision(
+            direction="WAIT",
+            status="M8_TENDENCIA_EXISTENTE_AGUARDA_REENTRADA_ESTRUTURAL_M5",
+            reason=(
+                "MT5 nativo: SMA20/50 ja estavam cruzadas antes do ultimo candle "
+                "fechado. Nao liberar primeira entrada; aguardar recuo e rompimento "
+                "estrutural M5 para reentrada."
+            ),
+            signal_kind="REENTRY",
+            **common,
+        )
+    signal_kind = "REENTRY" if is_reentry else "SMA20_50_CROSS"
     swing_price = (
         snapshot.last_swing_low if direction == "BUY" else snapshot.last_swing_high
     )
@@ -136,9 +162,19 @@ def evaluate_model8_native_entry(
     if is_reentry:
         entry = snapshot.high if direction == "BUY" else snapshot.low
         entry_order_type = "BUY_STOP" if direction == "BUY" else "SELL_STOP"
+        structural_target_price = (
+            snapshot.last_swing_high if direction == "BUY" else snapshot.last_swing_low
+        )
+        structural_target_time = (
+            snapshot.last_swing_high_time
+            if direction == "BUY"
+            else snapshot.last_swing_low_time
+        )
     else:
         entry = snapshot.close
         entry_order_type = "MARKET"
+        structural_target_price = None
+        structural_target_time = "N/D"
     buffer = abs(float(stop_buffer))
     stop = swing_price - buffer if direction == "BUY" else swing_price + buffer
     valid = stop < entry if direction == "BUY" else stop > entry
@@ -153,6 +189,37 @@ def evaluate_model8_native_entry(
             initial_stop=stop,
             last_swing_price=swing_price,
             last_swing_time=swing_time,
+            structural_target_price=structural_target_price,
+            structural_target_time=structural_target_time,
+            **common,
+        )
+    target_valid = (
+        not is_reentry
+        or (
+            structural_target_price is not None
+            and (
+                structural_target_price > entry
+                if direction == "BUY"
+                else structural_target_price < entry
+            )
+        )
+    )
+    if not target_valid:
+        return Model8EntryDecision(
+            direction="WAIT",
+            status="M8_REENTRY_AGUARDA_ALVO_ESTRUTURAL_VALIDO",
+            reason=(
+                "MT5 nativo: reentrada aguarda topo/fundo M5 confirmado antes da "
+                "correcao e no lado favoravel da entrada."
+            ),
+            signal_kind="REENTRY",
+            entry_order_type=entry_order_type,
+            entry_price=entry,
+            initial_stop=stop,
+            last_swing_price=swing_price,
+            last_swing_time=swing_time,
+            structural_target_price=structural_target_price,
+            structural_target_time=structural_target_time,
             **common,
         )
     return Model8EntryDecision(
@@ -173,6 +240,8 @@ def evaluate_model8_native_entry(
         initial_stop=stop,
         last_swing_price=swing_price,
         last_swing_time=swing_time,
+        structural_target_price=structural_target_price,
+        structural_target_time=structural_target_time,
         **common,
     )
 
@@ -183,7 +252,7 @@ def evaluate_model8_entry(
     awaiting_reentry_side: str | None = None,
     stop_buffer: float = MODEL_8_STOP_BUFFER,
 ) -> Model8EntryDecision:
-    """Entra pelo nivel do RSI50; SMA20/50 funciona somente como direcao."""
+    """Entra no cruzamento SMA20/50; tendencia ja iniciada segue como reentrada."""
     rows = list(candles or ())[-MODEL_8_LOOKBACK_CANDLES :]
     minimum = MODEL_8_LOOKBACK_CANDLES
     if len(rows) < minimum:
@@ -192,7 +261,7 @@ def evaluate_model8_entry(
             status=f"M8_AQUECENDO_{len(rows)}_DE_{minimum}_CANDLES",
             reason=(
                 f"M8 aquecendo dados: recebeu {len(rows)} de {minimum} candles "
-                "M5 necessarios, incluindo o atual."
+                "M5 necessarios: 200 fechados e o atual em formacao."
             ),
         )
 
@@ -224,13 +293,10 @@ def evaluate_model8_entry(
 
     reentry_side = str(awaiting_reentry_side or "").upper()
     direction = "WAIT"
-    signal_kind = "NONE"
     if rsi14 > MODEL_8_RSI_BUY_FILTER and sma20 > sma50:
         direction = "BUY"
-        signal_kind = "REENTRY" if reentry_side == "BUY" else "RSI50_LEVEL"
     elif rsi14 < MODEL_8_RSI_SELL_FILTER and sma20 < sma50:
         direction = "SELL"
-        signal_kind = "REENTRY" if reentry_side == "SELL" else "RSI50_LEVEL"
     else:
         return Model8EntryDecision(
             direction="WAIT",
@@ -241,6 +307,14 @@ def evaluate_model8_entry(
             ),
             **common,
         )
+
+    crossed_now = (
+        previous_sma20 <= previous_sma50 and sma20 > sma50
+        if direction == "BUY"
+        else previous_sma20 >= previous_sma50 and sma20 < sma50
+    )
+    is_reentry = reentry_side == direction or not crossed_now
+    signal_kind = "REENTRY" if is_reentry else "SMA20_50_CROSS"
 
     swing_price, swing_time = _last_confirmed_swing(closed_rows, direction)
     if swing_price is None:
@@ -253,8 +327,23 @@ def evaluate_model8_entry(
         )
 
     buffer = abs(float(stop_buffer))
-    is_reentry = reentry_side == direction
+    structural_target_price: float | None = None
+    structural_target_time = "N/D"
     if is_reentry:
+        pullback_ok, pullback_reason = _reentry_pullback_structure(
+            closed_rows,
+            direction,
+        )
+        if not pullback_ok:
+            return Model8EntryDecision(
+                direction="WAIT",
+                status="M8_REENTRY_AGUARDA_RECUO_ESTRUTURAL_M5",
+                reason=pullback_reason,
+                signal_kind="REENTRY",
+                last_swing_price=swing_price,
+                last_swing_time=swing_time,
+                **common,
+            )
         reference_field = "high" if direction == "BUY" else "low"
         reference_price = _candle_value(closed_rows[-1], reference_field)
         if reference_price is None:
@@ -267,6 +356,35 @@ def evaluate_model8_entry(
             )
         entry = float(reference_price)
         entry_order_type = "BUY_STOP" if direction == "BUY" else "SELL_STOP"
+        structural_target_price, structural_target_time = _pullback_origin_target(
+            closed_rows,
+            direction,
+        )
+        target_valid = (
+            structural_target_price is not None
+            and (
+                structural_target_price > entry
+                if direction == "BUY"
+                else structural_target_price < entry
+            )
+        )
+        if not target_valid:
+            return Model8EntryDecision(
+                direction="WAIT",
+                status="M8_REENTRY_AGUARDA_ALVO_ESTRUTURAL_VALIDO",
+                reason=(
+                    "M8 aguarda topo/fundo M5 confirmado antes da correcao e no "
+                    "lado favoravel da reentrada."
+                ),
+                signal_kind="REENTRY",
+                entry_order_type=entry_order_type,
+                entry_price=entry,
+                last_swing_price=swing_price,
+                last_swing_time=swing_time,
+                structural_target_price=structural_target_price,
+                structural_target_time=structural_target_time,
+                **common,
+            )
     else:
         entry = values[-1]
         entry_order_type = "MARKET"
@@ -283,6 +401,8 @@ def evaluate_model8_entry(
             initial_stop=stop,
             last_swing_price=swing_price,
             last_swing_time=swing_time,
+            structural_target_price=structural_target_price,
+            structural_target_time=structural_target_time,
             **common,
         )
 
@@ -297,12 +417,15 @@ def evaluate_model8_entry(
         reason=(
             (
                 f"M8 reentrada {entry_order_type}: RSI50 e SMA confirmados; "
-                f"gatilho exatamente no {'topo' if direction == 'BUY' else 'fundo'} "
+                "recuo estrutural M5 oposto confirmado por dois candles; "
+                f"ordem Stop exatamente na "
+                f"{'maxima' if direction == 'BUY' else 'minima'} "
                 "do ultimo candle M5 fechado."
             )
             if is_reentry
             else (
-                f"M8 {label}: {direction} pelo nivel RSI50; SL {buffer:g} alem do ultimo "
+                f"M8 {label}: {direction} no cruzamento confirmado SMA20/50 do ultimo "
+                f"candle M5 fechado, com RSI14 alinhado; SL {buffer:g} alem do ultimo "
                 f"{'fundo' if direction == 'BUY' else 'topo'} confirmado."
             )
         ),
@@ -312,6 +435,8 @@ def evaluate_model8_entry(
         initial_stop=stop,
         last_swing_price=swing_price,
         last_swing_time=swing_time,
+        structural_target_price=structural_target_price,
+        structural_target_time=structural_target_time,
         **common,
     )
 
@@ -385,15 +510,14 @@ def evaluate_model8_exit(
     if (
         reentry_position
         and normalized_side == "BUY"
-        and previous_rsi14 >= MODEL_8_RSI_BUY_FILTER
-        and rsi14 < MODEL_8_RSI_BUY_FILTER
+        and rsi14 <= MODEL_8_RSI_BUY_FILTER
     ):
         return Model8ExitDecision(
             action="FULL_EXIT",
             status="M8_REENTRY_EXIT_RSI50_CRUZOU_PARA_BAIXO_BUY",
             reason=(
-                "Posicao de reentrada BUY: candle M5 fechou confirmando RSI14 "
-                "de 50 ou mais para abaixo de 50; encerrar integralmente."
+                "Posicao de reentrada BUY: candle M5 fechou com RSI14 em 50 ou "
+                "abaixo; setup perdeu validade e deve encerrar integralmente."
             ),
             extreme_armed=False,
             **common,
@@ -401,15 +525,14 @@ def evaluate_model8_exit(
     if (
         reentry_position
         and normalized_side == "SELL"
-        and previous_rsi14 <= MODEL_8_RSI_SELL_FILTER
-        and rsi14 > MODEL_8_RSI_SELL_FILTER
+        and rsi14 >= MODEL_8_RSI_SELL_FILTER
     ):
         return Model8ExitDecision(
             action="FULL_EXIT",
             status="M8_REENTRY_EXIT_RSI50_CRUZOU_PARA_CIMA_SELL",
             reason=(
-                "Posicao de reentrada SELL: candle M5 fechou confirmando RSI14 "
-                "de 50 ou menos para acima de 50; encerrar integralmente."
+                "Posicao de reentrada SELL: candle M5 fechou com RSI14 em 50 ou "
+                "acima; setup perdeu validade e deve encerrar integralmente."
             ),
             extreme_armed=False,
             **common,
@@ -504,20 +627,16 @@ def evaluate_model8_native_exit(
             "Lado da posicao invalido; nenhuma acao executada.",
             False, **common,
         )
-    if reentry_position and normalized_side == "BUY" and (
-        snapshot.previous_rsi14 >= 50.0 and snapshot.rsi14 < 50.0
-    ):
+    if reentry_position and normalized_side == "BUY" and snapshot.rsi14 <= 50.0:
         return Model8ExitDecision(
             "FULL_EXIT", "M8_REENTRY_EXIT_RSI50_CRUZOU_PARA_BAIXO_BUY",
-            "MT5 nativo: reentrada BUY confirmou RSI14 cruzando 50 para baixo.",
+            "MT5 nativo: reentrada BUY perdeu a condicao RSI14 acima de 50.",
             False, **common,
         )
-    if reentry_position and normalized_side == "SELL" and (
-        snapshot.previous_rsi14 <= 50.0 and snapshot.rsi14 > 50.0
-    ):
+    if reentry_position and normalized_side == "SELL" and snapshot.rsi14 >= 50.0:
         return Model8ExitDecision(
             "FULL_EXIT", "M8_REENTRY_EXIT_RSI50_CRUZOU_PARA_CIMA_SELL",
-            "MT5 nativo: reentrada SELL confirmou RSI14 cruzando 50 para cima.",
+            "MT5 nativo: reentrada SELL perdeu a condicao RSI14 abaixo de 50.",
             False, **common,
         )
     if normalized_side == "BUY" and (
@@ -553,29 +672,44 @@ def model8_parameters() -> dict[str, object]:
         "sma_fast": MODEL_8_SMA_FAST,
         "sma_slow": MODEL_8_SMA_SLOW,
         "rsi_period": MODEL_8_RSI_PERIOD,
-        "lookback_candles": MODEL_8_LOOKBACK_CANDLES,
+        "lookback_candles": OPERATIONAL_INDICATOR_CLOSED_CANDLES,
+        "raw_candles_requested": MODEL_8_LOOKBACK_CANDLES,
         "buy_rsi_filter": MODEL_8_RSI_BUY_FILTER,
         "sell_rsi_filter": MODEL_8_RSI_SELL_FILTER,
         "buy_exit_zone": MODEL_8_RSI_BUY_EXIT,
         "sell_exit_zone": MODEL_8_RSI_SELL_EXIT,
         "entry_order_type": MODEL_8_ENTRY_ORDER_TYPE,
+        "initial_entry_requires_fresh_sma_cross": True,
+        "initial_buy_cross": "PREVIOUS_SMA20<=PREVIOUS_SMA50_AND_CLOSED_SMA20>SMA50",
+        "initial_sell_cross": "PREVIOUS_SMA20>=PREVIOUS_SMA50_AND_CLOSED_SMA20<SMA50",
         "reentry_order_type": MODEL_8_REENTRY_ORDER_TYPE,
         "buy_reentry_trigger": "PREVIOUS_CLOSED_M5_HIGH_EXACT",
         "sell_reentry_trigger": "PREVIOUS_CLOSED_M5_LOW_EXACT",
+        "reentry_requires_opposite_pullback_structure": True,
+        "reentry_pullback_candles": MODEL_8_REENTRY_PULLBACK_CANDLES,
+        "buy_reentry_pullback": "TWO_CLOSED_M5_LOWER_HIGHS_AND_LOWER_LOWS",
+        "sell_reentry_pullback": "TWO_CLOSED_M5_HIGHER_HIGHS_AND_HIGHER_LOWS",
+        "reentry_buy_structural_target": "LAST_CONFIRMED_M5_SWING_HIGH",
+        "reentry_sell_structural_target": "LAST_CONFIRMED_M5_SWING_LOW",
         "reentry_buy_rsi_filter": "CLOSED_RSI14>50",
         "reentry_sell_rsi_filter": "CLOSED_RSI14<50",
-        "entry_level": "MARKET_WHILE_RSI50_LEVEL_AND_SMA_DIRECTION_ALIGN",
+        "entry_level": "MARKET_ONLY_ON_FRESH_CLOSED_SMA20_50_CROSS_WITH_RSI50",
+        "reentries_unlimited_while_trend_valid": True,
         "swing_left": MODEL_8_SWING_LEFT,
         "swing_right": MODEL_8_SWING_RIGHT,
         "stop_buffer": MODEL_8_STOP_BUFFER,
         "take_profit_enabled": False,
+        "reentry_take_profit_enabled": True,
+        "reentry_take_profit_mode": "LAST_CONFIRMED_M5_SWING_BEFORE_PULLBACK",
         "full_exit_enabled": True,
         "trend_invalidation_exit": True,
         "buy_full_exit_cross": "PREVIOUS_RSI14>=70_AND_CLOSED_RSI14<70",
         "sell_full_exit_cross": "PREVIOUS_RSI14<=30_AND_CLOSED_RSI14>30",
         "rsi_exit_requires_closed_m5_confirmation": True,
-        "reentry_buy_full_exit_cross": "PREVIOUS_RSI14>=50_AND_CLOSED_RSI14<50",
-        "reentry_sell_full_exit_cross": "PREVIOUS_RSI14<=50_AND_CLOSED_RSI14>50",
+        "reentry_buy_full_exit": "CLOSED_RSI14<=50",
+        "reentry_sell_full_exit": "CLOSED_RSI14>=50",
+        "pending_stop_validity": "ONE_M5_CANDLE",
+        "pending_stop_reposition": "EACH_NEW_CLOSED_M5_CANDLE",
     }
 
 
@@ -600,6 +734,10 @@ def update_model8_runtime_state(
     entry_intent_kind: str | None = None,
     last_exit_status: str | None = None,
     last_exit_reason: str | None = None,
+    signal_cycle_side: str | None = None,
+    initial_entry_consumed: bool | None = None,
+    reentry_consumed: bool | None = None,
+    last_entry_kind: str | None = None,
     path: Path | None = None,
     operational_model: str = MODEL_8_ID,
     symbol: str = MODEL_8_SYMBOL,
@@ -611,6 +749,7 @@ def update_model8_runtime_state(
             state_path,
             operational_model=operational_model,
         )
+        before = dict(state)
         if entry_intent_side is not None:
             normalized = str(entry_intent_side or "").upper()
             state["entry_intent_side"] = normalized if normalized in {"BUY", "SELL"} else ""
@@ -620,6 +759,19 @@ def update_model8_runtime_state(
             state["last_exit_status"] = str(last_exit_status or "")
         if last_exit_reason is not None:
             state["last_exit_reason"] = str(last_exit_reason or "")
+        if signal_cycle_side is not None:
+            normalized = str(signal_cycle_side or "").upper()
+            state["signal_cycle_side"] = (
+                normalized if normalized in {"BUY", "SELL"} else ""
+            )
+        if initial_entry_consumed is not None:
+            state["initial_entry_consumed"] = bool(initial_entry_consumed)
+        if reentry_consumed is not None:
+            state["reentry_consumed"] = bool(reentry_consumed)
+        if last_entry_kind is not None:
+            state["last_entry_kind"] = str(last_entry_kind or "").upper()
+        if state == before:
+            return state
         state.update(
             {
                 "symbol": str(symbol or MODEL_8_SYMBOL).upper(),
@@ -652,9 +804,45 @@ def _xau_runtime_state_path(operational_model: str) -> Path:
         number = int(normalized.split("_", 2)[1])
     except (IndexError, ValueError):
         number = 8
-    if number not in {8, 9, 10, 11, 12}:
+    if number not in {8, 9, 10, 11, 12, 18, 19, 20, 21, 22}:
         number = 8
     return Path(".traderia") / f"model{number}_runtime_state.json"
+
+
+def _reentry_pullback_structure(
+    rows: list[object],
+    direction: str,
+) -> tuple[bool, str]:
+    """Confirma o recuo oposto nos dois ultimos candles M5 fechados."""
+    if len(rows) < MODEL_8_REENTRY_PULLBACK_CANDLES:
+        return False, "M8 reentrada aguarda dois candles M5 fechados para o recuo."
+    previous = rows[-2]
+    latest = rows[-1]
+    previous_high = _candle_value(previous, "high")
+    previous_low = _candle_value(previous, "low")
+    latest_high = _candle_value(latest, "high")
+    latest_low = _candle_value(latest, "low")
+    if None in {previous_high, previous_low, latest_high, latest_low}:
+        return False, "M8 reentrada recebeu maxima/minima M5 invalida."
+    if direction == "SELL":
+        confirmed = (
+            float(latest_high) > float(previous_high)
+            and float(latest_low) > float(previous_low)
+        )
+        description = "maxima e minima ascendentes"
+    else:
+        confirmed = (
+            float(latest_high) < float(previous_high)
+            and float(latest_low) < float(previous_low)
+        )
+        description = "maxima e minima descendentes"
+    if confirmed:
+        return True, f"Recuo M5 confirmado: {description}."
+    trigger = "SELL STOP na minima" if direction == "SELL" else "BUY STOP na maxima"
+    return False, (
+        f"M8 reentrada aguarda recuo oposto com {description} em dois candles "
+        f"M5 fechados; depois armara {trigger} do ultimo candle fechado."
+    )
 
 
 def _last_confirmed_swing(
@@ -683,6 +871,28 @@ def _last_confirmed_swing(
         if confirmed:
             return value, _candle_time(rows[index])
     return None, "N/D"
+
+
+def _pullback_origin_target(
+    rows: list[object],
+    direction: str,
+) -> tuple[float | None, str]:
+    """Extremo favoravel imediatamente anterior ao recuo de reentrada."""
+    window_size = MODEL_8_REENTRY_PULLBACK_CANDLES + 1
+    if len(rows) < window_size:
+        return None, "N/D"
+    field = "high" if str(direction or "").upper() == "BUY" else "low"
+    candidates: list[tuple[float, str]] = []
+    for row in rows[-window_size:]:
+        value = _candle_value(row, field)
+        if value is None:
+            return None, "N/D"
+        candidates.append((float(value), _candle_time(row)))
+    return (
+        max(candidates, key=lambda item: item[0])
+        if field == "high"
+        else min(candidates, key=lambda item: item[0])
+    )
 
 
 def _sma(values: list[float], period: int) -> float:

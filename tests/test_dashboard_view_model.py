@@ -4,12 +4,13 @@ import json
 import os
 import tempfile
 import unittest
-from dataclasses import fields
+from dataclasses import fields, replace
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import application.dashboard_service as dashboard_service_module
 from application.dashboard_service import (
     DashboardService,
     MT5_OPERATIONAL_MODEL_IDS,
@@ -22,6 +23,8 @@ from application.dashboard_view_model import (
     DashboardMT5ScenarioViewModel,
     DashboardMT5ForexSignalRowViewModel,
     DashboardMT5ForexSignalViewModel,
+    DashboardMT5TradeAuditRowViewModel,
+    DashboardMT5TradeAuditViewModel,
     DashboardViewModel,
     format_dashboard_timestamp,
 )
@@ -77,6 +80,77 @@ class DashboardViewModelContractTest(unittest.TestCase):
 
     def setUp(self) -> None:
         ConfigurationManager.reset_configuration()
+
+    def test_snapshot_da_auditoria_mt5_preserva_curvas_apos_reinicio(self) -> None:
+        row = DashboardMT5TradeAuditRowViewModel(
+            symbol="XAUUSD",
+            operation_status="FECHADA",
+            operational_model="MODELO_18_XAU_M5_SETUP_A_REENTRY_TP75",
+            mt5_realized_profit=12.5,
+        )
+        report = DashboardMT5TradeAuditViewModel(
+            rows=[row],
+            total_local_records=1,
+            total_accepted_local=1,
+            total_audited=1,
+            total_matched=1,
+            mt5_connection_status="CONNECTED",
+        )
+        service = DashboardService()
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "runtime" / "trade_audit.json"
+            with (
+                patch.object(
+                    dashboard_service_module,
+                    "_MT5_TRADE_AUDIT_SNAPSHOT_PATH",
+                    target,
+                ),
+                patch.dict(os.environ, {"PYTEST_CURRENT_TEST": ""}),
+            ):
+                service._save_mt5_trade_audit_report_snapshot(report)
+                loaded = service._load_mt5_trade_audit_report_snapshot()
+                with patch.object(Path, "write_text") as write_text:
+                    service._save_mt5_trade_audit_report_snapshot(report)
+                write_text.assert_not_called()
+
+        self.assertIsNotNone(loaded)
+        assert loaded is not None
+        self.assertEqual(loaded.total_matched, 1)
+        self.assertEqual(len(loaded.rows), 1)
+        self.assertEqual(loaded.rows[0].operational_model, row.operational_model)
+        self.assertEqual(loaded.rows[0].mt5_realized_profit, 12.5)
+
+        lightweight = DashboardMT5TradeAuditViewModel(
+            rows=[DashboardMT5TradeAuditRowViewModel(operation_status="ABERTA")],
+        )
+        object.__setattr__(service, "mt5_trade_audit_report_cache", lightweight)
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "TRADERIA_MT5_REPORT_EXTERNAL_PROCESS_ENABLED": "1",
+                    "TRADERIA_MT5_REPORT_INPROCESS_WORKER": "0",
+                },
+            ),
+            patch.object(
+                DashboardService,
+                "_get_mt5_trade_audit_report_external",
+                return_value=None,
+            ),
+            patch.object(
+                DashboardService,
+                "_load_mt5_trade_audit_report_snapshot",
+                return_value=report,
+            ),
+            patch.object(
+                DashboardService,
+                "_merge_lightweight_open_positions",
+                side_effect=lambda current: current,
+            ),
+        ):
+            restored = service.get_mt5_trade_audit_report()
+
+        self.assertEqual(restored.rows, [row])
 
     def tearDown(self) -> None:
         ConfigurationManager.reset_configuration()
@@ -507,7 +581,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertIs(transformed_row, row)
         self.assertIs(transformed_plan, plan)
 
-    def test_modelo4_legado_migra_para_contextual_sem_espelhar_m1(self) -> None:
+    def test_modelo4_legado_retirado_cai_no_modelo1_seguro(self) -> None:
         service = DashboardService()
         service.set_mt5_operational_model("MODELO_4_ESPELHO_M1")
         row = DashboardMT5ForexSignalRowViewModel(
@@ -542,10 +616,9 @@ class DashboardViewModelContractTest(unittest.TestCase):
 
         self.assertEqual(
             service.get_mt5_operational_model(),
-            "MODELO_4_LAB_CONTEXTUAL_MTF",
+            "MODELO_1_ALPHA_ATUAL",
         )
-        self.assertEqual(transformed_row.decision, "WAIT")
-        self.assertIn("M4_", transformed_row.active_model)
+        self.assertIs(transformed_row, row)
         self.assertIs(transformed_plan, plan)
 
     def test_log_demo_jsonl_le_apenas_linhas_novas(self) -> None:
@@ -700,14 +773,297 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertIn("H1", transformed_row.reason)
         self.assertIs(transformed_plan, plan)
 
-    def test_chaveamento_todos_expande_somente_modelos_ativos_m1_a_m14(self) -> None:
+    def test_chaveamento_todos_expande_modelos_ativos_sem_duplicar_m23(self) -> None:
+        from application.dashboard_service import MT5_ACTIVE_SOURCE_MODEL_IDS
+
         service = DashboardService()
         service.set_mt5_operational_model("TODOS_MODELOS")
 
         self.assertEqual(
             service._mt5_operational_models_to_evaluate(),
-            MT5_OPERATIONAL_MODEL_IDS,
+            MT5_ACTIVE_SOURCE_MODEL_IDS,
         )
+
+    def test_chaveamento_custom_avalia_exatamente_os_modelos_marcados(self) -> None:
+        from application.dashboard_service import (
+            MT5_OPERATIONAL_MODEL_1,
+            MT5_OPERATIONAL_MODEL_8,
+            MT5_OPERATIONAL_MODEL_CUSTOM,
+        )
+
+        service = object.__new__(DashboardService)
+        service.set_mt5_operational_models(
+            [MT5_OPERATIONAL_MODEL_1, MT5_OPERATIONAL_MODEL_8]
+        )
+
+        self.assertEqual(service.get_mt5_operational_model(), MT5_OPERATIONAL_MODEL_CUSTOM)
+        self.assertEqual(
+            service._mt5_operational_models_to_evaluate(),
+            (MT5_OPERATIONAL_MODEL_1, MT5_OPERATIONAL_MODEL_8),
+        )
+        self.assertTrue(service._mt5_multi_model_selection_active())
+
+    def test_chaveamento_combinado_habilita_ordens_diretas_e_copias_m23(self) -> None:
+        from application.dashboard_service import (
+            MT5_OPERATIONAL_MODEL_1,
+            MT5_OPERATIONAL_MODEL_8,
+            MT5_OPERATIONAL_MODEL_WITH_23,
+        )
+
+        service = object.__new__(DashboardService)
+        service.set_mt5_operational_models(
+            [MT5_OPERATIONAL_MODEL_1, MT5_OPERATIONAL_MODEL_8],
+            basket_mode=True,
+            direct_models_enabled=True,
+        )
+
+        self.assertEqual(
+            service.get_mt5_operational_model(),
+            MT5_OPERATIONAL_MODEL_WITH_23,
+        )
+        self.assertEqual(
+            service._mt5_operational_models_to_evaluate(),
+            (MT5_OPERATIONAL_MODEL_1, MT5_OPERATIONAL_MODEL_8),
+        )
+        self.assertTrue(service._mt5_direct_routing_enabled())
+        self.assertTrue(service._mt5_model23_routing_enabled())
+
+    def test_chaveamento_m23_avalia_somente_fontes_ativas(self) -> None:
+        from application.dashboard_service import (
+            MT5_ACTIVE_SOURCE_MODEL_IDS,
+            MT5_MODEL_23_SOURCE_MODEL_IDS,
+            MT5_MODEL_23_RETIRED_SOURCE_MODEL_IDS,
+            MT5_OPERATIONAL_MODEL_23,
+        )
+        from domain.operational_model_policy import operational_model_number
+
+        service = object.__new__(DashboardService)
+        service.set_mt5_operational_model(MT5_OPERATIONAL_MODEL_23)
+
+        self.assertEqual(
+            service._mt5_operational_models_to_evaluate(),
+            MT5_MODEL_23_SOURCE_MODEL_IDS,
+        )
+        self.assertNotIn(
+            MT5_OPERATIONAL_MODEL_23,
+            service._mt5_operational_models_to_evaluate(),
+        )
+        self.assertEqual(
+            MT5_MODEL_23_SOURCE_MODEL_IDS,
+            MT5_ACTIVE_SOURCE_MODEL_IDS,
+        )
+        self.assertEqual(
+            tuple(
+                operational_model_number(model_id)
+                for model_id in MT5_MODEL_23_RETIRED_SOURCE_MODEL_IDS
+            ),
+            (3, 4, 6, 9, 11, 12, 13, 14, 15),
+        )
+        self.assertTrue(
+            set(MT5_MODEL_23_SOURCE_MODEL_IDS).isdisjoint(
+                MT5_MODEL_23_RETIRED_SOURCE_MODEL_IDS
+            )
+        )
+
+    def test_m23_preserva_contrato_completo_da_fonte(self) -> None:
+        service = DashboardService()
+        row = DashboardMT5ForexSignalRowViewModel(
+            pair="EURUSD",
+            status="OK",
+            timeframe="H1",
+            decision="BUY",
+            theoretical_entry_direction="BUY",
+            theoretical_entry_price=1.10,
+        )
+        plan = MT5ResearchTradePlan(
+            symbol="EURUSD",
+            timeframe="H1",
+            direction="BUY",
+            entry_price=1.10,
+            stop=1.09,
+            target=1.13,
+            risk_reward=3.0,
+            stop_multiplier=1.5,
+            exit_model="FIXED",
+            exit_score=1.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            stop_management_parameters={"active_entry_order_type": "MARKET"},
+            stop_management="SOURCE_DYNAMIC_EXIT",
+            stop_management_reason="Saida dinamica da fonte.",
+            beta_id="BETA_SOURCE",
+            beta_version="BETA SOURCE V1",
+            beta_mode="FULL_EXIT_SOURCE",
+        )
+
+        basket_row, basket_plan = service._mt5_model23_variant_from_source(
+            row,
+            plan,
+            source_operational_model=(
+                dashboard_service_module.MT5_OPERATIONAL_MODEL_1
+            ),
+        )
+
+        self.assertEqual(basket_plan.entry_price, plan.entry_price)
+        self.assertEqual(basket_plan.stop, plan.stop)
+        self.assertEqual(basket_plan.target, plan.target)
+        self.assertEqual(basket_plan.risk_reward, plan.risk_reward)
+        self.assertEqual(
+            basket_plan.stop_management_parameters["source_stop_management"],
+            "SOURCE_DYNAMIC_EXIT",
+        )
+        self.assertEqual(
+            basket_plan.stop_management_parameters["source_beta_id"],
+            "BETA_SOURCE",
+        )
+        self.assertEqual(
+            basket_plan.stop_management_parameters["full_exit_usd"],
+            1000.0,
+        )
+        self.assertNotIn(
+            "global_stop_usd",
+            basket_plan.stop_management_parameters,
+        )
+        self.assertNotIn(
+            "trailing_activation_usd",
+            basket_plan.stop_management_parameters,
+        )
+        self.assertIn("contrato operacional completo", basket_plan.reason)
+        self.assertIn("saidas nativas", basket_row.research_plan_reason)
+
+    def test_m23_xau_reentry_usa_alvo_estrutural_da_janela_m5(self) -> None:
+        service = DashboardService()
+        row = DashboardMT5ForexSignalRowViewModel(
+            pair="XAUUSD",
+            status="OK",
+            timeframe="M5",
+            decision="SELL",
+            theoretical_entry_direction="SELL",
+            theoretical_entry_price=4350.0,
+        )
+        plan = MT5ResearchTradePlan(
+            symbol="XAUUSD",
+            timeframe="M5",
+            direction="SELL",
+            entry_price=4350.0,
+            stop=4360.0,
+            target=0.0,
+            risk_reward=0.0,
+            stop_multiplier=0.0,
+            exit_model="M8_EXIT",
+            exit_score=0.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            stop_management_parameters={
+                "active_entry_order_type": "SELL_STOP",
+                "structural_target_price": 4320.0,
+                "structural_target_time": "2026-08-13T19:00:00+00:00",
+            },
+            stop_management="M8_SMA_RSI_FULL_EXIT",
+        )
+
+        basket_row, basket_plan = service._mt5_model23_variant_from_source(
+            row,
+            plan,
+            source_operational_model=(
+                dashboard_service_module.MT5_OPERATIONAL_MODEL_8
+            ),
+        )
+
+        self.assertEqual(basket_row.decision, "SELL")
+        self.assertEqual(basket_plan.target, 4320.0)
+        self.assertEqual(basket_plan.risk_reward, 3.0)
+        self.assertTrue(
+            basket_plan.stop_management_parameters[
+                "m23_structural_target_enabled"
+            ]
+        )
+        self.assertIn("ultimo topo/fundo M5", basket_plan.target_reason)
+
+    def test_m23_reconstroi_position_manager_com_politica_da_fonte(self) -> None:
+        service = DashboardService()
+        signal = service._position_manager_signal_from_execution_record(
+            {
+                "ticket": 123,
+                "symbol": "XAUUSD",
+                "side": "SELL",
+                "entry_price": 4380.0,
+                "stop": 4400.0,
+                "target": 0.0,
+                "operational_model": (
+                    "MODELO_23_BASKET_ACCUMULATOR_SOURCE_M8"
+                ),
+                "exit_policy": "M23_FULL_EXIT_1000_ONLY",
+                "beta_id": "BETA023_FULL_EXIT_1000",
+                "plan_snapshot": {
+                    "status": "PLANO_VALIDO",
+                    "timeframe": "M5",
+                    "stop_management_parameters": {
+                        "source_operational_model": (
+                            "MODELO_8_XAU_M5_SMA_RSI_REENTRY"
+                        ),
+                        "source_stop_management": (
+                            "M8_FULL_EXIT_RSI70_30_CROSS_OR_SMA_INVERSION"
+                        ),
+                        "source_beta_id": "BETA008",
+                        "source_beta_version": "M8_BETA_V1",
+                        "source_beta_mode": "FULL_EXIT",
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(
+            signal["operational_model"],
+            "MODELO_8_XAU_M5_SMA_RSI_REENTRY",
+        )
+        self.assertEqual(
+            signal["stop_management"],
+            "M8_FULL_EXIT_RSI70_30_CROSS_OR_SMA_INVERSION",
+        )
+        self.assertEqual(signal["beta_id"], "BETA008")
+        self.assertEqual(signal["beta_mode"], "FULL_EXIT")
+
+    def test_fontes_aposentadas_m23_nao_herdam_plano_de_outro_escopo(self) -> None:
+        service = DashboardService()
+        row = DashboardMT5ForexSignalRowViewModel(
+            pair="EURUSD",
+            status="OK",
+            timeframe="H1",
+            decision="BUY",
+            theoretical_entry_direction="BUY",
+            theoretical_entry_price=1.10,
+        )
+        plan = MT5ResearchTradePlan(
+            symbol="EURUSD",
+            timeframe="H1",
+            direction="BUY",
+            entry_price=1.10,
+            stop=1.09,
+            target=1.12,
+            risk_reward=2.0,
+            stop_multiplier=1.0,
+            exit_model="FIXED",
+            exit_score=1.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+        )
+
+        xau_row, xau_plan = service._mt5_apply_operational_model(
+            row,
+            plan,
+            operational_model=dashboard_service_module.MT5_OPERATIONAL_MODEL_9,
+        )
+        forex_row, forex_plan = service._mt5_apply_operational_model(
+            replace(row, pair="XAUUSD"),
+            replace(plan, symbol="XAUUSD"),
+            operational_model=dashboard_service_module.MT5_OPERATIONAL_MODEL_13,
+        )
+
+        self.assertEqual(xau_row.decision, "WAIT")
+        self.assertEqual(xau_plan.status, "PLANO_INVALIDO")
+        self.assertEqual(forex_row.decision, "WAIT")
+        self.assertNotEqual(forex_plan.status, "PLANO_VALIDO")
 
     def test_grupo_operacional_m8_a_m17_avalia_somente_esses_modelos(self) -> None:
         from application.dashboard_service import (
@@ -945,12 +1301,15 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertIn("M5_", transformed_row.active_model)
         self.assertIs(transformed_plan, fallback_plan)
 
-    def test_modelo6_legado_aposentado_migra_para_modelo6_atual(self) -> None:
+    def test_modelo6_legado_aposentado_cai_no_modelo1_seguro(self) -> None:
         service = DashboardService()
 
         service.set_mt5_operational_model(MODEL_6_LEGACY_ID)
 
-        self.assertEqual(service.get_mt5_operational_model(), ACTIVE_MODEL_6_ID)
+        self.assertEqual(
+            service.get_mt5_operational_model(),
+            dashboard_service_module.MT5_OPERATIONAL_MODEL_1,
+        )
 
     def test_modelo7_legado_aposentado_migra_para_modelo7_atual(self) -> None:
         service = DashboardService()

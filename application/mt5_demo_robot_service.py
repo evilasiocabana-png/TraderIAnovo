@@ -22,10 +22,20 @@ from application.market_regime_pipeline import MarketRegimePipeline
 from application.model6_lab_forex_expansion import MODEL_6_ID
 from application.model7_lab_alternative_markets import MODEL_7_ID
 from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
-from application.xau_m5_sma_rsi_model_family import XAU_TREND_FILTER_MODEL_IDS
-from application.forex_m5_sma_rsi_model_family import FOREX_SMA_RSI_MODEL_IDS
+from application.xau_m5_sma_rsi_model_family import (
+    XAU_IMPROVED_REENTRY_MODEL_IDS,
+    XAU_ALL_TREND_FILTER_MODEL_IDS as XAU_TREND_FILTER_MODEL_IDS,
+    xau_model_requires_target,
+)
+from application.forex_m5_sma_rsi_model_family import (
+    FOREX_SMA_RSI_POSITION_MANAGEMENT_MODEL_IDS as FOREX_SMA_RSI_MODEL_IDS,
+)
 from application.model15_xau_m5_breakout import MODEL_15_ID
 from application.model16_xau_m5_price_ema_breakout import MODEL_16_ID
+from application.model23_basket_accumulator import (
+    MODEL_23_ENTRY_SOURCE,
+    is_model23,
+)
 from application.model6_original_trend_momentum import (
     MODEL_6_ID as HISTORICAL_MODEL_6_ID,
 )
@@ -402,6 +412,10 @@ class MT5DemoRobotService:
     ) -> MT5DemoRobotSignal | None:
         """Nao sobrepoe regime legado aos modelos com Alpha canonica completa."""
         model = str(getattr(signal, "operational_model", "") or "").upper()
+        if is_model23(model):
+            # O M23 recebe somente sinais que ja venceram todos os gates do
+            # modelo-fonte. Reaplicar o regime legado aqui distorceria a fonte.
+            return None
         dynamic_source = dynamic_exit_source_model(model)
         if dynamic_source is not None:
             # A variante deve repetir todos os gates de entrada da origem. M8
@@ -463,23 +477,46 @@ class MT5DemoRobotService:
             "MODEL_10_MANUAL_RULE",
             "MODEL_11_MANUAL_RULE",
             "MODEL_12_MANUAL_RULE",
+            "MODEL_18_FROM_M8_REENTRY_TP75",
+            "MODEL_19_FROM_M9_REENTRY_TP75",
+            "MODEL_20_FROM_M10_REENTRY_TP75",
+            "MODEL_21_FROM_M11_REENTRY_TP75",
+            "MODEL_22_FROM_M12_REENTRY_TP75",
+            "MODEL_18_FROM_M8_REENTRY_STRUCTURAL_TARGET",
+            "MODEL_19_FROM_M9_REENTRY_STRUCTURAL_TARGET",
+            "MODEL_20_FROM_M10_REENTRY_STRUCTURAL_TARGET",
+            "MODEL_21_FROM_M11_REENTRY_STRUCTURAL_TARGET",
+            "MODEL_22_FROM_M12_REENTRY_STRUCTURAL_TARGET",
             "MODEL_13_FOREX_MANUAL_RULE",
             "MODEL_14_FOREX_MANUAL_RULE",
             "MODEL_15_FOREX_MANUAL_RULE",
             "MODEL_16_FOREX_MANUAL_RULE",
             "MODEL_17_FOREX_MANUAL_RULE",
+            MODEL_23_ENTRY_SOURCE,
         }:
             return "Plano de trade nao veio de fonte operacional autorizada."
         if trade_plan.status != "PLANO_VALIDO":
             return "Plano do Research Lab nao esta com status PLANO_VALIDO."
-        no_target_model = signal.operational_model in {
+        parameters = dict(trade_plan.stop_management_parameters or {})
+        validation_model = str(signal.operational_model or "").upper()
+        if is_model23(validation_model):
+            validation_model = str(
+                parameters.get("source_operational_model") or ""
+            ).upper()
+            if not validation_model:
+                return "Plano M23 sem modelo-fonte para validar SL/TP."
+        requires_target = xau_model_requires_target(
+            validation_model,
+            parameters.get("active_entry_order_type"),
+        )
+        no_target_model = validation_model in {
             MODEL_3_ID,
             MODEL_8_ID,
             MODEL_15_ID,
             MODEL_16_ID,
             *XAU_TREND_FILTER_MODEL_IDS,
             *FOREX_SMA_RSI_MODEL_IDS,
-        }
+        } and not requires_target
         if trade_plan.risk_reward <= 0 and not no_target_model:
             return "Plano do Research Lab sem RR valido."
         if signal.decision == "BUY" and not (

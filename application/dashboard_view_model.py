@@ -778,6 +778,8 @@ class DashboardMT5TradeAuditRowViewModel:
     mt5_price: float = 0.0
     mt5_stop: float | None = None
     mt5_realized_profit: float = 0.0
+    mt5_peak_open_profit: float | None = None
+    mt5_peak_open_profit_at: str = "N/D"
     mt5_commission: float = 0.0
     mt5_swap: float = 0.0
     mt5_fee: float = 0.0

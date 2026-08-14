@@ -23,12 +23,15 @@ from application.forex_m5_sma_rsi_model_family import (
 )
 from tests.test_model8_xau_m5_sma_rsi_reentry import _candles
 from domain.contracts.execution_order import ExecutionOrder
-from domain.operational_model_policy import is_active_operational_model
+from domain.operational_model_policy import (
+    is_active_operational_model,
+    is_retired_operational_model,
+)
 from research.mt5_research_trade_plan import MT5ResearchTradePlan
 
 
 def _strong_buy() -> list[dict[str, float | str]]:
-    return _candles([100.0 + (index * 0.2) for index in range(60)], pivot="low")
+    return _candles(([100.0] * 150) + ([98.0] * 49) + [120.0], pivot="low")
 
 
 class ForexM5SmaRsiModelFamilyTest(unittest.TestCase):
@@ -85,9 +88,12 @@ class ForexM5SmaRsiModelFamilyTest(unittest.TestCase):
         )
         self.assertEqual(decision.failed_filters, ())
 
-    def test_m13_a_m17_possuem_identidades_ativas(self) -> None:
-        for model_id in (MODEL_13_ID, MODEL_14_ID, MODEL_15_ID, MODEL_16_ID, MODEL_17_ID):
+    def test_m16_m17_ativos_e_m13_m15_retirados(self) -> None:
+        for model_id in (MODEL_16_ID, MODEL_17_ID):
             self.assertTrue(is_active_operational_model(model_id), model_id)
+        for model_id in (MODEL_13_ID, MODEL_14_ID, MODEL_15_ID):
+            self.assertFalse(is_active_operational_model(model_id), model_id)
+            self.assertTrue(is_retired_operational_model(model_id), model_id)
 
     def test_estado_de_reentrada_forex_persiste_o_par_correto(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

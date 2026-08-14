@@ -9,10 +9,17 @@ from typing import Any, Protocol
 from core.decision_pipeline import DecisionPipeline
 from application.model15_xau_m5_breakout import MODEL_15_ID
 from application.model16_xau_m5_price_ema_breakout import MODEL_16_ID
+from application.model23_basket_accumulator import is_model23
 from application.model3_xau_m5_rsi50_flip import MODEL_3_ID
 from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
-from application.xau_m5_sma_rsi_model_family import XAU_TREND_FILTER_MODEL_IDS
-from application.forex_m5_sma_rsi_model_family import FOREX_SMA_RSI_MODEL_IDS
+from application.xau_m5_sma_rsi_model_family import (
+    XAU_IMPROVED_REENTRY_MODEL_IDS,
+    XAU_ALL_TREND_FILTER_MODEL_IDS as XAU_TREND_FILTER_MODEL_IDS,
+    xau_model_requires_target,
+)
+from application.forex_m5_sma_rsi_model_family import (
+    FOREX_SMA_RSI_POSITION_MANAGEMENT_MODEL_IDS as FOREX_SMA_RSI_MODEL_IDS,
+)
 from domain.contracts.decision_context import DecisionContext
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
@@ -439,7 +446,28 @@ class DemoExecutionService:
         return bool(self.provider.has_open_position(order.symbol))
 
     def _has_required_stop_and_target(self, order: ExecutionOrder) -> bool:
-        if str(getattr(order, "operational_model", "") or "").upper() in {
+        model = str(getattr(order, "operational_model", "") or "").upper()
+        parameters = dict(
+            dict(getattr(order, "plan_snapshot", None) or {}).get(
+                "stop_management_parameters"
+            )
+            or {}
+        )
+        if is_model23(model):
+            model = str(parameters.get("source_operational_model") or "").upper()
+            if not model:
+                return False
+        requires_target = xau_model_requires_target(
+            model,
+            parameters.get("active_entry_order_type"),
+        )
+        if model in XAU_IMPROVED_REENTRY_MODEL_IDS and requires_target:
+            if order.side == "BUY":
+                return order.stop < order.entry_price < order.target
+            if order.side == "SELL":
+                return order.target < order.entry_price < order.stop
+            return False
+        if model in {
             MODEL_3_ID,
             MODEL_8_ID,
             MODEL_15_ID,

@@ -18,9 +18,9 @@ class Model6Model7LabExpansionTests(unittest.TestCase):
         self.assertEqual(len(MT5_RESEARCH_MARKETS), 19)
 
     def test_new_ids_are_active_and_legacy_ids_are_retired(self) -> None:
-        self.assertTrue(is_active_operational_model(MODEL_6_ID))
+        self.assertFalse(is_active_operational_model(MODEL_6_ID))
         self.assertTrue(is_active_operational_model(MODEL_7_ID))
-        self.assertFalse(is_retired_operational_model(MODEL_6_ID))
+        self.assertTrue(is_retired_operational_model(MODEL_6_ID))
         self.assertFalse(is_retired_operational_model(MODEL_7_ID))
         self.assertTrue(
             is_retired_operational_model("MODELO_6_TREND_MOMENTUM_ORIGINAL")

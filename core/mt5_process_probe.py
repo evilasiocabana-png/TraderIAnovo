@@ -83,9 +83,30 @@ def probe_mt5_initialize(
     )
 
 
-def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
-    """Finaliza a sonda sem deixar subprocesso pendurado."""
+def terminate_process_tree(process: subprocess.Popen[str]) -> None:
+    """Finaliza a sonda MT5 e confirma que nenhum filho ficou pendurado."""
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=3,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
     try:
         process.kill()
     except OSError:
-        return
+        pass
+    try:
+        process.wait(timeout=1.0)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+_terminate_process_tree = terminate_process_tree

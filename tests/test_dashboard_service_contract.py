@@ -95,6 +95,14 @@ class DashboardServiceContractTest(unittest.TestCase):
 
         self.assertIsInstance(service, DashboardService)
 
+    def test_fluxo_m23_define_modo_cesta_antes_de_rotear_candidatos(self) -> None:
+        source = Path("application/dashboard_service.py").read_text(encoding="utf-8")
+        method = source[source.index("    def evaluate_armed_demo_robot_once(") :]
+        assignment = method.index("basket_mode =")
+        first_use = method.index("if basket_mode:")
+
+        self.assertLess(assignment, first_use)
+
     def test_dashboard_service_metodos_publicos_retornam_tipos_seguros(
         self,
     ) -> None:

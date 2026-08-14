@@ -1,5 +1,18 @@
 # Runtime Preservation Policy
 
+## Janela de indicadores
+
+- Todo setup operacional recebe 201 registros por par e timeframe: 200 velas
+  fechadas mais a vela atual.
+- A vela atual serve para preco vivo e identificacao do ciclo; nao entra no
+  calculo dos indicadores nem no gatilho de candle fechado.
+- Uma leitura com o mesmo timestamp substitui a vela em formacao. Quando um
+  novo timestamp chega, a mais antiga sai e a janela continua limitada.
+- O Lab fornece parametros congelados; o runtime atualiza seus valores sobre a
+  janela corrente, sem pesquisa, backtest ou recalculo pesado.
+- Cache curto, desordenado, duplicado ou legado de 52 registros nao libera
+  ordem nova e deve ser reidratado pelo MT5.
+
 ## Disponibilidade publica
 
 O launcher oficial `scripts/abrir_traderianovo.ps1` e responsavel por manter a
@@ -370,6 +383,9 @@ Checklist obrigatorio:
 [ ] Nao desarma Robo Demo por leitura transitoria.
 [ ] Preserva ultimo snapshot valido.
 [ ] Possui teste para leitura vazia/transitoria quando aplicavel.
+[ ] Subprocesso MT5 com timeout encerra a arvore inteira e e aguardado.
+[ ] Protecao financeira de posicao roda antes da leitura pesada de mercado.
+[ ] Zeragem iniciada permanece bloqueante ate o MT5 confirmar zero posicoes.
 ```
 
 ## Rollback
@@ -383,3 +399,27 @@ Rollback de Runtime Guard deve:
 - nao limpar posicoes;
 - nao alterar ordens;
 - nao alterar configuracoes persistentes sem aprovacao explicita.
+
+## Pico de lucro flutuante por ticket
+
+- O ciclo leve reutiliza `positions_get` ja executado e observa o campo `profit`.
+- O maior valor por ticket e persistido em
+  `.traderia/runtime/mt5_position_profit_peaks.sqlite3`.
+- Uma observacao posterior nunca reduz o pico registrado.
+- O fechamento da posicao nao apaga o pico; o Relatorio o une ao historico pelo
+  ticket MT5.
+- Nao existe nova consulta ao MT5, calculo de indicador ou execucao do Lab para
+  manter esse dado.
+- Operacoes encerradas antes da implantacao permanecem com pico `N/D`, pois o
+  MT5 nao fornece retrospectivamente a excursao maxima intratrade.
+
+## Relogio MT5 e janela operacional M5
+
+- a janela leve contem exatamente 200 candles fechados mais o candle atual;
+- o candle atual deve ser o mesmo retornado pelo lote vivo do MT5;
+- indicadores usam apenas os 200 candles fechados; o candle em formacao serve
+  para preco vivo e disparo da ordem pendente;
+- timestamps de candle e tick pertencem ao relogio do servidor da corretora;
+- expiracao de ordem pendente compara candle com `tick.time` do MT5, nunca com
+  o UTC da maquina, pois o servidor pode ter deslocamento e horario de verao;
+- cache local antigo nunca libera entrada ate ser promovido por lote vivo atual.

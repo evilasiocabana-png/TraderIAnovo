@@ -14,6 +14,7 @@ from application.model8_xau_m5_sma_rsi_reentry import (
     evaluate_model8_entry,
     evaluate_model8_native_entry,
 )
+from application.operational_indicator_window import OPERATIONAL_INDICATOR_RAW_CANDLES
 from application.mt5_native_m5_indicators import MT5NativeM5IndicatorSnapshot
 
 
@@ -21,12 +22,37 @@ MODEL_9_ID = "MODELO_9_XAU_M5_SMA_RSI_ADX"
 MODEL_10_ID = "MODELO_10_XAU_M5_SMA_RSI_MA_DISTANCE_ATR"
 MODEL_11_ID = "MODELO_11_XAU_M5_SMA_RSI_SMA50_SLOPE"
 MODEL_12_ID = "MODELO_12_XAU_M5_SMA_RSI_TREND_FILTERS"
-XAU_TREND_FILTER_MODEL_IDS = (
-    MODEL_9_ID,
+MODEL_18_ID = "MODELO_18_XAU_M5_SMA_RSI_REENTRY_TP75"
+MODEL_19_ID = "MODELO_19_XAU_M5_SMA_RSI_ADX_REENTRY_TP75"
+MODEL_20_ID = "MODELO_20_XAU_M5_SMA_RSI_MA_DISTANCE_ATR_REENTRY_TP75"
+MODEL_21_ID = "MODELO_21_XAU_M5_SMA_RSI_SMA50_SLOPE_REENTRY_TP75"
+MODEL_22_ID = "MODELO_22_XAU_M5_SMA_RSI_TREND_FILTERS_REENTRY_TP75"
+XAU_BASE_TREND_FILTER_MODEL_IDS = (
     MODEL_10_ID,
+)
+XAU_RETIRED_BASE_TREND_FILTER_MODEL_IDS = (
+    MODEL_9_ID,
     MODEL_11_ID,
     MODEL_12_ID,
 )
+XAU_IMPROVED_REENTRY_MODEL_IDS = (
+    MODEL_18_ID,
+    MODEL_19_ID,
+    MODEL_20_ID,
+    MODEL_21_ID,
+    MODEL_22_ID,
+)
+XAU_TREND_FILTER_MODEL_IDS = XAU_BASE_TREND_FILTER_MODEL_IDS
+XAU_ALL_TREND_FILTER_MODEL_IDS = (
+    *XAU_TREND_FILTER_MODEL_IDS,
+    *XAU_IMPROVED_REENTRY_MODEL_IDS,
+)
+XAU_POSITION_MANAGEMENT_MODEL_IDS = (
+    *XAU_RETIRED_BASE_TREND_FILTER_MODEL_IDS,
+    *XAU_ALL_TREND_FILTER_MODEL_IDS,
+)
+XAU_REENTRY_TARGET_MODE = "LAST_CONFIRMED_M5_SWING_BEFORE_PULLBACK"
+XAU_MAX_REENTRIES_PER_SIGNAL = None
 MODEL_ADX_PERIOD = 14
 MODEL_ATR_PERIOD = 14
 MODEL_9_ADX_MIN = 25.0
@@ -46,6 +72,10 @@ class XAUTrendFilterSpec:
     beta_version: str
     stop_management: str
     source: str
+    source_model_id: str
+    reentry_target_points: float = 0.0
+    reentry_structural_target: bool = False
+    max_reentries_per_signal: int | None = None
     requires_adx: bool = False
     requires_distance_atr: bool = False
     requires_sma50_slope: bool = False
@@ -70,6 +100,7 @@ MODEL_SPECS = {
         beta_version="M9_EXIT_V2",
         stop_management="M9_SMA_RSI_FULL_EXIT",
         source="MODEL_9_MANUAL_RULE",
+        source_model_id=MODEL_9_ID,
         requires_adx=True,
     ),
     MODEL_10_ID: XAUTrendFilterSpec(
@@ -82,6 +113,7 @@ MODEL_SPECS = {
         beta_version="M10_EXIT_V2",
         stop_management="M10_SMA_RSI_FULL_EXIT",
         source="MODEL_10_MANUAL_RULE",
+        source_model_id=MODEL_10_ID,
         requires_distance_atr=True,
     ),
     MODEL_11_ID: XAUTrendFilterSpec(
@@ -94,6 +126,7 @@ MODEL_SPECS = {
         beta_version="M11_EXIT_V2",
         stop_management="M11_SMA_RSI_FULL_EXIT",
         source="MODEL_11_MANUAL_RULE",
+        source_model_id=MODEL_11_ID,
         requires_sma50_slope=True,
     ),
     MODEL_12_ID: XAUTrendFilterSpec(
@@ -106,6 +139,83 @@ MODEL_SPECS = {
         beta_version="M12_EXIT_V2",
         stop_management="M12_SMA_RSI_FULL_EXIT",
         source="MODEL_12_MANUAL_RULE",
+        source_model_id=MODEL_12_ID,
+        requires_adx=True,
+        requires_distance_atr=True,
+        requires_sma50_slope=True,
+    ),
+    MODEL_18_ID: XAUTrendFilterSpec(
+        model_id=MODEL_18_ID,
+        number=18,
+        setup="A+",
+        alpha_id="ALPHAXAU18_M8_REENTRY_STRUCTURAL_TARGET",
+        alpha_version="M18_ENTRY_V2",
+        beta_id="BETAXAU18_STRUCTURAL_TARGET_RSI50_FULL_EXIT",
+        beta_version="M18_EXIT_V2",
+        stop_management="M18_STRUCTURAL_TARGET_RSI50_FULL_EXIT",
+        source="MODEL_18_FROM_M8_REENTRY_STRUCTURAL_TARGET",
+        source_model_id="MODELO_8_XAU_M5_SMA_RSI_REENTRY",
+        reentry_structural_target=True,
+        max_reentries_per_signal=XAU_MAX_REENTRIES_PER_SIGNAL,
+    ),
+    MODEL_19_ID: XAUTrendFilterSpec(
+        model_id=MODEL_19_ID,
+        number=19,
+        setup="B+",
+        alpha_id="ALPHAXAU19_M9_REENTRY_STRUCTURAL_TARGET",
+        alpha_version="M19_ENTRY_V2",
+        beta_id="BETAXAU19_STRUCTURAL_TARGET_RSI50_FULL_EXIT",
+        beta_version="M19_EXIT_V2",
+        stop_management="M19_STRUCTURAL_TARGET_RSI50_FULL_EXIT",
+        source="MODEL_19_FROM_M9_REENTRY_STRUCTURAL_TARGET",
+        source_model_id=MODEL_9_ID,
+        reentry_structural_target=True,
+        max_reentries_per_signal=XAU_MAX_REENTRIES_PER_SIGNAL,
+        requires_adx=True,
+    ),
+    MODEL_20_ID: XAUTrendFilterSpec(
+        model_id=MODEL_20_ID,
+        number=20,
+        setup="C+",
+        alpha_id="ALPHAXAU20_M10_REENTRY_STRUCTURAL_TARGET",
+        alpha_version="M20_ENTRY_V2",
+        beta_id="BETAXAU20_STRUCTURAL_TARGET_RSI50_FULL_EXIT",
+        beta_version="M20_EXIT_V2",
+        stop_management="M20_STRUCTURAL_TARGET_RSI50_FULL_EXIT",
+        source="MODEL_20_FROM_M10_REENTRY_STRUCTURAL_TARGET",
+        source_model_id=MODEL_10_ID,
+        reentry_structural_target=True,
+        max_reentries_per_signal=XAU_MAX_REENTRIES_PER_SIGNAL,
+        requires_distance_atr=True,
+    ),
+    MODEL_21_ID: XAUTrendFilterSpec(
+        model_id=MODEL_21_ID,
+        number=21,
+        setup="D+",
+        alpha_id="ALPHAXAU21_M11_REENTRY_STRUCTURAL_TARGET",
+        alpha_version="M21_ENTRY_V2",
+        beta_id="BETAXAU21_STRUCTURAL_TARGET_RSI50_FULL_EXIT",
+        beta_version="M21_EXIT_V2",
+        stop_management="M21_STRUCTURAL_TARGET_RSI50_FULL_EXIT",
+        source="MODEL_21_FROM_M11_REENTRY_STRUCTURAL_TARGET",
+        source_model_id=MODEL_11_ID,
+        reentry_structural_target=True,
+        max_reentries_per_signal=XAU_MAX_REENTRIES_PER_SIGNAL,
+        requires_sma50_slope=True,
+    ),
+    MODEL_22_ID: XAUTrendFilterSpec(
+        model_id=MODEL_22_ID,
+        number=22,
+        setup="E+",
+        alpha_id="ALPHAXAU22_M12_REENTRY_STRUCTURAL_TARGET",
+        alpha_version="M22_ENTRY_V2",
+        beta_id="BETAXAU22_STRUCTURAL_TARGET_RSI50_FULL_EXIT",
+        beta_version="M22_EXIT_V2",
+        stop_management="M22_STRUCTURAL_TARGET_RSI50_FULL_EXIT",
+        source="MODEL_22_FROM_M12_REENTRY_STRUCTURAL_TARGET",
+        source_model_id=MODEL_12_ID,
+        reentry_structural_target=True,
+        max_reentries_per_signal=XAU_MAX_REENTRIES_PER_SIGNAL,
         requires_adx=True,
         requires_distance_atr=True,
         requires_sma50_slope=True,
@@ -149,7 +259,7 @@ def evaluate_xau_trend_filter_entry(
     if spec is None:
         raise ValueError(f"Modelo de filtro XAU desconhecido: {model_id}")
     rows = list(candles or ())
-    required_rows = 52
+    required_rows = OPERATIONAL_INDICATOR_RAW_CANDLES
     if len(rows) < required_rows:
         status = (
             f"M{spec.number}_AQUECENDO_{len(rows)}_DE_{required_rows}_CANDLES"
@@ -224,12 +334,7 @@ def evaluate_xau_trend_filter_entry(
             f"SMA50_SLOPE_ATR>={MODEL_11_SLOPE_ATR_MIN:g}"
         )
     allowed = not failed
-    filter_code = {
-        9: "ADX",
-        10: "DISTANCIA_ATR",
-        11: "INCLINACAO_SMA50",
-        12: "FILTROS_COMBINADOS",
-    }[spec.number]
+    filter_code = _filter_code(spec)
     if not allowed:
         status = f"M{spec.number}_{filter_code}_BLOQUEADO"
         reason = (
@@ -238,7 +343,12 @@ def evaluate_xau_trend_filter_entry(
             + "."
         )
     elif base.ready:
-        status = f"M{spec.number}_{filter_code}_OK_{base.direction}_MERCADO_PRONTA"
+        order_label = (
+            base.entry_order_type
+            if base.entry_order_type in {"BUY_STOP", "SELL_STOP"}
+            else "MERCADO"
+        )
+        status = f"M{spec.number}_{filter_code}_OK_{base.direction}_{order_label}_PRONTA"
         reason = f"Setup {spec.setup} liberado: " + ", ".join(passed) + "."
     else:
         base_status = str(base.status).removeprefix("M8_")
@@ -300,16 +410,18 @@ def evaluate_xau_native_trend_filter_entry(
         (passed if slope_atr >= MODEL_11_SLOPE_ATR_MIN else failed).append(
             "SMA50_SLOPE_ATR>=0.05"
         )
-    filter_code = {
-        9: "ADX", 10: "DISTANCIA_ATR", 11: "INCLINACAO_SMA50",
-        12: "FILTROS_COMBINADOS",
-    }[spec.number]
+    filter_code = _filter_code(spec)
     allowed = not failed
     if failed:
         status = f"M{spec.number}_{filter_code}_BLOQUEADO"
         reason = f"MT5 nativo, Setup {spec.setup} bloqueado: {', '.join(failed)}."
     elif base.ready:
-        status = f"M{spec.number}_{filter_code}_OK_{base.direction}_MERCADO_PRONTA"
+        order_label = (
+            base.entry_order_type
+            if base.entry_order_type in {"BUY_STOP", "SELL_STOP"}
+            else "MERCADO"
+        )
+        status = f"M{spec.number}_{filter_code}_OK_{base.direction}_{order_label}_PRONTA"
         reason = f"MT5 nativo, Setup {spec.setup} liberado: {', '.join(passed) or 'BASE'}."
     else:
         status = f"M{spec.number}_{filter_code}_OK_{base.status.removeprefix('M8_')}"
@@ -355,14 +467,82 @@ def xau_trend_filter_parameters(model_id: str) -> dict[str, object]:
         "sma50_slope_atr_min": (
             MODEL_11_SLOPE_ATR_MIN if spec.requires_sma50_slope else None
         ),
-        "entry_order_type": "MARKET_ON_CLOSED_M5_RSI50_LEVEL",
+        "entry_order_type": "MARKET_ON_CONFIRMED_CLOSED_M5_SMA20_50_CROSS_WITH_RSI50",
+        "initial_entry_requires_fresh_sma_cross": True,
         "reentry_order_type": "PENDING_STOP_PREVIOUS_CLOSED_M5_EXTREME",
         "buy_reentry_trigger": "PREVIOUS_CLOSED_M5_HIGH_EXACT",
         "sell_reentry_trigger": "PREVIOUS_CLOSED_M5_LOW_EXACT",
+        "reentry_requires_opposite_pullback_structure": True,
+        "buy_reentry_pullback": "TWO_CLOSED_M5_LOWER_HIGHS_AND_LOWER_LOWS",
+        "sell_reentry_pullback": "TWO_CLOSED_M5_HIGHER_HIGHS_AND_HIGHER_LOWS",
         "stop": "PIVOT_2X2_PLUS_0.01",
-        "take_profit_enabled": False,
-        "full_exit": "RSI70_30_CONFIRMED_CROSS_OR_SMA20_50_INVERSION",
+        "take_profit_enabled": spec.reentry_structural_target,
+        "initial_take_profit_enabled": False,
+        "reentry_take_profit_points": None,
+        "reentry_take_profit_mode": (
+            XAU_REENTRY_TARGET_MODE if spec.reentry_structural_target else None
+        ),
+        "reentry_buy_take_profit": "LAST_CONFIRMED_M5_SWING_HIGH_BEFORE_PULLBACK",
+        "reentry_sell_take_profit": "LAST_CONFIRMED_M5_SWING_LOW_BEFORE_PULLBACK",
+        "pending_stop_validity": "ONE_M5_CANDLE",
+        "pending_stop_reposition": "EACH_NEW_CLOSED_M5_CANDLE",
+        "max_reentries_per_signal": spec.max_reentries_per_signal,
+        "reentries_unlimited_while_trend_valid": spec.max_reentries_per_signal is None,
+        "source_model_id": spec.source_model_id,
+        "full_exit": "REENTRY_RSI50_INVALIDATION_OR_SMA20_50_INVERSION",
     }
+
+
+def is_improved_reentry_model(model_id: object) -> bool:
+    return str(model_id or "").upper() in XAU_IMPROVED_REENTRY_MODEL_IDS
+
+
+def xau_reentry_target(
+    model_id: object,
+    side: object,
+    entry_price: float,
+    entry_order_type: object,
+    structural_target_price: object = None,
+) -> float:
+    """Retorna o topo/fundo confirmado anterior a correcao da reentrada."""
+    spec = trend_filter_spec(model_id)
+    order_type = str(entry_order_type or "").upper()
+    if spec is None or not spec.reentry_structural_target or order_type not in {
+        "BUY_STOP",
+        "SELL_STOP",
+    }:
+        return 0.0
+    try:
+        target = float(structural_target_price or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    normalized_side = str(side or "").upper()
+    if normalized_side == "BUY" and target > float(entry_price):
+        return target
+    if normalized_side == "SELL" and 0.0 < target < float(entry_price):
+        return target
+    return 0.0
+
+
+def xau_model_requires_target(
+    model_id: object,
+    entry_order_type: object,
+) -> bool:
+    return is_improved_reentry_model(model_id) and str(
+        entry_order_type or ""
+    ).upper() in {"BUY_STOP", "SELL_STOP"}
+
+
+def _filter_code(spec: XAUTrendFilterSpec) -> str:
+    if spec.requires_adx and spec.requires_distance_atr and spec.requires_sma50_slope:
+        return "FILTROS_COMBINADOS"
+    if spec.requires_adx:
+        return "ADX"
+    if spec.requires_distance_atr:
+        return "DISTANCIA_ATR"
+    if spec.requires_sma50_slope:
+        return "INCLINACAO_SMA50"
+    return "BASE"
 
 
 def _series(rows: list[object], field: str) -> list[float]:

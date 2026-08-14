@@ -20,9 +20,17 @@ from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
 from application.model15_xau_m5_breakout import MODEL_15_ID
 from application.model16_xau_m5_price_ema_breakout import MODEL_16_ID
+from application.model23_basket_accumulator import (
+    is_model23,
+    model23_order_comment,
+)
 from application.model3_xau_m5_rsi50_flip import MODEL_3_ID
 from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
-from application.xau_m5_sma_rsi_model_family import XAU_TREND_FILTER_MODEL_IDS
+from application.xau_m5_sma_rsi_model_family import (
+    XAU_IMPROVED_REENTRY_MODEL_IDS,
+    XAU_ALL_TREND_FILTER_MODEL_IDS as XAU_TREND_FILTER_MODEL_IDS,
+    xau_model_requires_target,
+)
 from application.forex_m5_sma_rsi_model_family import FOREX_SMA_RSI_MODEL_IDS
 from domain.operational_model_policy import (
     is_dynamic_exit_operational_model,
@@ -35,12 +43,13 @@ from core.mt5_external_process_gate import (
     mt5_external_process_slot,
     set_mt5_external_cache,
 )
-from core.mt5_process_probe import resolve_mt5_terminal_path
+from core.mt5_process_probe import resolve_mt5_terminal_path, terminate_process_tree
 
 
 _MT5_ORDER_SEND_LOCK = threading.Lock()
 MAX_OPERATIONAL_MODELS_PER_SYMBOL = 22
-KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 23))
+MAX_MODEL23_POSITIONS_PER_SYMBOL = 64
+KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 24))
 INDEPENDENT_SMA_RSI_MODEL_IDS = frozenset(
     {
         MODEL_8_ID,
@@ -70,6 +79,16 @@ class MT5DemoExecutionProvider:
     )
     external_read_cache: dict[str, tuple[float, dict[str, Any]]] = field(
         default_factory=dict,
+        repr=False,
+    )
+    execution_log_cache: list[dict[str, Any]] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    execution_log_cache_signature: tuple[int, int] | None = field(
+        default=None,
+        init=False,
         repr=False,
     )
 
@@ -107,6 +126,14 @@ class MT5DemoExecutionProvider:
             if initialize_check is not None:
                 return True
             positions = list(self.mt5.positions_get(symbol=symbol) or [])
+        if is_model23(operational_model):
+            if len(positions) >= MAX_MODEL23_POSITIONS_PER_SYMBOL:
+                return True
+            for position in positions:
+                comment = str(getattr(position, "comment", "") or "").upper()
+                if not (KNOWN_MODEL_COMMENTS & set(comment.split())):
+                    return True
+            return False
         if len(positions) >= MAX_OPERATIONAL_MODELS_PER_SYMBOL:
             return True
         expected = self._model_comment(operational_model)
@@ -156,7 +183,10 @@ class MT5DemoExecutionProvider:
             return self._external_positions("")
         initialize_check = self._initialize_check()
         if initialize_check is not None:
-            return []
+            raise RuntimeError(
+                "MT5 indisponivel para leitura das posicoes abertas: "
+                f"{initialize_check.message}"
+            )
         return list(self.mt5.positions_get() or [])
 
     def get_current_price(self, symbol: str) -> float | None:
@@ -221,6 +251,10 @@ class MT5DemoExecutionProvider:
 
     def _external_positions(self, symbol: str) -> list[object]:
         payload = self._external_mt5_read("positions", symbol=symbol)
+        if not bool(payload.get("ok")):
+            raise RuntimeError(
+                "Sonda MT5 nao confirmou a leitura das posicoes abertas."
+            )
         return [SimpleNamespace(**dict(row)) for row in payload.get("rows", [])]
 
     def _external_mt5_read(self, action: str, **kwargs: Any) -> dict[str, Any]:
@@ -312,10 +346,7 @@ mt5.shutdown()
                 stdout, _stderr = process.communicate(timeout=timeout_seconds)
             except (OSError, subprocess.TimeoutExpired):
                 if process is not None:
-                    try:
-                        process.kill()
-                    except OSError:
-                        pass
+                    terminate_process_tree(process)
                 return dict(cached[1]) if cached else {"ok": False, "rows": []}
         output = (stdout or "").strip().splitlines()
         if not output:
@@ -655,7 +686,6 @@ mt5.shutdown()
         if stop_target_rejection is not None:
             self._write_log(order, stop_target_rejection)
             return stop_target_rejection
-
         with _MT5_ORDER_SEND_LOCK:
             duplicate_rejection = self._duplicate_plan_preflight(order)
             if duplicate_rejection is not None:
@@ -1276,7 +1306,7 @@ mt5.shutdown()
                 "type": order_type,
                 "price": float(order.entry_price),
                 "sl": float(order.stop),
-                "tp": 0.0,
+                "tp": 0.0 if self._is_no_target_model(order) else float(order.target),
                 "deviation": self.deviation,
                 "magic": self.magic,
                 "comment": self._order_comment(order),
@@ -1341,7 +1371,9 @@ mt5.shutdown()
             model_label = self._order_comment(order)
             entry = self._positive_float(getattr(order, "entry_price", None))
             expiration = self._pending_stop_expiration(order)
-            if expiration is not None and expiration <= int(time.time()) + 1:
+            server_now = self._positive_float(getattr(tick, "time", None))
+            comparison_time = int(server_now if server_now is not None else time.time())
+            if expiration is not None and expiration <= comparison_time + 1:
                 return ExecutionResult(
                     accepted=False,
                     status="REJECTED",
@@ -1448,7 +1480,22 @@ mt5.shutdown()
         return None
 
     def _is_no_target_model(self, order: ExecutionOrder) -> bool:
-        return str(getattr(order, "operational_model", "") or "").upper() in {
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        if (
+            is_model23(getattr(order, "operational_model", ""))
+            and bool(parameters.get("m23_structural_target_enabled"))
+            and self._positive_float(getattr(order, "target", None)) is not None
+        ):
+            return False
+        model = self._effective_operational_model(order)
+        return self._model_uses_no_target(model, self._entry_order_type(order))
+
+    @staticmethod
+    def _model_uses_no_target(model: str, entry_order_type: object) -> bool:
+        if model in XAU_IMPROVED_REENTRY_MODEL_IDS:
+            return not xau_model_requires_target(model, entry_order_type)
+        return model in {
             MODEL_3_ID,
             MODEL_8_ID,
             MODEL_15_ID,
@@ -1457,8 +1504,26 @@ mt5.shutdown()
             *FOREX_SMA_RSI_MODEL_IDS,
         }
 
-    def _is_pending_stop_order(self, order: ExecutionOrder) -> bool:
+    @staticmethod
+    def _entry_order_type(order: ExecutionOrder) -> str:
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        return str(parameters.get("active_entry_order_type") or "").upper()
+
+    @staticmethod
+    def _source_operational_model(order: ExecutionOrder) -> str:
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        return str(parameters.get("source_operational_model") or "").upper()
+
+    def _effective_operational_model(self, order: ExecutionOrder) -> str:
         model = str(getattr(order, "operational_model", "") or "").upper()
+        if not is_model23(model):
+            return model
+        return self._source_operational_model(order) or model
+
+    def _is_pending_stop_order(self, order: ExecutionOrder) -> bool:
+        model = self._effective_operational_model(order)
         if model in {MODEL_15_ID, MODEL_16_ID}:
             return True
         if model not in {
@@ -1467,9 +1532,7 @@ mt5.shutdown()
             *FOREX_SMA_RSI_MODEL_IDS,
         }:
             return False
-        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
-        parameters = dict(snapshot.get("stop_management_parameters") or {})
-        return str(parameters.get("active_entry_order_type") or "").upper() in {
+        return self._entry_order_type(order) in {
             "BUY_STOP",
             "SELL_STOP",
         }
@@ -1486,17 +1549,10 @@ mt5.shutdown()
             candle_time = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
             return None
-        model = str(getattr(order, "operational_model", "") or "").upper()
-        validity_minutes = (
-            10
-            if model in {
-                MODEL_8_ID,
-                *XAU_TREND_FILTER_MODEL_IDS,
-                *FOREX_SMA_RSI_MODEL_IDS,
-            }
-            else 5
-        )
-        return int((candle_time + timedelta(minutes=validity_minutes)).timestamp())
+        # Toda ordem Stop baseada em candle M5 vale somente ate o fechamento do
+        # candle seguinte. Se nao executar, o proximo plano remove a pendencia e
+        # publica o novo extremo fechado com SL/TP recalculados.
+        return int((candle_time + timedelta(minutes=5)).timestamp())
 
     def _replace_pending_stop_order_locked(
         self,
@@ -1603,6 +1659,13 @@ mt5.shutdown()
             ).upper()
             if (
                 current_model != record_model
+                and is_model23(current_model)
+                and is_model23(record_model)
+            ):
+                # Cada fonte ativa pode contribuir uma posicao M23 por par.
+                continue
+            if (
+                current_model != record_model
                 and current_model in INDEPENDENT_SMA_RSI_MODEL_IDS
                 and record_model in INDEPENDENT_SMA_RSI_MODEL_IDS
             ):
@@ -1631,6 +1694,10 @@ mt5.shutdown()
                 and record_candle
                 and current_candle == record_candle
             )
+            if self._is_pending_stop_order(order) and not same_executable_candle:
+                # A identidade estrategica permanece igual durante a correcao,
+                # mas cada candle fechado atualiza o gatilho da ordem pendente.
+                same_identity = False
             if not same_identity and not same_executable_candle:
                 continue
             return ExecutionResult(
@@ -1665,17 +1732,40 @@ mt5.shutdown()
         self,
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
-        """Bloqueia mais de uma posicao por modelo e mais de vinte e duas por par."""
+        """Aplica somente o teto tecnico de posicoes e bloqueia origem desconhecida."""
         positions = list(self.mt5.positions_get(symbol=order.symbol) or [])
-        if len(positions) >= MAX_OPERATIONAL_MODELS_PER_SYMBOL:
+        is_basket = is_model23(getattr(order, "operational_model", ""))
+        limit = (
+            MAX_MODEL23_POSITIONS_PER_SYMBOL
+            if is_basket
+            else MAX_OPERATIONAL_MODELS_PER_SYMBOL
+        )
+        if len(positions) >= limit:
+            limit_message = (
+                "Limite tecnico de 64 posicoes M23 por par atingido."
+                if is_basket
+                else (
+                    "Limite de vinte e duas posicoes por par atingido. "
+                    "Permitido no maximo um por modelo operacional."
+                )
+            )
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
-                message=(
-                    "Limite de vinte e duas posicoes por par atingido. "
-                    "Permitido no maximo um por modelo operacional."
-                ),
+                message=limit_message,
             )
+        if is_basket:
+            for position in positions:
+                comment = str(getattr(position, "comment", "") or "").upper()
+                if "TRADERIA" in comment and not (
+                    KNOWN_MODEL_COMMENTS & set(comment.split())
+                ):
+                    return ExecutionResult(
+                        accepted=False,
+                        status="REJECTED",
+                        message="Posicao TraderIA sem modelo identificado exige auditoria.",
+                    )
+            return None
         expected = self._model_comment(getattr(order, "operational_model", ""))
         for position in positions:
             comment = str(getattr(position, "comment", "") or "").upper()
@@ -1704,9 +1794,49 @@ mt5.shutdown()
         """Duplicidade de plano so nasce de ordem aceita pelo MT5."""
         return bool(record.get("accepted", False))
 
+    @staticmethod
+    def _compact_execution_log_record(record: dict[str, Any]) -> dict[str, Any]:
+        """Mantem no cache apenas os campos usados pela defesa de duplicidade."""
+        snapshot_value = record.get("plan_snapshot")
+        snapshot = snapshot_value if isinstance(snapshot_value, dict) else {}
+        parameters_value = snapshot.get("stop_management_parameters")
+        parameters = parameters_value if isinstance(parameters_value, dict) else {}
+        return {
+            "accepted": bool(record.get("accepted", False)),
+            "plan_identity": record.get("plan_identity"),
+            "operational_model": record.get("operational_model"),
+            "symbol": record.get("symbol"),
+            "side": record.get("side"),
+            "entry_price": record.get("entry_price"),
+            "stop": record.get("stop"),
+            "target": record.get("target"),
+            "plan_snapshot": {
+                "candle_time": snapshot.get("candle_time"),
+                "operational_model": snapshot.get("operational_model"),
+                "stop_management_parameters": {
+                    "active_entry_order_type": parameters.get(
+                        "active_entry_order_type"
+                    ),
+                    "source_operational_model": parameters.get(
+                        "source_operational_model"
+                    ),
+                },
+            },
+        }
+
     def _read_execution_log_records(self) -> list[dict[str, Any]]:
         if not self.log_path.exists():
             return []
+        try:
+            stat = self.log_path.stat()
+            signature = (int(stat.st_mtime_ns), int(stat.st_size))
+        except OSError:
+            return []
+        if (
+            self.execution_log_cache is not None
+            and self.execution_log_cache_signature == signature
+        ):
+            return self.execution_log_cache
         try:
             lines = read_last_text_lines(self.log_path, limit=2000)
         except OSError:
@@ -1720,7 +1850,9 @@ mt5.shutdown()
             except json.JSONDecodeError:
                 continue
             if isinstance(payload, dict):
-                records.append(payload)
+                records.append(self._compact_execution_log_record(payload))
+        self.execution_log_cache = records
+        self.execution_log_cache_signature = signature
         return records
 
     def _execution_plan_key(
@@ -1750,10 +1882,23 @@ mt5.shutdown()
     ) -> tuple[str, str, float, float, float] | None:
         entry = self._positive_float(record.get("entry_price"))
         stop = self._positive_float(record.get("stop"))
+        record_model = str(record.get("operational_model") or "").upper()
+        record_snapshot = dict(record.get("plan_snapshot") or {})
+        record_parameters = dict(
+            record_snapshot.get("stop_management_parameters") or {}
+        )
+        effective_model = (
+            str(record_parameters.get("source_operational_model") or "").upper()
+            if is_model23(record_model)
+            else record_model
+        ) or record_model
+        record_uses_no_target = self._model_uses_no_target(
+            effective_model,
+            record_parameters.get("active_entry_order_type"),
+        )
         target = (
             0.0
-            if str(record.get("operational_model") or "").upper()
-            in {MODEL_8_ID, MODEL_15_ID, MODEL_16_ID, *XAU_TREND_FILTER_MODEL_IDS}
+            if record_uses_no_target
             else self._positive_float(record.get("target"))
         )
         if entry is None or stop is None or target is None:
@@ -1893,6 +2038,12 @@ mt5.shutdown()
     ) -> ExecutionResult | None:
         """M8-M17 so entram com indicadores nativos do mesmo candle M5."""
         model = str(getattr(order, "operational_model", "") or "").upper()
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        if is_model23(model):
+            # M23 nao cria sinal proprio: preserva o gate nativo do modelo que
+            # originou a entrada, sem copiar seu SL ou TP.
+            model = str(parameters.get("source_operational_model") or "").upper()
         native_models = {
             MODEL_8_ID,
             *XAU_TREND_FILTER_MODEL_IDS,
@@ -1900,8 +2051,6 @@ mt5.shutdown()
         }
         if model not in native_models:
             return None
-        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
-        parameters = dict(snapshot.get("stop_management_parameters") or {})
         source = str(
             snapshot.get("indicator_source")
             or parameters.get("indicator_source")
@@ -1914,7 +2063,11 @@ mt5.shutdown()
         ).strip()
         plan_candle = str(snapshot.get("candle_time") or "").strip()
         if (
-            source in {"MT5_NATIVE", "LOCAL_MT5_CANDLES_52"}
+            source in {
+                "MT5_NATIVE",
+                "LOCAL_MT5_CLOSED_CANDLES_200",
+                "LOCAL_MT5_CANDLES_52",
+            }
             and indicator_candle
             and indicator_candle == plan_candle
         ):
@@ -1923,9 +2076,9 @@ mt5.shutdown()
             accepted=False,
             status="REJECTED",
             message=(
-                "M8-M17 bloqueados: indicadores devem usar lote completo de 52 "
-                "velas do MT5 (ou snapshot MT5 nativo) e pertencer ao mesmo "
-                "candle M5 fechado do Trade Plan."
+                "Modelos M5 bloqueados: indicadores devem usar a janela "
+                "deslizante de 200 velas fechadas (ou snapshot MT5 nativo) e "
+                "pertencer ao mesmo candle M5 fechado do Trade Plan."
             ),
         )
 
@@ -1985,8 +2138,24 @@ mt5.shutdown()
         }
         with self.log_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(payload, ensure_ascii=True) + "\n")
+        if self.execution_log_cache is not None:
+            self.execution_log_cache.append(
+                self._compact_execution_log_record(payload)
+            )
+            if len(self.execution_log_cache) > 2000:
+                del self.execution_log_cache[:-2000]
+            try:
+                stat = self.log_path.stat()
+                self.execution_log_cache_signature = (
+                    int(stat.st_mtime_ns),
+                    int(stat.st_size),
+                )
+            except OSError:
+                self.execution_log_cache_signature = None
 
     def _order_comment(self, order: ExecutionOrder) -> str:
+        if is_model23(getattr(order, "operational_model", "")):
+            return model23_order_comment(getattr(order, "operational_model", ""))
         return f"TraderIA {self._model_comment(getattr(order, 'operational_model', ''))}"
 
     def _model_comment(self, operational_model: object) -> str:
@@ -1994,7 +2163,7 @@ mt5.shutdown()
         match = re.search(r"(?:MODELO[_ ]?|^M)(\d{1,2})(?:_|\b)", model)
         if match is not None:
             number = int(match.group(1))
-            if 1 <= number <= MAX_OPERATIONAL_MODELS_PER_SYMBOL:
+            if 1 <= number <= 23:
                 return f"M{number}"
         if model in {
             "MODELO_2_ESPELHO_BETA2_RR1",

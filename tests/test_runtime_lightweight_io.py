@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,14 +12,22 @@ from application.dashboard_service import (
     MT5_OPERATIONAL_MODEL_8,
     MT5_OPERATIONAL_MODEL_ALL,
 )
-from application.forex_m5_sma_rsi_model_family import MODEL_13_ID
 from application.mt5_market_data_service import MT5MarketDataService
+from application.operational_indicator_window import (
+    OPERATIONAL_INDICATOR_CLOSED_CANDLES,
+    OPERATIONAL_INDICATOR_RAW_CANDLES,
+)
 from core.jsonl_tail import read_last_text_lines
 from core.mt5_external_process_gate import (
     get_mt5_external_cache,
     mt5_external_process_slot,
     set_mt5_external_cache,
 )
+
+
+def _m5_time(index: int, *, day: int = 11) -> str:
+    start = datetime(2026, 8, day, tzinfo=timezone.utc)
+    return (start + timedelta(minutes=5 * index)).isoformat()
 from domain.candle import Candle
 
 
@@ -74,20 +83,50 @@ def test_supplemental_candles_use_only_requested_pair_timeframes() -> None:
     service = MT5MarketDataService(provider=provider)
 
     errors = service._read_supplemental_forex_batch(
-        {"M5": {"XAUUSD"}, "H1": {"EURUSD", "USDJPY"}},
+        {"M5": {"SYNTHETIC"}, "H1": {"EURUSD", "USDJPY"}},
         count=3,
     )
 
     assert errors == {}
     assert provider.calls[0][0] == {
-        "M5": ["XAUUSD"],
+        "M5": ["SYNTHETIC"],
         "H1": ["EURUSD", "USDJPY"],
     }
-    assert ("XAUUSD", "H1") not in service.latest_forex_candles
+    assert ("SYNTHETIC", "H1") not in service.latest_forex_candles
     assert ("EURUSD", "M5") not in service.latest_forex_candles
 
 
-def test_supplemental_warm_cache_rehydrates_52_m5_candles(
+def test_empty_operational_m5_cache_accepts_full_live_batch() -> None:
+    candles = [
+        Candle(_m5_time(index), 100.0, 101.0, 99.0, 100.5, 10)
+        for index in range(OPERATIONAL_INDICATOR_RAW_CANDLES)
+    ]
+
+    class FullProvider:
+        def get_sparse_research_batch(self, requested, timeframes, count):
+            assert count == OPERATIONAL_INDICATOR_RAW_CANDLES
+            return {
+                "M5": {
+                    "XAUUSD": {
+                        "exists": True,
+                        "selected": True,
+                        "candles": candles,
+                    }
+                }
+            }
+
+    service = MT5MarketDataService(provider=FullProvider())
+
+    errors = service.refresh_supplemental_forex_candles(
+        {"XAUUSD": {"M5"}},
+        full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
+    )
+
+    assert errors == {}
+    assert service.latest_forex_candles[("XAUUSD", "M5")] == candles
+
+
+def test_supplemental_warm_cache_rehydrates_200_closed_m5_candles(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -96,14 +135,14 @@ def test_supplemental_warm_cache_rehydrates_52_m5_candles(
     monkeypatch.setenv("TRADERIA_MT5_WARM_CACHE_PATH", str(cache_path))
     candles = [
         Candle(
-            f"2026-08-11T{index // 12:02d}:{(index % 12) * 5:02d}:00+00:00",
+                _m5_time(index),
             1.0,
             2.0,
             0.5,
             1.5,
             10,
         )
-        for index in range(52)
+        for index in range(OPERATIONAL_INDICATOR_RAW_CANDLES)
     ]
     writer = MT5MarketDataService(provider=SimpleNamespace())
     writer.latest_forex_candles[("XAUUSD", "M5")] = candles
@@ -113,10 +152,10 @@ def test_supplemental_warm_cache_rehydrates_52_m5_candles(
 
     assert cache_path.exists()
     assert restored.latest_forex_candles[("XAUUSD", "M5")] == candles
-    assert ("XAUUSD", "M5") not in restored.supplemental_forex_seed_only_keys
+    assert ("XAUUSD", "M5") in restored.supplemental_forex_seed_only_keys
 
 
-def test_seeded_operational_m5_recovers_full_batch_only_when_latest_has_gap() -> None:
+def test_seeded_operational_m5_rejects_incomplete_live_reconciliation() -> None:
     class PartialProvider:
         calls: list[int] = []
 
@@ -134,25 +173,25 @@ def test_seeded_operational_m5_recovers_full_batch_only_when_latest_has_gap() ->
 
     seeded_candles = [
         Candle(
-            f"2026-08-05T{index // 12:02d}:{(index % 12) * 5:02d}:00+00:00",
+                _m5_time(index, day=5),
             100.0,
             101.0,
             99.0,
             100.5,
             10,
         )
-        for index in range(52)
+        for index in range(OPERATIONAL_INDICATOR_RAW_CANDLES)
     ]
     live_candles = [
         Candle(
-            f"2026-08-11T{index // 12:02d}:{(index % 12) * 5:02d}:00+00:00",
+                _m5_time(index),
             200.0,
             201.0,
             199.0,
             200.5,
             10,
         )
-        for index in range(52)
+        for index in range(OPERATIONAL_INDICATOR_RAW_CANDLES)
     ]
     provider = PartialProvider()
     service = MT5MarketDataService(provider=provider)
@@ -162,77 +201,167 @@ def test_seeded_operational_m5_recovers_full_batch_only_when_latest_has_gap() ->
 
     errors = service.refresh_supplemental_forex_candles(
         {"XAUUSD": {"M5"}},
-        full_count=52,
+        full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
     )
 
-    assert provider.calls == [1, 52]
+    assert provider.calls == [OPERATIONAL_INDICATOR_RAW_CANDLES]
     assert errors["XAUUSD|M5"].startswith("RECUPERAR_LOTE_COMPLETO:")
     assert ("XAUUSD", "M5") in service.supplemental_forex_seed_only_keys
     assert service.latest_forex_candles[("XAUUSD", "M5")] == seeded_candles
 
 
-def test_one_adjacent_live_candle_rolls_cache_and_unlocks_operational_m5() -> None:
-    class IncrementalProvider:
+def test_seeded_operational_m5_requires_full_live_reconciliation() -> None:
+    class FullProvider:
         def get_sparse_research_batch(self, requested, timeframes, count):
-            assert count == 1
+            assert count == OPERATIONAL_INDICATOR_RAW_CANDLES
             return {
                 "M5": {
                     "XAUUSD": {
                         "exists": True,
                         "selected": True,
-                        "candles": [latest_candle],
+                        "candles": live_candles,
                     }
                 }
             }
 
     seeded_candles = [
         Candle(
-            f"2026-08-11T{index // 12:02d}:{(index % 12) * 5:02d}:00+00:00",
+            _m5_time(index),
             100.0,
             101.0,
             99.0,
             100.5,
             10,
         )
-        for index in range(52)
+        for index in range(OPERATIONAL_INDICATOR_RAW_CANDLES)
     ]
-    latest_candle = Candle(
-        "2026-08-11T04:20:00+00:00",
-        200.0,
-        201.0,
-        199.0,
-        200.5,
-        10,
-    )
-    service = MT5MarketDataService(provider=IncrementalProvider())
+    live_candles = [
+        Candle(
+            _m5_time(index, day=12),
+            200.0 + index,
+            201.0 + index,
+            199.0 + index,
+            200.5 + index,
+            10,
+        )
+        for index in range(OPERATIONAL_INDICATOR_RAW_CANDLES)
+    ]
+    service = MT5MarketDataService(provider=FullProvider())
     service.seed_supplemental_forex_candles(
         {("XAUUSD", "M5"): seeded_candles}
     )
 
     errors = service.refresh_supplemental_forex_candles(
         {"XAUUSD": {"M5"}},
-        full_count=52,
+        full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
     )
 
     assert errors == {}
     assert ("XAUUSD", "M5") not in service.supplemental_forex_seed_only_keys
-    assert service.latest_forex_candles[("XAUUSD", "M5")] == [
-        *seeded_candles[1:],
-        latest_candle,
+    assert service.latest_forex_candles[("XAUUSD", "M5")] == live_candles
+
+
+def test_operational_m5_refreshes_previous_closed_and_current_candle() -> None:
+    candles = [
+        Candle(_m5_time(index), 100.0, 101.0, 99.0, 100.5, 10)
+        for index in range(OPERATIONAL_INDICATOR_RAW_CANDLES)
+    ]
+    corrected_previous = Candle(
+        candles[-1].data,
+        100.0,
+        105.0,
+        98.0,
+        104.5,
+        20,
+    )
+    current = Candle(
+        _m5_time(OPERATIONAL_INDICATOR_RAW_CANDLES),
+        104.5,
+        106.0,
+        103.0,
+        105.0,
+        5,
+    )
+
+    class TailProvider:
+        def get_sparse_research_batch(self, requested, timeframes, count):
+            assert count == 2
+            return {
+                "M5": {
+                    "XAUUSD": {
+                        "exists": True,
+                        "selected": True,
+                        "candles": [corrected_previous, current],
+                    }
+                }
+            }
+
+    service = MT5MarketDataService(provider=TailProvider())
+    service.latest_forex_candles[("XAUUSD", "M5")] = candles
+
+    errors = service.refresh_supplemental_forex_candles(
+        {"XAUUSD": {"M5"}},
+        full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
+    )
+
+    retained = service.latest_forex_candles[("XAUUSD", "M5")]
+    assert errors == {}
+    assert len(retained) == OPERATIONAL_INDICATOR_RAW_CANDLES
+    assert retained[-2] == corrected_previous
+    assert retained[-1] == current
+
+
+def test_operational_m5_gap_forces_full_batch_reconciliation() -> None:
+    stale = [
+        Candle(_m5_time(index, day=5), 100.0, 101.0, 99.0, 100.5, 10)
+        for index in range(OPERATIONAL_INDICATOR_RAW_CANDLES)
+    ]
+    live = [
+        Candle(_m5_time(index, day=12), 200.0, 201.0, 199.0, 200.5, 10)
+        for index in range(OPERATIONAL_INDICATOR_RAW_CANDLES)
     ]
 
+    class GapProvider:
+        calls: list[int] = []
 
-def test_seeded_52_candles_warm_models_without_authorizing_stale_order() -> None:
+        def get_sparse_research_batch(self, requested, timeframes, count):
+            self.calls.append(count)
+            candles = live if count == OPERATIONAL_INDICATOR_RAW_CANDLES else live[-2:]
+            return {
+                "M5": {
+                    "XAUUSD": {
+                        "exists": True,
+                        "selected": True,
+                        "candles": candles,
+                    }
+                }
+            }
+
+    provider = GapProvider()
+    service = MT5MarketDataService(provider=provider)
+    service.latest_forex_candles[("XAUUSD", "M5")] = stale
+
+    errors = service.refresh_supplemental_forex_candles(
+        {"XAUUSD": {"M5"}},
+        full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
+    )
+
+    assert provider.calls == [2, OPERATIONAL_INDICATOR_RAW_CANDLES]
+    assert errors == {}
+    assert service.latest_forex_candles[("XAUUSD", "M5")] == live
+
+
+def test_seeded_200_closed_candles_warm_models_without_authorizing_stale_order() -> None:
     candles = [
         Candle(
-            f"2026-08-05T{index // 12:02d}:{(index % 12) * 5:02d}:00+00:00",
+                _m5_time(index, day=5),
             100.0 + index,
             101.0 + index,
             99.0 + index,
             100.5 + index,
             10,
         )
-        for index in range(52)
+        for index in range(OPERATIONAL_INDICATOR_RAW_CANDLES)
     ]
     market_data = MT5MarketDataService(provider=SimpleNamespace())
     market_data.seed_supplemental_forex_candles(
@@ -244,30 +373,36 @@ def test_seeded_52_candles_warm_models_without_authorizing_stale_order() -> None
     xau = service.get_xau_m5_operational_decision_snapshot()
     forex = service.get_forex_m5_sma_rsi_decision_snapshot()
 
-    assert xau[("__XAU_M5__", "CANDLE_COUNT")] == 52
-    assert "AQUECIDO_52_CANDLES" in xau[
+    assert xau[("__XAU_M5__", "CANDLE_COUNT")] == OPERATIONAL_INDICATOR_RAW_CANDLES
+    assert "AQUECIDO_200_FECHADOS" in xau[
         (MT5_OPERATIONAL_MODEL_8, "XAUUSD")
     ].status
     assert xau[(MT5_OPERATIONAL_MODEL_8, "XAUUSD")].ready is False
-    assert forex[("__FOREX_M5__", "AUDUSD")] == 52
-    assert "AQUECIDO_52_CANDLES" in forex[(MODEL_13_ID, "AUDUSD")].status
-    assert forex[(MODEL_13_ID, "AUDUSD")].ready is False
+    assert forex[("__FOREX_M5__", "AUDUSD")] == OPERATIONAL_INDICATOR_RAW_CANDLES
+    forex_decisions = [
+        decision
+        for (model_id, pair), decision in forex.items()
+        if model_id != "__FOREX_M5__" and pair == "AUDUSD"
+    ]
+    assert forex_decisions
+    assert all("AQUECIDO_200_FECHADOS" in item.status for item in forex_decisions)
+    assert all(item.ready is False for item in forex_decisions)
 
 
-def test_operational_m5_cache_discards_oldest_candle_after_52() -> None:
+def test_operational_m5_cache_discards_oldest_candle_after_200_closed() -> None:
     candles = [
         Candle(
-            f"2026-08-11T{index // 12:02d}:{(index % 12) * 5:02d}:00+00:00",
+            _m5_time(index),
             100.0 + index,
             101.0 + index,
             99.0 + index,
             100.5 + index,
             10,
         )
-        for index in range(52)
+        for index in range(OPERATIONAL_INDICATOR_RAW_CANDLES)
     ]
     newest = Candle(
-        "2026-08-11T05:00:00+00:00",
+        _m5_time(OPERATIONAL_INDICATOR_RAW_CANDLES),
         200.0,
         201.0,
         199.0,
@@ -285,7 +420,7 @@ def test_operational_m5_cache_discards_oldest_candle_after_52() -> None:
     )
 
     retained = service.latest_forex_candles[("XAUUSD", "M5")]
-    assert len(retained) == 52
+    assert len(retained) == OPERATIONAL_INDICATOR_RAW_CANDLES
     assert retained[0] == candles[1]
     assert retained[-1] == newest
 
