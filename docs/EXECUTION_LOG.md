@@ -1,5 +1,16 @@
 # Execution Log
 
+## 2026-08-13 - Sinal M5 volta a gerar ordem pendente e copia M23 independente
+
+- corrigida a expiracao da ordem Stop: o timestamp do ultimo candle fechado e
+  sua abertura, portanto a pendencia vale ate o fechamento do candle corrente;
+- removida a falsa duplicidade entre a ordem direta e sua copia M23;
+- mantida a deduplicacao do mesmo modelo/carteira no mesmo candle;
+- confirmado no MT5 Demo que sinais diretos e M23 voltaram a receber
+  `Request executed`, sem reaproveitar gatilho Stop ja rompido;
+- ciclo leve verificado online, com leitura compartilhada de 200 velas e app
+  saudavel na porta 8532.
+
 ## 2026-08-13 - Cruzamento inicial e reentradas ilimitadas da familia SMA20/50
 
 - M7 permaneceu inalterado.

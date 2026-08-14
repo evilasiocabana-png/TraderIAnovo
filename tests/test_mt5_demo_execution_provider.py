@@ -200,6 +200,30 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertIsNotNone(rejection)
         self.assertIn("expirou", rejection.message)
 
+    def test_pendente_permanece_valida_durante_candle_seguinte(self) -> None:
+        provider = self._provider(_FakeMT5())
+        order = ExecutionOrder(
+            symbol="XAUUSD",
+            side="BUY",
+            quantity=0.01,
+            entry_price=120.50,
+            stop=110.0,
+            target=0.0,
+            operational_model=MODEL_8_ID,
+            plan_snapshot={
+                "candle_time": "1970-01-01T03:05:00+00:00",
+                "stop_management_parameters": {
+                    "active_entry_order_type": "BUY_STOP",
+                },
+            },
+        )
+        server_tick = SimpleNamespace(ask=120.02, bid=120.00, time=11_101)
+
+        rejection = provider._stop_target_preflight(order, server_tick)
+
+        self.assertIsNone(rejection)
+        self.assertEqual(provider._pending_stop_expiration(order), 11_700)
+
     def test_novo_candle_pode_atualizar_gatilho_da_mesma_reentrada(self) -> None:
         mt5 = _FakeMT5()
         mt5.tick = SimpleNamespace(ask=120.02, bid=120.00)
@@ -248,7 +272,7 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertEqual(mt5.requests[-1]["action"], mt5.TRADE_ACTION_PENDING)
         self.assertEqual(
             mt5.requests[-1]["expiration"],
-            int(datetime.fromisoformat("2099-08-10T20:10:00+00:00").timestamp()),
+            int(datetime.fromisoformat("2099-08-10T20:15:00+00:00").timestamp()),
         )
 
     def test_modelo12_retirado_nao_envia_ordem(self) -> None:
@@ -506,6 +530,43 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
             self.assertTrue(first.accepted)
             self.assertFalse(second.accepted)
             self.assertIn("duplicado", second.message)
+
+    def test_m23_e_modelo_fonte_podem_executar_o_mesmo_sinal(self) -> None:
+        mt5 = _FakeMT5()
+        mt5.tick = SimpleNamespace(ask=1.10002, bid=1.10000)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = MT5DemoExecutionProvider(
+                mt5=mt5,
+                log_path=Path(temp_dir) / "orders.jsonl",
+            )
+            common = {
+                "symbol": "EURUSD",
+                "side": "BUY",
+                "quantity": 0.1,
+                "entry_price": 1.10001,
+                "stop": 1.09800,
+                "target": 1.10403,
+                "plan_identity": "EURUSD|H1|M1|ALPHA_X",
+                "plan_snapshot": {
+                    "candle_time": "2026-07-22T11:30:00+00:00",
+                },
+            }
+            source = provider.submit_order(
+                ExecutionOrder(
+                    **common,
+                    operational_model="MODELO_1_ALPHA_ATUAL",
+                )
+            )
+            basket = provider.submit_order(
+                ExecutionOrder(
+                    **common,
+                    operational_model="MODELO_23_BASKET_ACCUMULATOR_SOURCE_M1",
+                )
+            )
+
+            self.assertTrue(source.accepted)
+            self.assertTrue(basket.accepted)
+            self.assertEqual(len(mt5.requests), 2)
 
     def test_m8_ativo_e_m12_retirado_nao_abrem_juntos(self) -> None:
         mt5 = _FakeMT5()

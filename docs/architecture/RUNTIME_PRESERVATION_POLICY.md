@@ -422,4 +422,8 @@ Rollback de Runtime Guard deve:
 - timestamps de candle e tick pertencem ao relogio do servidor da corretora;
 - expiracao de ordem pendente compara candle com `tick.time` do MT5, nunca com
   o UTC da maquina, pois o servidor pode ter deslocamento e horario de verao;
+- `candle_time` representa a abertura do ultimo M5 fechado. A ordem pendente
+  gerada no candle seguinte expira somente no fechamento do candle corrente,
+  isto e, `candle_time + 10 minutos`; usar `+5 minutos` faz a ordem nascer
+  vencida no mesmo ciclo que a criou;
 - cache local antigo nunca libera entrada ate ser promovido por lote vivo atual.

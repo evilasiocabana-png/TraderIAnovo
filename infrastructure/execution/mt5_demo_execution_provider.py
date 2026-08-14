@@ -1549,10 +1549,13 @@ mt5.shutdown()
             candle_time = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
             return None
-        # Toda ordem Stop baseada em candle M5 vale somente ate o fechamento do
-        # candle seguinte. Se nao executar, o proximo plano remove a pendencia e
-        # publica o novo extremo fechado com SL/TP recalculados.
-        return int((candle_time + timedelta(minutes=5)).timestamp())
+        # ``candle_time`` e a abertura do ultimo candle fechado. Quando o plano
+        # nasce, o candle seguinte ja esta em formacao; portanto, a pendencia
+        # deve permanecer valida ate o fechamento desse candle corrente. Somar
+        # apenas cinco minutos fazia a ordem nascer expirada no primeiro ciclo.
+        # Se nao executar, o proximo plano remove a pendencia e publica o novo
+        # extremo fechado com SL/TP recalculados.
+        return int((candle_time + timedelta(minutes=10)).timestamp())
 
     def _replace_pending_stop_order_locked(
         self,
@@ -1657,6 +1660,14 @@ mt5.shutdown()
                 record.get("operational_model")
                 or record_snapshot.get("operational_model", "")
             ).upper()
+            if current_model != record_model and (
+                is_model23(current_model) != is_model23(record_model)
+            ):
+                # A carteira M23 e independente da carteira do modelo-fonte.
+                # Quando ambas estao selecionadas, o mesmo sinal deve gerar uma
+                # ordem em cada carteira; a defesa de duplicidade continua
+                # valendo dentro de cada uma delas.
+                continue
             if (
                 current_model != record_model
                 and is_model23(current_model)
