@@ -1522,3 +1522,14 @@ Novas entradas devem registrar:
 - criado contrato de equivalencia e baseline documental para impedir mudancas
   silenciosas em Lab, ciclo leve, modelos, M23, Position Manager e MT5;
 - nenhuma alteracao funcional foi aplicada ao app operacional.
+
+# 2026-08-13 - Fechamento do escape de IDs historicos
+
+- IDs historicos `MODELO_8_TREND_PULLBACK_H1_M5`,
+  `MODELO_21_ESPELHO_M19` e `MODELO_22_ESPELHO_M9` passaram a ser rejeitados
+  explicitamente antes do fallback por numero;
+- a mesma defesa foi aplicada a familia historica
+  `MODELO_8_DYNAMIC_EXIT_FROM_M1` ate `MODELO_14_DYNAMIC_EXIT_FROM_M7`;
+- IDs canonicos atuais M8, M21 e M22 permanecem ativos e independentes;
+- o reparo atua somente sobre novas ordens com identificador historico e nao
+  altera posicoes existentes, sinais, SL, TP ou modelos canonicos.

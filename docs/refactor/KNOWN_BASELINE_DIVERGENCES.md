@@ -23,8 +23,8 @@ runtime.
 
 ## IDs historicos escapando da aposentadoria
 
-Os testes abaixo falham porque o fallback por numero considera o numero do
-modelo ativo mesmo quando o ID completo e historico:
+Os testes abaixo falhavam porque o fallback por numero considerava o numero do
+modelo ativo mesmo quando o ID completo era historico:
 
 ```text
 MODELO_8_TREND_PULLBACK_H1_M5
@@ -32,14 +32,18 @@ MODELO_21_ESPELHO_M19
 MODELO_22_ESPELHO_M9
 ```
 
+O gate ampliado encontrou a mesma causa nos IDs historicos
+`MODELO_8_DYNAMIC_EXIT_FROM_M1` ate `MODELO_14_DYNAMIC_EXIT_FROM_M7`.
+
 Os IDs canonicos ativos atuais possuem escopo explicito. A politica deve rejeitar
-os tres IDs historicos antes de aplicar o fallback numerico.
+esses IDs historicos antes de aplicar o fallback numerico.
 
 Risco: uma rota antiga pode abrir ordem mesmo estando fora do conjunto canonico
 selecionavel.
 
-Acao futura: incremento isolado em `domain/operational_model_policy.py`, com os
-testes existentes como criterio de aceite e sem alterar IDs canonicos ativos.
+Resolvido na branch de refatoracao segura: todos esses IDs foram adicionados a
+`RETIRED_LEGACY_MODEL_IDS`. Um teste dedicado confirma simultaneamente que os
+legados ficam bloqueados e que os IDs canonicos atuais continuam ativos.
 
 ## Regra de uso
 

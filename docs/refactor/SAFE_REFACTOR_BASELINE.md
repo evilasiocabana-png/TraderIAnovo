@@ -57,18 +57,18 @@ viva permanece separada e somente observa o aplicativo operacional existente.
 - Auditoria arquitetural: manifesto `OK`.
 - Baseline historica: `DRIFT` informativo preservado.
 - Testes de manifesto e baseline: 22 aprovados.
-- Caracterizacao operacional ampla: 270 aprovados e 10 falhas preexistentes.
+- Caracterizacao operacional apos o primeiro reparo: 275 aprovados e 7 falhas
+  preexistentes.
 
-As dez falhas nao foram ocultadas:
+As divergencias nao foram ocultadas:
 
 - sete testes de `MT5MarketDataService` ainda exigem 1.000 candles no ciclo
   leve, enquanto o contrato atual usa 200 fechados mais o candle corrente;
-- tres testes do provider demonstram que IDs historicos de M8, M21 e M22 podem
-  escapar da lista de aposentados pelo fallback numerico da politica.
+- os tres escapes de IDs historicos encontrados no provider foram corrigidos;
+  os testes correspondentes agora passam e os IDs canonicos seguem ativos.
 
-O primeiro grupo exige reconciliacao dos testes de caracterizacao com o
-contrato vigente. O segundo e uma falha operacional real e deve ser corrigido
-em incremento proprio antes de qualquer refatoracao do executor.
+O grupo restante exige reconciliacao dos testes de caracterizacao com o
+contrato vigente antes de qualquer refatoracao do servico de dados MT5.
 
 ## Sequencia segura
 
