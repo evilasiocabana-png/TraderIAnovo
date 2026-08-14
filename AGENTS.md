@@ -25,11 +25,12 @@ Todo agente deve lê-lo antes de executar qualquer tarefa.
 A fonte oficial do projeto é composta por:
 
 ```text
-governance/PROJECT_STATE.md
-governance/NEXT_MISSION.md
-governance/PROGRAM_STATUS.md
-governance/ACCEPTANCE_CRITERIA.md
+governance/execution/PROJECT_STATUS.md
+governance/execution/NEXT_MISSION.md
+governance/programs/PROGRAM_STATUS.md
+docs/ACCEPTANCE_CRITERIA.md
 docs/ARCHITECTURE.md
+docs/EXECUTION_LOG.md
 ```
 
 O contexto da conversa nunca substitui esses documentos.
@@ -40,12 +41,12 @@ O contexto da conversa nunca substitui esses documentos.
 
 Antes de iniciar qualquer missão, leia exatamente nesta ordem:
 
-1. PROJECT_STATE.md
-2. NEXT_MISSION.md
-3. PROGRAM_STATUS.md
-4. ACCEPTANCE_CRITERIA.md
-5. ARCHITECTURE.md
-6. EXECUTION_LOG.md
+1. governance/execution/PROJECT_STATUS.md
+2. governance/execution/NEXT_MISSION.md
+3. governance/programs/PROGRAM_STATUS.md
+4. docs/ACCEPTANCE_CRITERIA.md
+5. docs/ARCHITECTURE.md
+6. docs/EXECUTION_LOG.md
 
 Somente após essa leitura o desenvolvimento pode começar.
 

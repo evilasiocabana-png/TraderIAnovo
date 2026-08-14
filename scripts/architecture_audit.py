@@ -16,6 +16,11 @@ REPORTS_DIR = ROOT / "reports"
 JSON_REPORT_PATH = REPORTS_DIR / "architecture_audit.json"
 MARKDOWN_REPORT_PATH = REPORTS_DIR / "architecture_audit.md"
 
+
+def _read_python_source(path: Path) -> str:
+    """Le fonte Python aceitando o BOM UTF-8 usado por arquivos legados."""
+    return path.read_text(encoding="utf-8-sig")
+
 ARCHITECTURAL_LAYER_CANDIDATES = {
     "alpha",
     "analytics",
@@ -514,7 +519,7 @@ def _discover_market_data_exports(
     init_path = root / "market_data" / "__init__.py"
     if not init_path.exists():
         return set()
-    tree = ast.parse(init_path.read_text(encoding="utf-8"))
+    tree = ast.parse(_read_python_source(init_path))
     exports: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
@@ -537,7 +542,7 @@ def _discover_market_data_exports(
 
 def _discover_events(root: Path) -> set[str]:
     events_path = root / "core" / "events.py"
-    tree = ast.parse(events_path.read_text(encoding="utf-8"))
+    tree = ast.parse(_read_python_source(events_path))
     events: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
@@ -551,7 +556,7 @@ def _discover_events(root: Path) -> set[str]:
 
 
 def _module_defined_classes(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = ast.parse(_read_python_source(path))
     return {
         node.name
         for node in tree.body
@@ -614,7 +619,7 @@ def _discover_market_data_all(root: Path) -> set[str]:
     init_path = root / "market_data" / "__init__.py"
     if not init_path.exists():
         return set()
-    tree = ast.parse(init_path.read_text(encoding="utf-8"))
+    tree = ast.parse(_read_python_source(init_path))
     exports: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
@@ -635,7 +640,7 @@ def _discover_registered_adapters(root: Path) -> dict[str, str]:
     registry_path = root / "market_data" / "historical_data_source_registry.py"
     if not registry_path.exists():
         return {}
-    tree = ast.parse(registry_path.read_text(encoding="utf-8"))
+    tree = ast.parse(_read_python_source(registry_path))
     registered: dict[str, str] = {}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -658,7 +663,7 @@ def _audit_event_bus(root: Path) -> dict[str, object]:
     publisher_files: set[str] = set()
     subscriber_files: set[str] = set()
     for path in _project_python_files(root):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = ast.parse(_read_python_source(path))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -704,7 +709,7 @@ def _audit_package_forbidden_access(root: Path, package_name: str) -> dict[str, 
             "status": "MISSING",
         }
     for path in package_root.rglob("*.py"):
-        source = path.read_text(encoding="utf-8")
+        source = _read_python_source(path)
         tree = ast.parse(source)
         imports = _imports_from_file(path)
         for imported in sorted(imports):
@@ -810,7 +815,7 @@ def _project_python_files(root: Path) -> list[Path]:
 def _imports_from_file(path: Path) -> set[str]:
     if not path.exists():
         return set()
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = ast.parse(_read_python_source(path))
     imports: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

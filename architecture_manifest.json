@@ -25,6 +25,7 @@
     "DynamicExitDemoSLExecutionService",
     "DynamicExitSimulationService",
     "ForexMT5Service",
+    "LabOperationalModelService",
     "LabService",
     "LiveResearchService",
     "MT5DemoRobotService",
@@ -44,6 +45,9 @@
   ],
   "domain_contracts": [
     "BacktestResult",
+    "BetaDecision",
+    "BetaStrategy",
+    "BetaStrategyContext",
     "DecisionContext",
     "DynamicExitBacktestComparisonReport",
     "DynamicExitBacktestMetrics",

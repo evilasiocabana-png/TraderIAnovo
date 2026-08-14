@@ -163,6 +163,18 @@ class ArchitectureManifestTest(unittest.TestCase):
             ):
                 architecture_audit.load_manifest(path)
 
+    def test_auditoria_aceita_fonte_python_com_bom_utf8(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "legacy_service.py"
+            path.write_text(
+                "\ufeffclass LegacyService:\n    pass\n",
+                encoding="utf-8",
+            )
+
+            classes = architecture_audit._module_defined_classes(path)
+
+        self.assertEqual(classes, {"LegacyService"})
+
     def test_auditoria_gera_relatorio_com_manifest_compliance(self) -> None:
         report = architecture_audit.run_audit(write_reports=False)
         markdown = architecture_audit._to_markdown(report)

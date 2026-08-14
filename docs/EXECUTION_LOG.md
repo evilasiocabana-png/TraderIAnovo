@@ -1510,3 +1510,15 @@ Novas entradas devem registrar:
   e mantem a entrada bloqueada ate a reconciliacao;
 - adicionados testes de regressao para reinicio, fechamento parcial e retorno do
   MT5 apos lacuna de varios candles.
+
+# 2026-08-13 - Fundacao da refatoracao segura
+
+- criado ponto Git `restore-traderia-20260813-2217` e pacote local sanitizado;
+- criado worktree isolado `C:\Users\evcab\TraderIAnovo_Refactor_Safe` na branch
+  `codex/safe-refactor-foundation`, sem runtime local e sem envio de ordens;
+- auditoria arquitetural passou a aceitar fontes Python com BOM UTF-8;
+- manifesto reconciliado com servico e contratos publicos ja presentes;
+- caminhos obrigatorios de governanca em `AGENTS.md` corrigidos;
+- criado contrato de equivalencia e baseline documental para impedir mudancas
+  silenciosas em Lab, ciclo leve, modelos, M23, Position Manager e MT5;
+- nenhuma alteracao funcional foi aplicada ao app operacional.
