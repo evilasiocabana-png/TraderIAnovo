@@ -707,7 +707,22 @@ def _wilder_rsi(values: list[float], period: int) -> float:
 def _number(row: object, field: str) -> float | None:
     if not field:
         return None
-    value = row.get(field) if isinstance(row, dict) else getattr(row, field, None)
+    aliases = {
+        "open": ("open", "abertura"),
+        "high": ("high", "maxima"),
+        "low": ("low", "minima"),
+        "close": ("close", "fechamento"),
+    }
+    candidates = aliases.get(field, (field,))
+    value = None
+    for candidate in candidates:
+        value = (
+            row.get(candidate)
+            if isinstance(row, dict)
+            else getattr(row, candidate, None)
+        )
+        if value is not None:
+            break
     try:
         parsed = float(value)
     except (TypeError, ValueError):
@@ -716,7 +731,11 @@ def _number(row: object, field: str) -> float | None:
 
 
 def _time(row: object) -> str:
-    value = row.get("time") if isinstance(row, dict) else getattr(row, "time", None)
+    value = (
+        row.get("time", row.get("data"))
+        if isinstance(row, dict)
+        else getattr(row, "time", getattr(row, "data", None))
+    )
     if isinstance(value, datetime):
         return value.isoformat()
     try:

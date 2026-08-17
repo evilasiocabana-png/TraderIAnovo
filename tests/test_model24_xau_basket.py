@@ -34,6 +34,7 @@ from domain.operational_model_policy import (
     is_retired_operational_model,
     operational_model_number,
 )
+from domain.candle import Candle
 
 
 def _buy_cross_candles(*, micro_pivot: bool = True) -> list[dict[str, float]]:
@@ -114,6 +115,27 @@ def test_initial_entry_latches_price_and_rsi_crosses_from_different_m5() -> None
     assert decision.price_cross_time != "N/D"
     assert decision.rsi_cross_time != "N/D"
     assert "INITIAL" in decision.status
+
+
+def test_initial_entry_accepts_canonical_candle_with_portuguese_fields() -> None:
+    rows = [
+        Candle(
+            data=str(row["time"]),
+            abertura=row["open"],
+            maxima=row["high"],
+            minima=row["low"],
+            fechamento=row["close"],
+            volume=1,
+        )
+        for row in _separate_buy_cross_candles()
+    ]
+
+    decision = evaluate_model24_rsi50_market_entry(rows)
+
+    assert decision.ready
+    assert decision.direction == "BUY"
+    assert decision.status != "M24_DADOS_INVALIDOS"
+    assert decision.closed_candle_time != "N/D"
 
 
 def test_initial_entry_does_not_fallback_without_confirmed_micro_pivot() -> None:
