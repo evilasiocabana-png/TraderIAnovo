@@ -295,6 +295,48 @@ class Model8XauM5Test(unittest.TestCase):
         self.assertEqual(buy.action, "FULL_EXIT")
         self.assertEqual(buy.status, "M8_EXIT_INVERSAO_SMA_BUY")
 
+    def test_m24_principal_ignora_inversao_sma_e_preserva_saida_rsi(self) -> None:
+        buy_closes = ([100.0] * 30) + ([101.0] * 20) + [80.0]
+        with patch(
+            "application.model8_xau_m5_sma_rsi_reentry._wilder_rsi",
+            side_effect=(60.0, 60.0),
+        ):
+            hold = evaluate_model8_exit(
+                _candles(buy_closes),
+                "BUY",
+                sma_inversion_exit_enabled=False,
+            )
+        self.assertEqual(hold.action, "HOLD_POSITION")
+        self.assertEqual(hold.status, "M8_HOLD_BUY")
+
+        with patch(
+            "application.model8_xau_m5_sma_rsi_reentry._wilder_rsi",
+            side_effect=(69.0, 71.0),
+        ):
+            rsi_exit = evaluate_model8_exit(
+                _candles(buy_closes),
+                "BUY",
+                sma_inversion_exit_enabled=False,
+            )
+        self.assertEqual(rsi_exit.action, "FULL_EXIT")
+        self.assertEqual(
+            rsi_exit.status,
+            "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
+        )
+
+        sell_closes = ([100.0] * 30) + ([99.0] * 20) + [120.0]
+        with patch(
+            "application.model8_xau_m5_sma_rsi_reentry._wilder_rsi",
+            side_effect=(40.0, 40.0),
+        ):
+            sell_hold = evaluate_model8_exit(
+                _candles(sell_closes),
+                "SELL",
+                sma_inversion_exit_enabled=False,
+            )
+        self.assertEqual(sell_hold.action, "HOLD_POSITION")
+        self.assertEqual(sell_hold.status, "M8_HOLD_SELL")
+
     def test_estado_de_reentrada_e_atomico_e_isolado(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "model8.json"

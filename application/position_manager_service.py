@@ -1417,13 +1417,22 @@ class PositionManagerService:
         reentry_position = bool(parameters.get("m24_reentry_position")) or (
             active_entry_order_type in {"BUY_STOP", "SELL_STOP"}
         )
+        m24_initial_position = (
+            is_model24(operational_model)
+            and not reentry_position
+            and str(parameters.get("m24_entry_role") or "INITIAL").upper()
+            == "INITIAL"
+        )
         decision = (
             evaluate_forex_sma_rsi_exit(
                 candles, snapshot.side, reentry_position=reentry_position,
             )
             if operational_model in FOREX_SMA_RSI_MODEL_IDS
             else evaluate_model8_exit(
-                candles, snapshot.side, reentry_position=reentry_position,
+                candles,
+                snapshot.side,
+                reentry_position=reentry_position,
+                sma_inversion_exit_enabled=not m24_initial_position,
             )
         )
         spec = (
@@ -1522,7 +1531,11 @@ class PositionManagerService:
             beta_version=(
                 spec.beta_version if spec is not None else MODEL_8_BETA_VERSION
             ),
-            beta_mode="FULL_EXIT_RSI70_30_CROSS_OR_SMA_INVERSION",
+            beta_mode=(
+                "M24_INITIAL_RSI70_30_NO_SMA_INVERSION"
+                if m24_initial_position
+                else "FULL_EXIT_RSI70_30_CROSS_OR_SMA_INVERSION"
+            ),
             allowed_to_execute=allowed,
             execution_mode="AUTOMATIC_DEMO" if allowed else "READ_ONLY",
             requested_close_volume=(
@@ -1537,6 +1550,7 @@ class PositionManagerService:
                 f"M8_SMA50={decision.sma50}",
                 f"M8_RSI14={decision.rsi14}",
                 f"M8_REENTRY_POSITION={reentry_position}",
+                f"M24_INITIAL_NO_SMA_INVERSION_EXIT={m24_initial_position}",
                 f"M8_STATUS={decision.status}",
             ),
             beta_closed_candle_time=decision.closed_candle_time,

@@ -447,8 +447,9 @@ def evaluate_model8_exit(
     *,
     extreme_armed: bool = False,
     reentry_position: bool = False,
+    sma_inversion_exit_enabled: bool = True,
 ) -> Model8ExitDecision:
-    """Fecha por inversao SMA20/50 ou cruzamento confirmado de RSI 70/30."""
+    """Avalia Full Exit por SMA20/50 e RSI, conforme o contrato da posicao."""
     rows = list(candles or ())[-MODEL_8_LOOKBACK_CANDLES :]
     minimum = MODEL_8_LOOKBACK_CANDLES
     if len(rows) < minimum:
@@ -482,7 +483,11 @@ def evaluate_model8_exit(
         "previous_rsi14": previous_rsi14,
     }
 
-    if normalized_side == "BUY" and sma20 <= sma50:
+    if (
+        sma_inversion_exit_enabled
+        and normalized_side == "BUY"
+        and sma20 <= sma50
+    ):
         return Model8ExitDecision(
             action="FULL_EXIT",
             status="M8_EXIT_INVERSAO_SMA_BUY",
@@ -490,7 +495,11 @@ def evaluate_model8_exit(
             extreme_armed=bool(extreme_armed),
             **common,
         )
-    if normalized_side == "SELL" and sma20 >= sma50:
+    if (
+        sma_inversion_exit_enabled
+        and normalized_side == "SELL"
+        and sma20 >= sma50
+    ):
         return Model8ExitDecision(
             action="FULL_EXIT",
             status="M8_EXIT_INVERSAO_SMA_SELL",
@@ -558,8 +567,8 @@ def evaluate_model8_exit(
             action="HOLD_POSITION",
             status="M8_HOLD_BUY",
             reason=(
-                "SMA20 permanece acima da SMA50 e nao houve cruzamento "
-                "confirmado do RSI14 de 70 para baixo."
+                "Nao houve cruzamento confirmado do RSI14 de 70 para baixo; "
+                "a regra SMA20/SMA50 aplicavel nao determinou saida."
             ),
             extreme_armed=rsi14 >= MODEL_8_RSI_BUY_EXIT,
             **common,
@@ -584,8 +593,8 @@ def evaluate_model8_exit(
         action="HOLD_POSITION",
         status="M8_HOLD_SELL",
         reason=(
-            "SMA20 permanece abaixo da SMA50 e nao houve cruzamento "
-            "confirmado do RSI14 de 30 para cima."
+            "Nao houve cruzamento confirmado do RSI14 de 30 para cima; "
+            "a regra SMA20/SMA50 aplicavel nao determinou saida."
         ),
         extreme_armed=rsi14 <= MODEL_8_RSI_SELL_EXIT,
         **common,
@@ -597,6 +606,7 @@ def evaluate_model8_native_exit(
     side: str,
     *,
     reentry_position: bool = False,
+    sma_inversion_exit_enabled: bool = True,
 ) -> Model8ExitDecision:
     """Saida M8-M17 pelo mesmo buffer nativo fechado usado na entrada."""
     normalized_side = str(side or "").upper()
@@ -609,13 +619,21 @@ def evaluate_model8_native_exit(
         "indicator_source": snapshot.indicator_source,
         "indicator_generated_at": snapshot.generated_at,
     }
-    if normalized_side == "BUY" and snapshot.sma20 <= snapshot.sma50:
+    if (
+        sma_inversion_exit_enabled
+        and normalized_side == "BUY"
+        and snapshot.sma20 <= snapshot.sma50
+    ):
         return Model8ExitDecision(
             "FULL_EXIT", "M8_EXIT_INVERSAO_SMA_BUY",
             "MT5 nativo: SMA20 deixou de ficar acima da SMA50; fechar BUY.",
             False, **common,
         )
-    if normalized_side == "SELL" and snapshot.sma20 >= snapshot.sma50:
+    if (
+        sma_inversion_exit_enabled
+        and normalized_side == "SELL"
+        and snapshot.sma20 >= snapshot.sma50
+    ):
         return Model8ExitDecision(
             "FULL_EXIT", "M8_EXIT_INVERSAO_SMA_SELL",
             "MT5 nativo: SMA20 deixou de ficar abaixo da SMA50; fechar SELL.",

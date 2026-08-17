@@ -899,6 +899,101 @@ class PositionManagerServiceTest(unittest.TestCase):
             "candle-extremo",
         )
 
+    def test_m24_principal_desativa_apenas_full_exit_por_inversao_sma(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("XAUUSD", "BUY", 101.0, 99.0, 0.0),
+            price=105.0,
+            candles=[],
+        )
+        manager = self._manager(provider, enabled=True)
+        hold_decision = SimpleNamespace(
+            action="HOLD_POSITION",
+            status="M8_HOLD_BUY",
+            reason="M24 principal sem saida por inversao SMA.",
+            rsi14=60.0,
+            previous_rsi14=60.0,
+            sma20=99.0,
+            sma50=100.0,
+            closed_candle_time="candle-principal",
+        )
+
+        with patch(
+            "application.position_manager_service.evaluate_model8_exit",
+            return_value=hold_decision,
+        ) as evaluate_exit:
+            result = manager.manage_plan(
+                self._plan(
+                    "XAUUSD",
+                    "BUY",
+                    entry=101.0,
+                    stop=99.0,
+                    target=0.0,
+                    stop_management="M24_SOURCE_EXIT_PLUS_BASKET_1000",
+                    parameters={
+                        "m24_entry_role": "INITIAL",
+                        "m24_reentry_position": False,
+                    },
+                    operational_model="MODELO_24_XAU_RSI50_BASKET_SOURCE_M8",
+                )
+            )
+
+        evaluate_exit.assert_called_once_with(
+            (),
+            "BUY",
+            reentry_position=False,
+            sma_inversion_exit_enabled=False,
+        )
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertEqual(provider.close_calls, 0)
+        self.assertIn("M24_INITIAL_NO_SMA_INVERSION_EXIT=True", result.evidence)
+
+    def test_m24_reentrada_mantem_full_exit_por_inversao_sma(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("XAUUSD", "BUY", 101.0, 99.0, 0.0),
+            price=105.0,
+            candles=[],
+        )
+        manager = self._manager(provider, enabled=True)
+        exit_decision = SimpleNamespace(
+            action="FULL_EXIT",
+            status="M8_EXIT_INVERSAO_SMA_BUY",
+            reason="SMA20 abaixo da SMA50 na reentrada.",
+            rsi14=60.0,
+            previous_rsi14=60.0,
+            sma20=99.0,
+            sma50=100.0,
+            closed_candle_time="candle-reentrada",
+        )
+
+        with patch(
+            "application.position_manager_service.evaluate_model8_exit",
+            return_value=exit_decision,
+        ) as evaluate_exit:
+            result = manager.manage_plan(
+                self._plan(
+                    "XAUUSD",
+                    "BUY",
+                    entry=101.0,
+                    stop=99.0,
+                    target=0.0,
+                    stop_management="M24_SOURCE_EXIT_PLUS_BASKET_1000",
+                    parameters={
+                        "m24_entry_role": "REENTRY",
+                        "m24_reentry_position": True,
+                    },
+                    operational_model="MODELO_24_XAU_RSI50_BASKET_SOURCE_M8",
+                )
+            )
+
+        evaluate_exit.assert_called_once_with(
+            (),
+            "BUY",
+            reentry_position=True,
+            sma_inversion_exit_enabled=True,
+        )
+        self.assertEqual(result.status, "POSITION_CLOSED")
+        self.assertEqual(provider.close_calls, 1)
+
     def test_beta002_compra_saudavel_mantem_posicao(self) -> None:
         provider = _FakePositionProvider(
             position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1100),
