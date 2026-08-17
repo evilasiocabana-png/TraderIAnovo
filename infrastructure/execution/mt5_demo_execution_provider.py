@@ -24,6 +24,7 @@ from application.model23_basket_accumulator import (
     is_model23,
     model23_order_comment,
 )
+from application.model24_xau_basket import is_model24, model24_order_comment
 from application.model3_xau_m5_rsi50_flip import MODEL_3_ID
 from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
 from application.xau_m5_sma_rsi_model_family import (
@@ -49,7 +50,7 @@ from core.mt5_process_probe import resolve_mt5_terminal_path, terminate_process_
 _MT5_ORDER_SEND_LOCK = threading.Lock()
 MAX_OPERATIONAL_MODELS_PER_SYMBOL = 22
 MAX_MODEL23_POSITIONS_PER_SYMBOL = 64
-KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 24))
+KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 25))
 INDEPENDENT_SMA_RSI_MODEL_IDS = frozenset(
     {
         MODEL_8_ID,
@@ -57,6 +58,10 @@ INDEPENDENT_SMA_RSI_MODEL_IDS = frozenset(
         *FOREX_SMA_RSI_MODEL_IDS,
     }
 )
+
+
+def _is_basket_model(value: object) -> bool:
+    return is_model23(value) or is_model24(value)
 
 
 @dataclass(frozen=True)
@@ -126,7 +131,7 @@ class MT5DemoExecutionProvider:
             if initialize_check is not None:
                 return True
             positions = list(self.mt5.positions_get(symbol=symbol) or [])
-        if is_model23(operational_model):
+        if _is_basket_model(operational_model):
             if len(positions) >= MAX_MODEL23_POSITIONS_PER_SYMBOL:
                 return True
             for position in positions:
@@ -1482,6 +1487,8 @@ mt5.shutdown()
     def _is_no_target_model(self, order: ExecutionOrder) -> bool:
         snapshot = dict(getattr(order, "plan_snapshot", None) or {})
         parameters = dict(snapshot.get("stop_management_parameters") or {})
+        if is_model24(getattr(order, "operational_model", "")):
+            return True
         if (
             is_model23(getattr(order, "operational_model", ""))
             and bool(parameters.get("m23_structural_target_enabled"))
@@ -1518,7 +1525,7 @@ mt5.shutdown()
 
     def _effective_operational_model(self, order: ExecutionOrder) -> str:
         model = str(getattr(order, "operational_model", "") or "").upper()
-        if not is_model23(model):
+        if not _is_basket_model(model):
             return model
         return self._source_operational_model(order) or model
 
@@ -1661,7 +1668,7 @@ mt5.shutdown()
                 or record_snapshot.get("operational_model", "")
             ).upper()
             if current_model != record_model and (
-                is_model23(current_model) != is_model23(record_model)
+                _is_basket_model(current_model) != _is_basket_model(record_model)
             ):
                 # A carteira M23 e independente da carteira do modelo-fonte.
                 # Quando ambas estao selecionadas, o mesmo sinal deve gerar uma
@@ -1670,8 +1677,8 @@ mt5.shutdown()
                 continue
             if (
                 current_model != record_model
-                and is_model23(current_model)
-                and is_model23(record_model)
+                and _is_basket_model(current_model)
+                and _is_basket_model(record_model)
             ):
                 # Cada fonte ativa pode contribuir uma posicao M23 por par.
                 continue
@@ -1745,7 +1752,7 @@ mt5.shutdown()
     ) -> ExecutionResult | None:
         """Aplica somente o teto tecnico de posicoes e bloqueia origem desconhecida."""
         positions = list(self.mt5.positions_get(symbol=order.symbol) or [])
-        is_basket = is_model23(getattr(order, "operational_model", ""))
+        is_basket = _is_basket_model(getattr(order, "operational_model", ""))
         limit = (
             MAX_MODEL23_POSITIONS_PER_SYMBOL
             if is_basket
@@ -1900,10 +1907,10 @@ mt5.shutdown()
         )
         effective_model = (
             str(record_parameters.get("source_operational_model") or "").upper()
-            if is_model23(record_model)
+            if _is_basket_model(record_model)
             else record_model
         ) or record_model
-        record_uses_no_target = self._model_uses_no_target(
+        record_uses_no_target = is_model24(record_model) or self._model_uses_no_target(
             effective_model,
             record_parameters.get("active_entry_order_type"),
         )
@@ -2051,7 +2058,7 @@ mt5.shutdown()
         model = str(getattr(order, "operational_model", "") or "").upper()
         snapshot = dict(getattr(order, "plan_snapshot", None) or {})
         parameters = dict(snapshot.get("stop_management_parameters") or {})
-        if is_model23(model):
+        if _is_basket_model(model):
             # M23 nao cria sinal proprio: preserva o gate nativo do modelo que
             # originou a entrada, sem copiar seu SL ou TP.
             model = str(parameters.get("source_operational_model") or "").upper()
@@ -2165,6 +2172,8 @@ mt5.shutdown()
                 self.execution_log_cache_signature = None
 
     def _order_comment(self, order: ExecutionOrder) -> str:
+        if is_model24(getattr(order, "operational_model", "")):
+            return model24_order_comment(getattr(order, "operational_model", ""))
         if is_model23(getattr(order, "operational_model", "")):
             return model23_order_comment(getattr(order, "operational_model", ""))
         return f"TraderIA {self._model_comment(getattr(order, 'operational_model', ''))}"
@@ -2174,7 +2183,7 @@ mt5.shutdown()
         match = re.search(r"(?:MODELO[_ ]?|^M)(\d{1,2})(?:_|\b)", model)
         if match is not None:
             number = int(match.group(1))
-            if 1 <= number <= 23:
+            if 1 <= number <= 24:
                 return f"M{number}"
         if model in {
             "MODELO_2_ESPELHO_BETA2_RR1",

@@ -36,6 +36,7 @@ from application.model23_basket_accumulator import (
     MODEL_23_ENTRY_SOURCE,
     is_model23,
 )
+from application.model24_xau_basket import MODEL_24_ENTRY_SOURCE, is_model24
 from application.model6_original_trend_momentum import (
     MODEL_6_ID as HISTORICAL_MODEL_6_ID,
 )
@@ -412,7 +413,7 @@ class MT5DemoRobotService:
     ) -> MT5DemoRobotSignal | None:
         """Nao sobrepoe regime legado aos modelos com Alpha canonica completa."""
         model = str(getattr(signal, "operational_model", "") or "").upper()
-        if is_model23(model):
+        if is_model23(model) or is_model24(model):
             # O M23 recebe somente sinais que ja venceram todos os gates do
             # modelo-fonte. Reaplicar o regime legado aqui distorceria a fonte.
             return None
@@ -493,19 +494,21 @@ class MT5DemoRobotService:
             "MODEL_16_FOREX_MANUAL_RULE",
             "MODEL_17_FOREX_MANUAL_RULE",
             MODEL_23_ENTRY_SOURCE,
+            MODEL_24_ENTRY_SOURCE,
         }:
             return "Plano de trade nao veio de fonte operacional autorizada."
         if trade_plan.status != "PLANO_VALIDO":
             return "Plano do Research Lab nao esta com status PLANO_VALIDO."
         parameters = dict(trade_plan.stop_management_parameters or {})
         validation_model = str(signal.operational_model or "").upper()
-        if is_model23(validation_model):
+        validation_is_model24 = is_model24(validation_model)
+        if is_model23(validation_model) or validation_is_model24:
             validation_model = str(
                 parameters.get("source_operational_model") or ""
             ).upper()
             if not validation_model:
                 return "Plano M23 sem modelo-fonte para validar SL/TP."
-        requires_target = xau_model_requires_target(
+        requires_target = (not validation_is_model24) and xau_model_requires_target(
             validation_model,
             parameters.get("active_entry_order_type"),
         )

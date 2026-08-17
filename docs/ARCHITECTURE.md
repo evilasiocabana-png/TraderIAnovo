@@ -530,3 +530,11 @@ nao a estrategia. A leitura leve de posicoes atualiza um acumulador monotono em
 `.traderia/runtime/mt5_position_profit_peaks.sqlite3`; o Relatorio consulta esse
 estado quando a ordem estiver aberta ou fechada. Essa telemetria nao pode abrir
 ou fechar ordem, mover SL/TP, recalcular indicadores ou iniciar o Lab.
+
+## Modelo 24
+
+O contrato completo do M24 esta em
+`docs/architecture/OPERATIONAL_MODEL_24_XAU_RSI50_BASKET.md`. O modelo reutiliza
+o cache compartilhado XAUUSD/M5, mas possui identidade, estado, comentario MT5,
+resultado financeiro e auditoria independentes do M23. O provider sempre envia
+`tp=0` para M24; a unica meta de lucro e a cesta liquida de +US$1.000.

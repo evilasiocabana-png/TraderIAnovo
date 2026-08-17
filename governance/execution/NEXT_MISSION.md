@@ -6,8 +6,8 @@ Proxima missao recomendada, ainda nao autorizada automaticamente:
 MISSION_TIA-030_A_DEFINIR
 ```
 
-Objetivo: definir a proxima melhoria a partir do estado operacional apos a
-reparacao do ciclo do robo demo, diagnostico MT5, Forex e Relatorio.
+Objetivo: auditar o M24 em paper/demo com candles novos, sem promover parametros
+nem alterar suas sete fontes, confirmando entradas, SL movel e Full Exit da cesta.
 
 Pendencia registrada em 2026-07-13:
 

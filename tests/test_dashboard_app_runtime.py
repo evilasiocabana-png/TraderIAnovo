@@ -13,11 +13,68 @@ from core.background_runtime_registry import (
     clear_background_snapshot,
     publish_background_snapshot,
 )
+from research.forex_time_layer import ForexTimeLayer
 from streamlit.testing.v1 import AppTest
 
 
 class DashboardAppRuntimeTest(unittest.TestCase):
     """Valida renderizacao real do workbench via Streamlit AppTest."""
+
+    def test_gate_temporal_usa_candle_mais_recente_entre_todos_os_modelos(self) -> None:
+        service = SimpleNamespace(
+            configuration_service=SimpleNamespace(
+                get_configuration_data=lambda: SimpleNamespace(
+                    forex_session_filter_enabled=True,
+                )
+            ),
+            forex_time_layer=ForexTimeLayer(),
+            mt5_server_timestamp_cache_value="N/D",
+            mt5_server_timestamp_cache_started=0.0,
+        )
+        rows = [
+            {
+                "Par": "XAUUSD",
+                "Horario": "2026-08-14T20:55:00+00:00",
+                "Modelo ativo": "M8_XAU_M5",
+            },
+            {
+                "Par": "XAUUSD",
+                "Horario": "2026-08-17T01:30:00+00:00",
+                "Modelo ativo": "M22_XAU_M5",
+            },
+        ]
+
+        output = dashboard_app._entry_temporal_gates_by_pair(service, rows)
+
+        self.assertTrue(output["XAUUSD"].startswith("OK:"))
+        self.assertNotIn("SEXTA_FINAL_BLOQUEADO", output["XAUUSD"])
+
+    def test_gate_temporal_preserva_bloqueio_quando_sexta_e_realmente_mais_recente(
+        self,
+    ) -> None:
+        service = SimpleNamespace(
+            configuration_service=SimpleNamespace(
+                get_configuration_data=lambda: SimpleNamespace(
+                    forex_session_filter_enabled=True,
+                )
+            ),
+            forex_time_layer=ForexTimeLayer(),
+            mt5_server_timestamp_cache_value="N/D",
+            mt5_server_timestamp_cache_started=0.0,
+        )
+
+        output = dashboard_app._entry_temporal_gates_by_pair(
+            service,
+            [
+                {
+                    "Par": "GBPUSD",
+                    "Horario": "2026-08-14T20:55:00+00:00",
+                    "Modelo ativo": "M17_FOREX_M5",
+                }
+            ],
+        )
+
+        self.assertEqual(output["GBPUSD"], "BLOQ: SEXTA_FINAL_BLOQUEADO")
 
     def test_curva_patrimonial_converte_fechamento_para_horario_do_brasil(self) -> None:
         cutoff = dashboard_app.datetime(
@@ -411,7 +468,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 operational_model_number(model_id)
                 for model_id in dashboard_app.MT5_SELECTABLE_OPERATIONAL_MODEL_IDS
             ),
-            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23),
+            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24),
         )
         for restored_source in (
             dashboard_app.MT5_OPERATIONAL_MODEL_3,
@@ -1045,13 +1102,13 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             checkbox.label: bool(checkbox.value)
             for checkbox in app.checkbox
             if checkbox.label == "Todos"
-            or re.fullmatch(r"M(?:[1-9]|1\d|2[0-3])", checkbox.label)
+            or re.fullmatch(r"M(?:[1-9]|1\d|2[0-4])", checkbox.label)
         }
         self.assertEqual(
             set(model_boxes),
             {
                 "Todos",
-                *(f"M{number}" for number in (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23)),
+                *(f"M{number}" for number in (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24)),
             },
         )
         self.assertEqual(
@@ -1568,6 +1625,90 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "AGUARDA: Sinal - FORA_DA_ZONA_DE_INTERESSE",
         )
 
+    def test_envio_prioriza_ausencia_de_sinal_antes_de_bloqueio_temporal(self) -> None:
+        row = {
+            "Par": "BTCUSD",
+            "Periodo de tempo": "M5",
+            "Paridade Demo": "APROVADA",
+            "Status indicadores": "NO_CLOSED_CANDLE_SIGNAL",
+            "Leitura indicadores": "RSI14=48.00",
+            "Candle atual modelo": "2026-08-16T21:00:00+00:00",
+            "Entrada Teorica": "FORA_DA_ZONA_DE_INTERESSE",
+            "Direcao Teorica": "WAIT",
+            "Plano Research": "SEM_GATILHO_VALIDO",
+            "Codigo Rejeicao": "NO_THEORETICAL_TRIGGER",
+            "Zona Operacional": "FORA_DA_ZONA_DE_INTERESSE",
+        }
+
+        entry_row = dashboard_app._forex_theoretical_entry_row(
+            row,
+            robot_online=True,
+            mt5_online=True,
+            operational_model=dashboard_app.MT5_OPERATIONAL_MODEL_7,
+            temporal_gate="BLOQ: DOMINGO_ABERTURA_BLOQUEADO",
+        )
+
+        self.assertEqual(
+            entry_row["Envio"],
+            "AGUARDA: Sinal - FORA_DA_ZONA_DE_INTERESSE",
+        )
+        self.assertEqual(
+            entry_row["Tempo"],
+            "BLOQ: DOMINGO_ABERTURA_BLOQUEADO",
+        )
+
+    def test_envio_expoe_bloqueio_especifico_do_setup_manual(self) -> None:
+        row = {
+            "Par": "XAUUSD",
+            "Periodo de tempo": "M5",
+            "Candles recebidos": 52,
+            "Horario": "2026-08-16T21:00:00+00:00",
+            "Leitura indicadores": "SMA20=3350 | SMA50=3360 | ADX14=19",
+            "Entrada Teorica": "SEM_GATILHO",
+            "Direcao Teorica": "WAIT",
+            "Plano Research": "SEM_GATILHO_VALIDO",
+            "Codigo Rejeicao": "M19_ADX_BLOQUEADO",
+        }
+
+        entry_row = dashboard_app._forex_theoretical_entry_row(
+            row,
+            robot_online=True,
+            mt5_online=True,
+            operational_model=dashboard_app.MT5_OPERATIONAL_MODEL_19,
+        )
+
+        self.assertEqual(entry_row["Sinal"], "BLOQ: M19_ADX_BLOQUEADO")
+        self.assertEqual(
+            entry_row["Envio"],
+            "BLOQ: Sinal - M19_ADX_BLOQUEADO",
+        )
+
+    def test_envio_expoe_espera_especifica_do_setup_manual(self) -> None:
+        row = {
+            "Par": "XAUUSD",
+            "Periodo de tempo": "M5",
+            "Candles recebidos": 52,
+            "Horario": "2026-08-16T21:00:00+00:00",
+            "Leitura indicadores": "SMA20=3360 | SMA50=3350 | RSI14=58",
+            "Entrada Teorica": "SEM_GATILHO",
+            "Direcao Teorica": "WAIT",
+            "Plano Research": "SEM_GATILHO_VALIDO",
+            "Codigo Rejeicao": "M18_AGUARDA_PULLBACK_SMA20",
+        }
+
+        entry_row = dashboard_app._forex_theoretical_entry_row(
+            row,
+            robot_online=True,
+            mt5_online=True,
+            operational_model=dashboard_app.MT5_OPERATIONAL_MODEL_18,
+        )
+
+        self.assertEqual(entry_row["Sinal"], "AGUARDA: M18_AGUARDA_PULLBACK_SMA20")
+        self.assertEqual(
+            entry_row["Envio"],
+            "AGUARDA: Sinal - M18_AGUARDA_PULLBACK_SMA20",
+        )
+
     def test_entrada_teorica_mostra_filtro_de_liberacao_apos_mt5(self) -> None:
         row = {
             "Par": "AUDUSD",
@@ -1843,12 +1984,14 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         realized_index = columns.index("Lucro realizado MT5")
         self.assertEqual(
-            columns[:7],
+            columns[:9],
             [
                 "Confere",
                 "Par",
                 "Lucro projetado app",
                 "Lucro realizado MT5",
+                "Pico lucro aberto",
+                "Horario pico lucro",
                 "Prejuizo projetado app",
                 "Modelo envio",
                 "Parametros",
@@ -1857,7 +2000,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertNotIn("Pontuacao atual", columns)
         self.assertNotIn("Confianca atual", columns)
         self.assertEqual(columns[realized_index - 1], "Lucro projetado app")
-        self.assertEqual(columns[realized_index + 1], "Prejuizo projetado app")
+        self.assertEqual(columns[realized_index + 3], "Prejuizo projetado app")
         self.assertLess(columns.index("Modelo envio"), columns.index("Mercado aberto"))
         self.assertLess(columns.index("Parametros"), columns.index("Mercado aberto"))
         self.assertLess(realized_index, columns.index("Ticket TraderIA"))
@@ -2316,7 +2459,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertEqual(
             dashboard_app.MT5_ACTIVE_REPORT_MODEL_NUMBERS,
-            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23),
+            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24),
         )
         self.assertIn("MT5_ACTIVE_REPORT_MODEL_NUMBERS", source)
 

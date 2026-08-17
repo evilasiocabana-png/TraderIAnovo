@@ -10,6 +10,7 @@ from core.decision_pipeline import DecisionPipeline
 from application.model15_xau_m5_breakout import MODEL_15_ID
 from application.model16_xau_m5_price_ema_breakout import MODEL_16_ID
 from application.model23_basket_accumulator import is_model23
+from application.model24_xau_basket import is_model24
 from application.model3_xau_m5_rsi50_flip import MODEL_3_ID
 from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
 from application.xau_m5_sma_rsi_model_family import (
@@ -447,17 +448,18 @@ class DemoExecutionService:
 
     def _has_required_stop_and_target(self, order: ExecutionOrder) -> bool:
         model = str(getattr(order, "operational_model", "") or "").upper()
+        original_is_model24 = is_model24(model)
         parameters = dict(
             dict(getattr(order, "plan_snapshot", None) or {}).get(
                 "stop_management_parameters"
             )
             or {}
         )
-        if is_model23(model):
+        if is_model23(model) or is_model24(model):
             model = str(parameters.get("source_operational_model") or "").upper()
             if not model:
                 return False
-        requires_target = xau_model_requires_target(
+        requires_target = (not original_is_model24) and xau_model_requires_target(
             model,
             parameters.get("active_entry_order_type"),
         )

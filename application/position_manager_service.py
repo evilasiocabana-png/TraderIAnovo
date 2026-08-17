@@ -79,6 +79,11 @@ from application.model16_xau_m5_price_ema_breakout import (
     MODEL_16_TIMEFRAME,
     model16_previous_candle_stop,
 )
+from application.model24_xau_basket import (
+    MODEL_24_BETA_ID,
+    MODEL_24_BETA_VERSION,
+    model24_previous_candle_stop,
+)
 from domain.contracts.beta_strategy import BetaDecision, BetaStrategyContext
 
 DEFAULT_BETA_ID = "BETA001"
@@ -1405,7 +1410,10 @@ class PositionManagerService:
             )
             or ""
         ).upper()
-        reentry_position = active_entry_order_type in {"BUY_STOP", "SELL_STOP"}
+        parameters = dict(plan.stop_management_parameters or {})
+        reentry_position = bool(parameters.get("m24_reentry_position")) or (
+            active_entry_order_type in {"BUY_STOP", "SELL_STOP"}
+        )
         decision = (
             evaluate_forex_sma_rsi_exit(
                 candles, snapshot.side, reentry_position=reentry_position,
@@ -1451,6 +1459,50 @@ class PositionManagerService:
                     entry_intent_side="",
                     entry_intent_kind="",
                     operational_model=operational_model,
+                )
+        if (
+            decision.action != "FULL_EXIT"
+            and bool(parameters.get("m24_previous_candle_trailing_enabled"))
+        ):
+            candidate, trailing_candle = model24_previous_candle_stop(
+                candles,
+                snapshot.side,
+            )
+            if (
+                candidate is not None
+                and self._is_better_stop(snapshot.side, candidate, snapshot.current_stop)
+                and self._is_stop_before_market(
+                    snapshot.side,
+                    candidate,
+                    snapshot.current_price,
+                )
+            ):
+                return PositionManagerDecision(
+                    symbol=plan.symbol,
+                    ticket=snapshot.ticket,
+                    state="M24_REENTRY_PREVIOUS_CANDLE_TRAILING",
+                    action="PROTECT_POSITION",
+                    reason=(
+                        "M24 reentrada RSI50: mover SL para o extremo do ultimo "
+                        "M5 fechado, somente em direcao favoravel."
+                    ),
+                    confidence=1.0,
+                    beta_id=MODEL_24_BETA_ID,
+                    beta_version=MODEL_24_BETA_VERSION,
+                    beta_mode="SOURCE_EXIT_PLUS_BASKET_1000",
+                    allowed_to_execute=self.assisted_execution_enabled,
+                    execution_mode=(
+                        "AUTOMATIC_DEMO"
+                        if self.assisted_execution_enabled
+                        else "READ_ONLY"
+                    ),
+                    requested_stop=candidate,
+                    evidence=snapshot.evidence
+                    + (
+                        "M24_PREVIOUS_CANDLE_TRAILING",
+                        f"M24_TRAILING_CANDLE={trailing_candle}",
+                    ),
+                    beta_closed_candle_time=trailing_candle,
                 )
         allowed = decision.action == "FULL_EXIT" and self.assisted_execution_enabled
         return PositionManagerDecision(

@@ -1552,3 +1552,16 @@ Novas entradas devem registrar:
 - gate final: 314 testes e 381 subtestes aprovados em 209,61 segundos;
 - divergencias historicas de pandas offline e SQLite direto na fachada foram
   documentadas para missoes isoladas, sem mudar trading ou persistencia.
+
+# 2026-08-17 - Criacao operacional do M24
+
+- criado `MODELO_24_XAU_RSI50_BASKET` para XAUUSD/M5 com fontes M8, M10 e M18-M22;
+- entrada inicial passou a exigir micropivo 1+1, RSI14 cruzando 50 e fechamento
+  acima/abaixo da SMA20; a SMA50 nao participa dessa entrada;
+- preservadas duas reentradas: Stop estrutural e RSI50 a mercado com SMA20/50;
+- reentrada RSI50 usa SL no candle anterior e trailing monotono por candle M5;
+- TP individual foi removido de todas as rotas M24; cesta isolada encerra em
+  +US$1.000 liquidos sem tocar M23 ou modelos diretos;
+- seletor, provider, Position Manager, dashboard, relatorio e politica de IDs
+  passaram a reconhecer M24;
+- nenhuma ordem foi enviada durante implementacao ou testes.

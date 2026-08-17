@@ -2,6 +2,17 @@
 
 Status: pronto para fluxo de inbox.
 
+## Estado Operacional M24 - 2026-08-17
+
+- M24 criado como cesta XAUUSD/M5 independente do M23.
+- Fontes fixas: M8, M10 e M18-M22.
+- Entrada inicial: micropivo 1+1 + cruzamento RSI50 + fechamento alem da SMA20.
+- Reentrada estrutural Stop e reentrada RSI50 a mercado permanecem separadas.
+- Nenhuma rota M24 usa TP individual; alvo coletivo liquido em +US$1.000.
+- SL da reentrada RSI50 acompanha o extremo do ultimo M5 apenas a favor.
+- Modelo esta disponivel no seletor, mas nao foi ativado automaticamente.
+- Fonte canonica: `docs/architecture/OPERATIONAL_MODEL_24_XAU_RSI50_BASKET.md`.
+
 ## Estado Atual
 
 - Estrutura `codex/` criada.

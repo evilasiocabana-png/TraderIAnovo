@@ -18,6 +18,7 @@ from application.dynamic_exit_model_family import MODEL_8_ID as DYNAMIC_MODEL_8_
 from application.model15_xau_m5_breakout import MODEL_15_ID
 from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
 from application.model23_basket_accumulator import model23_variant_id
+from application.model24_xau_basket import model24_variant_id
 from application.xau_m5_sma_rsi_model_family import MODEL_12_ID
 from domain.contracts.execution_order import ExecutionOrder
 from infrastructure.execution.mt5_demo_execution_provider import (
@@ -1031,6 +1032,46 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertEqual(mt5.last_request["sl"], 110.0)
         self.assertEqual(mt5.last_request["tp"], 0.0)
         self.assertEqual(mt5.last_request["comment"], "TraderIA M23 S8")
+
+    def test_m24_reentrada_estrutural_envia_sem_tp_individual(self) -> None:
+        mt5 = _FakeMT5()
+        mt5.tick = SimpleNamespace(ask=120.02, bid=120.00)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            provider = MT5DemoExecutionProvider(
+                mt5=mt5,
+                log_path=Path(temp_dir) / "orders.jsonl",
+            )
+            result = provider.submit_order(
+                ExecutionOrder(
+                    symbol="XAUUSD",
+                    side="BUY",
+                    quantity=0.01,
+                    entry_price=120.50,
+                    stop=110.0,
+                    target=130.0,
+                    operational_model=model24_variant_id(
+                        "MODELO_20_XAU_M5_SMA_RSI_MA_DISTANCE_ATR_REENTRY_TP75"
+                    ),
+                    plan_snapshot={
+                        "candle_time": "2099-08-10T20:00:00+00:00",
+                        "indicator_source": "MT5_NATIVE",
+                        "indicator_closed_candle_time": "2099-08-10T20:00:00+00:00",
+                        "stop_management_parameters": {
+                            "source_operational_model": (
+                                "MODELO_20_XAU_M5_SMA_RSI_MA_DISTANCE_ATR_REENTRY_TP75"
+                            ),
+                            "active_entry_order_type": "BUY_STOP",
+                            "indicator_source": "MT5_NATIVE",
+                            "indicator_closed_candle_time": "2099-08-10T20:00:00+00:00",
+                            "m24_individual_target_enabled": False,
+                        },
+                    },
+                )
+            )
+        self.assertTrue(result.accepted)
+        self.assertEqual(mt5.last_request["action"], mt5.TRADE_ACTION_PENDING)
+        self.assertEqual(mt5.last_request["tp"], 0.0)
+        self.assertEqual(mt5.last_request["comment"], "TraderIA M24 S20")
 
     def test_m23_nao_bloqueia_entrada_por_orcamento_financeiro_global(self) -> None:
         mt5 = _FakeMT5(
