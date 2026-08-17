@@ -7,8 +7,8 @@ from application.model24_xau_basket import (
     MODEL_24_ID,
     Model24BasketManager,
     evaluate_model24_rsi50_market_entry,
+    model24_micro_pivot_stop,
     model24_order_comment,
-    model24_previous_candle_stop,
     model24_variant_id,
 )
 from application.dashboard_service import (
@@ -90,14 +90,38 @@ def test_initial_entry_does_not_fallback_without_confirmed_micro_pivot() -> None
     assert decision.status == "M24_INITIAL_AGUARDA_MICRO_PIVO_CONFIRMADO"
 
 
-def test_rsi50_reentry_uses_previous_candle_extreme() -> None:
-    candles = _buy_cross_candles(micro_pivot=False)
+def test_rsi50_reentry_uses_confirmed_micro_pivot() -> None:
+    candles = _buy_cross_candles()
     decision = evaluate_model24_rsi50_market_entry(candles, entry_role="REENTRY")
-    candidate, candle_time = model24_previous_candle_stop(candles, "BUY")
+    candidate, candle_time = model24_micro_pivot_stop(candles, "BUY")
 
     assert decision.ready
     assert decision.initial_stop == candles[-3]["low"]
-    assert candidate == candles[-2]["low"]
+    assert candidate == candles[-3]["low"]
+    assert candle_time != "N/D"
+
+
+def test_rsi50_reentry_waits_without_confirmed_micro_pivot() -> None:
+    decision = evaluate_model24_rsi50_market_entry(
+        _buy_cross_candles(micro_pivot=False),
+        entry_role="REENTRY",
+    )
+
+    assert not decision.ready
+    assert decision.status == "M24_REENTRY_AGUARDA_MICRO_PIVO_CONFIRMADO"
+
+
+def test_micro_pivot_stop_finds_confirmed_micro_top_for_sell() -> None:
+    candles = [
+        {"time": 1.0, "high": 100.0, "low": 98.0},
+        {"time": 2.0, "high": 105.0, "low": 99.0},
+        {"time": 3.0, "high": 102.0, "low": 97.0},
+        {"time": 4.0, "high": 103.0, "low": 98.0},
+    ]
+
+    candidate, candle_time = model24_micro_pivot_stop(candles, "SELL")
+
+    assert candidate == 105.0
     assert candle_time != "N/D"
 
 
@@ -261,5 +285,37 @@ def test_service_strips_structural_reentry_target_for_m24() -> None:
     )
 
     assert plan.target == 0.0
+    assert plan.stop == candles[-3]["low"]
     assert plan.stop_management_parameters["m24_entry_role"] == "STRUCTURAL_REENTRY"
     assert plan.stop_management_parameters["m24_reentry_position"]
+    assert plan.stop_management_parameters["m24_micro_pivot_stop_enabled"]
+
+
+def test_service_blocks_structural_reentry_without_micro_pivot() -> None:
+    candles = _buy_cross_candles(micro_pivot=False)
+    candles[-2]["close"] = candles[-3]["close"] - 0.1
+    service = object.__new__(DashboardService)
+    object.__setattr__(
+        service,
+        "mt5_market_data_service",
+        SimpleNamespace(latest_forex_candles={("XAUUSD", "M5"): candles}),
+    )
+    source_plan = _source_plan(
+        direction="BUY",
+        entry_price=101.0,
+        stop=99.0,
+        target=105.0,
+        status="PLANO_VALIDO",
+        stop_management_parameters={"active_entry_order_type": "BUY_STOP"},
+    )
+
+    _row, plan = service._mt5_model24_variant_from_source(
+        _source_row(),
+        source_plan,
+        source_operational_model=MT5_OPERATIONAL_MODEL_8,
+        source_ready=True,
+    )
+
+    assert plan.direction == "WAIT"
+    assert plan.status == "M24_REENTRY_AGUARDA_MICRO_PIVO_CONFIRMADO"
+    assert plan.stop is None

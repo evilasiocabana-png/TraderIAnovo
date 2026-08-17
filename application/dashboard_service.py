@@ -143,6 +143,7 @@ from application.model24_xau_basket import (
     is_model24,
     mark_model24_market_entry_accepted,
     model24_market_entry_role,
+    model24_micro_pivot_stop,
     model24_variant_id,
 )
 from application.xau_m5_sma_rsi_model_family import (
@@ -7829,9 +7830,28 @@ class DashboardService:
         source_order_type = str(
             source_parameters.get("active_entry_order_type") or ""
         ).upper()
-        structural_ready = bool(
+        structural_trigger = bool(
             source_ready and source_order_type in {"BUY_STOP", "SELL_STOP"}
         )
+        structural_direction = str(plan.direction or "WAIT").upper()
+        structural_entry = float(plan.entry_price or 0.0)
+        structural_stop, structural_pivot_time = model24_micro_pivot_stop(
+            rows,
+            structural_direction,
+            maximum_age=5,
+        )
+        structural_stop_valid = bool(
+            structural_stop is not None
+            and structural_entry > 0.0
+            and (
+                float(structural_stop) < structural_entry
+                if structural_direction == "BUY"
+                else float(structural_stop) > structural_entry
+                if structural_direction == "SELL"
+                else False
+            )
+        )
+        structural_ready = structural_trigger and structural_stop_valid
         use_market = market_decision.ready and filters_allowed
         use_structural = structural_ready and not use_market
         if use_market:
@@ -7843,20 +7863,33 @@ class DashboardService:
             reason = market_decision.reason
             candle_time = market_decision.closed_candle_time
         elif use_structural:
-            direction = str(plan.direction or "WAIT").upper()
-            entry = float(plan.entry_price or 0.0)
-            stop = float(plan.stop or 0.0)
+            direction = structural_direction
+            entry = structural_entry
+            stop = float(structural_stop or 0.0)
             active_order_type = source_order_type
             entry_role = "STRUCTURAL_REENTRY"
             reason = (
                 f"M24 herdou a reentrada Stop estrutural do {source_label}, "
-                "sem TP individual."
+                "com SL no micro pivo 1+1 e sem TP individual."
             )
-            candle_time = str(getattr(row, "theoretical_entry_candle", "") or "N/D")
+            candle_time = str(
+                getattr(row, "theoretical_entry_candle", "") or "N/D"
+            )
         else:
+            structural_pivot_blocked = structural_trigger and not structural_stop_valid
+            wait_status = (
+                "M24_REENTRY_AGUARDA_MICRO_PIVO_CONFIRMADO"
+                if structural_pivot_blocked
+                else market_decision.status
+            )
             wait_reason = (
-                f"M24/{source_label}: {market_decision.reason} "
-                f"Filtro da fonte: {filter_reason}."
+                f"M24/{source_label}: reentrada Stop aguardando micro pivo 1+1 "
+                "confirmado e valido."
+                if structural_pivot_blocked
+                else (
+                    f"M24/{source_label}: {market_decision.reason} "
+                    f"Filtro da fonte: {filter_reason}."
+                )
             )
             parameters = {
                 **source_parameters,
@@ -7870,7 +7903,7 @@ class DashboardService:
                     row,
                     decision="WAIT",
                     theoretical_entry_direction="WAIT",
-                    theoretical_entry_status=market_decision.status,
+                    theoretical_entry_status=wait_status,
                     theoretical_entry_price=None,
                     theoretical_entry_reason=wait_reason,
                     active_model=f"M24 <- {source_label}",
@@ -7880,7 +7913,7 @@ class DashboardService:
                     beta_id=MODEL_24_BETA_ID,
                     beta_version=MODEL_24_BETA_VERSION,
                     lab_parameters=parameters,
-                    research_plan_status=market_decision.status,
+                    research_plan_status=wait_status,
                     research_plan_reason=wait_reason,
                 ),
                 replace(
@@ -7889,9 +7922,9 @@ class DashboardService:
                     entry_price=None,
                     stop=None,
                     target=None,
-                    status=market_decision.status,
+                    status=wait_status,
                     reason=wait_reason,
-                    invalid_reason=market_decision.status,
+                    invalid_reason=wait_status,
                     invalid_fields=("m24_entry_trigger",),
                     stop_management_parameters=parameters,
                 ),
@@ -7910,7 +7943,14 @@ class DashboardService:
             "active_entry_order_type": active_order_type,
             "m24_entry_role": entry_role,
             "m24_reentry_position": is_reentry,
-            "m24_previous_candle_trailing_enabled": entry_role == "REENTRY",
+            "m24_micro_pivot_stop_enabled": is_reentry,
+            "m24_micro_pivot_maximum_age": 5,
+            "m24_micro_pivot_time": (
+                structural_pivot_time
+                if entry_role == "STRUCTURAL_REENTRY"
+                else market_decision.micro_swing_time
+            ),
+            "m24_previous_candle_trailing_enabled": False,
             "m24_individual_target_enabled": False,
             "m24_filter_status": filter_reason,
             "indicator_source": OPERATIONAL_INDICATOR_SOURCE,
@@ -7934,9 +7974,10 @@ class DashboardService:
             stop_reason=(
                 "SL no micro-pivo 1+1 recente."
                 if entry_role == "INITIAL"
-                else "SL no extremo do candle anterior, movido apenas a favor."
-                if entry_role == "REENTRY"
-                else f"SL estrutural herdado do {source_label}."
+                else (
+                    "SL da reentrada no micro-pivo 1+1 confirmado; novos micro "
+                    "pivos so movem o stop a favor."
+                )
             ),
             target_reason="Sem TP individual; alvo financeiro da cesta M24 em +US$1.000.",
             stop_management=MODEL_24_EXIT_POLICY,

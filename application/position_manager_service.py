@@ -82,7 +82,8 @@ from application.model16_xau_m5_price_ema_breakout import (
 from application.model24_xau_basket import (
     MODEL_24_BETA_ID,
     MODEL_24_BETA_VERSION,
-    model24_previous_candle_stop,
+    is_model24,
+    model24_micro_pivot_stop,
 )
 from domain.contracts.beta_strategy import BetaDecision, BetaStrategyContext
 
@@ -969,6 +970,7 @@ class PositionManagerService:
                 *XAU_TREND_FILTER_MODEL_IDS,
                 *FOREX_SMA_RSI_MODEL_IDS,
             }
+            or is_model24(plan.operational_model)
             or policy == MODEL_8_STOP_MANAGEMENT
         ):
             return self._decide_model8_full_exit(plan, snapshot)
@@ -1462,11 +1464,14 @@ class PositionManagerService:
                 )
         if (
             decision.action != "FULL_EXIT"
-            and bool(parameters.get("m24_previous_candle_trailing_enabled"))
+            and is_model24(operational_model)
+            and reentry_position
         ):
-            candidate, trailing_candle = model24_previous_candle_stop(
+            maximum_age = int(parameters.get("m24_micro_pivot_maximum_age") or 5)
+            candidate, trailing_candle = model24_micro_pivot_stop(
                 candles,
                 snapshot.side,
+                maximum_age=maximum_age,
             )
             if (
                 candidate is not None
@@ -1480,11 +1485,11 @@ class PositionManagerService:
                 return PositionManagerDecision(
                     symbol=plan.symbol,
                     ticket=snapshot.ticket,
-                    state="M24_REENTRY_PREVIOUS_CANDLE_TRAILING",
+                    state="M24_REENTRY_MICRO_PIVOT_TRAILING",
                     action="PROTECT_POSITION",
                     reason=(
-                        "M24 reentrada RSI50: mover SL para o extremo do ultimo "
-                        "M5 fechado, somente em direcao favoravel."
+                        "M24 reentrada: mover SL para o micro pivo 1+1 M5 "
+                        "confirmado mais recente, somente em direcao favoravel."
                     ),
                     confidence=1.0,
                     beta_id=MODEL_24_BETA_ID,
@@ -1499,8 +1504,8 @@ class PositionManagerService:
                     requested_stop=candidate,
                     evidence=snapshot.evidence
                     + (
-                        "M24_PREVIOUS_CANDLE_TRAILING",
-                        f"M24_TRAILING_CANDLE={trailing_candle}",
+                        "M24_MICRO_PIVOT_TRAILING",
+                        f"M24_MICRO_PIVOT_CANDLE={trailing_candle}",
                     ),
                     beta_closed_candle_time=trailing_candle,
                 )

@@ -778,6 +778,76 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertEqual(provider.close_reason, "")
         self.assertEqual(provider.submit_order_calls, 0)
 
+    def test_m24_reentry_moves_stop_only_to_confirmed_micro_pivot(self) -> None:
+        candles = [
+            {"time": 1.0, "open": 101.0, "high": 102.0, "low": 100.8, "close": 101.5},
+            {"time": 2.0, "open": 101.5, "high": 103.0, "low": 101.2, "close": 102.5},
+            {"time": 3.0, "open": 102.5, "high": 104.0, "low": 102.0, "close": 103.5},
+            {"time": 4.0, "open": 103.5, "high": 104.0, "low": 100.5, "close": 102.0},
+            {"time": 5.0, "open": 102.0, "high": 105.0, "low": 101.5, "close": 104.5},
+            {"time": 6.0, "open": 104.5, "high": 106.0, "low": 104.0, "close": 105.0},
+        ]
+        provider = _FakePositionProvider(
+            position=_position("XAUUSD", "BUY", 101.0, 99.0, 0.0),
+            price=105.0,
+            candles=candles,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan(
+                "XAUUSD",
+                "BUY",
+                entry=101.0,
+                stop=99.0,
+                target=0.0,
+                stop_management="M24_SOURCE_EXIT_PLUS_BASKET_1000",
+                parameters={
+                    "m24_reentry_position": True,
+                    "m24_micro_pivot_stop_enabled": True,
+                    "m24_micro_pivot_maximum_age": 5,
+                },
+                operational_model="MODELO_24_XAU_RSI50_BASKET_SOURCE_M8",
+            )
+        )
+
+        self.assertEqual(result.status, "STOP_MOVED")
+        self.assertAlmostEqual(provider.modified_stop or 0.0, 100.5)
+        self.assertIn("M24_MICRO_PIVOT_TRAILING", result.evidence)
+        self.assertEqual(provider.modify_calls, 1)
+
+    def test_m24_reentry_never_loosens_stop_to_older_micro_pivot(self) -> None:
+        candles = [
+            {"time": 1.0, "open": 101.0, "high": 102.0, "low": 100.8, "close": 101.5},
+            {"time": 2.0, "open": 101.5, "high": 103.0, "low": 101.2, "close": 102.5},
+            {"time": 3.0, "open": 102.5, "high": 104.0, "low": 102.0, "close": 103.5},
+            {"time": 4.0, "open": 103.5, "high": 104.0, "low": 100.5, "close": 102.0},
+            {"time": 5.0, "open": 102.0, "high": 105.0, "low": 101.5, "close": 104.5},
+            {"time": 6.0, "open": 104.5, "high": 106.0, "low": 104.0, "close": 105.0},
+        ]
+        provider = _FakePositionProvider(
+            position=_position("XAUUSD", "BUY", 101.0, 101.0, 0.0),
+            price=105.0,
+            candles=candles,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan(
+                "XAUUSD",
+                "BUY",
+                entry=101.0,
+                stop=101.0,
+                target=0.0,
+                stop_management="M24_SOURCE_EXIT_PLUS_BASKET_1000",
+                parameters={"m24_reentry_position": True},
+                operational_model="MODELO_24_XAU_RSI50_BASKET_SOURCE_M8",
+            )
+        )
+
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertEqual(provider.modify_calls, 0)
+
     def test_beta002_compra_saudavel_mantem_posicao(self) -> None:
         provider = _FakePositionProvider(
             position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1100),

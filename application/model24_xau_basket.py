@@ -221,9 +221,18 @@ def evaluate_model24_rsi50_market_entry(
                 **common,
             )
     else:
-        # A segunda reentrada usa exatamente o extremo do candle anterior.
-        swing = _number(closed[-2], "low" if side == "BUY" else "high")
-        swing_time = _time(closed[-2])
+        swing, swing_time = _latest_micro_swing(closed, side, maximum_age=5)
+        if swing is None:
+            return Model24EntryDecision(
+                direction="WAIT",
+                status="M24_REENTRY_AGUARDA_MICRO_PIVO_CONFIRMADO",
+                reason=(
+                    "O cruzamento RSI50 ocorreu, mas a reentrada exige "
+                    "microfundo/microtopo 1+1 confirmado nos ultimos cinco M5."
+                ),
+                entry_price=entry,
+                **common,
+            )
     stop = float(swing or 0.0)
     valid = stop < entry if side == "BUY" else stop > entry
     if not valid:
@@ -263,6 +272,27 @@ def model24_previous_candle_stop(
     normalized = str(side or "").upper()
     field = "low" if normalized == "BUY" else "high" if normalized == "SELL" else ""
     return (_number(closed, field), _time(closed)) if field else (None, "N/D")
+
+
+def model24_micro_pivot_stop(
+    candles: Iterable[object],
+    side: object,
+    *,
+    maximum_age: int = 5,
+) -> tuple[float | None, str]:
+    """Retorna o micro pivo 1+1 confirmado mais recente para proteger o M24."""
+    rows = list(candles or ())
+    if len(rows) < 4:
+        return None, "N/D"
+    normalized = str(side or "").upper()
+    if normalized not in {"BUY", "SELL"}:
+        return None, "N/D"
+    # O ultimo elemento e a vela atual; somente velas fechadas confirmam o 1+1.
+    return _latest_micro_swing(
+        rows[:-1],
+        normalized,
+        maximum_age=max(1, int(maximum_age)),
+    )
 
 
 @dataclass(frozen=True)
