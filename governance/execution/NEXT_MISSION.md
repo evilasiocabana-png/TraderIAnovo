@@ -17,8 +17,11 @@ persiste a escolha antes de atualizar os textos da tela.
 O relatorio operacional tambem passou a expor o papel da entrada M24
 (`PRINCIPAL` ou `REENTRADA`) antes do alvo.
 
-O contrato de SL das duas reentradas foi unificado em micro pivo 1+1 confirmado,
-com idade maxima de cinco M5 fechados e atualizacao somente a favor.
+O contrato atual possui entrada inicial a mercado apos cruzamentos SMA20/RSI50
+mantidos, mesmo quando ocorrerem em velas diferentes. A reentrada e uma ordem
+Stop atualizada a cada M5, sem novo cruzamento, mas com preco e RSI ainda no
+lado permitido. O SL usa o micro pivo 1+1 anterior mais proximo, com idade
+maxima de cinco M5 fechados e atualizacao somente a favor.
 
 A auditoria paper/demo deve confirmar tambem que, apos Full Exit RSI 70/30, a
 primeira reentrada do mesmo lado fica bloqueada e apenas a segunda oportunidade

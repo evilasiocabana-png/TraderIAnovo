@@ -17,10 +17,12 @@ Status: pronto para fluxo de inbox.
 
 - M24 criado como cesta XAUUSD/M5 independente do M23.
 - Fontes fixas: M8, M10 e M18-M22.
-- Entrada inicial: micropivo 1+1 + cruzamento RSI50 + fechamento alem da SMA20.
-- Reentrada estrutural Stop e reentrada RSI50 a mercado permanecem separadas.
+- Entrada inicial: preco cruza e permanece alem da SMA20; RSI14 cruza e
+  permanece alem de 50. Os dois cruzamentos podem ocorrer em M5 diferentes.
+- Reentrada unica e pendente: fechamento e RSI no lado permitido geram
+  BUY_STOP/SELL_STOP na maxima/minima do ultimo M5, sem exigir novo cruzamento.
 - Nenhuma rota M24 usa TP individual; alvo coletivo liquido em +US$1.000.
-- SL das duas reentradas usa micro pivo 1+1 confirmado nos ultimos cinco M5;
+- SL da reentrada usa o micro pivo 1+1 anterior mais proximo nos ultimos cinco M5;
   o Position Manager so aceita um novo micro pivo quando ele melhora a protecao.
 - Apos Full Exit RSI 70/30, a primeira oportunidade de reentrada do mesmo lado
   e ignorada; repeticoes na mesma vela nao contam e somente a segunda
@@ -30,6 +32,8 @@ Status: pronto para fluxo de inbox.
 - Relatorio `Em negociacao` identifica cada plano M24 como `PRINCIPAL` ou
   `REENTRADA` antes da coluna `Alvo`, usando o papel persistido no snapshot.
 - Fonte canonica: `docs/architecture/OPERATIONAL_MODEL_24_XAU_RSI50_BASKET.md`.
+- Escrita atomica dos estados M24 possui repeticao curta contra bloqueios
+  transitorios do Windows/OneDrive, sem alterar nem apagar o runtime local.
 
 ## Estado Atual
 

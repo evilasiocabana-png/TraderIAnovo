@@ -537,10 +537,13 @@ O contrato completo do M24 esta em
 `docs/architecture/OPERATIONAL_MODEL_24_XAU_RSI50_BASKET.md`. O modelo reutiliza
 o cache compartilhado XAUUSD/M5, mas possui identidade, estado, comentario MT5,
 resultado financeiro e auditoria independentes do M23. O provider sempre envia
-`tp=0` para M24; a unica meta de lucro e a cesta liquida de +US$1.000. Tanto a
-reentrada Stop quanto a reentrada RSI50 a mercado usam SL no micro pivo 1+1
-confirmado mais recente, limitado aos ultimos cinco M5 fechados. O Position
-Manager aceita somente novos micro pivos que apertem o stop. Depois de Full Exit
+`tp=0` para M24; a unica meta de lucro e a cesta liquida de +US$1.000. A entrada
+inicial memoriza separadamente o cruzamento do preco na SMA20 e o cruzamento do
+RSI14 em 50 e so entra a mercado se ambos continuarem validos na mesma direcao.
+A reentrada nao exige novo cruzamento: gera BUY_STOP/SELL_STOP na maxima/minima
+do ultimo M5 quando fechamento e RSI permanecem do lado permitido. O SL usa o
+micro pivo 1+1 confirmado mais recente, limitado aos ultimos cinco M5 fechados.
+O Position Manager aceita somente novos micro pivos que apertem o stop. Depois de Full Exit
 por retorno do RSI abaixo de 70 no BUY ou acima de 30 no SELL, o runtime M24
 persiste por fonte e direcao a primeira oportunidade bloqueada. A segunda so e
 reconhecida quando a chave inclui uma nova vela M5 fechada, impedindo que o ciclo

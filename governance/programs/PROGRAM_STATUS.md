@@ -8,4 +8,4 @@
 | C01 Reports | planned |
 | TIA Dynamic Exit Runtime Full Execution | accepted |
 | M7 Trend Momentum Dynamic Protect Only | completed |
-| M24 XAU RSI50 Basket | completed; micro-pivot SL and first post-extreme reentry skipped; awaiting demo observation |
+| M24 XAU RSI50 Basket | completed; separate maintained SMA20/RSI50 initial crosses, pending reentry and micro-pivot SL; awaiting demo observation |

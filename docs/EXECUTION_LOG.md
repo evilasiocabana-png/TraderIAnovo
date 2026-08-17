@@ -1637,3 +1637,18 @@ Novas entradas devem registrar:
   alterar entrada principal, inversao SMA ou Full Exit da cesta;
 - validacao: 56 testes direcionados e 188 testes do gate critico aprovados;
 - nenhuma operacao MT5 real foi enviada, fechada ou modificada nos testes.
+
+# 2026-08-17 - Entrada inicial mantida e reentrada pendente M24
+
+- entrada inicial passou a memorizar separadamente o cruzamento do preco na
+  SMA20 e do RSI14 no nivel 50; os dois podem ocorrer em velas M5 diferentes;
+- a entrada so e liberada quando ambos permanecem do mesmo lado na direcao do
+  sinal, com SL no micro pivo anterior mais proximo;
+- reentrada deixou de exigir novo cruzamento e passou a gerar BUY_STOP/SELL_STOP
+  na maxima/minima do ultimo M5 quando preco e RSI permanecem alinhados;
+- a pendente usa SL no micro pivo 1+1 anterior mais proximo e continua sujeita
+  ao descarte da primeira oportunidade depois do Full Exit RSI 70/30;
+- escrita atomica do estado M24 passou a repetir bloqueios curtos do
+  Windows/OneDrive, corrigindo o diagnostico intermitente `WinError 5`;
+- validacao: 74 testes direcionados e 188 testes do gate critico aprovados;
+- nenhuma operacao MT5 real foi enviada, fechada ou modificada nos testes.

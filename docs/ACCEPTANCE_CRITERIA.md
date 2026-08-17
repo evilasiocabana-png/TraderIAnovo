@@ -74,12 +74,19 @@ PY
 Aceito quando:
 
 - opera somente XAUUSD/M5 pelas fontes M8, M10 e M18-M22;
-- entrada inicial exige micropivo 1+1, cruzamento RSI50 e fechamento alem da SMA20;
-- reentrada estrutural permanece pendente Stop e reentrada RSI50 entra a mercado;
+- entrada inicial exige cruzamento do preco na SMA20 e do RSI14 no nivel 50 na
+  mesma direcao; os eventos podem ocorrer em M5 diferentes, mas ambos precisam
+  permanecer validos ate o segundo completar o sinal;
+- entrada inicial usa micro pivo 1+1 anterior mais proximo como SL e entra a
+  mercado somente depois da confirmacao do conjunto;
+- reentrada nao exige novo cruzamento: BUY requer fechamento acima da SMA20 e
+  RSI14 acima de 50; SELL requer fechamento abaixo da SMA20 e RSI14 abaixo de 50;
+- reentrada e pendente na maxima/minima do ultimo M5 e deve ser atualizada a
+  cada novo candle enquanto as condicoes permanecerem validas;
 - nenhuma ordem M24 envia TP individual ao MT5;
-- as duas reentradas exigem SL em micro pivo 1+1 confirmado nos ultimos cinco
+- a reentrada exige SL em micro pivo 1+1 confirmado nos ultimos cinco
   candles M5 fechados;
-- o SL das reentradas so avanca para um novo micro pivo favoravel e nunca
+- o SL da reentrada so avanca para um novo micro pivo favoravel e nunca
   afrouxa;
 - depois de Full Exit BUY no retorno do RSI abaixo de 70 ou SELL no retorno
   acima de 30, a primeira oportunidade de reentrada na mesma direcao e ignorada;

@@ -11,50 +11,52 @@
 
 ## Entrada inicial
 
-O candle M5 precisa estar fechado. A entrada é a mercado.
+O candle M5 precisa estar fechado. A entrada e a mercado depois que dois
+eventos direcionais tiverem ocorrido e continuarem validos.
 
-BUY exige simultaneamente:
+BUY exige:
 
-1. microfundo 1+1 confirmado nos últimos cinco candles M5;
-2. RSI14 estritamente de abaixo de 50 para acima de 50;
-3. fechamento do candle-sinal acima da SMA20;
-4. aprovação dos filtros específicos da fonte.
+1. o preco cruzou a SMA20 de baixo para cima e permanece acima dela;
+2. o RSI14 cruzou 50 de baixo para cima e permanece acima de 50;
+3. os dois cruzamentos podem ter ocorrido em candles M5 diferentes;
+4. existe microfundo 1+1 confirmado nos ultimos cinco M5 para definir o SL;
+5. os filtros especificos da fonte aprovam a entrada inicial.
 
-SELL é simétrico: microtopo 1+1, RSI14 de acima de 50 para abaixo de 50 e fechamento abaixo da SMA20.
+Se o primeiro evento perder validade antes do segundo, a entrada BUY nao e
+liberada. SELL e simetrico: preco cruza e permanece abaixo da SMA20, RSI14 cruza
+e permanece abaixo de 50 e o SL usa o microtopo 1+1 anterior mais proximo.
 
-O SL inicial fica no micropivô confirmado. A saída individual da entrada inicial continua sendo a saída nativa da fonte: cruzamento confirmado RSI 70/30 ou inversão SMA20/50.
+O segundo evento que completar o conjunto libera a entrada inicial a mercado.
+A saida individual continua sendo a saida nativa da fonte, incluindo Full Exit
+RSI 70/30 e inversao SMA20/50.
 
-## Reentrada 1 — estrutural Stop
+## Reentrada pendente
 
-- Mantém o gatilho estrutural da fonte.
-- BUY_STOP na máxima / SELL_STOP na mínima do candle M5 anterior.
-- A pendente é reposicionada a cada novo M5 fechado enquanto o contrato da fonte continuar válido.
-- O SL nasce no microfundo 1+1 confirmado no BUY ou microtopo 1+1 no SELL,
-  localizado nos ultimos cinco candles M5 fechados.
-- Sem micro pivo recente e valido, a reentrada fica bloqueada.
-- Não possui TP individual.
-- É reentrada para a regra de invalidação RSI50.
+A reentrada nao exige que preco ou RSI produzam um novo cruzamento. Ela usa o
+estado confirmado no ultimo M5 fechado:
 
-## Reentrada 2 — RSI50 a mercado
-
-BUY exige SMA20>SMA50 e RSI14 cruzando 50 de baixo para cima no fechamento M5. SELL exige SMA20<SMA50 e RSI14 cruzando 50 de cima para baixo.
-
-- Entrada a mercado.
-- SL inicial no microfundo 1+1 confirmado no BUY ou microtopo 1+1 no SELL,
-  localizado nos ultimos cinco candles M5 fechados.
-- A cada novo M5 fechado, um novo micro pivo confirmado passa a ser o SL
-  candidato.
-- O SL só é modificado quando melhora a proteção e continua no lado válido do preço; nunca é afastado.
-- Não possui TP individual.
-- Perda do RSI50 ou inversão SMA20/50 produz Full Exit individual de segurança.
+- BUY: fechamento acima da SMA20 e RSI14 acima de 50;
+- SELL: fechamento abaixo da SMA20 e RSI14 abaixo de 50;
+- BUY_STOP na maxima do ultimo M5 fechado;
+- SELL_STOP na minima do ultimo M5 fechado;
+- a pendente e atualizada a cada novo candle M5 enquanto as duas condicoes
+  permanecerem validas;
+- o SL fica no microfundo 1+1 anterior mais proximo no BUY ou no microtopo 1+1
+  anterior mais proximo no SELL, limitado aos ultimos cinco M5 fechados;
+- sem micro pivo recente e valido, a reentrada permanece bloqueada;
+- a reentrada nao reaplica os filtros direcionais da fonte e nao possui TP
+  individual;
+- a perda do RSI50 ou a inversao SMA20/50 preserva o Full Exit individual de
+  seguranca.
 
 ## Ordem de precedência
 
-1. cruzamento RSI50 válido para a etapa atual (inicial ou reentrada a mercado);
-2. reentrada estrutural Stop da fonte;
+1. entrada inicial a mercado depois dos dois cruzamentos mantidos;
+2. reentrada pendente pelo estado atual SMA20/RSI50;
 3. aguardar.
 
-O primeiro cruzamento RSI50 de cada nova direção é classificado como entrada inicial. Depois do aceite do provider Demo, os próximos cruzamentos na mesma direção são reentradas. A mudança de direção reinicia a classificação.
+Depois do aceite da entrada inicial pelo provider Demo, as proximas entradas na
+mesma direcao sao reentradas. A mudanca de direcao reinicia a classificacao.
 
 ## Bloqueio da primeira reentrada apos RSI extremo
 
@@ -65,7 +67,7 @@ Quando um Full Exit individual for executado porque o RSI14 saiu de acima de
 2. repeticoes do mesmo sinal durante a mesma vela M5 continuam bloqueadas;
 3. somente a segunda oportunidade valida, identificada por uma nova vela M5
    fechada, pode ser liberada;
-4. a regra vale para reentrada Stop estrutural e reentrada RSI50 a mercado;
+4. a regra vale para a reentrada pendente;
 5. Full Exit por inversao SMA20/50 ou perda do RSI50 de uma reentrada nao arma
    esse descarte.
 
@@ -90,7 +92,8 @@ A mudanca de direcao elimina a trava pertencente ao lado anterior.
 - A criação e os testes do modelo não enviam ordens.
 - O candle dos indicadores deve coincidir com o candle do Trade Plan.
 - M24 é modelo ativo e selecionável, mas não é ativado automaticamente pela implantação.
-- Testes dedicados cobrem gatilho inicial, ausência de micropivô, as duas
-  reentradas com SL no micro pivo, trailing monotono, isolamento M23/M24,
+- Testes dedicados cobrem cruzamentos iniciais em velas distintas, manutencao
+  das condicoes, reentrada pendente com RSI presente, ausencia de micropivo,
+  SL no micro pivo, trailing monotono, isolamento M23/M24,
   descarte bilateral da primeira reentrada apos RSI extremo, seleção das sete
   fontes, retirada de TP e comentário MT5.
