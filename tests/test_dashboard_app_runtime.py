@@ -1030,6 +1030,50 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             finally:
                 dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
 
+    def test_formulario_troca_m23_por_m24_e_persiste_antes_do_rerender(self) -> None:
+        original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
+        session_state = {
+            dashboard_app._mt5_operational_model_checkbox_key(
+                dashboard_app.MT5_OPERATIONAL_MODEL_ALL
+            ): False,
+            dashboard_app._mt5_operational_model_checkbox_key(
+                dashboard_app.MT5_OPERATIONAL_MODEL_23
+            ): False,
+            dashboard_app._mt5_operational_model_checkbox_key(
+                dashboard_app.MT5_OPERATIONAL_MODEL_24
+            ): True,
+        }
+        for model in dashboard_app.MT5_ACTIVE_SOURCE_MODEL_IDS:
+            session_state[
+                dashboard_app._mt5_operational_model_checkbox_key(model)
+            ] = False
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = (
+                Path(temp_dir) / "mt5_operational_model.json"
+            )
+            try:
+                dashboard_app._persist_mt5_operational_model(
+                    dashboard_app.MT5_OPERATIONAL_MODEL_WITH_23,
+                    models=dashboard_app.MT5_ACTIVE_SOURCE_MODEL_IDS,
+                )
+                with patch.object(dashboard_app.st, "session_state", session_state):
+                    selected = (
+                        dashboard_app._persist_mt5_operational_model_form_selection()
+                    )
+
+                self.assertEqual(selected, dashboard_app.MT5_OPERATIONAL_MODEL_24)
+                self.assertEqual(
+                    dashboard_app._load_persisted_mt5_operational_model(),
+                    dashboard_app.MT5_OPERATIONAL_MODEL_24,
+                )
+                self.assertEqual(
+                    dashboard_app._load_persisted_mt5_operational_models(),
+                    dashboard_app.MT5_MODEL_24_SOURCE_MODEL_IDS,
+                )
+            finally:
+                dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
+
     def test_chaveamento_renderiza_grade_visivel_sem_lista_suspensa(self) -> None:
         source = inspect.getsource(
             dashboard_app._render_mt5_operational_model_selector
@@ -1038,6 +1082,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertIn("checkbox", source)
         self.assertIn("MT5_SELECTABLE_OPERATIONAL_MODEL_IDS", source)
         self.assertIn("form_submit_button", source)
+        self.assertIn("on_click=_persist_mt5_operational_model_form_selection", source)
         self.assertNotIn("on_change=", source)
         self.assertNotIn("selectbox", source)
 
@@ -1147,6 +1192,45 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             [label for label, checked in model_boxes.items() if checked],
             ["M23"],
         )
+
+    def test_clique_aplicar_atualiza_de_m23_para_m24_na_mesma_tela(self) -> None:
+        state_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
+        previous_state = state_path.read_bytes() if state_path.exists() else None
+        try:
+            dashboard_app._persist_mt5_operational_model(
+                dashboard_app.MT5_OPERATIONAL_MODEL_23
+            )
+            app = AppTest.from_file("dashboard_app.py")
+            app.run(timeout=30)
+            for checkbox in app.checkbox:
+                if checkbox.label == "M23":
+                    checkbox.set_value(False)
+                elif checkbox.label == "M24":
+                    checkbox.set_value(True)
+            self._button(app, "Aplicar modelos").click()
+            app.run(timeout=30)
+
+            self.assertFalse(app.exception)
+            self.assertEqual(
+                dashboard_app._load_persisted_mt5_operational_model(),
+                dashboard_app.MT5_OPERATIONAL_MODEL_24,
+            )
+            self.assertEqual(
+                self._metrics(app).get("Modelo operacional"),
+                "M24",
+            )
+            self.assertTrue(
+                any("M24 ativo" in warning for warning in self._warnings(app))
+            )
+            self.assertFalse(
+                any("M23 ativo" in warning for warning in self._warnings(app))
+            )
+        finally:
+            if previous_state is None:
+                state_path.unlink(missing_ok=True)
+            else:
+                state_path.parent.mkdir(parents=True, exist_ok=True)
+                state_path.write_bytes(previous_state)
 
     def test_refresh_preserva_combinacao_livre_de_modelos(self) -> None:
         state_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH

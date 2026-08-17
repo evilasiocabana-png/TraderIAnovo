@@ -2680,11 +2680,11 @@ def _render_mt5_operational_model_selector() -> str:
                     key=_mt5_operational_model_checkbox_key(candidate),
                     help=labels.get(candidate, short_label),
                 )
-            apply_selection = st.form_submit_button("Aplicar modelos")
+            st.form_submit_button(
+                "Aplicar modelos",
+                on_click=_persist_mt5_operational_model_form_selection,
+            )
         selected = current
-        if apply_selection:
-            selected = _persist_mt5_operational_model_form_selection()
-            st.rerun()
     st.session_state[MT5_OPERATIONAL_MODEL_KEY] = selected
     st.session_state[MT5_OPERATIONAL_MODEL_SYNC_KEY] = selected
     st.caption(
