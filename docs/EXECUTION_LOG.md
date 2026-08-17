@@ -1667,5 +1667,7 @@ Novas entradas devem registrar:
 - o Position Manager fechou essa entrada 21 segundos depois por
   `M8_EXIT_INVERSAO_SMA_BUY`, pois SMA20 ainda estava abaixo da SMA50; esse Full
   Exit foi mantido por fazer parte da saida inicial solicitada;
+- no ciclo seguinte, a reentrada foi confirmada no book como BUY_STOP M24/M8 em
+  4418,17, SL 4416,53 e TP 0.0, sem posicao aberta naquele instante;
 - validacao final: 77 testes direcionados e 188 testes criticos;
 - nenhuma operacao MT5 real foi enviada, fechada ou modificada nos testes.

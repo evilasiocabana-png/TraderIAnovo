@@ -42,6 +42,8 @@ Status: pronto para fluxo de inbox.
   de XAUUSD; primeiro ciclo corrigido aceitou M24/M8 BUY no XAUUSD Demo.
 - A primeira BUY corrigida foi fechada pelo contrato preservado de inversao
   SMA20/50, confirmando a convivencia entre o novo gatilho e a saida antiga.
+- Reentrada M24/M8 ficou pendente no book como BUY_STOP, com SL no microfundo
+  anterior mais proximo e sem TP individual.
 
 ## Estado Atual
 
