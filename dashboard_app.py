@@ -3756,11 +3756,52 @@ def _mt5_open_trade_compact_row(row: object) -> dict[str, object]:
             getattr(row, "mt5_price", None) or getattr(row, "entry_price", None)
         ),
         "Stop atual": _optional_price(getattr(row, "mt5_stop", None)),
+        "Tipo de entrada": _mt5_trade_entry_type_label(row),
         "Alvo": _optional_price(getattr(row, "target", None)),
         "Acao PM": str(getattr(row, "position_manager_action", "N/D")),
         "Status PM": str(getattr(row, "position_manager_status", "N/D")),
         "Motivo": _mt5_trade_audit_position_manager_message(row),
     }
+
+
+def _mt5_trade_entry_type_label(row: object) -> str:
+    """Classifica a funcao da entrada pelo contrato persistido do plano."""
+    snapshot = getattr(row, "plan_snapshot", {}) or {}
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+    parameters = snapshot.get("stop_management_parameters") or {}
+    if not isinstance(parameters, dict):
+        parameters = {}
+
+    candidates = (
+        getattr(row, "entry_role", None),
+        snapshot.get("entry_role"),
+        parameters.get("m24_entry_role"),
+        parameters.get("entry_role"),
+        parameters.get("signal_kind"),
+    )
+    for candidate in candidates:
+        normalized = str(candidate or "").strip().upper()
+        if normalized in {
+            "REENTRY",
+            "STRUCTURAL_REENTRY",
+            "REENTRADA",
+            "REENTRY_AFTER_RSI_EXTREME_EXIT",
+        }:
+            return "REENTRADA"
+        if normalized in {"INITIAL", "INITIAL_ENTRY", "ENTRADA_INICIAL"}:
+            return "PRINCIPAL"
+
+    entry_setup = str(
+        getattr(row, "entry_setup", "")
+        or snapshot.get("entry_setup")
+        or ""
+    ).upper()
+    if "REENTRY" in entry_setup or "REENTRADA" in entry_setup:
+        return "REENTRADA"
+    if "INITIAL" in entry_setup or "ENTRADA_INICIAL" in entry_setup:
+        return "PRINCIPAL"
+    return "N/D"
 
 
 def _mt5_trade_audit_compact_row(row: object) -> dict[str, object]:

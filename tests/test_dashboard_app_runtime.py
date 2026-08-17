@@ -2697,6 +2697,52 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(summary["Resultado MT5"], "15.47")
         self.assertEqual(summary["Rollover custo"], "COM ROLLOVER")
 
+    def test_em_negociacao_exibe_tipo_m24_antes_do_alvo(self) -> None:
+        principal = SimpleNamespace(
+            operational_model="MODELO_24_XAU_RSI50_BASKET_SOURCE_M8",
+            symbol="XAUUSD",
+            mt5_side="BUY",
+            mt5_realized_profit=0.0,
+            projected_profit=0.0,
+            projected_loss=-10.0,
+            mt5_price=4400.0,
+            entry_price=4400.0,
+            mt5_stop=4390.0,
+            target=None,
+            position_manager_action="HOLD_POSITION",
+            position_manager_status="POSITION_HELD",
+            position_manager_message="Monitorando.",
+            plan_snapshot={
+                "stop_management_parameters": {"m24_entry_role": "INITIAL"}
+            },
+        )
+        reentrada = SimpleNamespace(
+            **{
+                **vars(principal),
+                "plan_snapshot": {
+                    "stop_management_parameters": {
+                        "m24_entry_role": "STRUCTURAL_REENTRY"
+                    }
+                },
+            }
+        )
+
+        principal_view = dashboard_app._mt5_open_trade_compact_row(principal)
+        reentrada_view = dashboard_app._mt5_open_trade_compact_row(reentrada)
+
+        self.assertEqual(principal_view["Tipo de entrada"], "PRINCIPAL")
+        self.assertEqual(reentrada_view["Tipo de entrada"], "REENTRADA")
+        columns = list(principal_view)
+        self.assertEqual(
+            columns.index("Tipo de entrada") + 1,
+            columns.index("Alvo"),
+        )
+
+    def test_tipo_de_entrada_sem_contrato_explicito_fica_nd(self) -> None:
+        row = SimpleNamespace(plan_snapshot={}, entry_setup="N/D")
+
+        self.assertEqual(dashboard_app._mt5_trade_entry_type_label(row), "N/D")
+
     def test_auditoria_mt5_mostra_custo_aberto_por_operacao_aberta(self) -> None:
         open_row = SimpleNamespace(
             audit_status="CONFERE",
