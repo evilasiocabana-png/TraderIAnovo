@@ -1595,3 +1595,6 @@ Novas entradas devem registrar:
   gate critico aprovados;
 - seguranca: estado operacional original foi restaurado apos o teste; nenhuma
   conexao ou ordem MT5 foi executada pela validacao.
+- apos a validacao, a intencao original do usuario foi reaplicada: somente M24
+  ficou selecionado; a interface confirmou M24 marcado, M23 desmarcado, aviso
+  `M24 ativo` presente e aviso `M23 ativo` ausente.

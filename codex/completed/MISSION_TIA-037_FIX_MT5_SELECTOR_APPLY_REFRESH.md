@@ -26,3 +26,6 @@ da mesma tela de forma deterministica.
 
 O teste restaurou o estado operacional original e nao conectou nem enviou ordem
 ao MT5.
+
+Depois do teste, a selecao M24 foi reaplicada por solicitacao do usuario e
+confirmada visualmente. Selecionar o modelo nao comprova robo armado nem ordem.
