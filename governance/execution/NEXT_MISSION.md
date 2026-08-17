@@ -10,7 +10,8 @@ Objetivo: auditar o M24 em paper/demo com candles novos, sem promover parametros
 nem alterar suas sete fontes, confirmando entradas, SL movel e Full Exit da cesta.
 
 Pre-condicao de interface concluida em 2026-08-17: o seletor operacional voltou
-a renderizar `Todos` e M24 com chaves Streamlit distintas.
+a renderizar `Todos` e M24 com chaves distintas e o botao `Aplicar modelos`
+persiste a escolha antes de atualizar os textos da tela.
 
 Pendencia registrada em 2026-07-13:
 

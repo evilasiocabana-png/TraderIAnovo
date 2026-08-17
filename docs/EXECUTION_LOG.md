@@ -1580,3 +1580,18 @@ Novas entradas devem registrar:
   unicidade de todas as chaves do seletor;
 - validacao: 3 testes direcionados e 188 testes do gate critico aprovados;
 - impacto operacional: nenhuma selecao persistida, setup ou ordem foi alterada.
+
+# 2026-08-17 - Aplicar M24 nao atualizava o texto
+
+- sintoma: M24 aparecia marcado no formulario, mas o resumo, o aviso e o arquivo
+  persistido continuavam indicando M23;
+- causa: no fragmento periodico, a gravacao dependia do valor retornado pelo
+  botao depois da renderizacao e podia ser perdida antes do rerender;
+- correcao: a persistencia passou para o callback do `form_submit_button`,
+  executado antes da nova renderizacao;
+- prova: teste Streamlit real trocou M23 por M24, confirmou o resumo `M24`,
+  confirmou o aviso `M24 ativo` e a ausencia de `M23 ativo` na mesma tela;
+- validacao: 4 testes direcionados, 1 teste real de interface e 188 testes do
+  gate critico aprovados;
+- seguranca: estado operacional original foi restaurado apos o teste; nenhuma
+  conexao ou ordem MT5 foi executada pela validacao.

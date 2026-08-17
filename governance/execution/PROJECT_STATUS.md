@@ -6,9 +6,12 @@ Status: pronto para fluxo de inbox.
 
 - eliminada a colisao entre a chave Streamlit de `Todos` e a de um modelo novo
   ainda nao reconhecido por um modulo antigo mantido em memoria;
+- o botao `Aplicar modelos` agora persiste a selecao em callback antes do
+  rerender do fragmento, atualizando imediatamente resumo e textos M23/M24;
 - chaves desconhecidas agora recebem sufixo derivado do ID canonico, sem usar
   o sufixo reservado `todos`;
-- a selecao operacional e o estado persistido dos modelos nao foram alterados.
+- teste de interface comprovou a troca M23 -> M24 na mesma tela e restaurou o
+  estado operacional anterior ao final da validacao.
 
 ## Estado Operacional M24 - 2026-08-17
 
