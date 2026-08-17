@@ -139,12 +139,12 @@ from application.model24_xau_basket import (
     MODEL_24_ID as MT5_OPERATIONAL_MODEL_24,
     MODEL_24_SOURCE_MODEL_IDS,
     Model24BasketManager,
+    evaluate_model24_pending_reentry,
     evaluate_model24_reentry_opportunity,
     evaluate_model24_rsi50_market_entry,
     is_model24,
     mark_model24_market_entry_accepted,
     model24_market_entry_role,
-    model24_micro_pivot_stop,
     model24_variant_id,
 )
 from application.xau_m5_sma_rsi_model_family import (
@@ -7797,7 +7797,7 @@ class DashboardService:
         source_operational_model: str,
         source_ready: bool,
     ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
-        """Materializa M24 sem TP individual e com duas reentradas distintas."""
+        """Materializa M24 com entrada inicial a mercado e reentrada pendente."""
         source = str(source_operational_model or "").upper()
         source_number = operational_model_number(source)
         source_label = f"M{source_number}" if source_number is not None else "N/D"
@@ -7806,7 +7806,7 @@ class DashboardService:
             -OPERATIONAL_INDICATOR_RAW_CANDLES:
         ]
         initial = evaluate_model24_rsi50_market_entry(rows, entry_role="INITIAL")
-        reentry = evaluate_model24_rsi50_market_entry(rows, entry_role="REENTRY")
+        reentry = evaluate_model24_pending_reentry(rows)
         crossing_side = (
             initial.direction
             if initial.direction in {"BUY", "SELL"}
@@ -7819,78 +7819,42 @@ class DashboardService:
             if crossing_side in {"BUY", "SELL"}
             else "INITIAL"
         )
-        market_decision = initial if role == "INITIAL" else reentry
+        entry_decision = initial if role == "INITIAL" else reentry
         filters_allowed = True
-        filter_reason = "BASE_M8"
-        if source != MT5_OPERATIONAL_MODEL_8:
+        filter_reason = (
+            "M24_REENTRY_PRECO_SMA20_E_RSI50_SEM_NOVO_CRUZAMENTO"
+            if role == "REENTRY"
+            else "BASE_M8"
+        )
+        if role == "INITIAL" and source != MT5_OPERATIONAL_MODEL_8:
             filter_decision = evaluate_xau_trend_filter_entry(source, rows)
             filters_allowed = bool(filter_decision.filter_allowed)
             filter_reason = filter_decision.status
 
         source_parameters = dict(plan.stop_management_parameters or {})
-        source_order_type = str(
-            source_parameters.get("active_entry_order_type") or ""
-        ).upper()
-        structural_trigger = bool(
-            source_ready and source_order_type in {"BUY_STOP", "SELL_STOP"}
-        )
-        structural_direction = str(plan.direction or "WAIT").upper()
-        structural_entry = float(plan.entry_price or 0.0)
-        structural_stop, structural_pivot_time = model24_micro_pivot_stop(
-            rows,
-            structural_direction,
-            maximum_age=5,
-        )
-        structural_stop_valid = bool(
-            structural_stop is not None
-            and structural_entry > 0.0
-            and (
-                float(structural_stop) < structural_entry
-                if structural_direction == "BUY"
-                else float(structural_stop) > structural_entry
-                if structural_direction == "SELL"
-                else False
-            )
-        )
-        structural_ready = structural_trigger and structural_stop_valid
-        use_market = market_decision.ready and filters_allowed
-        use_structural = structural_ready and not use_market
+        use_market = role == "INITIAL" and entry_decision.ready and filters_allowed
+        use_structural = role == "REENTRY" and entry_decision.ready
         if use_market:
-            direction = market_decision.direction
-            entry = float(market_decision.entry_price or 0.0)
-            stop = float(market_decision.initial_stop or 0.0)
+            direction = entry_decision.direction
+            entry = float(entry_decision.entry_price or 0.0)
+            stop = float(entry_decision.initial_stop or 0.0)
             active_order_type = "MARKET"
-            entry_role = role
-            reason = market_decision.reason
-            candle_time = market_decision.closed_candle_time
+            entry_role = "INITIAL"
+            reason = entry_decision.reason
+            candle_time = entry_decision.closed_candle_time
         elif use_structural:
-            direction = structural_direction
-            entry = structural_entry
-            stop = float(structural_stop or 0.0)
-            active_order_type = source_order_type
-            entry_role = "STRUCTURAL_REENTRY"
-            reason = (
-                f"M24 herdou a reentrada Stop estrutural do {source_label}, "
-                "com SL no micro pivo 1+1 e sem TP individual."
-            )
-            candle_time = str(
-                getattr(row, "theoretical_entry_candle", "") or "N/D"
-            )
+            direction = entry_decision.direction
+            entry = float(entry_decision.entry_price or 0.0)
+            stop = float(entry_decision.initial_stop or 0.0)
+            active_order_type = "BUY_STOP" if direction == "BUY" else "SELL_STOP"
+            entry_role = "REENTRY"
+            reason = entry_decision.reason
+            candle_time = entry_decision.closed_candle_time
         else:
-            structural_pivot_blocked = structural_trigger and not structural_stop_valid
-            wait_status = (
-                "M24_REENTRY_AGUARDA_MICRO_PIVO_CONFIRMADO"
-                if structural_pivot_blocked
-                else market_decision.status
-            )
+            wait_status = entry_decision.status
             wait_reason = (
-                f"M24/{source_label}: reentrada Stop aguardando micro pivo 1+1 "
-                "confirmado e valido."
-                if structural_pivot_blocked
-                else (
-                    f"M24/{source_label}: {market_decision.reason} "
-                    f"Filtro da fonte: {filter_reason}."
-                )
+                f"M24/{source_label}: {entry_decision.reason} "
+                f"Filtro da fonte: {filter_reason}."
             )
             parameters = {
                 **source_parameters,
@@ -7935,7 +7899,7 @@ class DashboardService:
         is_reentry = entry_role in {"REENTRY", "STRUCTURAL_REENTRY"}
         reentry_gate = None
         if is_reentry:
-            opportunity_candle = str(initial.closed_candle_time or "N/D")
+            opportunity_candle = str(entry_decision.closed_candle_time or "N/D")
             opportunity_key = (
                 f"{entry_role}|{direction}|{opportunity_candle}|{active_order_type}"
             )
@@ -8003,9 +7967,7 @@ class DashboardService:
             "m24_micro_pivot_stop_enabled": is_reentry,
             "m24_micro_pivot_maximum_age": 5,
             "m24_micro_pivot_time": (
-                structural_pivot_time
-                if entry_role == "STRUCTURAL_REENTRY"
-                else market_decision.micro_swing_time
+                entry_decision.micro_swing_time
             ),
             "m24_previous_candle_trailing_enabled": False,
             "m24_individual_target_enabled": False,
@@ -8043,8 +8005,9 @@ class DashboardService:
             stop_management=MODEL_24_EXIT_POLICY,
             stop_management_parameters=parameters,
             stop_management_reason=(
-                "Saida nativa da fonte preservada; reentradas perdem validade no "
-                "RSI50; cesta encerra coletivamente em +US$1.000."
+                "Saida nativa da fonte preservada; reentrada pendente depende "
+                "do fechamento relativo a SMA20 e do lado atual do RSI50; "
+                "cesta encerra em +US$1.000."
             ),
             exit_model=MODEL_24_BETA_VERSION,
             alpha_id=MODEL_24_ALPHA_ID,

@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
 import threading
+import time
 from typing import Any, Iterable, Protocol
 from uuid import uuid4
 
@@ -251,10 +253,7 @@ def _model24_source_key(value: object) -> str:
 
 
 def _write_runtime_state(payload: dict[str, Any]) -> None:
-    MODEL_24_RUNTIME_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temporary = MODEL_24_RUNTIME_STATE_PATH.with_suffix(f".{uuid4().hex}.tmp")
-    temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    temporary.replace(MODEL_24_RUNTIME_STATE_PATH)
+    _atomic_json_write(MODEL_24_RUNTIME_STATE_PATH, payload)
 
 
 def _load_runtime_state() -> dict[str, Any]:
@@ -279,6 +278,8 @@ class Model24EntryDecision:
     previous_rsi14: float | None = None
     micro_swing_price: float | None = None
     micro_swing_time: str = "N/D"
+    price_cross_time: str = "N/D"
+    rsi_cross_time: str = "N/D"
 
     @property
     def ready(self) -> bool:
@@ -294,7 +295,104 @@ def evaluate_model24_rsi50_market_entry(
     *,
     entry_role: str = "INITIAL",
 ) -> Model24EntryDecision:
-    """Avalia a entrada inicial por micro-pivo ou a reentrada simples no RSI50."""
+    """Avalia a entrada inicial; RSI e preco podem confirmar em velas distintas."""
+    rows = list(candles or ())[-201:]
+    normalized_role = str(entry_role or "INITIAL").upper()
+    if normalized_role == "REENTRY":
+        return evaluate_model24_pending_reentry(rows)
+    if len(rows) < 201:
+        return Model24EntryDecision(
+            status=f"M24_AQUECENDO_{len(rows)}_DE_201_CANDLES",
+            reason="M24 exige 200 candles M5 fechados e o candle atual em formacao.",
+        )
+    closed = rows[:-1]
+    closes = [_number(row, "close") for row in closed]
+    if any(value is None for value in closes):
+        return Model24EntryDecision(
+            status="M24_DADOS_INVALIDOS",
+            reason="Candle M5 fechado sem preco de fechamento valido.",
+        )
+    values = [float(value) for value in closes if value is not None]
+    sma20 = _sma(values, 20)
+    sma50 = _sma(values, 50)
+    cross_side, price_cross_index, rsi_cross_index, rsi_values = (
+        _model24_initial_cross_confirmation(values)
+    )
+    rsi14 = rsi_values[-1]
+    previous_rsi14 = rsi_values[-2]
+    common = {
+        "closed_candle_time": _time(closed[-1]),
+        "sma20": sma20,
+        "sma50": sma50,
+        "rsi14": rsi14,
+        "previous_rsi14": previous_rsi14,
+        "price_cross_time": (
+            _time(closed[price_cross_index])
+            if price_cross_index is not None
+            else "N/D"
+        ),
+        "rsi_cross_time": (
+            _time(closed[rsi_cross_index])
+            if rsi_cross_index is not None
+            else "N/D"
+        ),
+    }
+    if cross_side not in {"BUY", "SELL"}:
+        return Model24EntryDecision(
+            status="M24_INITIAL_AGUARDA_CRUZAMENTOS_PRECO_SMA20_E_RSI50",
+            reason=(
+                "Entrada inicial aguarda os cruzamentos confirmados do preco "
+                "na SMA20 e do RSI14 no nivel 50 na mesma direcao; os eventos "
+                "podem ocorrer em velas M5 diferentes."
+            ),
+            **common,
+        )
+    side = cross_side
+    entry = float(values[-1])
+    swing, swing_time = _latest_micro_swing(closed, side, maximum_age=5)
+    if swing is None:
+        return Model24EntryDecision(
+            direction="WAIT",
+            status="M24_INITIAL_AGUARDA_MICRO_PIVO_CONFIRMADO",
+            reason=(
+                "A entrada inicial exige microfundo/microtopo 1+1 confirmado "
+                "nos ultimos cinco M5."
+            ),
+            entry_price=entry,
+            **common,
+        )
+    stop = float(swing or 0.0)
+    valid = stop < entry if side == "BUY" else stop > entry
+    if not valid:
+        return Model24EntryDecision(
+            direction="WAIT",
+            status="M24_STOP_MICRO_ESTRUTURAL_INVALIDO",
+            reason="O microtopo/microfundo mais recente nao produz SL valido.",
+            entry_price=entry,
+            initial_stop=stop,
+            micro_swing_price=stop,
+            micro_swing_time=swing_time,
+            **common,
+        )
+    return Model24EntryDecision(
+        direction=side,
+        status=f"M24_INITIAL_{side}_CRUZAMENTOS_SMA20_RSI50_MERCADO_PRONTA",
+        reason=(
+            f"{side} inicial a mercado: preco e RSI14 cruzaram seus niveis na "
+            "mesma direcao, ainda que em velas distintas; SL no micro pivo."
+        ),
+        entry_price=entry,
+        initial_stop=stop,
+        micro_swing_price=stop,
+        micro_swing_time=swing_time,
+        **common,
+    )
+
+
+def evaluate_model24_pending_reentry(
+    candles: Iterable[object],
+) -> Model24EntryDecision:
+    """Reentrada pendente pelo lado atual da SMA20 e do RSI50, sem novo cruzamento."""
     rows = list(candles or ())[-201:]
     if len(rows) < 201:
         return Model24EntryDecision(
@@ -320,61 +418,40 @@ def evaluate_model24_rsi50_market_entry(
         "rsi14": rsi14,
         "previous_rsi14": previous_rsi14,
     }
-    normalized_role = str(entry_role or "INITIAL").upper()
-    buy_structure_ok = (
-        values[-1] > sma20 if normalized_role == "INITIAL" else sma20 > sma50
-    )
-    sell_structure_ok = (
-        values[-1] < sma20 if normalized_role == "INITIAL" else sma20 < sma50
-    )
-    if previous_rsi14 < 50.0 < rsi14 and buy_structure_ok:
+    if values[-1] > sma20 and rsi14 > 50.0:
         side = "BUY"
-    elif previous_rsi14 > 50.0 > rsi14 and sell_structure_ok:
+        entry = _number(closed[-1], "high")
+        order_type = "BUY_STOP"
+    elif values[-1] < sma20 and rsi14 < 50.0:
         side = "SELL"
+        entry = _number(closed[-1], "low")
+        order_type = "SELL_STOP"
     else:
         return Model24EntryDecision(
-            status="M24_AGUARDA_CRUZAMENTO_RSI50_COM_SMA",
+            status="M24_REENTRY_AGUARDA_PRECO_SMA20_E_RSI50_ALINHADOS",
             reason=(
-                "Aguardar RSI14 cruzar 50 e confirmar a estrutura exigida para "
-                "a etapa no fechamento M5."
+                "Reentrada aguarda fechamento e RSI14 no mesmo lado da "
+                "SMA20/linha 50; nao exige novo cruzamento."
             ),
             **common,
         )
-    entry = float(values[-1])
-    if normalized_role == "INITIAL":
-        swing, swing_time = _latest_micro_swing(closed, side, maximum_age=5)
-        if swing is None:
-            return Model24EntryDecision(
-                direction="WAIT",
-                status="M24_INITIAL_AGUARDA_MICRO_PIVO_CONFIRMADO",
-                reason=(
-                    "O cruzamento RSI50 ocorreu, mas a entrada inicial exige "
-                    "microfundo/microtopo 1+1 confirmado nos ultimos cinco M5."
-                ),
-                entry_price=entry,
-                **common,
-            )
-    else:
-        swing, swing_time = _latest_micro_swing(closed, side, maximum_age=5)
-        if swing is None:
-            return Model24EntryDecision(
-                direction="WAIT",
-                status="M24_REENTRY_AGUARDA_MICRO_PIVO_CONFIRMADO",
-                reason=(
-                    "O cruzamento RSI50 ocorreu, mas a reentrada exige "
-                    "microfundo/microtopo 1+1 confirmado nos ultimos cinco M5."
-                ),
-                entry_price=entry,
-                **common,
-            )
-    stop = float(swing or 0.0)
-    valid = stop < entry if side == "BUY" else stop > entry
+    swing, swing_time = _latest_micro_swing(closed, side, maximum_age=5)
+    if swing is None:
+        return Model24EntryDecision(
+            direction=side,
+            status="M24_REENTRY_AGUARDA_MICRO_PIVO_CONFIRMADO",
+            reason="Reentrada pendente exige micro pivo 1+1 recente para o SL.",
+            **common,
+        )
+    trigger = float(entry or 0.0)
+    stop = float(swing)
+    valid = stop < trigger if side == "BUY" else stop > trigger
     if not valid:
         return Model24EntryDecision(
-            direction="WAIT",
-            status="M24_STOP_MICRO_ESTRUTURAL_INVALIDO",
-            reason="O microtopo/microfundo mais recente nao produz SL valido.",
-            entry_price=entry,
+            direction=side,
+            status="M24_REENTRY_STOP_MICRO_PIVO_INVALIDO",
+            reason="Micro pivo recente nao produz SL valido para a ordem pendente.",
+            entry_price=trigger,
             initial_stop=stop,
             micro_swing_price=stop,
             micro_swing_time=swing_time,
@@ -382,12 +459,12 @@ def evaluate_model24_rsi50_market_entry(
         )
     return Model24EntryDecision(
         direction=side,
-        status=f"M24_{normalized_role}_{side}_RSI50_MERCADO_PRONTA",
+        status=f"M24_REENTRY_{side}_{order_type}_SMA20_PRONTA",
         reason=(
-            f"{side} {normalized_role} a mercado no cruzamento confirmado do RSI14 "
-            "em 50, alinhado a SMA20/50; SL estrutural definido pelo contrato."
+            f"Reentrada {order_type}: fechamento e RSI14 permanecem do lado "
+            "permitido, sem novo cruzamento; gatilho no extremo do ultimo M5."
         ),
-        entry_price=entry,
+        entry_price=trigger,
         initial_stop=stop,
         micro_swing_price=stop,
         micro_swing_time=swing_time,
@@ -517,10 +594,25 @@ class Model24BasketManager:
         return "M24-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid4().hex[:8]
 
     def _write(self, snapshot: Model24BasketSnapshot) -> None:
-        self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.state_path.with_suffix(f".{uuid4().hex}.tmp")
-        temporary.write_text(json.dumps(asdict(snapshot), indent=2), encoding="utf-8")
-        temporary.replace(self.state_path)
+        _atomic_json_write(self.state_path, asdict(snapshot))
+
+
+def _atomic_json_write(path: Path, payload: dict[str, Any]) -> None:
+    """Escrita atomica tolerante a bloqueios curtos do Windows/OneDrive."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(f".{uuid4().hex}.tmp")
+    temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    try:
+        for attempt in range(6):
+            try:
+                os.replace(temporary, path)
+                return
+            except PermissionError:
+                if attempt >= 5:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _latest_micro_swing(
@@ -549,6 +641,48 @@ def _latest_micro_swing(
         if confirmed:
             return float(value), _time(rows[index])
     return None, "N/D"
+
+
+def _model24_initial_cross_confirmation(
+    values: list[float],
+) -> tuple[str, int | None, int | None, list[float]]:
+    """Confirma os ultimos cruzamentos SMA20/RSI50, mesmo em velas distintas."""
+    rsi_values = [
+        _wilder_rsi(values[: index + 1], 14)
+        for index in range(len(values))
+    ]
+    if len(values) < 21:
+        return "WAIT", None, None, rsi_values
+
+    price_cross_up: int | None = None
+    price_cross_down: int | None = None
+    for index in range(20, len(values)):
+        previous_sma = _sma(values[:index], 20)
+        current_sma = _sma(values[: index + 1], 20)
+        if values[index - 1] <= previous_sma and values[index] > current_sma:
+            price_cross_up = index
+        elif values[index - 1] >= previous_sma and values[index] < current_sma:
+            price_cross_down = index
+
+    rsi_cross_up: int | None = None
+    rsi_cross_down: int | None = None
+    for index in range(15, len(values)):
+        previous_rsi = rsi_values[index - 1]
+        current_rsi = rsi_values[index]
+        if previous_rsi <= 50.0 and current_rsi > 50.0:
+            rsi_cross_up = index
+        elif previous_rsi >= 50.0 and current_rsi < 50.0:
+            rsi_cross_down = index
+
+    sma20 = _sma(values, 20)
+    rsi14 = rsi_values[-1]
+    if values[-1] > sma20 and rsi14 > 50.0:
+        if price_cross_up is not None and rsi_cross_up is not None:
+            return "BUY", price_cross_up, rsi_cross_up, rsi_values
+    elif values[-1] < sma20 and rsi14 < 50.0:
+        if price_cross_down is not None and rsi_cross_down is not None:
+            return "SELL", price_cross_down, rsi_cross_down, rsi_values
+    return "WAIT", None, None, rsi_values
 
 
 def _sma(values: list[float], period: int) -> float:
