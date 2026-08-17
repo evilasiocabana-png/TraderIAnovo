@@ -1,5 +1,16 @@
 # Execution Log
 
+## 2026-08-17 - M24 principal sem saida por inversao SMA20/50
+
+- removido o Full Exit por inversao SMA20/SMA50 somente das posicoes M24
+  classificadas como `PRINCIPAL`/`INITIAL`;
+- preservados na principal o SL individual, o Full Exit RSI 70/30 confirmado
+  no M5 e o Full Exit coletivo da cesta em +US$1.000 liquidos;
+- reentradas M24 continuam fechando por inversao SMA20/50 ou perda do RSI50;
+- M8-M22 diretos e demais modelos continuam com seus contratos inalterados;
+- testes cobrem BUY e SELL principal, saida RSI preservada e reentrada com
+  inversao SMA ainda ativa.
+
 ## 2026-08-13 - Sinal M5 volta a gerar ordem pendente e copia M23 independente
 
 - corrigida a expiracao da ordem Stop: o timestamp do ultimo candle fechado e

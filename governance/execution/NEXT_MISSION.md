@@ -23,6 +23,10 @@ Stop atualizada a cada M5, sem novo cruzamento, mas com preco e RSI ainda no
 lado permitido. O SL usa o micro pivo 1+1 anterior mais proximo, com idade
 maxima de cinco M5 fechados e atualizacao somente a favor.
 
+A observacao deve confirmar que a posicao principal nao fecha por inversao
+SMA20/SMA50; ela conserva Full Exit RSI 70/30, SL e cesta. A inversao das medias
+e a perda do RSI50 continuam sendo protecoes das reentradas.
+
 A auditoria paper/demo deve confirmar tambem que, apos Full Exit RSI 70/30, a
 primeira reentrada do mesmo lado fica bloqueada e apenas a segunda oportunidade
 em nova vela M5 e liberada, simetricamente para BUY e SELL.

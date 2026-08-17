@@ -29,8 +29,10 @@ liberada. SELL e simetrico: preco cruza e permanece abaixo da SMA20, RSI14 cruza
 e permanece abaixo de 50 e o SL usa o microtopo 1+1 anterior mais proximo.
 
 O segundo evento que completar o conjunto libera a entrada inicial a mercado.
-A saida individual continua sendo a saida nativa da fonte, incluindo Full Exit
-RSI 70/30 e inversao SMA20/50.
+A posicao principal nao depende da relacao SMA20/SMA50 nem para entrar nem para
+sair. Seu Full Exit tecnico permanece somente no retorno confirmado do RSI14
+de 70 para baixo no BUY ou de 30 para cima no SELL, alem do SL individual e do
+Full Exit financeiro da cesta.
 
 ## Reentrada pendente
 
@@ -51,7 +53,7 @@ estado confirmado no ultimo M5 fechado:
 - o roteamento M24 materializa seu proprio plano M5 mesmo quando o plano-base
   heuristico H1 estiver sem gatilho;
 - a perda do RSI50 ou a inversao SMA20/50 preserva o Full Exit individual de
-  seguranca.
+  seguranca somente para a posicao de reentrada.
 
 ## Ordem de precedência
 

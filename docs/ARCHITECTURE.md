@@ -549,4 +549,6 @@ O Position Manager aceita somente novos micro pivos que apertem o stop. Depois d
 por retorno do RSI abaixo de 70 no BUY ou acima de 30 no SELL, o runtime M24
 persiste por fonte e direcao a primeira oportunidade bloqueada. A segunda so e
 reconhecida quando a chave inclui uma nova vela M5 fechada, impedindo que o ciclo
-leve conte repetidamente o mesmo sinal.
+leve conte repetidamente o mesmo sinal. A entrada principal M24 nao consulta a
+relacao SMA20/SMA50 e tambem nao fecha por inversao dessas medias; essa protecao,
+assim como a perda do RSI50, permanece restrita as reentradas.

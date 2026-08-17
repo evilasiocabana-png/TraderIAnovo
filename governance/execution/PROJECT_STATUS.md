@@ -40,8 +40,9 @@ Status: pronto para fluxo de inbox.
   OHLC/horario por diferenca entre nomes de campos.
 - Trava de escopo impede materializacao do M24 sobre qualquer linha diferente
   de XAUUSD; primeiro ciclo corrigido aceitou M24/M8 BUY no XAUUSD Demo.
-- A primeira BUY corrigida foi fechada pelo contrato preservado de inversao
-  SMA20/50, confirmando a convivencia entre o novo gatilho e a saida antiga.
+- Correcao de 2026-08-17 removeu da posicao principal a saida por inversao
+  SMA20/50, coerente com a entrada que tambem nao depende da SMA50. Full Exit
+  RSI 70/30, SL e cesta permanecem; reentradas preservam inversao SMA e RSI50.
 - Reentrada M24/M8 ficou pendente no book como BUY_STOP, com SL no microfundo
   anterior mais proximo e sem TP individual.
 

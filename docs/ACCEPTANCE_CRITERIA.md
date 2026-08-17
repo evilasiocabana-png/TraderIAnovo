@@ -80,6 +80,8 @@ Aceito quando:
   permanecer validos ate o segundo completar o sinal;
 - entrada inicial usa micro pivo 1+1 anterior mais proximo como SL e entra a
   mercado somente depois da confirmacao do conjunto;
+- entrada principal nao exige SMA20 acima/abaixo da SMA50 e nao executa Full
+  Exit quando essas duas medias invertem; BUY e SELL sao simetricos;
 - reentrada nao exige novo cruzamento: BUY requer fechamento acima da SMA20 e
   RSI14 acima de 50; SELL requer fechamento abaixo da SMA20 e RSI14 abaixo de 50;
 - reentrada e pendente na maxima/minima do ultimo M5 e deve ser atualizada a
@@ -97,7 +99,9 @@ Aceito quando:
   acima de 30, a primeira oportunidade de reentrada na mesma direcao e ignorada;
 - repeticoes do mesmo sinal na mesma vela M5 nao contam como segunda
   oportunidade; somente uma nova oportunidade valida em nova vela e liberada;
-- saidas nativas de seguranca da fonte continuam ativas;
+- Full Exit RSI 70/30, SL individual e cesta continuam ativos na entrada
+  principal; perda do RSI50 e inversao SMA20/50 continuam ativas somente nas
+  reentradas;
 - cesta fecha somente posicoes M24 em +US$1.000 liquidos;
 - comentarios, estado, auditoria e relatorio distinguem M24 de M23;
 - a tabela `Em negociacao` mostra `Tipo de entrada` antes de `Alvo`, usando
