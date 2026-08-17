@@ -81,4 +81,6 @@ Aceito quando:
 - saidas nativas de seguranca da fonte continuam ativas;
 - cesta fecha somente posicoes M24 em +US$1.000 liquidos;
 - comentarios, estado, auditoria e relatorio distinguem M24 de M23;
+- a tabela `Em negociacao` mostra `Tipo de entrada` antes de `Alvo`, usando
+  `PRINCIPAL` ou `REENTRADA` somente quando o contrato persistido comprovar;
 - testes nao conectam nem enviam ordem ao MT5.

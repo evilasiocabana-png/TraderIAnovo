@@ -13,6 +13,9 @@ Pre-condicao de interface concluida em 2026-08-17: o seletor operacional voltou
 a renderizar `Todos` e M24 com chaves distintas e o botao `Aplicar modelos`
 persiste a escolha antes de atualizar os textos da tela.
 
+O relatorio operacional tambem passou a expor o papel da entrada M24
+(`PRINCIPAL` ou `REENTRADA`) antes do alvo.
+
 Pendencia registrada em 2026-07-13:
 
 - criar sentinela de velocidade do TraderIA Novo;

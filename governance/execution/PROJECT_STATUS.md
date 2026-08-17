@@ -23,6 +23,8 @@ Status: pronto para fluxo de inbox.
 - SL da reentrada RSI50 acompanha o extremo do ultimo M5 apenas a favor.
 - Modelo foi selecionado manualmente como unico modo operacional em 2026-08-17,
   por solicitacao do usuario; isso nao comprova robo armado nem ordem enviada.
+- Relatorio `Em negociacao` identifica cada plano M24 como `PRINCIPAL` ou
+  `REENTRADA` antes da coluna `Alvo`, usando o papel persistido no snapshot.
 - Fonte canonica: `docs/architecture/OPERATIONAL_MODEL_24_XAU_RSI50_BASKET.md`.
 
 ## Estado Atual

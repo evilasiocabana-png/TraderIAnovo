@@ -45,6 +45,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-035_CREATE_MODEL24_XAU_RSI50_BASKET | Criar M24 XAU RSI50 com cesta financeira | completed | 2026-08-17 | 2026-08-17 | N/D | codex/multi-ea-trading-lab | dacc816 | Codex |
 | MISSION_TIA-036_FIX_MT5_SELECTOR_DUPLICATE_KEY | Corrigir colisao de chave do seletor MT5 | completed | 2026-08-17 | 2026-08-17 | N/D | codex/multi-ea-trading-lab | 5b4dabb | Codex |
 | MISSION_TIA-037_FIX_MT5_SELECTOR_APPLY_REFRESH | Persistir M24 antes do rerender do seletor MT5 | completed | 2026-08-17 | 2026-08-17 | N/D | codex/multi-ea-trading-lab | 311f32f | Codex |
+| MISSION_TIA-038_SHOW_ENTRY_TYPE_IN_OPEN_TRADES | Exibir entrada principal ou reentrada antes do alvo | completed | 2026-08-17 | 2026-08-17 | N/D | codex/multi-ea-trading-lab | a9801ce | Codex |
 
 ## Regras
 

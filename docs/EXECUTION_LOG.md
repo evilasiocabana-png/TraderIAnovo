@@ -1598,3 +1598,15 @@ Novas entradas devem registrar:
 - apos a validacao, a intencao original do usuario foi reaplicada: somente M24
   ficou selecionado; a interface confirmou M24 marcado, M23 desmarcado, aviso
   `M24 ativo` presente e aviso `M23 ativo` ausente.
+
+# 2026-08-17 - Tipo de entrada visivel em negociacao
+
+- adicionada a coluna `Tipo de entrada` imediatamente antes de `Alvo` na tabela
+  compacta de operacoes abertas;
+- classificacao usa primeiro o papel persistido no snapshot do plano, incluindo
+  `m24_entry_role=INITIAL`, `REENTRY` ou `STRUCTURAL_REENTRY`;
+- valores visuais sao `PRINCIPAL`, `REENTRADA` e `N/D` quando nao ha prova;
+- leitura do snapshot operacional atual confirmou a posicao M24 aberta como
+  `REENTRADA`;
+- gate critico: 188 testes aprovados;
+- nenhuma regra de entrada, saida, cesta, stop, alvo ou envio foi modificada.
