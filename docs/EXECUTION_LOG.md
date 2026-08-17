@@ -1650,5 +1650,8 @@ Novas entradas devem registrar:
   ao descarte da primeira oportunidade depois do Full Exit RSI 70/30;
 - escrita atomica do estado M24 passou a repetir bloqueios curtos do
   Windows/OneDrive, corrigindo o diagnostico intermitente `WinError 5`;
-- validacao: 74 testes direcionados e 188 testes do gate critico aprovados;
+- corrigida a barreira que interrompia o ciclo no plano-base H1 antes de o M24
+  materializar seu proprio plano M5; esse era o motivo de o sinal tecnico estar
+  pronto sem produzir candidato operacional;
+- validacao: 75 testes direcionados e 188 testes do gate critico aprovados;
 - nenhuma operacao MT5 real foi enviada, fechada ou modificada nos testes.

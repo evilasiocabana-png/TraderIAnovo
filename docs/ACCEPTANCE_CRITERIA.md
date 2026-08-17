@@ -83,6 +83,8 @@ Aceito quando:
   RSI14 acima de 50; SELL requer fechamento abaixo da SMA20 e RSI14 abaixo de 50;
 - reentrada e pendente na maxima/minima do ultimo M5 e deve ser atualizada a
   cada novo candle enquanto as condicoes permanecerem validas;
+- plano-base H1 sem gatilho nao bloqueia a materializacao do plano proprio M5
+  do M24;
 - nenhuma ordem M24 envia TP individual ao MT5;
 - a reentrada exige SL em micro pivo 1+1 confirmado nos ultimos cinco
   candles M5 fechados;

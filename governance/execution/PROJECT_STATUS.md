@@ -34,6 +34,8 @@ Status: pronto para fluxo de inbox.
 - Fonte canonica: `docs/architecture/OPERATIONAL_MODEL_24_XAU_RSI50_BASKET.md`.
 - Escrita atomica dos estados M24 possui repeticao curta contra bloqueios
   transitorios do Windows/OneDrive, sem alterar nem apagar o runtime local.
+- O ciclo Demo nao exige plano-base H1 valido antes de avaliar o plano proprio
+  XAUUSD/M5 do M24.
 
 ## Estado Atual
 

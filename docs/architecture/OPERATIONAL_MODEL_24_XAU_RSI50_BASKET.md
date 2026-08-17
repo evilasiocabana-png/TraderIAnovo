@@ -46,6 +46,8 @@ estado confirmado no ultimo M5 fechado:
 - sem micro pivo recente e valido, a reentrada permanece bloqueada;
 - a reentrada nao reaplica os filtros direcionais da fonte e nao possui TP
   individual;
+- o roteamento M24 materializa seu proprio plano M5 mesmo quando o plano-base
+  heuristico H1 estiver sem gatilho;
 - a perda do RSI50 ou a inversao SMA20/50 preserva o Full Exit individual de
   seguranca.
 
@@ -91,6 +93,7 @@ A mudanca de direcao elimina a trava pertencente ao lado anterior.
 - Somente conta MT5 Demo passa pelo provider.
 - A criação e os testes do modelo não enviam ordens.
 - O candle dos indicadores deve coincidir com o candle do Trade Plan.
+- A ausencia de plano-base H1 nao pode interromper o roteamento proprio M5.
 - M24 é modelo ativo e selecionável, mas não é ativado automaticamente pela implantação.
 - Testes dedicados cobrem cruzamentos iniciais em velas distintas, manutencao
   das condicoes, reentrada pendente com RSI presente, ausencia de micropivo,
