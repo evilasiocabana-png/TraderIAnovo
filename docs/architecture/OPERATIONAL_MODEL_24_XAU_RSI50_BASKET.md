@@ -94,6 +94,8 @@ A mudanca de direcao elimina a trava pertencente ao lado anterior.
 - A criação e os testes do modelo não enviam ordens.
 - O candle dos indicadores deve coincidir com o candle do Trade Plan.
 - A ausencia de plano-base H1 nao pode interromper o roteamento proprio M5.
+- O avaliador aceita tanto campos OHLC tecnicos (`close/high/low/time`) quanto o
+  contrato canonico `Candle` (`fechamento/maxima/minima/data`) usado no runtime.
 - M24 é modelo ativo e selecionável, mas não é ativado automaticamente pela implantação.
 - Testes dedicados cobrem cruzamentos iniciais em velas distintas, manutencao
   das condicoes, reentrada pendente com RSI presente, ausencia de micropivo,

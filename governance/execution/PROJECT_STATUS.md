@@ -36,6 +36,8 @@ Status: pronto para fluxo de inbox.
   transitorios do Windows/OneDrive, sem alterar nem apagar o runtime local.
 - O ciclo Demo nao exige plano-base H1 valido antes de avaliar o plano proprio
   XAUUSD/M5 do M24.
+- O avaliador le diretamente o objeto `Candle` canonico do cache M5 e nao perde
+  OHLC/horario por diferenca entre nomes de campos.
 
 ## Estado Atual
 

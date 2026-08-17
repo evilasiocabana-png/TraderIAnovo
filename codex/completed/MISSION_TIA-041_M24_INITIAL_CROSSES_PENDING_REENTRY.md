@@ -26,6 +26,8 @@ pendente sem exigir novos cruzamentos.
 - Escritas atomicas do estado M24 repetem bloqueios curtos do Windows/OneDrive.
 - O ciclo Demo deixa o M24 materializar o plano proprio M5 mesmo quando o
   plano-base heuristico H1 estiver sem gatilho.
+- O avaliador aceita diretamente `Candle` canonico com campos em portugues,
+  eliminando o falso `M24_DADOS_INVALIDOS` do runtime.
 
 ## Seguranca
 
@@ -34,10 +36,10 @@ Nenhuma operacao MT5 real foi aberta, fechada ou modificada.
 
 ## Validacao
 
-- testes direcionados M24, Position Manager e provider: 75 aprovados;
+- testes direcionados M24, Position Manager e provider: 76 aprovados;
 - `python scripts/run_critical_ci.py`: 188 testes aprovados;
 - `python -m py_compile`: aprovado.
 
 ## Commit funcional
 
-`7350e4b` e `d665719` em `codex/multi-ea-trading-lab`.
+`7350e4b`, `d665719` e `f91c01b` em `codex/multi-ea-trading-lab`.

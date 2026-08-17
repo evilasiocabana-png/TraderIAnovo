@@ -85,6 +85,8 @@ Aceito quando:
   cada novo candle enquanto as condicoes permanecerem validas;
 - plano-base H1 sem gatilho nao bloqueia a materializacao do plano proprio M5
   do M24;
+- o avaliador M24 aceita diretamente os objetos `Candle` canonicos recebidos do
+  cache operacional, sem conversao manual de campos;
 - nenhuma ordem M24 envia TP individual ao MT5;
 - a reentrada exige SL em micro pivo 1+1 confirmado nos ultimos cinco
   candles M5 fechados;

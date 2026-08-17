@@ -1653,5 +1653,9 @@ Novas entradas devem registrar:
 - corrigida a barreira que interrompia o ciclo no plano-base H1 antes de o M24
   materializar seu proprio plano M5; esse era o motivo de o sinal tecnico estar
   pronto sem produzir candidato operacional;
-- validacao: 75 testes direcionados e 188 testes do gate critico aprovados;
+- corrigida a leitura do objeto `Candle` canonico: o runtime fornece
+  `fechamento/maxima/minima/data`, enquanto o avaliador aceitava somente os
+  aliases tecnicos em ingles e retornava `M24_DADOS_INVALIDOS`;
+- prova operacional com provider local materializou uma ordem M24/M8 BUY, sem
+  tocar no MT5; validacao: 76 testes direcionados e 188 testes criticos;
 - nenhuma operacao MT5 real foi enviada, fechada ou modificada nos testes.
