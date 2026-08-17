@@ -2412,8 +2412,17 @@ def _mt5_operational_model_labels() -> dict[str, str]:
 
 
 def _mt5_operational_model_checkbox_key(model: str) -> str:
+    normalized = str(model or "").strip().lower()
+    if normalized == MT5_OPERATIONAL_MODEL_ALL.lower():
+        return f"{MT5_OPERATIONAL_MODEL_CHECKBOX_PREFIX}_todos"
     number = operational_model_number(model)
-    suffix = f"m{number}" if number is not None else "todos"
+    if number is not None:
+        suffix = f"m{number}"
+    else:
+        # Nao reutilizar a chave de "Todos" quando um processo Streamlit vivo
+        # ainda estiver com uma politica de IDs anterior carregada. Isso pode
+        # acontecer apos adicionar um modelo novo com o file watcher desligado.
+        suffix = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_") or "desconhecido"
     return f"{MT5_OPERATIONAL_MODEL_CHECKBOX_PREFIX}_{suffix}"
 
 

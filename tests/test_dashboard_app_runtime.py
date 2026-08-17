@@ -487,6 +487,38 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             )
             self.assertIn(restored_source, labels)
 
+    def test_chaves_do_seletor_permanecem_unicas_com_politica_antiga(self) -> None:
+        from domain.operational_model_policy import operational_model_number
+
+        options = (
+            dashboard_app.MT5_OPERATIONAL_MODEL_ALL,
+            *dashboard_app.MT5_SELECTABLE_OPERATIONAL_MODEL_IDS,
+        )
+
+        with patch.object(
+            dashboard_app,
+            "operational_model_number",
+            side_effect=lambda model: (
+                None
+                if model == dashboard_app.MT5_OPERATIONAL_MODEL_24
+                else operational_model_number(model)
+            ),
+        ):
+            keys = [
+                dashboard_app._mt5_operational_model_checkbox_key(model)
+                for model in options
+            ]
+
+        self.assertEqual(len(keys), len(set(keys)))
+        self.assertEqual(
+            keys[0],
+            "mt5_operational_model_checkbox_todos",
+        )
+        self.assertIn(
+            "mt5_operational_model_checkbox_modelo_24_xau_rsi50_basket",
+            keys,
+        )
+
     def test_resumo_entrada_teorica_m23_expoe_fontes_e_gargalos(self) -> None:
         rows = dashboard_app._model23_theoretical_entry_summary_rows(
             {
