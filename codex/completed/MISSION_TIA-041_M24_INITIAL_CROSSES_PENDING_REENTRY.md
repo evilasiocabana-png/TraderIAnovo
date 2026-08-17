@@ -36,6 +36,9 @@ pendente sem exigir novos cruzamentos.
 Validacao feita com candles sinteticos, arquivos temporarios e provider local.
 Nenhuma operacao MT5 real foi aberta, fechada ou modificada.
 
+Depois da implantacao, o ciclo automatico Demo aceitou uma BUY M24/M8 e o
+Position Manager a encerrou pela inversao SMA20/50 preservada no contrato.
+
 ## Validacao
 
 - testes direcionados M24, Position Manager e provider: 77 aprovados;

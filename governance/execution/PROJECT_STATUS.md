@@ -40,6 +40,8 @@ Status: pronto para fluxo de inbox.
   OHLC/horario por diferenca entre nomes de campos.
 - Trava de escopo impede materializacao do M24 sobre qualquer linha diferente
   de XAUUSD; primeiro ciclo corrigido aceitou M24/M8 BUY no XAUUSD Demo.
+- A primeira BUY corrigida foi fechada pelo contrato preservado de inversao
+  SMA20/50, confirmando a convivencia entre o novo gatilho e a saida antiga.
 
 ## Estado Atual
 

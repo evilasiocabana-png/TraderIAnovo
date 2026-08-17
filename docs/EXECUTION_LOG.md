@@ -1663,6 +1663,9 @@ Novas entradas devem registrar:
   e nenhuma ordem nao-XAU foi aceita;
 - adicionada trava antes da materializacao: M24 opera somente a linha XAUUSD;
 - depois das correcoes, o ciclo Demo aceitou M24/M8 BUY em XAUUSD com entrada
-  4417,64, SL 4416,53 e TP 0.0; validacao final: 77 testes direcionados e 188
-  testes criticos;
+  4417,64, SL 4416,53 e TP 0.0;
+- o Position Manager fechou essa entrada 21 segundos depois por
+  `M8_EXIT_INVERSAO_SMA_BUY`, pois SMA20 ainda estava abaixo da SMA50; esse Full
+  Exit foi mantido por fazer parte da saida inicial solicitada;
+- validacao final: 77 testes direcionados e 188 testes criticos;
 - nenhuma operacao MT5 real foi enviada, fechada ou modificada nos testes.
