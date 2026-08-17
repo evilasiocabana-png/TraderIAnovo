@@ -6891,14 +6891,12 @@ class DashboardService:
             )
             plan = self._mt5_research_trade_plan_for_view_row(row)
             selected_models = self._mt5_operational_models_to_evaluate()
-            if plan.status != "PLANO_VALIDO" and not any(
-                model in (
-                    MT5_LAB_OPERATIONAL_MODELS
-                    | MT5_SCOPED_M1_OPERATIONAL_MODELS
-                    | MT5_DYNAMIC_EXIT_OPERATIONAL_MODELS
-                    | MT5_CUSTOM_OPERATIONAL_MODELS
+            if (
+                plan.status != "PLANO_VALIDO"
+                and self._mt5_requires_valid_base_research_plan(
+                    selected_models,
+                    basket24_mode=basket24_mode,
                 )
-                for model in selected_models
             ):
                 last_waiting = self._demo_robot_view_model(
                     row=row,
@@ -7242,6 +7240,23 @@ class DashboardService:
             ),
         )
         return self.last_demo_robot_status
+
+    @staticmethod
+    def _mt5_requires_valid_base_research_plan(
+        selected_models: tuple[str, ...] | list[str],
+        *,
+        basket24_mode: bool,
+    ) -> bool:
+        """M24 materializa o proprio plano e nao depende do plano-base H1."""
+        if basket24_mode:
+            return False
+        override_models = (
+            MT5_LAB_OPERATIONAL_MODELS
+            | MT5_SCOPED_M1_OPERATIONAL_MODELS
+            | MT5_DYNAMIC_EXIT_OPERATIONAL_MODELS
+            | MT5_CUSTOM_OPERATIONAL_MODELS
+        )
+        return not any(model in override_models for model in selected_models)
 
     def _mt5_demo_signal_from_view_row(
         self,

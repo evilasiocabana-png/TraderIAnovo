@@ -372,6 +372,19 @@ def test_service_selects_only_the_seven_m24_sources() -> None:
     assert service._mt5_direct_routing_enabled()
 
 
+def test_m24_does_not_require_valid_h1_research_plan_before_its_own_route() -> None:
+    service = object.__new__(DashboardService)
+
+    assert not service._mt5_requires_valid_base_research_plan(
+        [MT5_OPERATIONAL_MODEL_8],
+        basket24_mode=True,
+    )
+    assert service._mt5_requires_valid_base_research_plan(
+        [],
+        basket24_mode=False,
+    )
+
+
 def _source_row() -> DashboardMT5ForexSignalRowViewModel:
     return DashboardMT5ForexSignalRowViewModel(
         pair="XAUUSD",
