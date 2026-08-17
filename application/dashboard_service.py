@@ -139,6 +139,7 @@ from application.model24_xau_basket import (
     MODEL_24_ID as MT5_OPERATIONAL_MODEL_24,
     MODEL_24_SOURCE_MODEL_IDS,
     Model24BasketManager,
+    evaluate_model24_reentry_opportunity,
     evaluate_model24_rsi50_market_entry,
     is_model24,
     mark_model24_market_entry_accepted,
@@ -7932,6 +7933,62 @@ class DashboardService:
 
         risk = abs(entry - stop)
         is_reentry = entry_role in {"REENTRY", "STRUCTURAL_REENTRY"}
+        reentry_gate = None
+        if is_reentry:
+            opportunity_candle = str(initial.closed_candle_time or "N/D")
+            opportunity_key = (
+                f"{entry_role}|{direction}|{opportunity_candle}|{active_order_type}"
+            )
+            reentry_gate = evaluate_model24_reentry_opportunity(
+                source,
+                direction,
+                opportunity_key,
+            )
+            if not reentry_gate.allowed:
+                wait_parameters = {
+                    **source_parameters,
+                    "source_operational_model": source,
+                    "m24_entry_role": entry_role,
+                    "m24_reentry_position": True,
+                    "m24_reentry_opportunity_key": opportunity_key,
+                    "m24_reentry_gate_status": reentry_gate.status,
+                    "m24_blocked_reentry_opportunity_key": (
+                        reentry_gate.blocked_opportunity_key
+                    ),
+                    "full_exit_usd": MODEL_24_FULL_EXIT_USD,
+                }
+                wait_reason = f"M24/{source_label}: {reentry_gate.reason}"
+                return (
+                    replace(
+                        row,
+                        decision="WAIT",
+                        theoretical_entry_direction="WAIT",
+                        theoretical_entry_status=reentry_gate.status,
+                        theoretical_entry_price=None,
+                        theoretical_entry_reason=wait_reason,
+                        active_model=f"M24 <- {source_label} | {entry_role}",
+                        reason=wait_reason,
+                        lab_alpha_id=MODEL_24_ALPHA_ID,
+                        lab_alpha_version=MODEL_24_ALPHA_VERSION,
+                        beta_id=MODEL_24_BETA_ID,
+                        beta_version=MODEL_24_BETA_VERSION,
+                        lab_parameters=wait_parameters,
+                        research_plan_status=reentry_gate.status,
+                        research_plan_reason=wait_reason,
+                    ),
+                    replace(
+                        plan,
+                        direction="WAIT",
+                        entry_price=None,
+                        stop=None,
+                        target=None,
+                        status=reentry_gate.status,
+                        reason=wait_reason,
+                        invalid_reason=reentry_gate.status,
+                        invalid_fields=("m24_first_reentry_after_extreme",),
+                        stop_management_parameters=wait_parameters,
+                    ),
+                )
         parameters = {
             **source_parameters,
             "source_operational_model": source,
@@ -7953,6 +8010,9 @@ class DashboardService:
             "m24_previous_candle_trailing_enabled": False,
             "m24_individual_target_enabled": False,
             "m24_filter_status": filter_reason,
+            "m24_reentry_gate_status": (
+                reentry_gate.status if reentry_gate is not None else "N/A"
+            ),
             "indicator_source": OPERATIONAL_INDICATOR_SOURCE,
             "indicator_closed_candle_time": candle_time,
             "full_exit_usd": MODEL_24_FULL_EXIT_USD,

@@ -83,6 +83,7 @@ from application.model24_xau_basket import (
     MODEL_24_BETA_ID,
     MODEL_24_BETA_VERSION,
     is_model24,
+    mark_model24_extreme_full_exit,
     model24_micro_pivot_stop,
 )
 from domain.contracts.beta_strategy import BetaDecision, BetaStrategyContext
@@ -1936,7 +1937,21 @@ class PositionManagerService:
         if success:
             self._mark_beta_execution(plan, decision)
             operational_model = str(plan.operational_model or "").upper()
-            if operational_model in FOREX_SMA_RSI_MODEL_IDS:
+            if is_model24(operational_model):
+                rsi_extreme_exit = decision.state in {
+                    "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
+                    "M8_EXIT_RSI30_CRUZOU_PARA_CIMA_SELL",
+                }
+                if rsi_extreme_exit:
+                    parameters = dict(plan.stop_management_parameters or {})
+                    mark_model24_extreme_full_exit(
+                        parameters.get("source_operational_model")
+                        or operational_model,
+                        snapshot.side,
+                        decision.state,
+                        decision.beta_closed_candle_time,
+                    )
+            elif operational_model in FOREX_SMA_RSI_MODEL_IDS:
                 rsi_exit = decision.state in {
                     "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
                     "M8_EXIT_RSI30_CRUZOU_PARA_CIMA_SELL",

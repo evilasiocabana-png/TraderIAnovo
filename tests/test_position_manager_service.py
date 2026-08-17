@@ -848,6 +848,57 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertEqual(result.action, "HOLD_POSITION")
         self.assertEqual(provider.modify_calls, 0)
 
+    def test_m24_extreme_full_exit_arms_first_reentry_skip(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("XAUUSD", "BUY", 101.0, 99.0, 0.0),
+            price=105.0,
+            candles=[],
+        )
+        manager = self._manager(provider, enabled=True)
+        exit_decision = SimpleNamespace(
+            action="FULL_EXIT",
+            status="M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
+            reason="RSI saiu de acima de 70 para abaixo de 70.",
+            rsi14=69.0,
+            previous_rsi14=71.0,
+            sma20=104.0,
+            sma50=100.0,
+            closed_candle_time="candle-extremo",
+        )
+
+        with (
+            patch(
+                "application.position_manager_service.evaluate_model8_exit",
+                return_value=exit_decision,
+            ),
+            patch(
+                "application.position_manager_service.mark_model24_extreme_full_exit"
+            ) as mark_exit,
+        ):
+            result = manager.manage_plan(
+                self._plan(
+                    "XAUUSD",
+                    "BUY",
+                    entry=101.0,
+                    stop=99.0,
+                    target=0.0,
+                    stop_management="M24_SOURCE_EXIT_PLUS_BASKET_1000",
+                    parameters={
+                        "source_operational_model": "MODELO_8_XAU_M5_SMA_RSI_REENTRY",
+                        "m24_reentry_position": False,
+                    },
+                    operational_model="MODELO_24_XAU_RSI50_BASKET_SOURCE_M8",
+                )
+            )
+
+        self.assertEqual(result.status, "POSITION_CLOSED")
+        mark_exit.assert_called_once_with(
+            "MODELO_8_XAU_M5_SMA_RSI_REENTRY",
+            "BUY",
+            "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
+            "candle-extremo",
+        )
+
     def test_beta002_compra_saudavel_mantem_posicao(self) -> None:
         provider = _FakePositionProvider(
             position=_position("EURUSD", "BUY", 1.1000, 1.0980, 1.1100),

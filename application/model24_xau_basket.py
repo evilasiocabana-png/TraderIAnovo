@@ -89,7 +89,7 @@ def model24_position_net(position: object) -> float:
 
 def model24_market_entry_role(source_model: object, trend_side: object) -> str:
     """Primeiro RSI50 da tendencia e inicial; os seguintes sao reentradas."""
-    source = model24_source_model_id(model24_variant_id(source_model))
+    source = _model24_source_key(source_model)
     side = str(trend_side or "").upper()
     with _LOCK:
         payload = _load_runtime_state()
@@ -105,22 +105,156 @@ def mark_model24_market_entry_accepted(
     candle_time: object,
 ) -> None:
     """Confirma consumo somente depois de aceite do provider Demo."""
-    source = model24_source_model_id(model24_variant_id(source_model))
+    source = _model24_source_key(source_model)
     side = str(trend_side or "").upper()
     with _LOCK:
         payload = _load_runtime_state()
         sources = dict(payload.get("sources") or {})
-        sources[source] = {
+        state = dict(sources.get(source) or {})
+        previous_side = str(state.get("trend_side") or "").upper()
+        if previous_side and previous_side != side:
+            for field_name in (
+                "skip_first_reentry_after_extreme",
+                "blocked_reentry_opportunity_key",
+                "blocked_reentry_at",
+                "released_reentry_opportunity_key",
+            ):
+                state.pop(field_name, None)
+        state.update({
             "trend_side": side,
             "initial_consumed": True,
             "last_entry_candle": str(candle_time or "N/D"),
             "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        payload = {"sources": sources}
-        MODEL_24_RUNTIME_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        temporary = MODEL_24_RUNTIME_STATE_PATH.with_suffix(f".{uuid4().hex}.tmp")
-        temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        temporary.replace(MODEL_24_RUNTIME_STATE_PATH)
+        })
+        sources[source] = state
+        _write_runtime_state({"sources": sources})
+
+
+@dataclass(frozen=True)
+class Model24ReentryGateDecision:
+    allowed: bool
+    status: str
+    reason: str
+    blocked_opportunity_key: str = ""
+
+
+def mark_model24_extreme_full_exit(
+    source_model: object,
+    trend_side: object,
+    exit_status: object,
+    candle_time: object,
+) -> None:
+    """Arma o descarte da primeira reentrada apos Full Exit RSI 70/30."""
+    source = _model24_source_key(source_model)
+    side = str(trend_side or "").upper()
+    event_key = f"{side}|{str(exit_status or '').upper()}|{candle_time or 'N/D'}"
+    with _LOCK:
+        payload = _load_runtime_state()
+        sources = dict(payload.get("sources") or {})
+        state = dict(sources.get(source) or {})
+        if str(state.get("last_extreme_exit_event_key") or "") != event_key:
+            state.update(
+                {
+                    "trend_side": side,
+                    "initial_consumed": True,
+                    "skip_first_reentry_after_extreme": True,
+                    "blocked_reentry_opportunity_key": "",
+                    "last_extreme_exit_event_key": event_key,
+                    "last_extreme_exit_status": str(exit_status or "").upper(),
+                    "last_extreme_exit_candle": str(candle_time or "N/D"),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            sources[source] = state
+            _write_runtime_state({"sources": sources})
+
+
+def evaluate_model24_reentry_opportunity(
+    source_model: object,
+    trend_side: object,
+    opportunity_key: object,
+) -> Model24ReentryGateDecision:
+    """Ignora a primeira oportunidade unica e libera a segunda apos RSI 70/30."""
+    source = _model24_source_key(source_model)
+    side = str(trend_side or "").upper()
+    key = str(opportunity_key or "").strip()
+    with _LOCK:
+        payload = _load_runtime_state()
+        sources = dict(payload.get("sources") or {})
+        state = dict(sources.get(source) or {})
+        if not bool(state.get("skip_first_reentry_after_extreme")):
+            return Model24ReentryGateDecision(
+                allowed=True,
+                status="M24_REENTRY_SEGUNDA_OPORTUNIDADE_LIBERADA",
+                reason="Nao existe descarte de primeira reentrada pendente.",
+            )
+        if str(state.get("trend_side") or "").upper() != side:
+            return Model24ReentryGateDecision(
+                allowed=True,
+                status="M24_REENTRY_NOVA_DIRECAO_LIBERADA",
+                reason="A trava do Full Exit pertence a outra direcao.",
+            )
+        if not key:
+            return Model24ReentryGateDecision(
+                allowed=False,
+                status="M24_REENTRY_AGUARDA_IDENTIFICAR_OPORTUNIDADE",
+                reason="A reentrada aguarda uma vela M5 fechada identificavel.",
+            )
+        blocked_key = str(state.get("blocked_reentry_opportunity_key") or "")
+        if not blocked_key:
+            state.update(
+                {
+                    "blocked_reentry_opportunity_key": key,
+                    "blocked_reentry_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            sources[source] = state
+            _write_runtime_state({"sources": sources})
+            blocked_key = key
+        if blocked_key == key:
+            return Model24ReentryGateDecision(
+                allowed=False,
+                status="M24_REENTRY_PRIMEIRA_OPORTUNIDADE_IGNORADA",
+                reason=(
+                    "Primeira oportunidade de reentrada apos Full Exit RSI 70/30 "
+                    "ignorada; aguardar a segunda oportunidade em nova vela M5."
+                ),
+                blocked_opportunity_key=blocked_key,
+            )
+        state.update(
+            {
+                "skip_first_reentry_after_extreme": False,
+                "released_reentry_opportunity_key": key,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        sources[source] = state
+        _write_runtime_state({"sources": sources})
+        return Model24ReentryGateDecision(
+            allowed=True,
+            status="M24_REENTRY_SEGUNDA_OPORTUNIDADE_LIBERADA",
+            reason="Segunda oportunidade valida apos Full Exit RSI 70/30 liberada.",
+            blocked_opportunity_key=blocked_key,
+        )
+
+
+def _model24_source_key(value: object) -> str:
+    if is_model24(value):
+        source = model24_source_model_id(value)
+        if source != "N/D":
+            return source
+    number = operational_model_number(value)
+    if number not in MODEL_24_SOURCE_MODEL_NUMBERS:
+        raise ValueError("M24 aceita somente as fontes M8, M10 e M18-M22.")
+    return f"M{number}"
+
+
+def _write_runtime_state(payload: dict[str, Any]) -> None:
+    MODEL_24_RUNTIME_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary = MODEL_24_RUNTIME_STATE_PATH.with_suffix(f".{uuid4().hex}.tmp")
+    temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temporary.replace(MODEL_24_RUNTIME_STATE_PATH)
 
 
 def _load_runtime_state() -> dict[str, Any]:

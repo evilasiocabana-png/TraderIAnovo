@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from application.model24_xau_basket import (
     MODEL_24_ID,
     Model24BasketManager,
+    evaluate_model24_reentry_opportunity,
     evaluate_model24_rsi50_market_entry,
+    mark_model24_extreme_full_exit,
+    mark_model24_market_entry_accepted,
     model24_micro_pivot_stop,
     model24_order_comment,
     model24_variant_id,
@@ -123,6 +127,58 @@ def test_micro_pivot_stop_finds_confirmed_micro_top_for_sell() -> None:
 
     assert candidate == 105.0
     assert candle_time != "N/D"
+
+
+def test_first_reentry_after_extreme_exit_is_skipped_on_both_sides(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "model24_runtime_state.json"
+    cases = (
+        (
+            MT5_OPERATIONAL_MODEL_8,
+            "BUY",
+            "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
+        ),
+        (
+            "MODELO_10_XAU_M5_SMA_RSI_MA_DISTANCE_ATR",
+            "SELL",
+            "M8_EXIT_RSI30_CRUZOU_PARA_CIMA_SELL",
+        ),
+    )
+    with patch(
+        "application.model24_xau_basket.MODEL_24_RUNTIME_STATE_PATH",
+        state_path,
+    ):
+        for source, side, exit_status in cases:
+            mark_model24_market_entry_accepted(source, side, "entrada-inicial")
+            mark_model24_extreme_full_exit(
+                source,
+                side,
+                exit_status,
+                "saida-extrema",
+            )
+
+            first = evaluate_model24_reentry_opportunity(
+                source,
+                side,
+                f"REENTRY|{side}|candle-1|MARKET",
+            )
+            repeated = evaluate_model24_reentry_opportunity(
+                source,
+                side,
+                f"REENTRY|{side}|candle-1|MARKET",
+            )
+            second = evaluate_model24_reentry_opportunity(
+                source,
+                side,
+                f"REENTRY|{side}|candle-2|MARKET",
+            )
+
+            assert not first.allowed
+            assert first.status == "M24_REENTRY_PRIMEIRA_OPORTUNIDADE_IGNORADA"
+            assert not repeated.allowed
+            assert second.allowed
+            assert second.status == "M24_REENTRY_SEGUNDA_OPORTUNIDADE_LIBERADA"
 
 
 class _ExecutionStub:
@@ -319,3 +375,57 @@ def test_service_blocks_structural_reentry_without_micro_pivot() -> None:
     assert plan.direction == "WAIT"
     assert plan.status == "M24_REENTRY_AGUARDA_MICRO_PIVO_CONFIRMADO"
     assert plan.stop is None
+
+
+def test_service_keeps_first_post_extreme_reentry_blocked_until_new_m5(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "model24_runtime_state.json"
+    candles = _buy_cross_candles()
+    service = object.__new__(DashboardService)
+    object.__setattr__(
+        service,
+        "mt5_market_data_service",
+        SimpleNamespace(latest_forex_candles={("XAUUSD", "M5"): candles}),
+    )
+    with patch(
+        "application.model24_xau_basket.MODEL_24_RUNTIME_STATE_PATH",
+        state_path,
+    ):
+        mark_model24_market_entry_accepted(
+            MT5_OPERATIONAL_MODEL_8,
+            "BUY",
+            "entrada-inicial",
+        )
+        mark_model24_extreme_full_exit(
+            MT5_OPERATIONAL_MODEL_8,
+            "BUY",
+            "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
+            "saida-extrema",
+        )
+
+        _row, first = service._mt5_model24_variant_from_source(
+            _source_row(),
+            _source_plan(),
+            source_operational_model=MT5_OPERATIONAL_MODEL_8,
+            source_ready=False,
+        )
+        _row, repeated = service._mt5_model24_variant_from_source(
+            _source_row(),
+            _source_plan(),
+            source_operational_model=MT5_OPERATIONAL_MODEL_8,
+            source_ready=False,
+        )
+        for candle in candles:
+            candle["time"] += 300.0
+        _row, second = service._mt5_model24_variant_from_source(
+            _source_row(),
+            _source_plan(),
+            source_operational_model=MT5_OPERATIONAL_MODEL_8,
+            source_ready=False,
+        )
+
+    assert first.status == "M24_REENTRY_PRIMEIRA_OPORTUNIDADE_IGNORADA"
+    assert repeated.status == "M24_REENTRY_PRIMEIRA_OPORTUNIDADE_IGNORADA"
+    assert second.status == "PLANO_VALIDO"
+    assert second.direction == "BUY"
