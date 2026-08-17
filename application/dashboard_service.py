@@ -7816,6 +7816,42 @@ class DashboardService:
         source = str(source_operational_model or "").upper()
         source_number = operational_model_number(source)
         source_label = f"M{source_number}" if source_number is not None else "N/D"
+        if str(row.pair or "").upper() != MODEL_8_SYMBOL:
+            status = "M24_ESCOPO_SOMENTE_XAUUSD"
+            reason = f"M24/{source_label} opera exclusivamente {MODEL_8_SYMBOL}/M5."
+            parameters = {
+                **dict(plan.stop_management_parameters or {}),
+                "source_operational_model": source,
+                "m24_scope_symbol": MODEL_8_SYMBOL,
+                "full_exit_usd": MODEL_24_FULL_EXIT_USD,
+            }
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status=status,
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=reason,
+                    active_model=f"M24 <- {source_label}",
+                    reason=reason,
+                    research_plan_status=status,
+                    research_plan_reason=reason,
+                    lab_parameters=parameters,
+                ),
+                replace(
+                    plan,
+                    direction="WAIT",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    status=status,
+                    reason=reason,
+                    invalid_reason=status,
+                    invalid_fields=("symbol",),
+                    stop_management_parameters=parameters,
+                ),
+            )
         candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
         rows = list(candles.get((MODEL_8_SYMBOL, MODEL_8_TIMEFRAME), []) or [])[
             -OPERATIONAL_INDICATOR_RAW_CANDLES:

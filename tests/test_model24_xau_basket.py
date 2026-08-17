@@ -469,6 +469,24 @@ def test_service_materializes_initial_m24_without_individual_tp(
     assert not plan.stop_management_parameters["m24_individual_target_enabled"]
 
 
+def test_service_blocks_m24_plan_on_non_xau_symbol() -> None:
+    service = object.__new__(DashboardService)
+    row = _source_row()
+    object.__setattr__(row, "pair", "EURUSD")
+
+    transformed_row, plan = service._mt5_model24_variant_from_source(
+        row,
+        _source_plan(symbol="EURUSD"),
+        source_operational_model=MT5_OPERATIONAL_MODEL_8,
+        source_ready=False,
+    )
+
+    assert transformed_row.decision == "WAIT"
+    assert transformed_row.pair == "EURUSD"
+    assert plan.status == "M24_ESCOPO_SOMENTE_XAUUSD"
+    assert plan.entry_price is None
+
+
 def test_service_builds_pending_reentry_from_price_above_sma20(tmp_path: Path) -> None:
     candles = _buy_cross_candles()
     service = object.__new__(DashboardService)
