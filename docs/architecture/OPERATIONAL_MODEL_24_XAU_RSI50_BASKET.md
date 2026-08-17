@@ -56,6 +56,21 @@ BUY exige SMA20>SMA50 e RSI14 cruzando 50 de baixo para cima no fechamento M5. S
 
 O primeiro cruzamento RSI50 de cada nova direção é classificado como entrada inicial. Depois do aceite do provider Demo, os próximos cruzamentos na mesma direção são reentradas. A mudança de direção reinicia a classificação.
 
+## Bloqueio da primeira reentrada apos RSI extremo
+
+Quando um Full Exit individual for executado porque o RSI14 saiu de acima de
+70 para abaixo de 70 no BUY, ou de abaixo de 30 para acima de 30 no SELL:
+
+1. a primeira oportunidade valida de reentrada na mesma direcao e ignorada;
+2. repeticoes do mesmo sinal durante a mesma vela M5 continuam bloqueadas;
+3. somente a segunda oportunidade valida, identificada por uma nova vela M5
+   fechada, pode ser liberada;
+4. a regra vale para reentrada Stop estrutural e reentrada RSI50 a mercado;
+5. Full Exit por inversao SMA20/50 ou perda do RSI50 de uma reentrada nao arma
+   esse descarte.
+
+A mudanca de direcao elimina a trava pertencente ao lado anterior.
+
 ## Cesta financeira
 
 - TP nativo MT5: sempre `0.0` para M24.
@@ -77,4 +92,5 @@ O primeiro cruzamento RSI50 de cada nova direção é classificado como entrada 
 - M24 é modelo ativo e selecionável, mas não é ativado automaticamente pela implantação.
 - Testes dedicados cobrem gatilho inicial, ausência de micropivô, as duas
   reentradas com SL no micro pivo, trailing monotono, isolamento M23/M24,
-  seleção das sete fontes, retirada de TP e comentário MT5.
+  descarte bilateral da primeira reentrada apos RSI extremo, seleção das sete
+  fontes, retirada de TP e comentário MT5.

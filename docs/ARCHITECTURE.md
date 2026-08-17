@@ -540,4 +540,8 @@ resultado financeiro e auditoria independentes do M23. O provider sempre envia
 `tp=0` para M24; a unica meta de lucro e a cesta liquida de +US$1.000. Tanto a
 reentrada Stop quanto a reentrada RSI50 a mercado usam SL no micro pivo 1+1
 confirmado mais recente, limitado aos ultimos cinco M5 fechados. O Position
-Manager aceita somente novos micro pivos que apertem o stop.
+Manager aceita somente novos micro pivos que apertem o stop. Depois de Full Exit
+por retorno do RSI abaixo de 70 no BUY ou acima de 30 no SELL, o runtime M24
+persiste por fonte e direcao a primeira oportunidade bloqueada. A segunda so e
+reconhecida quando a chave inclui uma nova vela M5 fechada, impedindo que o ciclo
+leve conte repetidamente o mesmo sinal.

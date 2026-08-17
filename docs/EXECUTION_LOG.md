@@ -1623,3 +1623,17 @@ Novas entradas devem registrar:
 - validacao: 53 testes direcionados e 188 testes do gate critico aprovados;
 - testes usaram provider local; nenhuma ordem, fechamento ou alteracao MT5 real
   foi executada.
+
+# 2026-08-17 - Primeira reentrada M24 ignorada apos RSI extremo
+
+- Full Exit BUY confirmado no retorno do RSI de 70 para baixo passa a armar o
+  descarte da primeira reentrada BUY;
+- Full Exit SELL confirmado no retorno do RSI de 30 para cima aplica a mesma
+  regra para a primeira reentrada SELL;
+- o estado e isolado por fonte M24 e direcao;
+- reavaliacoes de 10 segundos na mesma vela usam a mesma chave e permanecem
+  bloqueadas; somente uma nova oportunidade valida em outra vela M5 e liberada;
+- a trava cobre reentrada Stop estrutural e reentrada RSI50 a mercado, sem
+  alterar entrada principal, inversao SMA ou Full Exit da cesta;
+- validacao: 56 testes direcionados e 188 testes do gate critico aprovados;
+- nenhuma operacao MT5 real foi enviada, fechada ou modificada nos testes.

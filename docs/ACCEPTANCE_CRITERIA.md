@@ -81,6 +81,10 @@ Aceito quando:
   candles M5 fechados;
 - o SL das reentradas so avanca para um novo micro pivo favoravel e nunca
   afrouxa;
+- depois de Full Exit BUY no retorno do RSI abaixo de 70 ou SELL no retorno
+  acima de 30, a primeira oportunidade de reentrada na mesma direcao e ignorada;
+- repeticoes do mesmo sinal na mesma vela M5 nao contam como segunda
+  oportunidade; somente uma nova oportunidade valida em nova vela e liberada;
 - saidas nativas de seguranca da fonte continuam ativas;
 - cesta fecha somente posicoes M24 em +US$1.000 liquidos;
 - comentarios, estado, auditoria e relatorio distinguem M24 de M23;

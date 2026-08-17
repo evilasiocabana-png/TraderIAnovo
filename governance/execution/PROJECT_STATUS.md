@@ -22,6 +22,9 @@ Status: pronto para fluxo de inbox.
 - Nenhuma rota M24 usa TP individual; alvo coletivo liquido em +US$1.000.
 - SL das duas reentradas usa micro pivo 1+1 confirmado nos ultimos cinco M5;
   o Position Manager so aceita um novo micro pivo quando ele melhora a protecao.
+- Apos Full Exit RSI 70/30, a primeira oportunidade de reentrada do mesmo lado
+  e ignorada; repeticoes na mesma vela nao contam e somente a segunda
+  oportunidade em nova vela M5 pode ser liberada, tanto no BUY quanto no SELL.
 - Modelo foi selecionado manualmente como unico modo operacional em 2026-08-17,
   por solicitacao do usuario; isso nao comprova robo armado nem ordem enviada.
 - Relatorio `Em negociacao` identifica cada plano M24 como `PRINCIPAL` ou

@@ -20,6 +20,10 @@ O relatorio operacional tambem passou a expor o papel da entrada M24
 O contrato de SL das duas reentradas foi unificado em micro pivo 1+1 confirmado,
 com idade maxima de cinco M5 fechados e atualizacao somente a favor.
 
+A auditoria paper/demo deve confirmar tambem que, apos Full Exit RSI 70/30, a
+primeira reentrada do mesmo lado fica bloqueada e apenas a segunda oportunidade
+em nova vela M5 e liberada, simetricamente para BUY e SELL.
+
 Pendencia registrada em 2026-07-13:
 
 - criar sentinela de velocidade do TraderIA Novo;
