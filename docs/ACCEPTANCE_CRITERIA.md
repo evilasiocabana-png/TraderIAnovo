@@ -77,7 +77,10 @@ Aceito quando:
 - entrada inicial exige micropivo 1+1, cruzamento RSI50 e fechamento alem da SMA20;
 - reentrada estrutural permanece pendente Stop e reentrada RSI50 entra a mercado;
 - nenhuma ordem M24 envia TP individual ao MT5;
-- SL da reentrada a mercado nunca afrouxa;
+- as duas reentradas exigem SL em micro pivo 1+1 confirmado nos ultimos cinco
+  candles M5 fechados;
+- o SL das reentradas so avanca para um novo micro pivo favoravel e nunca
+  afrouxa;
 - saidas nativas de seguranca da fonte continuam ativas;
 - cesta fecha somente posicoes M24 em +US$1.000 liquidos;
 - comentarios, estado, auditoria e relatorio distinguem M24 de M23;

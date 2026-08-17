@@ -29,7 +29,9 @@ O SL inicial fica no micropivô confirmado. A saída individual da entrada inici
 - Mantém o gatilho estrutural da fonte.
 - BUY_STOP na máxima / SELL_STOP na mínima do candle M5 anterior.
 - A pendente é reposicionada a cada novo M5 fechado enquanto o contrato da fonte continuar válido.
-- Mantém o SL estrutural da fonte.
+- O SL nasce no microfundo 1+1 confirmado no BUY ou microtopo 1+1 no SELL,
+  localizado nos ultimos cinco candles M5 fechados.
+- Sem micro pivo recente e valido, a reentrada fica bloqueada.
 - Não possui TP individual.
 - É reentrada para a regra de invalidação RSI50.
 
@@ -38,8 +40,10 @@ O SL inicial fica no micropivô confirmado. A saída individual da entrada inici
 BUY exige SMA20>SMA50 e RSI14 cruzando 50 de baixo para cima no fechamento M5. SELL exige SMA20<SMA50 e RSI14 cruzando 50 de cima para baixo.
 
 - Entrada a mercado.
-- SL inicial no extremo do candle imediatamente anterior.
-- A cada novo M5 fechado, o SL candidato passa para a mínima anterior no BUY ou máxima anterior no SELL.
+- SL inicial no microfundo 1+1 confirmado no BUY ou microtopo 1+1 no SELL,
+  localizado nos ultimos cinco candles M5 fechados.
+- A cada novo M5 fechado, um novo micro pivo confirmado passa a ser o SL
+  candidato.
 - O SL só é modificado quando melhora a proteção e continua no lado válido do preço; nunca é afastado.
 - Não possui TP individual.
 - Perda do RSI50 ou inversão SMA20/50 produz Full Exit individual de segurança.
@@ -71,4 +75,6 @@ O primeiro cruzamento RSI50 de cada nova direção é classificado como entrada 
 - A criação e os testes do modelo não enviam ordens.
 - O candle dos indicadores deve coincidir com o candle do Trade Plan.
 - M24 é modelo ativo e selecionável, mas não é ativado automaticamente pela implantação.
-- Testes dedicados cobrem gatilho inicial, ausência de micropivô, reentrada RSI50, isolamento M23/M24, seleção das sete fontes, retirada de TP e comentário MT5.
+- Testes dedicados cobrem gatilho inicial, ausência de micropivô, as duas
+  reentradas com SL no micro pivo, trailing monotono, isolamento M23/M24,
+  seleção das sete fontes, retirada de TP e comentário MT5.

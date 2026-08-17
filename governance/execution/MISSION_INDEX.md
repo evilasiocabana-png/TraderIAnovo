@@ -46,6 +46,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-036_FIX_MT5_SELECTOR_DUPLICATE_KEY | Corrigir colisao de chave do seletor MT5 | completed | 2026-08-17 | 2026-08-17 | N/D | codex/multi-ea-trading-lab | 5b4dabb | Codex |
 | MISSION_TIA-037_FIX_MT5_SELECTOR_APPLY_REFRESH | Persistir M24 antes do rerender do seletor MT5 | completed | 2026-08-17 | 2026-08-17 | N/D | codex/multi-ea-trading-lab | 311f32f | Codex |
 | MISSION_TIA-038_SHOW_ENTRY_TYPE_IN_OPEN_TRADES | Exibir entrada principal ou reentrada antes do alvo | completed | 2026-08-17 | 2026-08-17 | N/D | codex/multi-ea-trading-lab | a9801ce | Codex |
+| MISSION_TIA-039_M24_REENTRY_MICRO_PIVOT_STOP | Usar micro pivo 1+1 no SL das reentradas M24 | completed | 2026-08-17 | 2026-08-17 | N/D | codex/multi-ea-trading-lab | ca590f0 | Codex |
 
 ## Regras
 

@@ -7,7 +7,8 @@ MISSION_TIA-030_A_DEFINIR
 ```
 
 Objetivo: auditar o M24 em paper/demo com candles novos, sem promover parametros
-nem alterar suas sete fontes, confirmando entradas, SL movel e Full Exit da cesta.
+nem alterar suas sete fontes, confirmando entradas, SL movel por micro pivo 1+1
+e Full Exit da cesta.
 
 Pre-condicao de interface concluida em 2026-08-17: o seletor operacional voltou
 a renderizar `Todos` e M24 com chaves distintas e o botao `Aplicar modelos`
@@ -15,6 +16,9 @@ persiste a escolha antes de atualizar os textos da tela.
 
 O relatorio operacional tambem passou a expor o papel da entrada M24
 (`PRINCIPAL` ou `REENTRADA`) antes do alvo.
+
+O contrato de SL das duas reentradas foi unificado em micro pivo 1+1 confirmado,
+com idade maxima de cinco M5 fechados e atualizacao somente a favor.
 
 Pendencia registrada em 2026-07-13:
 

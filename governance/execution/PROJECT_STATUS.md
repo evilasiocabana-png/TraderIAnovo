@@ -20,7 +20,8 @@ Status: pronto para fluxo de inbox.
 - Entrada inicial: micropivo 1+1 + cruzamento RSI50 + fechamento alem da SMA20.
 - Reentrada estrutural Stop e reentrada RSI50 a mercado permanecem separadas.
 - Nenhuma rota M24 usa TP individual; alvo coletivo liquido em +US$1.000.
-- SL da reentrada RSI50 acompanha o extremo do ultimo M5 apenas a favor.
+- SL das duas reentradas usa micro pivo 1+1 confirmado nos ultimos cinco M5;
+  o Position Manager so aceita um novo micro pivo quando ele melhora a protecao.
 - Modelo foi selecionado manualmente como unico modo operacional em 2026-08-17,
   por solicitacao do usuario; isso nao comprova robo armado nem ordem enviada.
 - Relatorio `Em negociacao` identifica cada plano M24 como `PRINCIPAL` ou

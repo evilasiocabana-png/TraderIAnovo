@@ -1610,3 +1610,16 @@ Novas entradas devem registrar:
   `REENTRADA`;
 - gate critico: 188 testes aprovados;
 - nenhuma regra de entrada, saida, cesta, stop, alvo ou envio foi modificada.
+
+# 2026-08-17 - SL das reentradas M24 no micro pivo
+
+- reentrada Stop estrutural deixou de herdar o pivo 2+2 da fonte;
+- reentrada RSI50 a mercado deixou de usar o extremo do candle anterior;
+- as duas reentradas agora exigem microfundo 1+1 no BUY ou microtopo 1+1 no
+  SELL, confirmado nos ultimos cinco candles M5 fechados;
+- sem micro pivo valido, a reentrada permanece bloqueada e informa a causa real;
+- o Position Manager reconhece explicitamente as variantes M24 e so move o SL
+  para um novo micro pivo mais favoravel, inclusive em contratos M24 existentes;
+- validacao: 53 testes direcionados e 188 testes do gate critico aprovados;
+- testes usaram provider local; nenhuma ordem, fechamento ou alteracao MT5 real
+  foi executada.
