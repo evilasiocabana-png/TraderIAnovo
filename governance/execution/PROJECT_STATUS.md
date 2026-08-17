@@ -2,6 +2,14 @@
 
 Status: pronto para fluxo de inbox.
 
+## Correcao do seletor MT5 - 2026-08-17
+
+- eliminada a colisao entre a chave Streamlit de `Todos` e a de um modelo novo
+  ainda nao reconhecido por um modulo antigo mantido em memoria;
+- chaves desconhecidas agora recebem sufixo derivado do ID canonico, sem usar
+  o sufixo reservado `todos`;
+- a selecao operacional e o estado persistido dos modelos nao foram alterados.
+
 ## Estado Operacional M24 - 2026-08-17
 
 - M24 criado como cesta XAUUSD/M5 independente do M23.

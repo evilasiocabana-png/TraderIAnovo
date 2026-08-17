@@ -9,6 +9,9 @@ MISSION_TIA-030_A_DEFINIR
 Objetivo: auditar o M24 em paper/demo com candles novos, sem promover parametros
 nem alterar suas sete fontes, confirmando entradas, SL movel e Full Exit da cesta.
 
+Pre-condicao de interface concluida em 2026-08-17: o seletor operacional voltou
+a renderizar `Todos` e M24 com chaves Streamlit distintas.
+
 Pendencia registrada em 2026-07-13:
 
 - criar sentinela de velocidade do TraderIA Novo;

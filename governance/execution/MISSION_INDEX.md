@@ -43,6 +43,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-033_VALIDAR_POSITION_MANAGER_EM_CONTA_DEMO_CONTROLADA | Validar Position Manager em conta demo controlada | completed | 2026-07-08 | 2026-07-08 | N/D | main | 77a3f77 | Codex |
 | MISSION_TIA-034_RUNTIME_GUARD_INFRASTRUCTURE_EXTRACTION | Runtime Guard infrastructure extraction | completed | 2026-07-08 | 2026-07-08 | N/D | main | a8dc0ec | Codex |
 | MISSION_TIA-035_CREATE_MODEL24_XAU_RSI50_BASKET | Criar M24 XAU RSI50 com cesta financeira | completed | 2026-08-17 | 2026-08-17 | N/D | codex/multi-ea-trading-lab | dacc816 | Codex |
+| MISSION_TIA-036_FIX_MT5_SELECTOR_DUPLICATE_KEY | Corrigir colisao de chave do seletor MT5 | completed | 2026-08-17 | 2026-08-17 | N/D | codex/multi-ea-trading-lab | 5b4dabb | Codex |
 
 ## Regras
 

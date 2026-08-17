@@ -1565,3 +1565,18 @@ Novas entradas devem registrar:
 - seletor, provider, Position Manager, dashboard, relatorio e politica de IDs
   passaram a reconhecer M24;
 - nenhuma ordem foi enviada durante implementacao ou testes.
+
+# 2026-08-17 - Incidente no seletor operacional apos M24
+
+- sintoma: a aba MT5 Forex interrompia a renderizacao com
+  `StreamlitDuplicateElementKey` na chave
+  `mt5_operational_model_checkbox_todos`;
+- causa: a chave de qualquer ID sem numero reconhecido reutilizava o sufixo
+  reservado de `Todos`; um processo vivo com a politica anterior ao M24 podia
+  interpretar M24 como desconhecido;
+- correcao: `Todos` passou a ser tratado explicitamente e IDs desconhecidos
+  recebem sufixo normalizado do proprio identificador;
+- prevencao: teste simula o M24 nao reconhecido por uma politica antiga e exige
+  unicidade de todas as chaves do seletor;
+- validacao: 3 testes direcionados e 188 testes do gate critico aprovados;
+- impacto operacional: nenhuma selecao persistida, setup ou ordem foi alterada.
