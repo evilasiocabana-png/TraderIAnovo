@@ -74,6 +74,7 @@ PY
 Aceito quando:
 
 - opera somente XAUUSD/M5 pelas fontes M8, M10 e M18-M22;
+- nunca reutiliza precos/SL do XAUUSD para gerar candidato em outro simbolo;
 - entrada inicial exige cruzamento do preco na SMA20 e do RSI14 no nivel 50 na
   mesma direcao; os eventos podem ocorrer em M5 diferentes, mas ambos precisam
   permanecer validos ate o segundo completar o sinal;

@@ -38,6 +38,8 @@ Status: pronto para fluxo de inbox.
   XAUUSD/M5 do M24.
 - O avaliador le diretamente o objeto `Candle` canonico do cache M5 e nao perde
   OHLC/horario por diferenca entre nomes de campos.
+- Trava de escopo impede materializacao do M24 sobre qualquer linha diferente
+  de XAUUSD; primeiro ciclo corrigido aceitou M24/M8 BUY no XAUUSD Demo.
 
 ## Estado Atual
 

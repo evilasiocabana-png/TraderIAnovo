@@ -1657,5 +1657,12 @@ Novas entradas devem registrar:
   `fechamento/maxima/minima/data`, enquanto o avaliador aceitava somente os
   aliases tecnicos em ingles e retornava `M24_DADOS_INVALIDOS`;
 - prova operacional com provider local materializou uma ordem M24/M8 BUY, sem
-  tocar no MT5; validacao: 76 testes direcionados e 188 testes criticos;
+  tocar no MT5;
+- auditoria do primeiro ciclo real identificou que o plano XAU ainda era
+  percorrido sobre linhas de outros pares; o provider rejeitou essas tentativas
+  e nenhuma ordem nao-XAU foi aceita;
+- adicionada trava antes da materializacao: M24 opera somente a linha XAUUSD;
+- depois das correcoes, o ciclo Demo aceitou M24/M8 BUY em XAUUSD com entrada
+  4417,64, SL 4416,53 e TP 0.0; validacao final: 77 testes direcionados e 188
+  testes criticos;
 - nenhuma operacao MT5 real foi enviada, fechada ou modificada nos testes.

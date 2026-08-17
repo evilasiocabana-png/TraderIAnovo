@@ -28,6 +28,8 @@ pendente sem exigir novos cruzamentos.
   plano-base heuristico H1 estiver sem gatilho.
 - O avaliador aceita diretamente `Candle` canonico com campos em portugues,
   eliminando o falso `M24_DADOS_INVALIDOS` do runtime.
+- Trava de escopo impede que o plano XAU seja materializado sobre linhas de
+  outros ativos.
 
 ## Seguranca
 
@@ -36,10 +38,11 @@ Nenhuma operacao MT5 real foi aberta, fechada ou modificada.
 
 ## Validacao
 
-- testes direcionados M24, Position Manager e provider: 76 aprovados;
+- testes direcionados M24, Position Manager e provider: 77 aprovados;
 - `python scripts/run_critical_ci.py`: 188 testes aprovados;
 - `python -m py_compile`: aprovado.
 
 ## Commit funcional
 
-`7350e4b`, `d665719` e `f91c01b` em `codex/multi-ea-trading-lab`.
+`7350e4b`, `d665719`, `f91c01b` e `1553f7e` em
+`codex/multi-ea-trading-lab`.

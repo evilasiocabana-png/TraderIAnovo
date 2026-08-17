@@ -6,6 +6,8 @@
 - Variantes: `MODELO_24_XAU_RSI50_BASKET_SOURCE_M<n>`.
 - Fontes permitidas: M8, M10, M18, M19, M20, M21 e M22.
 - Ativo/timeframe: `XAUUSD/M5`.
+- Qualquer linha de outro simbolo e bloqueada antes de materializar plano ou
+  chegar ao provider.
 - Comentário MT5: `TraderIA M24 S<n>`.
 - Estado e auditoria são próprios; M23 nunca compartilha posições, resultado ou arquivo de estado com M24.
 
