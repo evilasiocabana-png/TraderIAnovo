@@ -1,5 +1,24 @@
 # Execution Log
 
+## 2026-08-18 - Sincronizacao M25 entre seletor e ciclo de fundo
+
+- Sintoma: M25 aparecia selecionado no painel local/publico, mas os ativos
+  permaneciam em `M25_AGUARDA_VALIDACAO_LIVE_M5` apesar de o MT5 entregar 201
+  velas M5 para todos os 19 simbolos.
+- Causa: `_apply_persisted_operational_model_to_service()` validava a lista
+  persistida somente contra as fontes historicas do M23; M25 era descartado
+  antes de chegar ao `DashboardService` do ciclo background.
+- Correcao: a restauracao de background passou a usar
+  `MT5_ACTIVE_SOURCE_MODEL_IDS`, a mesma lista canonica do seletor visual.
+- Correcao visual: o ciclo publica as 19 linhas M25 no registro process-local
+  compartilhado e a tabela publica consome esse snapshot, sem recalcular em
+  uma fachada separada nem realizar nova consulta ao MT5.
+- Preservado: setup M24/M25, indicadores, entrada, reentrada, SL, TP, cesta,
+  ordens e posicoes existentes.
+- Validacao: leitura direta e provider retornaram 201/201 candles para 19/19
+  ativos; 4 testes direcionados, 53 testes M5/M24/M25 e o gate critico com 197
+  testes aprovados. Nenhuma ordem foi enviada, cancelada, fechada ou modificada.
+
 ## 2026-08-18 - Criacao operacional do M25 nos 19 ativos
 
 - criado `MODELO_25_MULTI_ASSET_RSI50_BASKET` como copia independente da

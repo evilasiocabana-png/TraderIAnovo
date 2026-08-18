@@ -235,6 +235,7 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'load_timeframe_optimization_results': '(self, count: int | None '
                                                                          '= None) -> '
                                                                          'list[research.timeframe_optimizer.TimeframeOptimizationResult]',
+                                  'model25_theoretical_entry_rows': '(self) -> list[dict[str, object]]',
                                   'mt5_research_history_database_path': '(self) -> pathlib.Path',
                                   'next_replay_candle': '(self) -> '
                                                         'application.replay_service.ReplayData',

@@ -1121,6 +1121,49 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             finally:
                 dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
 
+    def test_ciclo_background_aplica_m25_persistido_junto_com_m24(self) -> None:
+        original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
+        model25 = dashboard_app.MT5_OPERATIONAL_MODEL_25
+        service = Mock()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = (
+                Path(temp_dir) / "mt5_operational_model.json"
+            )
+            try:
+                dashboard_app._persist_mt5_operational_model(
+                    dashboard_app.MT5_OPERATIONAL_MODEL_WITH_24,
+                    models=(model25,),
+                )
+
+                dashboard_app._apply_persisted_operational_model_to_service(service)
+
+                service.set_mt5_operational_models.assert_called_once_with(
+                    (model25,),
+                    basket_mode=False,
+                    direct_models_enabled=True,
+                )
+                service.set_mt5_operational_model.assert_called_once_with(
+                    dashboard_app.MT5_OPERATIONAL_MODEL_WITH_24,
+                )
+            finally:
+                dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
+
+    def test_tabela_m25_prioriza_snapshot_reconciliado_do_background(self) -> None:
+        key = dashboard_app.MT5_MODEL25_THEORETICAL_ROWS_SHARED_SNAPSHOT_KEY
+        service = Mock()
+        expected = [{"Par": "AUDUSD", "Envio": "AGUARDA: M25_SEM_SINAL"}]
+        publish_background_snapshot(key, expected)
+        try:
+            rows = dashboard_app._model25_theoretical_entry_rows_from_background(
+                service
+            )
+
+            self.assertEqual(rows, expected)
+            service.model25_theoretical_entry_rows.assert_not_called()
+        finally:
+            clear_background_snapshot(key)
+
     def test_chaveamento_renderiza_grade_visivel_sem_lista_suspensa(self) -> None:
         source = inspect.getsource(
             dashboard_app._render_mt5_operational_model_selector

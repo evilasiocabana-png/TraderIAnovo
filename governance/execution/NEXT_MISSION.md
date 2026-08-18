@@ -14,6 +14,11 @@ Pre-condicao de interface concluida em 2026-08-17: o seletor operacional voltou
 a renderizar `Todos` e M24 com chaves distintas e o botao `Aplicar modelos`
 persiste a escolha antes de atualizar os textos da tela.
 
+Pre-condicao de runtime concluida em 2026-08-18: o ciclo de fundo restaura M25
+pela lista canonica de modelos ativos, igual ao seletor visual. O filtro legado
+limitado as fontes do M23 foi removido; a observacao deve confirmar a
+reconciliacao viva das 201 velas M5 nos 19 ativos.
+
 O relatorio operacional tambem passou a expor o papel da entrada M24
 (`PRINCIPAL` ou `REENTRADA`) antes do alvo.
 

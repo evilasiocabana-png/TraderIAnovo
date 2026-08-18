@@ -835,6 +835,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
             MT5_MODEL_23_SOURCE_MODEL_IDS,
             MT5_MODEL_23_RETIRED_SOURCE_MODEL_IDS,
             MT5_OPERATIONAL_MODEL_23,
+            MT5_OPERATIONAL_MODEL_25,
         )
         from domain.operational_model_policy import operational_model_number
 
@@ -851,7 +852,11 @@ class DashboardViewModelContractTest(unittest.TestCase):
         )
         self.assertEqual(
             MT5_MODEL_23_SOURCE_MODEL_IDS,
-            MT5_ACTIVE_SOURCE_MODEL_IDS,
+            tuple(
+                model_id
+                for model_id in MT5_ACTIVE_SOURCE_MODEL_IDS
+                if model_id != MT5_OPERATIONAL_MODEL_25
+            ),
         )
         self.assertEqual(
             tuple(

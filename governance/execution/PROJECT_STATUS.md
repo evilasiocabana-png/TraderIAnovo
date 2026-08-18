@@ -2,6 +2,19 @@
 
 Status: pronto para fluxo de inbox.
 
+## Sincronizacao do ciclo M25 - 2026-08-18
+
+- o ciclo de fundo passa a restaurar M25 a partir da mesma lista canonica usada
+  pelo seletor e pela interface;
+- corrigido o filtro legado que aceitava somente fontes do M23 e fazia M25
+  aparecer selecionado sem receber a reconciliacao das 201 velas M5;
+- setup, entrada, reentrada, SL, TP, cesta e posicoes existentes nao foram
+  alterados;
+- a tabela publica usa o snapshot M25 ja reconciliado pelo ciclo de fundo, sem
+  criar leitura MT5 adicional na interface;
+- regressao direcionada, 53 testes de M5/M24/M25 e gate critico com 197 testes
+  aprovados sem envio MT5.
+
 ## Estado Operacional M25 - 2026-08-18
 
 - M25 implementado como copia independente da logica M24 nos 19 ativos

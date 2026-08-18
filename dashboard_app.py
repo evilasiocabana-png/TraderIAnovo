@@ -440,6 +440,9 @@ MT5_DEMO_ROBOT_SHARED_SNAPSHOT_KEY = "mt5_demo_robot_status"
 MT5_LAB_OPERATIONAL_DECISIONS_SHARED_SNAPSHOT_KEY = (
     "mt5_lab_operational_decisions"
 )
+MT5_MODEL25_THEORETICAL_ROWS_SHARED_SNAPSHOT_KEY = (
+    "mt5_model25_theoretical_rows"
+)
 DASHBOARD_UI_SHARED_RESOURCE_KEY = "dashboard_ui_service"
 MT5_RUNTIME_LOCK = RuntimeLockService()
 MT5_ENTRY_REGIME_PIPELINE = MarketRegimePipeline()
@@ -536,6 +539,14 @@ def _mt5_forex_background_cycle() -> None:
                 publish_background_snapshot(
                     MT5_LAB_OPERATIONAL_DECISIONS_SHARED_SNAPSHOT_KEY,
                     decisions,
+                )
+                publish_background_snapshot(
+                    MT5_MODEL25_THEORETICAL_ROWS_SHARED_SNAPSHOT_KEY,
+                    (
+                        service.model25_theoretical_entry_rows()
+                        if service._mt5_model25_routing_enabled()
+                        else []
+                    ),
                 )
             except Exception:
                 pass
@@ -854,6 +865,14 @@ def _demo_robot_background_cycle() -> None:
                         MT5_LAB_OPERATIONAL_DECISIONS_SHARED_SNAPSHOT_KEY,
                         decisions,
                     )
+                    publish_background_snapshot(
+                        MT5_MODEL25_THEORETICAL_ROWS_SHARED_SNAPSHOT_KEY,
+                        (
+                            service.model25_theoretical_entry_rows()
+                            if service._mt5_model25_routing_enabled()
+                            else []
+                        ),
+                    )
                 _write_demo_robot_background_state(
                     online=True,
                     pair=pair,
@@ -895,7 +914,7 @@ def _apply_persisted_operational_model_to_service(service: DashboardService) -> 
     models = tuple(
         str(item or "").strip().upper()
         for item in list(payload.get("models") or [])
-        if str(item or "").strip().upper() in MT5_MODEL_23_SOURCE_MODEL_IDS
+        if str(item or "").strip().upper() in MT5_ACTIVE_SOURCE_MODEL_IDS
     )
     multi_setter = getattr(service, "set_mt5_operational_models", None)
     if callable(multi_setter) and models:
@@ -5821,6 +5840,18 @@ def _model24_setup_rows() -> list[dict[str, object]]:
     ]
 
 
+def _model25_theoretical_entry_rows_from_background(
+    service: DashboardService,
+) -> list[dict[str, object]]:
+    """Usa o M25 ja reconciliado pelo unico ciclo MT5 do processo."""
+    shared = get_background_snapshot(
+        MT5_MODEL25_THEORETICAL_ROWS_SHARED_SNAPSHOT_KEY,
+    )
+    if isinstance(shared, list) and shared:
+        return [dict(row) for row in shared if isinstance(row, dict)]
+    return service.model25_theoretical_entry_rows()
+
+
 def _exibir_entradas_teoricas_mt5(
     service: DashboardService,
     rows: list[dict[str, object]],
@@ -6153,7 +6184,7 @@ def _exibir_entradas_teoricas_mt5(
             "a janela compartilhada de 200 velas fechadas mais a vela atual."
         )
         _render_stable_readonly_table(
-            service.model25_theoretical_entry_rows(),
+            _model25_theoretical_entry_rows_from_background(service),
             model_column="Par",
             decision_column="Direcao",
             color_status_cells=True,
