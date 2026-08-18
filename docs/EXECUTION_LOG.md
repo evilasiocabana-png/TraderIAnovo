@@ -1793,3 +1793,13 @@ Novas entradas devem registrar:
 - Formula: `abs(SMA20 - SMA50) / ATR14`.
 - O sinal da diferenca e ignorado: a distancia nao interfere na direcao propria
   do M24, servindo apenas como filtro de separacao das medias.
+# 2026-08-18 - TP estrutural M24/M25 no fechamento do fundo principal
+
+- auditoria do historico MT5 encontrou alvo legado em `4394,18`, coincidente
+  com a minima da vela M5 cujo fechamento era `4395,07`;
+- removida a selecao do menor/maior extremo das cinco velas recentes;
+- M24 e M25 agora procuram o ultimo topo/fundo principal confirmado 2+2 na
+  janela de ate 200 velas e enviam como TP exclusivamente o fechamento da vela
+  estrutural;
+- testes impedem regressao para a maxima/minima e comprovam a busca alem das
+  cinco velas mais recentes.

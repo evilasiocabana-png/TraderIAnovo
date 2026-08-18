@@ -11,6 +11,8 @@ Status: pronto para fluxo de inbox.
 - Estado, duplicidade e papeis `INITIAL/REENTRY` sao isolados por ativo.
 - Dados M5 usam o snapshot compartilhado; Lab pesado permanece fora do ciclo.
 - Cesta M25 fecha somente suas posicoes em `+US$1.000` liquidos.
+- Reentradas M25 usam o fechamento do ultimo topo/fundo principal 2+2
+  confirmado na janela M5 de ate 200 velas como TP individual.
 - Conta real continua bloqueada e a implantacao nao seleciona M25
   automaticamente.
 - Testes automatizados dedicados aprovados sem acesso ao MT5.
@@ -34,7 +36,9 @@ Status: pronto para fluxo de inbox.
   permanece alem de 50. Os dois cruzamentos podem ocorrer em M5 diferentes.
 - Reentrada unica e pendente: fechamento e RSI no lado permitido geram
   BUY_STOP/SELL_STOP na maxima/minima do ultimo M5, sem exigir novo cruzamento.
-- Nenhuma rota M24 usa TP individual; alvo coletivo liquido em +US$1.000.
+- A entrada inicial M24 nao usa TP individual; a reentrada usa o fechamento do
+  ultimo topo/fundo principal 2+2 confirmado. O alvo coletivo permanece em
+  +US$1.000 liquidos.
 - SL da reentrada usa o micro pivo 1+1 anterior mais proximo nos ultimos cinco M5;
   o Position Manager so aceita um novo micro pivo quando ele melhora a protecao.
 - Apos Full Exit RSI 70/30, a primeira oportunidade de reentrada do mesmo lado
@@ -56,8 +60,8 @@ Status: pronto para fluxo de inbox.
 - Correcao de 2026-08-17 removeu da posicao principal a saida por inversao
   SMA20/50, coerente com a entrada que tambem nao depende da SMA50. Full Exit
   RSI 70/30, SL e cesta permanecem; reentradas preservam inversao SMA e RSI50.
-- Reentrada M24/M8 ficou pendente no book como BUY_STOP, com SL no microfundo
-  anterior mais proximo e sem TP individual.
+- Reentrada M24/M8 fica pendente no book como BUY_STOP/SELL_STOP, com SL na
+  vela de referencia e TP no fechamento do topo/fundo principal confirmado.
 
 ## Estado Atual
 

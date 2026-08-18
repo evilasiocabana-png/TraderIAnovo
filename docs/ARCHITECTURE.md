@@ -536,9 +536,11 @@ ou fechar ordem, mover SL/TP, recalcular indicadores ou iniciar o Lab.
 O contrato completo do M24 esta em
 `docs/architecture/OPERATIONAL_MODEL_24_XAU_RSI50_BASKET.md`. O modelo reutiliza
 o cache compartilhado XAUUSD/M5, mas possui identidade, estado, comentario MT5,
-resultado financeiro e auditoria independentes do M23. O provider sempre envia
-`tp=0` para M24; a unica meta de lucro e a cesta liquida de +US$1.000. A entrada
-inicial memoriza separadamente o cruzamento do preco na SMA20 e o cruzamento do
+resultado financeiro e auditoria independentes do M23. O provider envia `tp=0`
+somente para a entrada inicial M24; a reentrada leva o TP no fechamento da vela
+que formou o ultimo topo/fundo principal 2+2 confirmado. A cesta liquida de
++US$1.000 continua como alvo coletivo. A entrada inicial memoriza separadamente
+o cruzamento do preco na SMA20 e o cruzamento do
 RSI14 em 50 e so entra a mercado se ambos continuarem validos na mesma direcao.
 A reentrada nao exige novo cruzamento: gera BUY_STOP/SELL_STOP na maxima/minima
 do ultimo M5 quando fechamento e RSI permanecem do lado permitido. O SL usa o
@@ -565,3 +567,6 @@ cesta financeira proprios. Cada ativo pode manter no maximo uma entrada
 O M25 reutiliza o snapshot M5 compartilhado e nunca executa Lab pesado no ciclo
 leve. O Full Exit coletivo de `+US$1.000` considera somente posicoes M25. Conta
 real permanece bloqueada e nenhuma ativacao automatica ocorre na implantacao.
+Assim como no M24, a entrada inicial nao possui TP individual e a reentrada usa
+como TP o fechamento, nunca o extremo, do ultimo pivo principal 2+2 confirmado
+na janela deslizante de ate 200 velas M5 fechadas.

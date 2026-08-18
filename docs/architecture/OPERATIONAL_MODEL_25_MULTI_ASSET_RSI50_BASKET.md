@@ -37,7 +37,8 @@ de preco/SMA20 e RSI14/50, filtro absoluto de distancia
 Depois da entrada inicial aceita, a reentrada usa a correcao e retomada no M5,
 volume `0,10`, ordem Stop no extremo da ultima vela fechada, SL no extremo
 oposto da mesma vela com um pip de folga e TP no fechamento do candle que
-formou o topo/fundo estrutural anterior. O tamanho de pip e resolvido por ativo:
+formou o ultimo topo/fundo principal 2+2 confirmado na janela deslizante de ate
+200 velas. A maxima/minima desse pivo nunca e usada como preco do TP. O tamanho de pip e resolvido por ativo:
 `0,0001` no Forex comum e `0,01` em pares JPY, XAUUSD e BTCUSD.
 
 Existe no maximo uma posicao `INITIAL` e uma `REENTRY` por ativo M25. Posicoes

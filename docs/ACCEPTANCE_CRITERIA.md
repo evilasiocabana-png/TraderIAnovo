@@ -90,7 +90,9 @@ Aceito quando:
   do M24;
 - o avaliador M24 aceita diretamente os objetos `Candle` canonicos recebidos do
   cache operacional, sem conversao manual de campos;
-- nenhuma ordem M24 envia TP individual ao MT5;
+- a entrada inicial M24 envia `tp=0`; a reentrada envia TP no fechamento da
+  vela do ultimo topo/fundo principal 2+2 confirmado na janela de ate 200 M5;
+- o TP da reentrada nunca usa a maxima/minima da vela estrutural;
 - a reentrada exige SL em micro pivo 1+1 confirmado nos ultimos cinco
   candles M5 fechados;
 - o SL da reentrada so avanca para um novo micro pivo favoravel e nunca
@@ -118,6 +120,8 @@ Aceito quando:
 - admite no maximo uma posicao de cada papel por ativo e bloqueia lados opostos;
 - usa `0,20` lote na inicial e `0,10` na reentrada;
 - aplica pip `0,0001` no Forex comum e `0,01` em JPY, XAUUSD e BTCUSD;
+- usa `tp=0` na entrada inicial e o fechamento do ultimo pivo principal 2+2
+  confirmado como TP da reentrada, sem usar a maxima/minima desse candle;
 - usa somente o snapshot M5 compartilhado e nao chama Lab pesado no runtime;
 - bloqueia ordens depois de reinicio ate reconciliar o cache com o MT5 vivo;
 - fecha somente a cesta M25 ao atingir `+US$1.000` liquidos;

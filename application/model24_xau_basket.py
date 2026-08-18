@@ -563,7 +563,7 @@ def evaluate_model24_pending_reentry(
         closed,
         side,
         trigger,
-        maximum_age=5,
+        maximum_age=200,
     )
     if structural_target is None:
         return Model24EntryDecision(
@@ -773,32 +773,48 @@ def _model24_reentry_structural_target(
     side: str,
     entry: float,
     *,
-    maximum_age: int = 5,
+    maximum_age: int = 200,
 ) -> tuple[float | None, str]:
-    """Retorna o fechamento do candle que formou o topo/fundo anterior."""
-    if len(rows) < 2:
+    """Retorna o fechamento do ultimo topo/fundo principal confirmado 2+2."""
+    if len(rows) < 6:
         return None, "N/D"
     normalized = str(side or "").upper()
     field = "high" if normalized == "BUY" else "low" if normalized == "SELL" else ""
     if not field:
         return None, "N/D"
-    # O ultimo candle fechado define o novo BUY_STOP/SELL_STOP. O alvo deve vir
-    # da estrutura anterior a ele, nunca do proprio candle gatilho.
-    candidates: list[tuple[float, float, str]] = []
-    for row in rows[-(maximum_age + 1) : -1]:
-        extreme = _number(row, field)
-        close = _number(row, "close")
-        if extreme is not None and close is not None:
-            candidates.append((float(extreme), float(close), _time(row)))
-    if not candidates:
-        return None, "N/D"
-    _, target, target_time = (
-        max(candidates, key=lambda item: item[0])
-        if normalized == "BUY"
-        else min(candidates, key=lambda item: item[0])
-    )
-    valid = target > float(entry) if normalized == "BUY" else target < float(entry)
-    return (target, target_time) if valid else (None, "N/D")
+    # O ultimo candle fechado define a pendente. O alvo pertence ao movimento
+    # principal anterior a correcao: um pivo confirmado por duas velas de cada
+    # lado. A cotacao do TP e sempre o fechamento da vela que formou esse pivo,
+    # nunca sua maxima/minima.
+    start = max(2, len(rows) - max(5, int(maximum_age)))
+    for index in range(len(rows) - 3, start - 1, -1):
+        extreme = _number(rows[index], field)
+        target = _number(rows[index], "close")
+        neighbors = [
+            _number(rows[neighbor], field)
+            for neighbor in (index - 2, index - 1, index + 1, index + 2)
+        ]
+        if extreme is None or target is None or any(value is None for value in neighbors):
+            continue
+        left = [float(value) for value in neighbors[:2]]
+        right = [float(value) for value in neighbors[2:]]
+        confirmed = (
+            all(float(extreme) > value for value in left)
+            and all(float(extreme) >= value for value in right)
+            if normalized == "BUY"
+            else all(float(extreme) < value for value in left)
+            and all(float(extreme) <= value for value in right)
+        )
+        if not confirmed:
+            continue
+        valid = (
+            float(target) > float(entry)
+            if normalized == "BUY"
+            else float(target) < float(entry)
+        )
+        if valid:
+            return float(target), _time(rows[index])
+    return None, "N/D"
 
 
 def _model24_initial_cross_confirmation(

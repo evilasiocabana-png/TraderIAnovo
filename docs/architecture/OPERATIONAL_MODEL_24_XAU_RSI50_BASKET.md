@@ -51,8 +51,11 @@ perna vigente usando o estado confirmado no ultimo M5 fechado:
 - o SL inicial usa o extremo oposto da mesma vela que publicou a pendencia:
   minima menos `0,01` no BUY e maxima mais `0,01` no SELL;
 - a reentrada nao reaplica os filtros direcionais da fonte;
-- BUY usa TP no topo favoravel anterior ao inicio da correcao; SELL usa TP no
-  fundo favoravel anterior ao inicio da correcao;
+- BUY usa TP no fechamento da vela que formou o ultimo topo principal 2+2
+  confirmado antes da correcao; SELL usa o fechamento da vela que formou o
+  ultimo fundo principal 2+2 confirmado;
+- a busca percorre a janela deslizante de ate 200 velas M5 fechadas e nunca usa
+  a maxima/minima do pivo como preco do TP;
 - ao atingir RSI extremo (`BUY >= 70` ou `SELL <= 30`), o TP estrutural e
   removido no MT5 e a posicao passa a aguardar o Full Exit confirmado no
   retorno do RSI (`BUY < 70` ou `SELL > 30`);

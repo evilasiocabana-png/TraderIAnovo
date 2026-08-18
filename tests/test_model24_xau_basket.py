@@ -21,6 +21,7 @@ from application.model24_xau_basket import (
     model24_order_comment,
     model24_variant_id,
     _model24_distance_atr,
+    _model24_reentry_structural_target,
 )
 from application.dashboard_service import (
     DashboardService,
@@ -106,10 +107,10 @@ def _separate_buy_cross_candles() -> list[dict[str, float]]:
 def _set_valid_buy_structural_close_target(
     candles: list[dict[str, float]],
 ) -> None:
-    """Cria topo anterior cujo fechamento permanece acima do BUY_STOP atual."""
+    """Cria topo principal 2+2 cujo fechamento fica acima do BUY_STOP."""
     trigger = float(candles[-2]["high"])
-    candles[-3]["close"] = trigger + 1.0
-    candles[-3]["high"] = trigger + 1.1
+    candles[-5]["close"] = trigger + 1.0
+    candles[-5]["high"] = trigger + 1.1
 
 
 @pytest.fixture(autouse=True)
@@ -294,6 +295,48 @@ def test_pending_sell_reentry_uses_last_closed_low_and_high_for_stop() -> None:
     assert decision.initial_stop == candles[-2]["high"] + 0.01
     assert decision.structural_target_price == 98.2
     assert "SELL_STOP" in decision.status
+
+
+def test_reentry_target_uses_close_of_confirmed_main_bottom_not_its_low() -> None:
+    rows = [
+        {"time": index, "high": high, "low": low, "close": close}
+        for index, (high, low, close) in enumerate(
+            (
+                (110.0, 105.0, 107.0),
+                (108.0, 102.0, 104.0),
+                (106.0, 100.0, 103.0),
+                (107.0, 101.0, 105.0),
+                (109.0, 103.0, 108.0),
+                (111.0, 105.0, 110.0),
+                (110.0, 104.0, 106.0),
+                (109.0, 103.0, 105.0),
+            )
+        )
+    ]
+
+    target, target_time = _model24_reentry_structural_target(
+        rows,
+        "SELL",
+        108.0,
+    )
+
+    assert target == 103.0
+    assert target != 100.0
+    assert target_time != "N/D"
+
+
+def test_reentry_target_reaches_main_bottom_beyond_five_recent_candles() -> None:
+    rows = [
+        {"time": index, "high": 120.0 + index, "low": 110.0 + index, "close": 115.0 + index}
+        for index in range(12)
+    ]
+    rows[2].update({"low": 90.0, "close": 95.0})
+    for index in range(3, 12):
+        rows[index].update({"low": 100.0 + index, "close": 102.0 + index})
+
+    target, _ = _model24_reentry_structural_target(rows, "SELL", 110.0)
+
+    assert target == 95.0
 
 
 def test_pending_reentry_waits_until_buy_correction_exists() -> None:
