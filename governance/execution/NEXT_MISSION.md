@@ -6,9 +6,9 @@ Proxima missao recomendada, ainda nao autorizada automaticamente:
 MISSION_TIA-030_A_DEFINIR
 ```
 
-Objetivo: auditar o M24 em paper/demo com candles novos, sem promover parametros
-nem alterar suas sete fontes, confirmando entradas, SL movel por micro pivo 1+1
-e Full Exit da cesta.
+Objetivo: auditar M24 e M25 em paper/demo com candles novos, sem promover
+parametros, confirmando entradas, reentradas, SL favoravel e o isolamento das
+cestas. O M25 deve ser observado nos 19 ativos sem ativacao automatica.
 
 Pre-condicao de interface concluida em 2026-08-17: o seletor operacional voltou
 a renderizar `Todos` e M24 com chaves distintas e o botao `Aplicar modelos`

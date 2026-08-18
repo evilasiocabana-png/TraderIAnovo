@@ -1,5 +1,19 @@
 # Execution Log
 
+## 2026-08-18 - Criacao operacional do M25 nos 19 ativos
+
+- criado `MODELO_25_MULTI_ASSET_RSI50_BASKET` como copia independente da
+  logica M24 para os 19 ativos canonicos, todos em M5;
+- estado de entrada e reentrada e isolado por ativo, com no maximo uma posicao
+  `INITIAL` e uma `REENTRY` por simbolo;
+- volumes preservados em `0,20` e `0,10`, com tamanho de pip adaptado ao ativo;
+- M25 reutiliza o snapshot compartilhado e nao chama Lab pesado no ciclo leve;
+- Robo Demo, provider, Position Manager, MT5 Forex, Relatorio e politica de
+  modelos reconhecem o novo contrato;
+- cesta M25 fecha somente suas posicoes em `+US$1.000` liquidos;
+- persistencia M25 recebeu escrita atomica tolerante ao OneDrive;
+- testes automatizados nao conectam nem enviam ordem ao MT5.
+
 ## 2026-08-17 - M24 principal sem saida por inversao SMA20/50
 
 - removido o Full Exit por inversao SMA20/SMA50 somente das posicoes M24
@@ -1682,3 +1696,100 @@ Novas entradas devem registrar:
   4418,17, SL 4416,53 e TP 0.0, sem posicao aberta naquele instante;
 - validacao final: 77 testes direcionados e 188 testes criticos;
 - nenhuma operacao MT5 real foi enviada, fechada ou modificada nos testes.
+# 2026-08-17 - Limite simultaneo M24 por papel
+
+- M24 passou a permitir somente uma posicao `INITIAL` e uma `REENTRY` abertas;
+- a defesa foi colocada no provider, antes do envio ao MT5;
+- comentarios novos identificam o papel e tickets legados usam o log local;
+- a Saida Teorica deixou de rotular `ALPHA001 / TREND_MOMENTUM` legado como M24
+  apenas porque M24 estava selecionado na tela.
+# 2026-08-17 - M24 reentrada movel e INITIAL alternada
+
+- A reentrada M24 agora exige correcao M5, usa RSI14 50-70 no BUY e 30-50 no SELL.
+- A ordem pendente caminha para o extremo de cada novo M5 fechado depois da correcao.
+- A entrada INITIAL passou a alternar globalmente BUY/SELL; o mesmo lado gera REENTRY.
+- Estado persistente preserva a alternancia entre ciclos e reinicios.
+
+# 2026-08-17 - Reparo do descarte da primeira reentrada M24
+
+- a auditoria real encontrou Full Exit RSI 70/30 executado sem o marcador
+  `skip_first_reentry_after_extreme` no estado persistente;
+- causa: o Position Manager reconhecia o M24 somente pelo `operational_model`,
+  mas o snapshot da ordem podia preservar M8/M10/M18-M22 como modelo-fonte;
+- o M24 agora tambem e identificado por `ALPHA024`, politica de saida e
+  parametros contratuais, inclusive na decisao e apos o fechamento aceito;
+- o status sem trava pendente deixou de afirmar incorretamente que a segunda
+  oportunidade havia sido liberada;
+- teste de regressao reproduz o snapshot M24 reconstruido como M8.
+- o inicializador oficial tambem foi corrigido para tratar timeout de saude
+  local/publica como indisponibilidade recuperavel, permitindo limpar a porta
+  travada e reiniciar Streamlit e Cloudflare em vez de abortar o atalho.
+
+# 2026-08-17 - Transicao M24 sem hedge entre INITIAL e REENTRY
+
+- a venda `INITIAL` M24 foi confirmada como correta; o conflito veio de
+  reentradas BUY pendentes do movimento anterior;
+- o provider passou a bloquear qualquer posicao M24 no lado oposto antes do
+  novo envio, preservando a `INITIAL` para o ciclo posterior ao encerramento;
+- pendencias M24 do lado anterior sao canceladas na mudanca de direcao;
+- somente uma `REENTRY` pendente global e permitida entre todas as fontes M24;
+- testes cobrem posicao oposta, pendencia oposta e concorrencia entre fontes.
+
+# 2026-08-17 - Remocao da saida SMA20/SMA50 residual no M24
+
+- auditoria do MT5 confirmou que a aparente compra apos uma SELL era o negocio
+  de fechamento da venda, e nao nova posicao BUY;
+- a SELL `360156043` abriu com preco abaixo da SMA20, mas foi fechada 13 segundos
+  depois por `M8_EXIT_INVERSAO_SMA_SELL`, criterio antigo SMA20/SMA50;
+- M24 INITIAL e REENTRY agora desabilitam integralmente a saida por relacao
+  SMA20/SMA50; a direcao continua baseada no preco contra SMA20;
+- Full Exits por RSI e o alvo financeiro da cesta permanecem ativos;
+- modelos-fonte operados fora do M24 nao foram alterados.
+
+# 2026-08-17 - TP estrutural nas reentradas M24
+
+- a entrada `INITIAL` permanece sem TP individual;
+- a reentrada BUY usa o topo anterior a correcao e a SELL usa o fundo anterior;
+- o SL permanece no microfundo/microtopo confirmado e nunca e afrouxado;
+- alvo ausente ou no lado incorreto bloqueia o plano antes do provider;
+- o provider envia TP apenas para `REENTRY` M24 com contrato valido;
+- a primeira oportunidade depois do Full Exit RSI 70/30 continua descartada;
+- a cesta M24 continua com Full Exit financeiro em +US$1.000.
+
+# 2026-08-17 - Identificacao do modelo real na Saida Teorica
+
+- variantes M23/M24 com sufixo `SOURCE_M<n>` passaram a ser reconhecidas como
+  modelos gravados na ordem;
+- a tabela nao herda mais o seletor atual para uma posicao aberta de outro
+  modelo;
+- modelo, Alpha e setup de entrada agora permanecem vinculados ao ticket real;
+- a correcao e apenas de leitura e nao altera a posicao aberta no MT5.
+# 2026-08-17 - Tipo de entrada na Saida Teorica MT5
+
+- A tabela `Saida Teorica MT5` passou a mostrar `Tipo entrada` como `PRINCIPAL` ou `REENTRADA`.
+- A classificacao reutiliza o contrato persistido da ordem e nao adiciona nova leitura do MT5 ao ciclo leve.
+# 2026-08-18 - Volume operacional por papel no M24
+
+- Entrada `PRINCIPAL/INITIAL` do M24 usa `0,20` lote.
+- Entrada `REENTRADA/REENTRY` do M24 usa `0,10` lote.
+- O papel e o volume executado ficam persistidos no snapshot da ordem; os demais modelos preservam o volume anterior.
+# 2026-08-18 - Reentrada M24 por vela fechada e transicao TP para Full Exit
+
+- A pendencia M24 passa a usar o extremo da ultima vela M5 fechada e e reposicionada a cada novo fechamento.
+- O SL inicial da reentrada usa o extremo oposto da mesma vela, com folga de `0,01` no XAUUSD.
+- SELL exige RSI14 entre `30 e 50`; BUY exige RSI14 entre `50 e 70`.
+- Ao atingir RSI extremo (`SELL <= 30`; `BUY >= 70`), o Position Manager remove o TP estrutural e preserva a posicao para o Full Exit confirmado no retorno do RSI.
+- Auditoria operacional: a pendencia `360208525` expirou normalmente as `06:00` do servidor MT5; nao foi cancelada manualmente.
+- A porta generica de alteracao de SL passou a inicializar o MT5 antes de localizar o ticket, evitando falso `posicao nao encontrada`.
+## 2026-08-18 - M24: TP da reentrada no fechamento do candle estrutural
+
+- A reentrada continua localizando o candle que formou o topo anterior no BUY
+  ou o fundo anterior no SELL.
+- O TP passa a usar o fechamento desse candle, em vez da maxima/minima.
+- Gatilho pendente, SL da vela de entrada e Full Exit por RSI permanecem iguais.
+## 2026-08-18 - M24: filtro absoluto de distancia SMA20/SMA50
+
+- Entrada inicial e reentrada passam a exigir distancia minima de `0,25 ATR14`.
+- Formula: `abs(SMA20 - SMA50) / ATR14`.
+- O sinal da diferenca e ignorado: a distancia nao interfere na direcao propria
+  do M24, servindo apenas como filtro de separacao das medias.

@@ -468,7 +468,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 operational_model_number(model_id)
                 for model_id in dashboard_app.MT5_SELECTABLE_OPERATIONAL_MODEL_IDS
             ),
-            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24),
+            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 25, 23, 24),
         )
         for restored_source in (
             dashboard_app.MT5_OPERATIONAL_MODEL_3,
@@ -2575,7 +2575,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertEqual(
             dashboard_app.MT5_ACTIVE_REPORT_MODEL_NUMBERS,
-            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24),
+            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25),
         )
         self.assertIn("MT5_ACTIVE_REPORT_MODEL_NUMBERS", source)
 
@@ -3607,6 +3607,89 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertEqual(effective_model, dashboard_app.MT5_OPERATIONAL_MODEL_2)
 
+    def test_saida_teorica_alpha001_trend_momentum_nao_herda_m24(self) -> None:
+        row = SimpleNamespace(
+            symbol="XAUUSD",
+            operational_model="N/D",
+            alpha_id="ALPHA001",
+            entry_setup="TREND_MOMENTUM",
+            timeframe="H1",
+        )
+
+        effective_model = dashboard_app._mt5_theoretical_exit_effective_model(
+            row,
+            dashboard_app.MT5_OPERATIONAL_MODEL_24,
+        )
+
+        self.assertEqual(effective_model, dashboard_app.MT5_OPERATIONAL_MODEL_1)
+
+    def test_saida_teorica_m23_nao_herda_seletor_m24(self) -> None:
+        row = SimpleNamespace(
+            symbol="XAUUSD",
+            side="SELL",
+            mt5_side="SELL",
+            operational_model=(
+                "MODELO_23_BASKET_ACCUMULATOR_SOURCE_M8"
+            ),
+            alpha_id="ALPHA023_ACTIVE_MODEL_ACCUMULATOR",
+            entry_setup="M23 <- M8 | M8_XAU_M5_SMA20_50_RSI14",
+            timeframe="M5",
+            stop=4436.21,
+            mt5_stop=4436.21,
+            target=0.0,
+            plan_snapshot={
+                "stop_management_parameters": {
+                    "source_operational_model": "MODELO_8_XAU_M5_SMA20_50_RSI14",
+                    "active_entry_order_type": "MARKET",
+                }
+            },
+        )
+
+        output = dashboard_app._mt5_theoretical_exit_row(
+            row,
+            {},
+            display_model=dashboard_app.MT5_OPERATIONAL_MODEL_24,
+        )
+
+        self.assertEqual(output["Modelo"], "MODELO 23")
+        self.assertEqual(output["Modelo envio"], "MODELO 23")
+        self.assertEqual(output["Alpha"], "ALPHA023_ACTIVE_MODEL_ACCUMULATOR")
+        self.assertEqual(output["Tipo entrada"], "PRINCIPAL")
+        self.assertIn("M23 <- M8", output["Modelo entrada"])
+
+    def test_saida_teorica_reconhece_variante_m24_gravada(self) -> None:
+        row = SimpleNamespace(
+            symbol="XAUUSD",
+            side="BUY",
+            mt5_side="BUY",
+            operational_model="MODELO_24_XAU_RSI50_BASKET_SOURCE_M20",
+            alpha_id="ALPHA024_XAU_RSI50_MULTI_SOURCE",
+            entry_setup="M24 <- M20 | REENTRY",
+            timeframe="M5",
+            stop=4428.46,
+            mt5_stop=4428.46,
+            target=4436.20,
+            plan_snapshot={
+                "stop_management_parameters": {
+                    "source_operational_model": "MODELO_20_XAU_M5_SMA20_50_RSI14",
+                    "active_entry_order_type": "BUY_STOP",
+                    "m24_entry_role": "REENTRY",
+                }
+            },
+        )
+
+        output = dashboard_app._mt5_theoretical_exit_row(
+            row,
+            {},
+            display_model=dashboard_app.MT5_OPERATIONAL_MODEL_23,
+        )
+
+        self.assertEqual(output["Modelo"], "MODELO 24")
+        self.assertEqual(output["Modelo envio"], "MODELO 24")
+        self.assertEqual(output["Alpha"], "ALPHA024_XAU_RSI50_MULTI_SOURCE")
+        self.assertEqual(output["Tipo entrada"], "REENTRADA")
+        self.assertIn("M24 <- M20", output["Modelo entrada"])
+
     def test_saida_teorica_mt5_diferencia_hold_e_protect(self) -> None:
         """Cenarios operacionais devem ficar limitados a HOLD, PROTECT e FULL_EXIT."""
         hold = SimpleNamespace(
@@ -3728,6 +3811,13 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 "Modelo envio",
             ),
             "traderia-cell-model2",
+        )
+        self.assertEqual(
+            dashboard_app._mt5_theoretical_exit_cell_class(
+                {"Modelo envio": "MODELO 25"},
+                "Modelo envio",
+            ),
+            "traderia-cell-model25",
         )
 
     def test_saida_teorica_mt5_detecta_stop_movel_real(self) -> None:

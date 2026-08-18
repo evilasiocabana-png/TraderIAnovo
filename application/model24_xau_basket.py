@@ -22,6 +22,11 @@ MODEL_24_BETA_VERSION = "M24_EXIT_V1"
 MODEL_24_ENTRY_SOURCE = "MODEL_24_XAU_SOURCE_SIGNAL"
 MODEL_24_EXIT_POLICY = "M24_SOURCE_EXIT_PLUS_BASKET_1000"
 MODEL_24_FULL_EXIT_USD = 1000.0
+MODEL_24_INITIAL_VOLUME = 0.20
+MODEL_24_REENTRY_VOLUME = 0.10
+MODEL_24_PIP_SIZE = 0.01
+MODEL_24_ATR_PERIOD = 14
+MODEL_24_DISTANCE_ATR_MIN = 0.25
 MODEL_24_TIMEFRAME = "M5"
 MODEL_24_SYMBOL = "XAUUSD"
 MODEL_24_STATE_PATH = Path(".traderia") / "model24_basket_state.json"
@@ -90,15 +95,19 @@ def model24_position_net(position: object) -> float:
 
 
 def model24_market_entry_role(source_model: object, trend_side: object) -> str:
-    """Primeiro RSI50 da tendencia e inicial; os seguintes sao reentradas."""
+    """Alterna INITIAL globalmente; o mesmo lado produz apenas REENTRY."""
     source = _model24_source_key(source_model)
     side = str(trend_side or "").upper()
     with _LOCK:
         payload = _load_runtime_state()
         state = dict(dict(payload.get("sources") or {}).get(source) or {})
-    if str(state.get("trend_side") or "").upper() != side:
+    last_initial_side = _model24_last_initial_side(payload)
+    if not last_initial_side:
+        # Compatibilidade com snapshots anteriores ao controle global.
+        last_initial_side = str(state.get("trend_side") or "").upper()
+    if last_initial_side != side:
         return "INITIAL"
-    return "REENTRY" if bool(state.get("initial_consumed")) else "INITIAL"
+    return "REENTRY"
 
 
 def mark_model24_market_entry_accepted(
@@ -129,7 +138,16 @@ def mark_model24_market_entry_accepted(
             "updated_at": datetime.now(timezone.utc).isoformat(),
         })
         sources[source] = state
-        _write_runtime_state({"sources": sources})
+        payload.update(
+            {
+                "sources": sources,
+                "last_initial_side": side,
+                "last_initial_source": source,
+                "last_initial_candle": str(candle_time or "N/D"),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        _write_runtime_state(payload)
 
 
 @dataclass(frozen=True)
@@ -168,7 +186,8 @@ def mark_model24_extreme_full_exit(
                 }
             )
             sources[source] = state
-            _write_runtime_state({"sources": sources})
+            payload["sources"] = sources
+            _write_runtime_state(payload)
 
 
 def evaluate_model24_reentry_opportunity(
@@ -187,8 +206,8 @@ def evaluate_model24_reentry_opportunity(
         if not bool(state.get("skip_first_reentry_after_extreme")):
             return Model24ReentryGateDecision(
                 allowed=True,
-                status="M24_REENTRY_SEGUNDA_OPORTUNIDADE_LIBERADA",
-                reason="Nao existe descarte de primeira reentrada pendente.",
+                status="M24_REENTRY_SEM_DESCARTE_PENDENTE",
+                reason="Nao existe Full Exit extremo com descarte pendente.",
             )
         if str(state.get("trend_side") or "").upper() != side:
             return Model24ReentryGateDecision(
@@ -212,7 +231,8 @@ def evaluate_model24_reentry_opportunity(
                 }
             )
             sources[source] = state
-            _write_runtime_state({"sources": sources})
+            payload["sources"] = sources
+            _write_runtime_state(payload)
             blocked_key = key
         if blocked_key == key:
             return Model24ReentryGateDecision(
@@ -232,7 +252,8 @@ def evaluate_model24_reentry_opportunity(
             }
         )
         sources[source] = state
-        _write_runtime_state({"sources": sources})
+        payload["sources"] = sources
+        _write_runtime_state(payload)
         return Model24ReentryGateDecision(
             allowed=True,
             status="M24_REENTRY_SEGUNDA_OPORTUNIDADE_LIBERADA",
@@ -264,6 +285,24 @@ def _load_runtime_state() -> dict[str, Any]:
     return dict(payload) if isinstance(payload, dict) else {}
 
 
+def _model24_last_initial_side(payload: dict[str, Any]) -> str:
+    side = str(payload.get("last_initial_side") or "").upper()
+    if side in {"BUY", "SELL"}:
+        return side
+    # Migra em leitura o estado legado: o registro mais recente entre as fontes
+    # representa a ultima INITIAL aceita antes da criacao do marcador global.
+    latest_side = ""
+    latest_updated_at = ""
+    for state_value in dict(payload.get("sources") or {}).values():
+        state = dict(state_value or {})
+        candidate_side = str(state.get("trend_side") or "").upper()
+        candidate_updated_at = str(state.get("updated_at") or "")
+        if candidate_side in {"BUY", "SELL"} and candidate_updated_at >= latest_updated_at:
+            latest_side = candidate_side
+            latest_updated_at = candidate_updated_at
+    return latest_side
+
+
 @dataclass(frozen=True)
 class Model24EntryDecision:
     direction: str = "WAIT"
@@ -274,10 +313,14 @@ class Model24EntryDecision:
     initial_stop: float | None = None
     sma20: float | None = None
     sma50: float | None = None
+    atr14: float | None = None
+    distance_atr: float | None = None
     rsi14: float | None = None
     previous_rsi14: float | None = None
     micro_swing_price: float | None = None
     micro_swing_time: str = "N/D"
+    structural_target_price: float | None = None
+    structural_target_time: str = "N/D"
     price_cross_time: str = "N/D"
     rsi_cross_time: str = "N/D"
 
@@ -287,6 +330,7 @@ class Model24EntryDecision:
             self.direction in {"BUY", "SELL"}
             and self.entry_price is not None
             and self.initial_stop is not None
+            and self.status.endswith("_PRONTA")
         )
 
 
@@ -315,6 +359,8 @@ def evaluate_model24_rsi50_market_entry(
     values = [float(value) for value in closes if value is not None]
     sma20 = _sma(values, 20)
     sma50 = _sma(values, 50)
+    atr14 = _model24_atr(closed)
+    distance_atr = _model24_distance_atr(sma20, sma50, atr14)
     cross_side, price_cross_index, rsi_cross_index, rsi_values = (
         _model24_initial_cross_confirmation(values)
     )
@@ -324,6 +370,8 @@ def evaluate_model24_rsi50_market_entry(
         "closed_candle_time": _time(closed[-1]),
         "sma20": sma20,
         "sma50": sma50,
+        "atr14": atr14,
+        "distance_atr": distance_atr,
         "rsi14": rsi14,
         "previous_rsi14": previous_rsi14,
         "price_cross_time": (
@@ -337,6 +385,16 @@ def evaluate_model24_rsi50_market_entry(
             else "N/D"
         ),
     }
+    if distance_atr < MODEL_24_DISTANCE_ATR_MIN:
+        return Model24EntryDecision(
+            status="M24_DISTANCE_ATR_BLOQUEADO",
+            reason=(
+                f"M24 exige distancia absoluta entre SMA20/SMA50 de pelo menos "
+                f"{MODEL_24_DISTANCE_ATR_MIN:.2f} ATR; atual={distance_atr:.4f}. "
+                "A posicao relativa das medias nao define a direcao."
+            ),
+            **common,
+        )
     if cross_side not in {"BUY", "SELL"}:
         return Model24EntryDecision(
             status="M24_INITIAL_AGUARDA_CRUZAMENTOS_PRECO_SMA20_E_RSI50",
@@ -391,8 +449,10 @@ def evaluate_model24_rsi50_market_entry(
 
 def evaluate_model24_pending_reentry(
     candles: Iterable[object],
+    *,
+    pip_size: float = MODEL_24_PIP_SIZE,
 ) -> Model24EntryDecision:
-    """Reentrada pendente pelo lado atual da SMA20 e do RSI50, sem novo cruzamento."""
+    """Reentrada que acompanha cada M5 depois de uma correcao confirmada."""
     rows = list(candles or ())[-201:]
     if len(rows) < 201:
         return Model24EntryDecision(
@@ -409,65 +469,130 @@ def evaluate_model24_pending_reentry(
     values = [float(value) for value in closes if value is not None]
     sma20 = _sma(values, 20)
     sma50 = _sma(values, 50)
+    atr14 = _model24_atr(closed)
+    distance_atr = _model24_distance_atr(sma20, sma50, atr14)
     rsi14 = _wilder_rsi(values, 14)
     previous_rsi14 = _wilder_rsi(values[:-1], 14)
     common = {
         "closed_candle_time": _time(closed[-1]),
         "sma20": sma20,
         "sma50": sma50,
+        "atr14": atr14,
+        "distance_atr": distance_atr,
         "rsi14": rsi14,
         "previous_rsi14": previous_rsi14,
     }
-    if values[-1] > sma20 and rsi14 > 50.0:
-        side = "BUY"
-        entry = _number(closed[-1], "high")
-        order_type = "BUY_STOP"
-    elif values[-1] < sma20 and rsi14 < 50.0:
-        side = "SELL"
-        entry = _number(closed[-1], "low")
-        order_type = "SELL_STOP"
-    else:
+    if distance_atr < MODEL_24_DISTANCE_ATR_MIN:
         return Model24EntryDecision(
-            status="M24_REENTRY_AGUARDA_PRECO_SMA20_E_RSI50_ALINHADOS",
+            status="M24_DISTANCE_ATR_BLOQUEADO",
             reason=(
-                "Reentrada aguarda fechamento e RSI14 no mesmo lado da "
-                "SMA20/linha 50; nao exige novo cruzamento."
+                f"M24 exige distancia absoluta entre SMA20/SMA50 de pelo menos "
+                f"{MODEL_24_DISTANCE_ATR_MIN:.2f} ATR; atual={distance_atr:.4f}. "
+                "A posicao relativa das medias nao define a direcao."
             ),
             **common,
         )
-    swing, swing_time = _latest_micro_swing(closed, side, maximum_age=5)
-    if swing is None:
+    if values[-1] > sma20 and 50.0 < rsi14 < 70.0:
+        side = "BUY"
+        entry = _number(closed[-1], "high")
+        order_type = "BUY_STOP"
+        correction_found = any(
+            (_number(row, "close") or 0.0) < (_number(row, "open") or 0.0)
+            for row in closed[-5:]
+        )
+    elif values[-1] < sma20 and 30.0 < rsi14 < 50.0:
+        side = "SELL"
+        entry = _number(closed[-1], "low")
+        order_type = "SELL_STOP"
+        correction_found = any(
+            (_number(row, "close") or 0.0) > (_number(row, "open") or 0.0)
+            for row in closed[-5:]
+        )
+    else:
+        return Model24EntryDecision(
+            status="M24_REENTRY_AGUARDA_PRECO_SMA20_E_FAIXA_RSI",
+            reason=(
+                "Reentrada BUY exige preco acima da SMA20 e RSI14 entre 50/70; "
+                "SELL exige preco abaixo da SMA20 e RSI14 entre 30/50."
+            ),
+            **common,
+        )
+    if not correction_found:
         return Model24EntryDecision(
             direction=side,
-            status="M24_REENTRY_AGUARDA_MICRO_PIVO_CONFIRMADO",
-            reason="Reentrada pendente exige micro pivo 1+1 recente para o SL.",
+            status="M24_REENTRY_AGUARDA_CORRECAO_M5",
+            reason=(
+                "Reentrada aguarda ao menos um candle M5 de correcao entre os "
+                "cinco ultimos fechados."
+            ),
             **common,
         )
     trigger = float(entry or 0.0)
-    stop = float(swing)
+    reference_candle = closed[-1]
+    reference_extreme = _number(
+        reference_candle,
+        "low" if side == "BUY" else "high",
+    )
+    if reference_extreme is None:
+        return Model24EntryDecision(
+            direction=side,
+            status="M24_REENTRY_AGUARDA_EXTREMO_VELA_FECHADA",
+            reason="Ultima vela M5 fechada sem extremo valido para definir o SL.",
+            **common,
+        )
+    normalized_pip_size = max(float(pip_size or MODEL_24_PIP_SIZE), 0.0)
+    stop = (
+        float(reference_extreme) - normalized_pip_size
+        if side == "BUY"
+        else float(reference_extreme) + normalized_pip_size
+    )
+    reference_time = _time(reference_candle)
     valid = stop < trigger if side == "BUY" else stop > trigger
     if not valid:
         return Model24EntryDecision(
             direction=side,
             status="M24_REENTRY_STOP_MICRO_PIVO_INVALIDO",
-            reason="Micro pivo recente nao produz SL valido para a ordem pendente.",
+            reason="Extremo oposto da ultima vela M5 nao produz SL valido.",
             entry_price=trigger,
             initial_stop=stop,
             micro_swing_price=stop,
-            micro_swing_time=swing_time,
+            micro_swing_time=reference_time,
+            **common,
+        )
+    structural_target, structural_target_time = _model24_reentry_structural_target(
+        closed,
+        side,
+        trigger,
+        maximum_age=5,
+    )
+    if structural_target is None:
+        return Model24EntryDecision(
+            direction=side,
+            status="M24_REENTRY_AGUARDA_ALVO_ESTRUTURAL_VALIDO",
+            reason=(
+                "Reentrada aguarda um fechamento valido no candle que formou o "
+                "topo/fundo favoravel anterior para definir o TP."
+            ),
+            entry_price=trigger,
+            initial_stop=stop,
+            micro_swing_price=stop,
+            micro_swing_time=reference_time,
             **common,
         )
     return Model24EntryDecision(
         direction=side,
         status=f"M24_REENTRY_{side}_{order_type}_SMA20_PRONTA",
         reason=(
-            f"Reentrada {order_type}: fechamento e RSI14 permanecem do lado "
-            "permitido, sem novo cruzamento; gatilho no extremo do ultimo M5."
+            f"Reentrada {order_type}: correcao M5 confirmada e RSI14 na faixa; "
+            "a pendente caminha pelo extremo de cada novo M5 fechado e o SL "
+            "usa o extremo oposto da mesma vela com folga de 0,01."
         ),
         entry_price=trigger,
         initial_stop=stop,
         micro_swing_price=stop,
-        micro_swing_time=swing_time,
+        micro_swing_time=reference_time,
+        structural_target_price=structural_target,
+        structural_target_time=structural_target_time,
         **common,
     )
 
@@ -643,6 +768,39 @@ def _latest_micro_swing(
     return None, "N/D"
 
 
+def _model24_reentry_structural_target(
+    rows: list[object],
+    side: str,
+    entry: float,
+    *,
+    maximum_age: int = 5,
+) -> tuple[float | None, str]:
+    """Retorna o fechamento do candle que formou o topo/fundo anterior."""
+    if len(rows) < 2:
+        return None, "N/D"
+    normalized = str(side or "").upper()
+    field = "high" if normalized == "BUY" else "low" if normalized == "SELL" else ""
+    if not field:
+        return None, "N/D"
+    # O ultimo candle fechado define o novo BUY_STOP/SELL_STOP. O alvo deve vir
+    # da estrutura anterior a ele, nunca do proprio candle gatilho.
+    candidates: list[tuple[float, float, str]] = []
+    for row in rows[-(maximum_age + 1) : -1]:
+        extreme = _number(row, field)
+        close = _number(row, "close")
+        if extreme is not None and close is not None:
+            candidates.append((float(extreme), float(close), _time(row)))
+    if not candidates:
+        return None, "N/D"
+    _, target, target_time = (
+        max(candidates, key=lambda item: item[0])
+        if normalized == "BUY"
+        else min(candidates, key=lambda item: item[0])
+    )
+    valid = target > float(entry) if normalized == "BUY" else target < float(entry)
+    return (target, target_time) if valid else (None, "N/D")
+
+
 def _model24_initial_cross_confirmation(
     values: list[float],
 ) -> tuple[str, int | None, int | None, list[float]]:
@@ -702,6 +860,40 @@ def _wilder_rsi(values: list[float], period: int) -> float:
         return 100.0 if average_gain > 0.0 else 50.0
     relative_strength = average_gain / average_loss
     return 100.0 - (100.0 / (1.0 + relative_strength))
+
+
+def _model24_atr(rows: list[object]) -> float:
+    highs = [_number(row, "high") for row in rows]
+    lows = [_number(row, "low") for row in rows]
+    closes = [_number(row, "close") for row in rows]
+    if (
+        len(rows) <= MODEL_24_ATR_PERIOD
+        or any(value is None for value in (*highs, *lows, *closes))
+    ):
+        return 0.0
+    parsed_highs = [float(value) for value in highs if value is not None]
+    parsed_lows = [float(value) for value in lows if value is not None]
+    parsed_closes = [float(value) for value in closes if value is not None]
+    true_ranges = [
+        max(
+            parsed_highs[index] - parsed_lows[index],
+            abs(parsed_highs[index] - parsed_closes[index - 1]),
+            abs(parsed_lows[index] - parsed_closes[index - 1]),
+        )
+        for index in range(1, len(parsed_closes))
+    ]
+    atr = sum(true_ranges[:MODEL_24_ATR_PERIOD]) / float(MODEL_24_ATR_PERIOD)
+    for current in true_ranges[MODEL_24_ATR_PERIOD:]:
+        atr = (
+            (atr * (MODEL_24_ATR_PERIOD - 1)) + current
+        ) / float(MODEL_24_ATR_PERIOD)
+    return atr
+
+
+def _model24_distance_atr(sma20: float, sma50: float, atr14: float) -> float:
+    if atr14 <= 0.0:
+        return 0.0
+    return abs(float(sma20) - float(sma50)) / float(atr14)
 
 
 def _number(row: object, field: str) -> float | None:

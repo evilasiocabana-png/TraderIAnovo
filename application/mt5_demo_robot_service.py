@@ -36,7 +36,18 @@ from application.model23_basket_accumulator import (
     MODEL_23_ENTRY_SOURCE,
     is_model23,
 )
-from application.model24_xau_basket import MODEL_24_ENTRY_SOURCE, is_model24
+from application.model24_xau_basket import (
+    MODEL_24_ENTRY_SOURCE,
+    MODEL_24_INITIAL_VOLUME,
+    MODEL_24_REENTRY_VOLUME,
+    is_model24,
+)
+from application.model25_multi_asset_rsi50_basket import (
+    MODEL_25_ENTRY_SOURCE,
+    MODEL_25_INITIAL_VOLUME,
+    MODEL_25_REENTRY_VOLUME,
+    is_model25,
+)
 from application.model6_original_trend_momentum import (
     MODEL_6_ID as HISTORICAL_MODEL_6_ID,
 )
@@ -297,6 +308,7 @@ class MT5DemoRobotService:
                 trade_plan,
             )
 
+        order_volume = self._execution_volume(signal, trade_plan)
         context = self.execution_service.decision_pipeline.processar(
             StrategySignal(
                 current_decision,
@@ -316,14 +328,20 @@ class MT5DemoRobotService:
             RiskDecision(
                 True,
                 "Risco aprovado pelo robo demo temporal.",
-                self.volume,
+                order_volume,
                 1.0,
             ),
         )
+        plan_snapshot = self._trade_plan_snapshot(
+            signal,
+            trade_plan,
+            current_decision,
+        )
+        plan_snapshot["execution_volume"] = order_volume
         order = ExecutionOrder(
             symbol=trade_plan.symbol,
             side=current_decision,
-            quantity=self.volume,
+            quantity=order_volume,
             entry_price=float(trade_plan.entry_price),
             stop=float(trade_plan.stop),
             target=float(trade_plan.target),
@@ -337,7 +355,7 @@ class MT5DemoRobotService:
             beta_version=trade_plan.beta_version or DEFAULT_BETA_VERSION,
             beta_mode=trade_plan.beta_mode or "PROTECT_ONLY",
             operational_model=signal.operational_model,
-            plan_snapshot=self._trade_plan_snapshot(signal, trade_plan, current_decision),
+            plan_snapshot=plan_snapshot,
         )
         self.execution_service.pending_audit_metadata = {
             "plan_snapshot": order.plan_snapshot,
@@ -413,7 +431,7 @@ class MT5DemoRobotService:
     ) -> MT5DemoRobotSignal | None:
         """Nao sobrepoe regime legado aos modelos com Alpha canonica completa."""
         model = str(getattr(signal, "operational_model", "") or "").upper()
-        if is_model23(model) or is_model24(model):
+        if is_model23(model) or is_model24(model) or is_model25(model):
             # O M23 recebe somente sinais que ja venceram todos os gates do
             # modelo-fonte. Reaplicar o regime legado aqui distorceria a fonte.
             return None
@@ -495,6 +513,7 @@ class MT5DemoRobotService:
             "MODEL_17_FOREX_MANUAL_RULE",
             MODEL_23_ENTRY_SOURCE,
             MODEL_24_ENTRY_SOURCE,
+            MODEL_25_ENTRY_SOURCE,
         }:
             return "Plano de trade nao veio de fonte operacional autorizada."
         if trade_plan.status != "PLANO_VALIDO":
@@ -502,13 +521,14 @@ class MT5DemoRobotService:
         parameters = dict(trade_plan.stop_management_parameters or {})
         validation_model = str(signal.operational_model or "").upper()
         validation_is_model24 = is_model24(validation_model)
+        validation_is_model25 = is_model25(validation_model)
         if is_model23(validation_model) or validation_is_model24:
             validation_model = str(
                 parameters.get("source_operational_model") or ""
             ).upper()
             if not validation_model:
                 return "Plano M23 sem modelo-fonte para validar SL/TP."
-        requires_target = (not validation_is_model24) and xau_model_requires_target(
+        requires_target = (not validation_is_model24) and (not validation_is_model25) and xau_model_requires_target(
             validation_model,
             parameters.get("active_entry_order_type"),
         )
@@ -520,6 +540,13 @@ class MT5DemoRobotService:
             *XAU_TREND_FILTER_MODEL_IDS,
             *FOREX_SMA_RSI_MODEL_IDS,
         } and not requires_target
+        if validation_is_model25:
+            no_target_model = not (
+                str(parameters.get("m25_entry_role") or "").upper()
+                in {"REENTRY", "STRUCTURAL_REENTRY"}
+                and bool(parameters.get("m25_individual_target_enabled"))
+                and float(trade_plan.target or 0.0) > 0.0
+            )
         if trade_plan.risk_reward <= 0 and not no_target_model:
             return "Plano do Research Lab sem RR valido."
         if signal.decision == "BUY" and not (
@@ -631,6 +658,31 @@ class MT5DemoRobotService:
             "timestamp_brt": signal.timestamp_brt,
             "weekday": signal.weekday,
         }
+
+    def _execution_volume(
+        self,
+        signal: MT5DemoRobotSignal,
+        trade_plan: MT5DemoTradePlan,
+    ) -> float:
+        """Aplica lote por papel nos modelos de cesta M24/M25."""
+        operational_model = (
+            signal.operational_model or trade_plan.operational_model or ""
+        )
+        if is_model25(operational_model):
+            parameters = dict(trade_plan.stop_management_parameters or {})
+            role = str(parameters.get("m25_entry_role") or "").upper()
+            return (
+                MODEL_25_REENTRY_VOLUME
+                if role in {"REENTRY", "STRUCTURAL_REENTRY"}
+                else MODEL_25_INITIAL_VOLUME
+            )
+        if not is_model24(operational_model):
+            return float(self.volume)
+        parameters = dict(trade_plan.stop_management_parameters or {})
+        role = str(parameters.get("m24_entry_role") or "").upper()
+        if role in {"REENTRY", "STRUCTURAL_REENTRY"}:
+            return MODEL_24_REENTRY_VOLUME
+        return MODEL_24_INITIAL_VOLUME
 
     def _result(
         self,

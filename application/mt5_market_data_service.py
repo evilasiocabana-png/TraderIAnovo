@@ -39,7 +39,7 @@ from research.timeframe_optimizer import (
 
 
 _OPERATIONAL_M5_WINDOW = OPERATIONAL_INDICATOR_RAW_CANDLES
-_OPERATIONAL_M5_SYMBOLS = frozenset((*MODEL_3_ALL_FOREX_PAIRS, "XAUUSD"))
+_OPERATIONAL_M5_SYMBOLS = frozenset(MT5_RESEARCH_MARKETS)
 
 
 class ReadOnlyCandleProvider(Protocol):

@@ -107,3 +107,19 @@ Aceito quando:
 - a tabela `Em negociacao` mostra `Tipo de entrada` antes de `Alvo`, usando
   `PRINCIPAL` ou `REENTRADA` somente quando o contrato persistido comprovar;
 - testes nao conectam nem enviam ordem ao MT5.
+
+## Modelo 25 Multiativo M5
+
+Aceito quando:
+
+- cobre exatamente os 19 ativos canonicos em M5;
+- replica entrada, reentrada e saida tecnica do M24 sem alterar o M24;
+- mantem estado, duplicidade e papeis `INITIAL/REENTRY` independentes por ativo;
+- admite no maximo uma posicao de cada papel por ativo e bloqueia lados opostos;
+- usa `0,20` lote na inicial e `0,10` na reentrada;
+- aplica pip `0,0001` no Forex comum e `0,01` em JPY, XAUUSD e BTCUSD;
+- usa somente o snapshot M5 compartilhado e nao chama Lab pesado no runtime;
+- bloqueia ordens depois de reinicio ate reconciliar o cache com o MT5 vivo;
+- fecha somente a cesta M25 ao atingir `+US$1.000` liquidos;
+- aparece no seletor, Entrada Teorica, Saida Teorica e Relatorio;
+- preserva bloqueio de conta real e testes nao enviam ordens ao MT5.

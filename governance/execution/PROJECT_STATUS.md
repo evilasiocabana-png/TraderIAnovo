@@ -2,6 +2,19 @@
 
 Status: pronto para fluxo de inbox.
 
+## Estado Operacional M25 - 2026-08-18
+
+- M25 implementado como copia independente da logica M24 nos 19 ativos
+  canonicos, todos em M5.
+- Runtime, Robo Demo, provider, Position Manager, MT5 Forex e Relatorio
+  reconhecem a identidade M25.
+- Estado, duplicidade e papeis `INITIAL/REENTRY` sao isolados por ativo.
+- Dados M5 usam o snapshot compartilhado; Lab pesado permanece fora do ciclo.
+- Cesta M25 fecha somente suas posicoes em `+US$1.000` liquidos.
+- Conta real continua bloqueada e a implantacao nao seleciona M25
+  automaticamente.
+- Testes automatizados dedicados aprovados sem acesso ao MT5.
+
 ## Correcao do seletor MT5 - 2026-08-17
 
 - eliminada a colisao entre a chave Streamlit de `Todos` e a de um modelo novo

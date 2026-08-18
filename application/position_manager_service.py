@@ -80,11 +80,21 @@ from application.model16_xau_m5_price_ema_breakout import (
     model16_previous_candle_stop,
 )
 from application.model24_xau_basket import (
+    MODEL_24_ALPHA_ID,
     MODEL_24_BETA_ID,
     MODEL_24_BETA_VERSION,
+    MODEL_24_EXIT_POLICY,
     is_model24,
     mark_model24_extreme_full_exit,
     model24_micro_pivot_stop,
+)
+from application.model25_multi_asset_rsi50_basket import (
+    MODEL_25_ALPHA_ID,
+    MODEL_25_BETA_ID,
+    MODEL_25_BETA_VERSION,
+    MODEL_25_EXIT_POLICY,
+    is_model25,
+    mark_model25_extreme_full_exit,
 )
 from domain.contracts.beta_strategy import BetaDecision, BetaStrategyContext
 
@@ -93,6 +103,32 @@ DEFAULT_BETA_VERSION = "BETA v1"
 DEFAULT_POSITION_MANAGER_LOG_MAX_MB = 25
 MODEL_1_ID = "MODELO_1_ALPHA_ATUAL"
 _POSITION_MANAGER_STATE_LOCK = threading.RLock()
+
+
+def _is_model24_trade_plan(plan: "PositionTradePlan") -> bool:
+    """Reconhece o M24 mesmo quando o snapshot preserva o modelo-fonte."""
+    parameters = dict(plan.stop_management_parameters or {})
+    return bool(
+        is_model24(plan.operational_model)
+        or str(plan.alpha_id or "").upper() == MODEL_24_ALPHA_ID
+        or str(plan.stop_management or "").upper() == MODEL_24_EXIT_POLICY
+        or (
+            parameters.get("source_operational_model")
+            and str(parameters.get("m24_entry_role") or "").upper()
+            in {"INITIAL", "REENTRY", "STRUCTURAL_REENTRY"}
+        )
+    )
+
+
+def _is_model25_trade_plan(plan: "PositionTradePlan") -> bool:
+    parameters = dict(plan.stop_management_parameters or {})
+    return bool(
+        is_model25(plan.operational_model)
+        or str(plan.alpha_id or "").upper() == MODEL_25_ALPHA_ID
+        or str(plan.stop_management or "").upper() == MODEL_25_EXIT_POLICY
+        or str(parameters.get("m25_entry_role") or "").upper()
+        in {"INITIAL", "REENTRY", "STRUCTURAL_REENTRY"}
+    )
 
 
 class PositionManagerProvider(Protocol):
@@ -130,6 +166,14 @@ class PositionManagerProvider(Protocol):
         new_stop: float,
     ) -> object:
         """Modifica somente o SL de uma posicao existente."""
+
+    def modify_position_tp(
+        self,
+        symbol: str,
+        ticket: int,
+        new_target: float,
+    ) -> object:
+        """Modifica ou remove somente o TP de uma posicao existente."""
 
     def close_position(
         self,
@@ -325,6 +369,7 @@ class PositionManagerDecision:
     allowed_to_execute: bool = False
     execution_mode: str = "READ_ONLY"
     requested_stop: float | None = None
+    requested_target: float | None = None
     requested_close_volume: float | None = None
     final_exit_reason: str = "N/D"
     evidence: tuple[str, ...] = ()
@@ -357,6 +402,8 @@ class PositionManagerResult:
     side: str = "N/D"
     old_stop: float | None = None
     new_stop: float | None = None
+    old_target: float | None = None
+    new_target: float | None = None
     current_price: float | None = None
     entry: float | None = None
     atr: float | None = None
@@ -696,6 +743,8 @@ class PositionManagerService:
             )
         if decision.action in {"EARLY_EXIT", "FULL_EXIT"}:
             return self._execute_close_decision(plan, snapshot, decision)
+        if decision.action == "REMOVE_TARGET":
+            return self._execute_target_decision(plan, snapshot, decision)
         if decision.action == "HOLD_POSITION":
             return self._record(
                 PositionManagerResult(
@@ -903,7 +952,18 @@ class PositionManagerService:
         risk = max(abs(float(entry) - float(current_stop)), 1e-12)
         favorable = current_price - entry if side == "BUY" else entry - current_price
         r_multiple = favorable / risk
-        target = _positive_float(getattr(position, "tp", None)) or plan.target
+        position_target = _positive_float(getattr(position, "tp", None))
+        parameters = dict(plan.stop_management_parameters or {})
+        basket_reentry = (_is_model24_trade_plan(plan) or _is_model25_trade_plan(plan)) and (
+            bool(parameters.get("m24_reentry_position") or parameters.get("m25_reentry_position"))
+            or str(parameters.get("m24_entry_role") or parameters.get("m25_entry_role") or "").upper()
+            in {"REENTRY", "STRUCTURAL_REENTRY"}
+        )
+        target = (
+            position_target
+            if position_target is not None
+            else None if basket_reentry else plan.target
+        )
         distance_to_target_r: float | None = None
         if target is not None:
             remaining = target - current_price if side == "BUY" else current_price - target
@@ -971,7 +1031,8 @@ class PositionManagerService:
                 *XAU_TREND_FILTER_MODEL_IDS,
                 *FOREX_SMA_RSI_MODEL_IDS,
             }
-            or is_model24(plan.operational_model)
+            or _is_model24_trade_plan(plan)
+            or _is_model25_trade_plan(plan)
             or policy == MODEL_8_STOP_MANAGEMENT
         ):
             return self._decide_model8_full_exit(plan, snapshot)
@@ -1414,14 +1475,14 @@ class PositionManagerService:
             or ""
         ).upper()
         parameters = dict(plan.stop_management_parameters or {})
-        reentry_position = bool(parameters.get("m24_reentry_position")) or (
+        m24_trade_plan = _is_model24_trade_plan(plan)
+        m25_trade_plan = _is_model25_trade_plan(plan)
+        basket_rsi_trade_plan = m24_trade_plan or m25_trade_plan
+        reentry_position = bool(
+            parameters.get("m24_reentry_position")
+            or parameters.get("m25_reentry_position")
+        ) or (
             active_entry_order_type in {"BUY_STOP", "SELL_STOP"}
-        )
-        m24_initial_position = (
-            is_model24(operational_model)
-            and not reentry_position
-            and str(parameters.get("m24_entry_role") or "INITIAL").upper()
-            == "INITIAL"
         )
         decision = (
             evaluate_forex_sma_rsi_exit(
@@ -1432,7 +1493,7 @@ class PositionManagerService:
                 candles,
                 snapshot.side,
                 reentry_position=reentry_position,
-                sma_inversion_exit_enabled=not m24_initial_position,
+                sma_inversion_exit_enabled=not basket_rsi_trade_plan,
             )
         )
         spec = (
@@ -1474,10 +1535,57 @@ class PositionManagerService:
                 )
         if (
             decision.action != "FULL_EXIT"
-            and is_model24(operational_model)
+            and basket_rsi_trade_plan
             and reentry_position
         ):
-            maximum_age = int(parameters.get("m24_micro_pivot_maximum_age") or 5)
+            basket_label = "M25" if m25_trade_plan else "M24"
+            basket_beta_id = MODEL_25_BETA_ID if m25_trade_plan else MODEL_24_BETA_ID
+            basket_beta_version = (
+                MODEL_25_BETA_VERSION if m25_trade_plan else MODEL_24_BETA_VERSION
+            )
+            target_is_active = snapshot.current_target is not None
+            rsi_extreme = (
+                snapshot.side == "BUY"
+                and decision.rsi14 is not None
+                and float(decision.rsi14) >= 70.0
+            ) or (
+                snapshot.side == "SELL"
+                and decision.rsi14 is not None
+                and float(decision.rsi14) <= 30.0
+            )
+            if target_is_active and rsi_extreme:
+                return PositionManagerDecision(
+                    symbol=plan.symbol,
+                    ticket=snapshot.ticket,
+                    state=f"{basket_label}_REENTRY_RSI_EXTREMO_REMOVE_TP",
+                    action="REMOVE_TARGET",
+                    reason=(
+                        f"{basket_label} reentrada atingiu RSI extremo: remover TP estrutural "
+                        "e aguardar o Full Exit confirmado no retorno do RSI."
+                    ),
+                    confidence=1.0,
+                    beta_id=basket_beta_id,
+                    beta_version=basket_beta_version,
+                    beta_mode="SOURCE_EXIT_PLUS_BASKET_1000",
+                    allowed_to_execute=self.assisted_execution_enabled,
+                    execution_mode=(
+                        "AUTOMATIC_DEMO"
+                        if self.assisted_execution_enabled
+                        else "READ_ONLY"
+                    ),
+                    requested_target=0.0,
+                    evidence=snapshot.evidence
+                    + (
+                        f"{basket_label}_REENTRY_TP_REMOVED_AT_RSI_EXTREME",
+                        f"{basket_label}_RSI14={decision.rsi14}",
+                    ),
+                    beta_closed_candle_time=decision.closed_candle_time,
+                )
+            maximum_age = int(
+                parameters.get("m25_micro_pivot_maximum_age")
+                or parameters.get("m24_micro_pivot_maximum_age")
+                or 5
+            )
             candidate, trailing_candle = model24_micro_pivot_stop(
                 candles,
                 snapshot.side,
@@ -1495,15 +1603,15 @@ class PositionManagerService:
                 return PositionManagerDecision(
                     symbol=plan.symbol,
                     ticket=snapshot.ticket,
-                    state="M24_REENTRY_MICRO_PIVOT_TRAILING",
+                    state=f"{basket_label}_REENTRY_MICRO_PIVOT_TRAILING",
                     action="PROTECT_POSITION",
                     reason=(
-                        "M24 reentrada: mover SL para o micro pivo 1+1 M5 "
+                        f"{basket_label} reentrada: mover SL para o micro pivo 1+1 M5 "
                         "confirmado mais recente, somente em direcao favoravel."
                     ),
                     confidence=1.0,
-                    beta_id=MODEL_24_BETA_ID,
-                    beta_version=MODEL_24_BETA_VERSION,
+                    beta_id=basket_beta_id,
+                    beta_version=basket_beta_version,
                     beta_mode="SOURCE_EXIT_PLUS_BASKET_1000",
                     allowed_to_execute=self.assisted_execution_enabled,
                     execution_mode=(
@@ -1514,8 +1622,8 @@ class PositionManagerService:
                     requested_stop=candidate,
                     evidence=snapshot.evidence
                     + (
-                        "M24_MICRO_PIVOT_TRAILING",
-                        f"M24_MICRO_PIVOT_CANDLE={trailing_candle}",
+                        f"{basket_label}_MICRO_PIVOT_TRAILING",
+                        f"{basket_label}_MICRO_PIVOT_CANDLE={trailing_candle}",
                     ),
                     beta_closed_candle_time=trailing_candle,
                 )
@@ -1532,8 +1640,8 @@ class PositionManagerService:
                 spec.beta_version if spec is not None else MODEL_8_BETA_VERSION
             ),
             beta_mode=(
-                "M24_INITIAL_RSI70_30_NO_SMA_INVERSION"
-                if m24_initial_position
+                f"{'M25' if m25_trade_plan else 'M24'}_RSI_EXIT_NO_SMA20_50_INVERSION"
+                if basket_rsi_trade_plan
                 else "FULL_EXIT_RSI70_30_CROSS_OR_SMA_INVERSION"
             ),
             allowed_to_execute=allowed,
@@ -1550,7 +1658,11 @@ class PositionManagerService:
                 f"M8_SMA50={decision.sma50}",
                 f"M8_RSI14={decision.rsi14}",
                 f"M8_REENTRY_POSITION={reentry_position}",
-                f"M24_INITIAL_NO_SMA_INVERSION_EXIT={m24_initial_position}",
+                (
+                    f"M25_NO_SMA20_50_INVERSION_EXIT={basket_rsi_trade_plan}"
+                    if m25_trade_plan
+                    else f"M24_NO_SMA20_50_INVERSION_EXIT={basket_rsi_trade_plan}"
+                ),
                 f"M8_STATUS={decision.status}",
             ),
             beta_closed_candle_time=decision.closed_candle_time,
@@ -1559,6 +1671,91 @@ class PositionManagerService:
                 if decision.status == "M8_EXIT_CANDLES_INSUFICIENTES"
                 else ()
             ),
+        )
+
+    def _execute_target_decision(
+        self,
+        plan: PositionTradePlan,
+        snapshot: PositionStateSnapshot,
+        decision: PositionManagerDecision,
+    ) -> PositionManagerResult:
+        basket_label = "M25" if _is_model25_trade_plan(plan) else "M24"
+        if not self.assisted_execution_enabled:
+            return self._record(
+                PositionManagerResult(
+                    symbol=plan.symbol,
+                    ticket=snapshot.ticket,
+                    status="EXECUTION_DISABLED",
+                    action="HOLD_POSITION",
+                    message="Remocao do TP calculada, mas execucao demo esta desligada.",
+                    policy=plan.stop_management,
+                    execution_status="BLOCKED_BY_CONFIG",
+                    side=snapshot.side,
+                    old_stop=snapshot.current_stop,
+                    old_target=snapshot.current_target,
+                    new_target=decision.requested_target,
+                    current_price=snapshot.current_price,
+                    entry=snapshot.entry_price,
+                    position_state=decision.state,
+                    confidence=decision.confidence,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=decision.beta_id,
+                    beta_version=decision.beta_version,
+                    beta_mode=decision.beta_mode,
+                    evidence=decision.evidence,
+                    candle_time=plan.candle_time,
+                    audit_tags=(f"{basket_label}_REMOVE_TP", "BLOCKED_BY_CONFIG"),
+                    **self._beta_result_fields(decision),
+                )
+            )
+        response = self.provider.modify_position_tp(
+            plan.symbol,
+            snapshot.ticket,
+            float(decision.requested_target or 0.0),
+        )
+        success = bool(
+            getattr(response, "accepted", False)
+            or getattr(response, "success", False)
+        )
+        message = str(getattr(response, "message", "") or "TP atualizado no MT5 Demo.")
+        if success:
+            self._mark_beta_execution(plan, decision)
+        return self._record(
+            PositionManagerResult(
+                symbol=plan.symbol,
+                ticket=snapshot.ticket,
+                status="TARGET_REMOVED" if success else "TARGET_REMOVE_REJECTED",
+                action="REMOVE_TARGET" if success else "HOLD_POSITION",
+                message=message,
+                policy=plan.stop_management,
+                execution_mode="AUTOMATIC_DEMO",
+                execution_status="EXECUTED" if success else "BLOCKED",
+                side=snapshot.side,
+                old_stop=snapshot.current_stop,
+                old_target=snapshot.current_target,
+                new_target=0.0 if success else snapshot.current_target,
+                current_price=snapshot.current_price,
+                entry=snapshot.entry_price,
+                position_state=decision.state,
+                confidence=decision.confidence,
+                alpha_id=plan.alpha_id,
+                alpha_version=plan.alpha_version,
+                beta_id=decision.beta_id,
+                beta_version=decision.beta_version,
+                beta_mode=decision.beta_mode,
+                evidence=decision.evidence,
+                candle_time=plan.candle_time,
+                audit_tags=(
+                    f"{basket_label}_TARGET_REMOVED_AT_RSI_EXTREME"
+                    if success
+                    else f"{basket_label}_TARGET_REMOVE_REJECTED",
+                ),
+                provider_result=message,
+                submitted=True,
+                success=success,
+                **self._beta_result_fields(decision),
+            )
         )
 
     def _decide_model15_previous_candle_trailing(
@@ -1951,20 +2148,28 @@ class PositionManagerService:
         if success:
             self._mark_beta_execution(plan, decision)
             operational_model = str(plan.operational_model or "").upper()
-            if is_model24(operational_model):
+            if _is_model24_trade_plan(plan) or _is_model25_trade_plan(plan):
                 rsi_extreme_exit = decision.state in {
                     "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
                     "M8_EXIT_RSI30_CRUZOU_PARA_CIMA_SELL",
                 }
                 if rsi_extreme_exit:
                     parameters = dict(plan.stop_management_parameters or {})
-                    mark_model24_extreme_full_exit(
-                        parameters.get("source_operational_model")
-                        or operational_model,
-                        snapshot.side,
-                        decision.state,
-                        decision.beta_closed_candle_time,
-                    )
+                    if _is_model25_trade_plan(plan):
+                        mark_model25_extreme_full_exit(
+                            plan.symbol,
+                            snapshot.side,
+                            decision.state,
+                            decision.beta_closed_candle_time,
+                        )
+                    else:
+                        mark_model24_extreme_full_exit(
+                            parameters.get("source_operational_model")
+                            or operational_model,
+                            snapshot.side,
+                            decision.state,
+                            decision.beta_closed_candle_time,
+                        )
             elif operational_model in FOREX_SMA_RSI_MODEL_IDS:
                 rsi_exit = decision.state in {
                     "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",

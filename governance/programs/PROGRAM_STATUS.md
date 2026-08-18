@@ -9,3 +9,4 @@
 | TIA Dynamic Exit Runtime Full Execution | accepted |
 | M7 Trend Momentum Dynamic Protect Only | completed |
 | M24 XAU RSI50 Basket | completed; principal without SMA20/50 inversion exit, pending reentry with SMA/RSI protections and micro-pivot SL; awaiting demo observation |
+| M25 Multi Asset RSI50 Basket | implemented for 19 canonical assets on M5; automated validation complete; awaiting demo observation |

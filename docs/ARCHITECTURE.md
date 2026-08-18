@@ -552,3 +552,16 @@ reconhecida quando a chave inclui uma nova vela M5 fechada, impedindo que o cicl
 leve conte repetidamente o mesmo sinal. A entrada principal M24 nao consulta a
 relacao SMA20/SMA50 e tambem nao fecha por inversao dessas medias; essa protecao,
 assim como a perda do RSI50, permanece restrita as reentradas.
+
+## Modelo 25
+
+O contrato oficial esta em
+`docs/architecture/OPERATIONAL_MODEL_25_MULTI_ASSET_RSI50_BASKET.md`. O M25
+replica a logica operacional do M24 nos 19 ativos canonicos, sempre em M5, mas
+possui identidade, estado por simbolo, comentario, duplicidade, auditoria e
+cesta financeira proprios. Cada ativo pode manter no maximo uma entrada
+`INITIAL` e uma `REENTRY`; os demais ativos continuam independentes.
+
+O M25 reutiliza o snapshot M5 compartilhado e nunca executa Lab pesado no ciclo
+leve. O Full Exit coletivo de `+US$1.000` considera somente posicoes M25. Conta
+real permanece bloqueada e nenhuma ativacao automatica ocorre na implantacao.

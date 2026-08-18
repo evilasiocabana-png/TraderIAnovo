@@ -26,12 +26,16 @@ function Test-TraderIAHealth {
     if (-not (Test-TraderIAPort)) {
         return $false
     }
-    $response = & curl.exe `
-        --silent `
-        --show-error `
-        --max-time 5 `
-        "http://127.0.0.1:$port/_stcore/health" 2>$null
-    return $LASTEXITCODE -eq 0 -and "$response".Trim().ToLowerInvariant() -eq "ok"
+    try {
+        $response = & curl.exe `
+            --silent `
+            --max-time 5 `
+            "http://127.0.0.1:$port/_stcore/health" 2>$null
+        return $LASTEXITCODE -eq 0 -and "$response".Trim().ToLowerInvariant() -eq "ok"
+    }
+    catch {
+        return $false
+    }
 }
 
 function Start-TraderIAMT5 {
@@ -66,13 +70,18 @@ function Get-TraderIACloudflaredProcesses {
 }
 
 function Test-TraderIAPublicHealth {
-    $statusCode = & curl.exe `
-        --silent `
-        --output NUL `
-        --write-out "%{http_code}" `
-        --max-time 10 `
-        $publicUrl 2>$null
-    return $LASTEXITCODE -eq 0 -and "$statusCode" -match "^(200|301|302|307|308)$"
+    try {
+        $statusCode = & curl.exe `
+            --silent `
+            --output NUL `
+            --write-out "%{http_code}" `
+            --max-time 10 `
+            $publicUrl 2>$null
+        return $LASTEXITCODE -eq 0 -and "$statusCode" -match "^(200|301|302|307|308)$"
+    }
+    catch {
+        return $false
+    }
 }
 
 function Start-TraderIACloudflareTunnel {

@@ -899,7 +899,62 @@ class PositionManagerServiceTest(unittest.TestCase):
             "candle-extremo",
         )
 
-    def test_m24_principal_desativa_apenas_full_exit_por_inversao_sma(self) -> None:
+    def test_m24_extreme_exit_is_armed_when_snapshot_keeps_source_model(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("XAUUSD", "BUY", 101.0, 99.0, 0.0),
+            price=105.0,
+            candles=[],
+        )
+        manager = self._manager(provider, enabled=True)
+        exit_decision = SimpleNamespace(
+            action="FULL_EXIT",
+            status="M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
+            reason="RSI saiu de acima de 70 para abaixo de 70.",
+            rsi14=69.0,
+            previous_rsi14=71.0,
+            sma20=104.0,
+            sma50=100.0,
+            closed_candle_time="candle-fonte-m8",
+        )
+
+        with (
+            patch(
+                "application.position_manager_service.evaluate_model8_exit",
+                return_value=exit_decision,
+            ),
+            patch(
+                "application.position_manager_service.mark_model24_extreme_full_exit"
+            ) as mark_exit,
+        ):
+            result = manager.manage_plan(
+                self._plan(
+                    "XAUUSD",
+                    "BUY",
+                    entry=101.0,
+                    stop=99.0,
+                    target=0.0,
+                    stop_management="M24_SOURCE_EXIT_PLUS_BASKET_1000",
+                    parameters={
+                        "source_operational_model": (
+                            "MODELO_8_XAU_M5_SMA_RSI_REENTRY"
+                        ),
+                        "m24_entry_role": "INITIAL",
+                        "m24_reentry_position": False,
+                    },
+                    operational_model="MODELO_8_XAU_M5_SMA_RSI_REENTRY",
+                    alpha_id="ALPHA024_XAU_RSI50_MULTI_SOURCE",
+                )
+            )
+
+        self.assertEqual(result.status, "POSITION_CLOSED")
+        mark_exit.assert_called_once_with(
+            "MODELO_8_XAU_M5_SMA_RSI_REENTRY",
+            "BUY",
+            "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
+            "candle-fonte-m8",
+        )
+
+    def test_m24_principal_desativa_full_exit_por_inversao_sma20_50(self) -> None:
         provider = _FakePositionProvider(
             position=_position("XAUUSD", "BUY", 101.0, 99.0, 0.0),
             price=105.0,
@@ -945,19 +1000,19 @@ class PositionManagerServiceTest(unittest.TestCase):
         )
         self.assertEqual(result.action, "HOLD_POSITION")
         self.assertEqual(provider.close_calls, 0)
-        self.assertIn("M24_INITIAL_NO_SMA_INVERSION_EXIT=True", result.evidence)
+        self.assertIn("M24_NO_SMA20_50_INVERSION_EXIT=True", result.evidence)
 
-    def test_m24_reentrada_mantem_full_exit_por_inversao_sma(self) -> None:
+    def test_m24_reentrada_tambem_ignora_inversao_sma20_50(self) -> None:
         provider = _FakePositionProvider(
             position=_position("XAUUSD", "BUY", 101.0, 99.0, 0.0),
             price=105.0,
             candles=[],
         )
         manager = self._manager(provider, enabled=True)
-        exit_decision = SimpleNamespace(
-            action="FULL_EXIT",
-            status="M8_EXIT_INVERSAO_SMA_BUY",
-            reason="SMA20 abaixo da SMA50 na reentrada.",
+        hold_decision = SimpleNamespace(
+            action="HOLD_POSITION",
+            status="M8_HOLD_BUY",
+            reason="M24 reentrada preservada sem criterio SMA20/SMA50.",
             rsi14=60.0,
             previous_rsi14=60.0,
             sma20=99.0,
@@ -967,7 +1022,7 @@ class PositionManagerServiceTest(unittest.TestCase):
 
         with patch(
             "application.position_manager_service.evaluate_model8_exit",
-            return_value=exit_decision,
+            return_value=hold_decision,
         ) as evaluate_exit:
             result = manager.manage_plan(
                 self._plan(
@@ -989,10 +1044,58 @@ class PositionManagerServiceTest(unittest.TestCase):
             (),
             "BUY",
             reentry_position=True,
-            sma_inversion_exit_enabled=True,
+            sma_inversion_exit_enabled=False,
         )
-        self.assertEqual(result.status, "POSITION_CLOSED")
-        self.assertEqual(provider.close_calls, 1)
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertEqual(provider.close_calls, 0)
+        self.assertIn("M24_NO_SMA20_50_INVERSION_EXIT=True", result.evidence)
+
+    def test_m24_reentrada_remove_tp_no_rsi_extremo_e_preserva_posicao(self) -> None:
+        scenarios = (("BUY", 71.0), ("SELL", 29.0))
+        for side, rsi in scenarios:
+            with self.subTest(side=side):
+                provider = _FakePositionProvider(
+                    position=_position("XAUUSD", side, 101.0, 99.0, 110.0),
+                    price=105.0 if side == "BUY" else 97.0,
+                    candles=[],
+                )
+                manager = self._manager(provider, enabled=True)
+                hold_decision = SimpleNamespace(
+                    action="HOLD_POSITION",
+                    status=f"M8_HOLD_{side}",
+                    reason="RSI extremo armado; aguardar retorno para Full Exit.",
+                    rsi14=rsi,
+                    previous_rsi14=rsi - 1.0 if side == "BUY" else rsi + 1.0,
+                    sma20=104.0,
+                    sma50=100.0,
+                    closed_candle_time=f"candle-{side}",
+                )
+
+                with patch(
+                    "application.position_manager_service.evaluate_model8_exit",
+                    return_value=hold_decision,
+                ):
+                    result = manager.manage_plan(
+                        self._plan(
+                            "XAUUSD",
+                            side,
+                            entry=101.0,
+                            stop=99.0,
+                            target=110.0,
+                            stop_management="M24_SOURCE_EXIT_PLUS_BASKET_1000",
+                            parameters={
+                                "m24_entry_role": "REENTRY",
+                                "m24_reentry_position": True,
+                            },
+                            operational_model="MODELO_24_XAU_RSI50_BASKET_SOURCE_M8",
+                        )
+                    )
+
+                self.assertEqual(result.status, "TARGET_REMOVED")
+                self.assertEqual(result.action, "REMOVE_TARGET")
+                self.assertEqual(provider.modified_target, 0.0)
+                self.assertEqual(provider.target_modify_calls, 1)
+                self.assertEqual(provider.close_calls, 0)
 
     def test_beta002_compra_saudavel_mantem_posicao(self) -> None:
         provider = _FakePositionProvider(
@@ -1245,6 +1348,7 @@ class PositionManagerServiceTest(unittest.TestCase):
         swing_high: float | None = None,
         swing_low: float | None = None,
         beta_id: str = "BETA001",
+        alpha_id: str = "ALPHA001",
         ticket: int | None = None,
         operational_model: str = "N/D",
     ) -> PositionTradePlan:
@@ -1256,6 +1360,7 @@ class PositionManagerServiceTest(unittest.TestCase):
             target=target,
             stop_management=stop_management,
             stop_management_parameters=parameters or {},
+            alpha_id=alpha_id,
             atr=atr,
             momentum=momentum,
             volatility=volatility,
@@ -1332,6 +1437,8 @@ class _FakePositionProvider:
         self.candles = candles or []
         self.modified_stop: float | None = None
         self.modify_calls = 0
+        self.modified_target: float | None = None
+        self.target_modify_calls = 0
         self.close_calls = 0
         self.close_reason = ""
         self.submit_order_calls = 0
@@ -1378,6 +1485,16 @@ class _FakePositionProvider:
         self.modify_calls += 1
         self.modified_stop = new_stop
         return SimpleNamespace(success=True, message="SL atualizado.")
+
+    def modify_position_tp(
+        self,
+        symbol: str,
+        ticket: int,
+        new_target: float,
+    ) -> SimpleNamespace:
+        self.target_modify_calls += 1
+        self.modified_target = new_target
+        return SimpleNamespace(success=True, message="TP atualizado.")
 
     def close_position(
         self,

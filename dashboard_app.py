@@ -103,6 +103,10 @@ from application.model24_xau_basket import (
     MODEL_24_ID as MT5_OPERATIONAL_MODEL_24,
     MODEL_24_SOURCE_MODEL_IDS,
 )
+from application.model25_multi_asset_rsi50_basket import (
+    MODEL_25_ID as MT5_OPERATIONAL_MODEL_25,
+    MODEL_25_SYMBOLS,
+)
 from application.xau_m5_sma_rsi_model_family import (
     MODEL_9_ID as MT5_OPERATIONAL_MODEL_9,
     MODEL_10_ID as MT5_OPERATIONAL_MODEL_10,
@@ -310,6 +314,7 @@ MT5_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_22,
     MT5_OPERATIONAL_MODEL_23,
     MT5_OPERATIONAL_MODEL_24,
+    MT5_OPERATIONAL_MODEL_25,
 )
 MT5_ACTIVE_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_1,
@@ -325,13 +330,16 @@ MT5_ACTIVE_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_20,
     MT5_OPERATIONAL_MODEL_21,
     MT5_OPERATIONAL_MODEL_22,
+    MT5_OPERATIONAL_MODEL_25,
 )
 MT5_SELECTABLE_OPERATIONAL_MODEL_IDS = (
     *MT5_ACTIVE_SOURCE_MODEL_IDS,
     MT5_OPERATIONAL_MODEL_23,
     MT5_OPERATIONAL_MODEL_24,
 )
-MT5_MODEL_23_SOURCE_MODEL_IDS = MT5_ACTIVE_SOURCE_MODEL_IDS
+MT5_MODEL_23_SOURCE_MODEL_IDS = tuple(
+    model for model in MT5_ACTIVE_SOURCE_MODEL_IDS if model != MT5_OPERATIONAL_MODEL_25
+)
 MT5_MODEL_24_SOURCE_MODEL_IDS = tuple(
     model for model in MT5_ACTIVE_SOURCE_MODEL_IDS if model in MODEL_24_SOURCE_MODEL_IDS
 )
@@ -396,8 +404,9 @@ MT5_OPERATIONAL_MODEL_5_ENTRY_TIMEFRAME = "M5"
 MT5_OPERATIONAL_MODEL_STATE_PATH = Path(".traderia") / "mt5_operational_model.json"
 MT5_MODEL23_BASKET_STATE_PATH = Path(".traderia") / "model23_basket_state.json"
 MT5_MODEL24_BASKET_STATE_PATH = Path(".traderia") / "model24_basket_state.json"
+MT5_MODEL25_BASKET_STATE_PATH = Path(".traderia") / "model25_basket_state.json"
 MT5_ACTIVE_REPORT_MODEL_NUMBERS = (
-    1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+    1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
 )
 MT5_DEMO_ROBOT_ONLINE_STATE_PATH = (
     Path(".traderia") / "mt5_demo_robot_online_state.json"
@@ -2398,6 +2407,7 @@ def _mt5_operational_model_labels() -> dict[str, str]:
         MT5_OPERATIONAL_MODEL_17: "Modelo 17 - Forex Setup E: filtros combinados",
         MT5_OPERATIONAL_MODEL_23: "Modelo 23 - acumulador financeiro",
         MT5_OPERATIONAL_MODEL_24: "Modelo 24 - XAU RSI50 com cesta financeira",
+        MT5_OPERATIONAL_MODEL_25: "Modelo 25 - M24 nos 19 ativos em M5",
     }
     for model_id in XAU_IMPROVED_REENTRY_MODEL_IDS:
         spec = trend_filter_spec(model_id)
@@ -2633,7 +2643,7 @@ def _render_mt5_operational_model_selector() -> str:
         if candidate == MT5_OPERATIONAL_MODEL_ALL:
             checked = (
                 direct_mode
-                and len(persisted_models) == len(MT5_MODEL_23_SOURCE_MODEL_IDS)
+                and len(persisted_models) == len(MT5_ACTIVE_SOURCE_MODEL_IDS)
             )
         checkbox_key = _mt5_operational_model_checkbox_key(candidate)
         if refresh_widgets or checkbox_key not in st.session_state:
@@ -2738,6 +2748,20 @@ def _render_mt5_operational_model_selector() -> str:
         basket_columns = st.columns(4)
         basket_columns[0].metric("Estado M24", str(basket.get("status", "AGUARDANDO")))
         basket_columns[1].metric("Posicoes M24", int(basket.get("positions", 0) or 0))
+        basket_columns[2].metric(
+            "Resultado cesta",
+            f"US$ {float(basket.get('net_result_usd', 0.0) or 0.0):.2f}",
+        )
+        basket_columns[3].metric("Full Exit", "+US$ 1.000,00")
+    if _mt5_operational_model_enabled(selected, MT5_OPERATIONAL_MODEL_25):
+        st.warning(
+            "M25 ativo nos 19 ativos em M5: mesma logica operacional do M24, "
+            "com estado e cesta independentes por ativo."
+        )
+        basket = _load_mt5_model25_basket_state()
+        basket_columns = st.columns(4)
+        basket_columns[0].metric("Estado M25", str(basket.get("status", "AGUARDANDO")))
+        basket_columns[1].metric("Posicoes M25", int(basket.get("positions", 0) or 0))
         basket_columns[2].metric(
             "Resultado cesta",
             f"US$ {float(basket.get('net_result_usd', 0.0) or 0.0):.2f}",
@@ -3031,6 +3055,8 @@ def _mt5_operational_model_short_label(model: str) -> str:
         return "M23"
     if normalized == MT5_OPERATIONAL_MODEL_24:
         return "M24"
+    if normalized == MT5_OPERATIONAL_MODEL_25:
+        return "M25"
     for label, model_id in LAB_OPERATIONAL_MODEL_IDS_BY_LABEL.items():
         if normalized == model_id:
             return label
@@ -3082,6 +3108,15 @@ def _load_mt5_model24_basket_state() -> dict[str, object]:
     """Le o estado compacto e independente da cesta M24."""
     try:
         payload = json.loads(MT5_MODEL24_BASKET_STATE_PATH.read_text(encoding="utf-8"))
+        return dict(payload) if isinstance(payload, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _load_mt5_model25_basket_state() -> dict[str, object]:
+    """Le o estado compacto e independente da cesta M25."""
+    try:
+        payload = json.loads(MT5_MODEL25_BASKET_STATE_PATH.read_text(encoding="utf-8"))
         return dict(payload) if isinstance(payload, dict) else {}
     except (OSError, ValueError, TypeError):
         return {}
@@ -3777,6 +3812,7 @@ def _mt5_trade_entry_type_label(row: object) -> str:
         getattr(row, "entry_role", None),
         snapshot.get("entry_role"),
         parameters.get("m24_entry_role"),
+        parameters.get("m25_entry_role"),
         parameters.get("entry_role"),
         parameters.get("signal_kind"),
     )
@@ -3791,6 +3827,34 @@ def _mt5_trade_entry_type_label(row: object) -> str:
             return "REENTRADA"
         if normalized in {"INITIAL", "INITIAL_ENTRY", "ENTRADA_INICIAL"}:
             return "PRINCIPAL"
+
+    operational_model = str(
+        getattr(row, "operational_model", "")
+        or snapshot.get("operational_model")
+        or ""
+    ).upper()
+    source_model = str(parameters.get("source_operational_model") or "").upper()
+    active_order_type = str(parameters.get("active_entry_order_type") or "").upper()
+    basket_xau_source = (
+        operational_model.startswith(MT5_OPERATIONAL_MODEL_23)
+        or operational_model.startswith(MT5_OPERATIONAL_MODEL_24)
+    ) and any(
+        token in source_model
+        for token in (
+            "MODELO_8_",
+            "MODELO_10_",
+            "MODELO_18_",
+            "MODELO_19_",
+            "MODELO_20_",
+            "MODELO_21_",
+            "MODELO_22_",
+        )
+    )
+    if basket_xau_source:
+        if active_order_type == "MARKET":
+            return "PRINCIPAL"
+        if active_order_type in {"BUY_STOP", "SELL_STOP"}:
+            return "REENTRADA"
 
     entry_setup = str(
         getattr(row, "entry_setup", "")
@@ -4218,6 +4282,14 @@ def _mt5_equity_model_setup_summary(model_filter: str) -> str:
             "SL/TP da fonte | -US$300 | trailing apos +US$300 com recuo de 25% | Full Exit "
             "a mercado em +US$1.000"
         ),
+        "MODELO 24": (
+            "XAUUSD/M5 | entrada inicial + reentrada RSI50 | cesta independente "
+            "com Full Exit em +US$1.000"
+        ),
+        "MODELO 25": (
+            "Logica M24 nos 19 ativos/M5 | estado por ativo | cesta M25 "
+            "com Full Exit em +US$1.000"
+        ),
     }
     if normalized in summaries:
         return summaries[normalized]
@@ -4433,7 +4505,7 @@ def _mt5_equity_row_model_key(row: object) -> str:
     match = re.search(r"(?:MODELO[_ ]?|\bM)(\d{1,2})(?:_|\b)", model)
     if match is not None:
         number = int(match.group(1))
-        if 1 <= number <= 24:
+        if 1 <= number <= 25:
             return f"MODELO{number}"
     if "MODELO_10" in model or "MODELO 10" in model or model == "M10":
         return "MODELO10"
@@ -5735,10 +5807,15 @@ def _model24_setup_rows() -> list[dict[str, object]]:
             "Entrada inicial": (
                 "micro-pivo 1+1 + RSI14 cruza 50 + fechamento alem da SMA20"
             ),
+            "Distancia medias": (
+                "|SMA20-SMA50| / ATR14 >= 0,25 (somente forca; sem direcao)"
+            ),
             "Reentrada 1": "BUY_STOP/SELL_STOP no extremo do M5 anterior",
             "Reentrada 2": "RSI14 cruza 50 a mercado com SMA20/50 alinhadas",
             "SL reentrada 2": "extremo do candle anterior; move somente a favor",
-            "TP individual": "DESLIGADO",
+            "TP individual": (
+                "inicial sem TP; reentrada no fechamento do candle estrutural"
+            ),
             "Full Exit cesta": "+US$ 1.000 liquidos",
         }
         for source in MT5_MODEL_24_SOURCE_MODEL_IDS
@@ -6069,6 +6146,21 @@ def _exibir_entradas_teoricas_mt5(
             model_column="Fonte",
             color_status_cells=True,
             color_model_rows=True,
+        )
+    if _mt5_operational_model_enabled(operational_model, MT5_OPERATIONAL_MODEL_25):
+        st.subheader("Entrada Teorica MT5 - Modelo 25 - 19 ativos")
+        st.caption(
+            "Copia operacional independente do M24 em M5. Cada ativo reutiliza "
+            "a janela compartilhada de 200 velas fechadas mais a vela atual."
+        )
+        _render_stable_readonly_table(
+            service.model25_theoretical_entry_rows(),
+            model_column="Par",
+            decision_column="Direcao",
+            color_status_cells=True,
+            color_model_rows=True,
+            empty_columns=["Par", "Timeframe", "Envio", "Direcao", "Motivo"],
+            empty_message="M25 aguardando o primeiro snapshot M5 dos 19 ativos.",
         )
     st.subheader("Monitor de Indicadores MT5 - modelos ativos")
     st.caption(
@@ -8055,6 +8147,7 @@ def _mt5_theoretical_exit_row(
         "Par": pair,
         "Lado": _mt5_theoretical_exit_side_label(row, display_signal, effective_model),
         "Modelo": model_label,
+        "Tipo entrada": _mt5_trade_entry_type_label(row),
         "TF Entrada Lab": entry_timeframe,
         "TF Saida Beta": _mt5_beta_exit_timeframe(
             row,
@@ -8198,6 +8291,9 @@ def _mt5_theoretical_exit_has_recorded_model(row: object) -> bool:
     return (
         model in set(MT5_HISTORICAL_OPERATIONAL_MODEL_IDS)
         or model in LEGACY_MT5_OPERATIONAL_MODELS
+        or model.startswith(MT5_OPERATIONAL_MODEL_23)
+        or model.startswith(MT5_OPERATIONAL_MODEL_24)
+        or model.startswith(MT5_OPERATIONAL_MODEL_25)
     )
 
 
@@ -8207,10 +8303,28 @@ def _mt5_theoretical_exit_effective_model(
 ) -> str:
     """Usa o modelo gravado na ordem; fallback apenas para posicao legada."""
     row_model = str(getattr(row, "operational_model", "") or "").upper()
+    if row_model.startswith(MT5_OPERATIONAL_MODEL_23):
+        return row_model
+    if row_model.startswith(MT5_OPERATIONAL_MODEL_24):
+        return row_model
+    if row_model.startswith(MT5_OPERATIONAL_MODEL_25):
+        return row_model
     if row_model in LEGACY_MT5_OPERATIONAL_MODELS:
         return row_model
     if row_model in set(MT5_HISTORICAL_OPERATIONAL_MODEL_IDS):
         return row_model
+    alpha = _mt5_trade_row_text(row, "alpha_id", "alpha_id", "alpha").upper()
+    entry_setup = _mt5_trade_row_text(
+        row,
+        "entry_setup",
+        "entry_setup",
+        "active_model",
+        "setup",
+    ).upper()
+    if alpha == "ALPHA001" and entry_setup == "TREND_MOMENTUM":
+        # Posicao antiga sem operational_model nao pode herdar o seletor atual.
+        # Esse contrato H1 e inequivocamente o M1 historico.
+        return MT5_OPERATIONAL_MODEL_1
     fallback = str(fallback_model or MT5_OPERATIONAL_MODEL_1).upper()
     if fallback in set(MT5_OPERATIONAL_MODEL_IDS):
         return fallback
@@ -8595,7 +8709,7 @@ def _mt5_theoretical_exit_cell_class(row: dict[str, object], column: str) -> str
     if column == "Modelo envio":
         model = str(row.get(column, "") or "").upper()
         match = re.fullmatch(r"MODELO (\d{1,2})", model)
-        if match is not None and 11 <= int(match.group(1)) <= 23:
+        if match is not None and 11 <= int(match.group(1)) <= 25:
             return f"traderia-cell-model{match.group(1)}"
         if model == "MODELO 4":
             return "traderia-cell-model4"
@@ -9208,7 +9322,7 @@ def _entry_temporal_gates_by_pair(
     A grade consolidada mistura linhas H1/M15/M5 e pode conservar uma linha
     antiga enquanto outro modelo do mesmo ativo ja recebeu candle novo. Usar a
     primeira linha fazia um estado de sexta-feira mascarar o bloqueio real do
-    setup no domingo. A selecao abaixo e comum a M1-M24 e permanece read-only.
+    setup no domingo. A selecao abaixo e comum a M1-M25 e permanece read-only.
     """
     try:
         configuration = service.configuration_service.get_configuration_data()
@@ -10513,6 +10627,8 @@ def _inject_dashboard_css() -> None:
         .traderia-row-model21 td { background: #E2E8F0 !important; color: #0F172A !important; font-weight: 800; }
         .traderia-row-model22 td { background: #FAE8FF !important; color: #701A75 !important; font-weight: 800; }
         .traderia-row-model23 td { background: #DCFCE7 !important; color: #14532D !important; font-weight: 800; }
+        .traderia-row-model24 td { background: #DBEAFE !important; color: #1E3A8A !important; font-weight: 800; }
+        .traderia-row-model25 td { background: #F3E8FF !important; color: #581C87 !important; font-weight: 800; }
         .traderia-stable-table td.traderia-cell-active {
             background: #DBEAFE !important;
             color: #0F172A !important;
@@ -10586,6 +10702,8 @@ def _inject_dashboard_css() -> None:
         .traderia-stable-table td.traderia-cell-model21 { background: #CBD5E1 !important; color: #0F172A !important; font-weight: 900; }
         .traderia-stable-table td.traderia-cell-model22 { background: #F5D0FE !important; color: #701A75 !important; font-weight: 900; }
         .traderia-stable-table td.traderia-cell-model23 { background: #DCFCE7 !important; color: #14532D !important; font-weight: 900; }
+        .traderia-stable-table td.traderia-cell-model24 { background: #BFDBFE !important; color: #1E3A8A !important; font-weight: 900; }
+        .traderia-stable-table td.traderia-cell-model25 { background: #E9D5FF !important; color: #581C87 !important; font-weight: 900; }
         .traderia-stable-table td.traderia-cell-result-positive {
             background: #DDF7E3 !important;
             color: #0F3D24 !important;
@@ -10680,6 +10798,9 @@ def _inject_dashboard_css() -> None:
         .traderia-legend-model20 { background: #FCE7F3; color: #831843; }
         .traderia-legend-model21 { background: #E2E8F0; color: #0F172A; }
         .traderia-legend-model22 { background: #FAE8FF; color: #701A75; }
+        .traderia-legend-model23 { background: #DCFCE7; color: #14532D; }
+        .traderia-legend-model24 { background: #DBEAFE; color: #1E3A8A; }
+        .traderia-legend-model25 { background: #F3E8FF; color: #581C87; }
         .traderia-legend-wait {
             background: #FEF3C7;
             color: #78350F;

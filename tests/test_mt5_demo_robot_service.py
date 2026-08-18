@@ -7,6 +7,7 @@ from application.model23_basket_accumulator import (
     MODEL_23_ENTRY_SOURCE,
     model23_variant_id,
 )
+from application.model24_xau_basket import model24_variant_id
 from application.mt5_demo_robot_service import (
     MT5DemoRobotService,
     MT5DemoRobotSignal,
@@ -80,6 +81,39 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
         self.assertEqual(order.plan_snapshot["initial_stop"], plan.stop)
         self.assertEqual(order.plan_snapshot["target"], plan.target)
         self.assertEqual(audit.plan_snapshot["plan_identity"], order.plan_identity)
+
+    def test_m24_usa_lote_020_na_principal_e_010_na_reentrada(self) -> None:
+        service = MT5DemoRobotService(enabled=True, volume=0.1)
+        model = model24_variant_id("MODELO_8_XAU_M5_SMA_RSI_REENTRY")
+        signal = MT5DemoRobotSignal(
+            **{
+                **self._signal("BUY").__dict__,
+                "symbol": "XAUUSD",
+                "timeframe": "M5",
+                "operational_model": model,
+            }
+        )
+        base_plan = {
+            **self._plan("BUY").__dict__,
+            "symbol": "XAUUSD",
+            "timeframe": "M5",
+            "operational_model": model,
+        }
+        principal = MT5DemoTradePlan(
+            **{
+                **base_plan,
+                "stop_management_parameters": {"m24_entry_role": "INITIAL"},
+            }
+        )
+        reentry = MT5DemoTradePlan(
+            **{
+                **base_plan,
+                "stop_management_parameters": {"m24_entry_role": "REENTRY"},
+            }
+        )
+
+        self.assertEqual(service._execution_volume(signal, principal), 0.20)
+        self.assertEqual(service._execution_volume(signal, reentry), 0.10)
 
     def test_nao_reopera_mesmo_candle(self) -> None:
         provider = _AcceptingProvider()

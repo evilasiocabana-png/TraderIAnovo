@@ -25,6 +25,10 @@ from application.model23_basket_accumulator import (
     model23_order_comment,
 )
 from application.model24_xau_basket import is_model24, model24_order_comment
+from application.model25_multi_asset_rsi50_basket import (
+    is_model25,
+    model25_order_comment,
+)
 from application.model3_xau_m5_rsi50_flip import MODEL_3_ID
 from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
 from application.xau_m5_sma_rsi_model_family import (
@@ -50,7 +54,7 @@ from core.mt5_process_probe import resolve_mt5_terminal_path, terminate_process_
 _MT5_ORDER_SEND_LOCK = threading.Lock()
 MAX_OPERATIONAL_MODELS_PER_SYMBOL = 22
 MAX_MODEL23_POSITIONS_PER_SYMBOL = 64
-KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 25))
+KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 26))
 INDEPENDENT_SMA_RSI_MODEL_IDS = frozenset(
     {
         MODEL_8_ID,
@@ -61,7 +65,7 @@ INDEPENDENT_SMA_RSI_MODEL_IDS = frozenset(
 
 
 def _is_basket_model(value: object) -> bool:
-    return is_model23(value) or is_model24(value)
+    return is_model23(value) or is_model24(value) or is_model25(value)
 
 
 @dataclass(frozen=True)
@@ -399,6 +403,18 @@ mt5.shutdown()
         new_stop: float,
     ) -> DynamicExitDemoSLExecutionResult:
         """Porta generica para alterar somente SL de posicao MT5 Demo."""
+        initialize_check = self._initialize_check()
+        if initialize_check is not None:
+            created_at = datetime.now().astimezone().isoformat()
+            return self._assisted_sl_result(
+                symbol=str(symbol or "").upper(),
+                ticket=ticket,
+                side="N/D",
+                requested_stop=new_stop,
+                created_at=created_at,
+                message=initialize_check.message,
+                rejection_reasons=(initialize_check.message,),
+            )
         position = self._find_position(str(symbol or "").upper(), int(ticket or 0))
         if position is None:
             created_at = datetime.now().astimezone().isoformat()
@@ -419,6 +435,57 @@ mt5.shutdown()
             requested_stop=float(new_stop),
             decision_key="POSITION_MANAGER",
         )
+
+    def modify_position_tp(
+        self,
+        symbol: str,
+        ticket: int,
+        new_target: float,
+    ) -> ExecutionResult:
+        """Atualiza somente o TP em conta Demo, preservando o SL atual."""
+        normalized_symbol = str(symbol or "").upper()
+        initialize_check = self._initialize_check()
+        if initialize_check is not None:
+            return initialize_check
+        demo_check = self._demo_account_check()
+        if demo_check is not None:
+            return demo_check
+        symbol_check = self._ensure_symbol(normalized_symbol)
+        if symbol_check is not None:
+            return symbol_check
+        position = self._find_position(normalized_symbol, int(ticket or 0))
+        if position is None:
+            return ExecutionResult(False, "REJECTED", "Posicao demo nao encontrada para modificar TP.")
+        current_stop = float(getattr(position, "sl", 0.0) or 0.0)
+        current_target = float(getattr(position, "tp", 0.0) or 0.0)
+        requested_target = max(0.0, float(new_target or 0.0))
+        request = {
+            "action": self.mt5.TRADE_ACTION_SLTP,
+            "position": int(ticket),
+            "symbol": normalized_symbol,
+            "sl": current_stop,
+            "tp": requested_target,
+            "magic": self.magic,
+            "comment": "TraderIA PM TP",
+        }
+        response = self._order_send(request)
+        result = self._result_from_response(response)
+        self._write_management_log(
+            {
+                "timestamp": datetime.now().astimezone().isoformat(),
+                "type": "POSITION_MANAGER_TARGET_UPDATE",
+                "symbol": normalized_symbol,
+                "ticket": int(ticket),
+                "old_target": current_target,
+                "new_target": requested_target,
+                "stop_preserved": current_stop,
+                "accepted": result.accepted,
+                "status": result.status,
+                "message": result.message,
+                "error_code": result.error_code,
+            }
+        )
+        return result
 
     def close_position(
         self,
@@ -713,6 +780,18 @@ mt5.shutdown()
             if stop_target_rejection is not None:
                 self._write_log(order, stop_target_rejection)
                 return stop_target_rejection
+            pending_transition_rejection = (
+                self._model24_pending_transition_preflight_locked(order)
+            )
+            if pending_transition_rejection is not None:
+                self._write_log(order, pending_transition_rejection)
+                return pending_transition_rejection
+            pending_transition_rejection = (
+                self._model25_pending_transition_preflight_locked(order)
+            )
+            if pending_transition_rejection is not None:
+                self._write_log(order, pending_transition_rejection)
+                return pending_transition_rejection
             request = self._request(order, tick)
             order_check = self._order_check(request)
             if order_check is not None and not self._order_check_passed(order_check):
@@ -1488,7 +1567,19 @@ mt5.shutdown()
         snapshot = dict(getattr(order, "plan_snapshot", None) or {})
         parameters = dict(snapshot.get("stop_management_parameters") or {})
         if is_model24(getattr(order, "operational_model", "")):
-            return True
+            return not (
+                str(parameters.get("m24_entry_role") or "").upper()
+                in {"REENTRY", "STRUCTURAL_REENTRY"}
+                and bool(parameters.get("m24_individual_target_enabled"))
+                and self._positive_float(getattr(order, "target", None)) is not None
+            )
+        if is_model25(getattr(order, "operational_model", "")):
+            return not (
+                str(parameters.get("m25_entry_role") or "").upper()
+                in {"REENTRY", "STRUCTURAL_REENTRY"}
+                and bool(parameters.get("m25_individual_target_enabled"))
+                and self._positive_float(getattr(order, "target", None)) is not None
+            )
         if (
             is_model23(getattr(order, "operational_model", ""))
             and bool(parameters.get("m23_structural_target_enabled"))
@@ -1752,7 +1843,16 @@ mt5.shutdown()
     ) -> ExecutionResult | None:
         """Aplica somente o teto tecnico de posicoes e bloqueia origem desconhecida."""
         positions = list(self.mt5.positions_get(symbol=order.symbol) or [])
-        is_basket = _is_basket_model(getattr(order, "operational_model", ""))
+        operational_model = getattr(order, "operational_model", "")
+        is_basket = _is_basket_model(operational_model)
+        if is_model24(operational_model):
+            role_rejection = self._model24_position_role_preflight(order, positions)
+            if role_rejection is not None:
+                return role_rejection
+        if is_model25(operational_model):
+            role_rejection = self._model25_position_role_preflight(order, positions)
+            if role_rejection is not None:
+                return role_rejection
         limit = (
             MAX_MODEL23_POSITIONS_PER_SYMBOL
             if is_basket
@@ -1808,6 +1908,229 @@ mt5.shutdown()
                 )
         return None
 
+    def _model24_position_role_preflight(
+        self,
+        order: ExecutionOrder,
+        positions: list[object],
+    ) -> ExecutionResult | None:
+        """Permite no M24 somente uma INITIAL e uma REENTRY posicionadas."""
+        candidate_role = self._model24_order_role(order)
+        if candidate_role not in {"INITIAL", "REENTRY"}:
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message="M24 sem papel INITIAL/REENTRY identificavel foi bloqueado.",
+            )
+        for position in positions:
+            comment = str(getattr(position, "comment", "") or "").upper()
+            if "M24" not in comment.split():
+                continue
+            open_side = self._position_side(position, {})
+            if open_side in {"BUY", "SELL"} and open_side != str(order.side).upper():
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=(
+                        "M24 aguarda encerrar a posicao do lado anterior antes "
+                        f"de iniciar {str(order.side).upper()}; hedge M24 bloqueado."
+                    ),
+                )
+            open_role = self._model24_position_role(position)
+            if open_role in {candidate_role, "UNKNOWN"}:
+                label = "inicial" if candidate_role == "INITIAL" else "reentrada"
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=(
+                        f"M24 ja possui uma posicao {label} aberta em "
+                        f"{order.symbol}; aguarde o encerramento antes de repetir."
+                    ),
+                )
+        return None
+
+    def _model24_pending_transition_preflight_locked(
+        self,
+        order: ExecutionOrder,
+    ) -> ExecutionResult | None:
+        """Evita hedge e mais de uma reentrada M24 ainda pendente."""
+        if not is_model24(getattr(order, "operational_model", "")):
+            return None
+        orders_get = getattr(self.mt5, "orders_get", None)
+        if not callable(orders_get):
+            return None
+        try:
+            pending_orders = list(orders_get(symbol=order.symbol) or [])
+        except Exception as exc:  # noqa: BLE001 - ponte externa MT5
+            return ExecutionResult(
+                accepted=False,
+                status="ERROR",
+                message=f"M24 nao conseguiu auditar pendencias na transicao: {exc}",
+            )
+
+        candidate_role = self._model24_order_role(order)
+        candidate_side = str(order.side or "").upper()
+        expected_comment = self._order_comment(order).upper()
+        buy_stop = getattr(self.mt5, "ORDER_TYPE_BUY_STOP", None)
+        sell_stop = getattr(self.mt5, "ORDER_TYPE_SELL_STOP", None)
+        pending_types = {value for value in (buy_stop, sell_stop) if value is not None}
+
+        for pending in pending_orders:
+            comment = str(getattr(pending, "comment", "") or "").upper()
+            tokens = set(comment.split())
+            if "M24" not in tokens or getattr(pending, "type", None) not in pending_types:
+                continue
+            pending_side = (
+                "BUY"
+                if getattr(pending, "type", None) == buy_stop
+                else "SELL"
+            )
+            if candidate_role == "INITIAL" and pending_side != candidate_side:
+                ticket = int(getattr(pending, "ticket", 0) or 0)
+                response = self.mt5.order_send(
+                    {
+                        "action": self.mt5.TRADE_ACTION_REMOVE,
+                        "order": ticket,
+                        "symbol": order.symbol,
+                        "comment": "TraderIA M24 reverse cleanup",
+                    }
+                )
+                result = self._result_from_response(response)
+                if not result.accepted:
+                    return ExecutionResult(
+                        accepted=False,
+                        status="REJECTED",
+                        message=(
+                            "M24 nao conseguiu cancelar a reentrada pendente do "
+                            "lado anterior; INITIAL preservada para o proximo ciclo."
+                        ),
+                        error_code=result.error_code,
+                    )
+                continue
+            if (
+                candidate_role == "REENTRY"
+                and "REENTRY" in tokens
+                and comment != expected_comment
+            ):
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=(
+                        "M24 ja possui uma reentrada pendente global; outra fonte "
+                        "deve aguardar essa ordem executar, expirar ou ser substituida."
+                    ),
+                )
+        return None
+
+    @staticmethod
+    def _model24_order_role(order: ExecutionOrder) -> str:
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        return str(parameters.get("m24_entry_role") or "").upper()
+
+    def _model24_position_role(self, position: object) -> str:
+        comment = str(getattr(position, "comment", "") or "").upper()
+        tokens = set(comment.split())
+        if "INITIAL" in tokens:
+            return "INITIAL"
+        if "REENTRY" in tokens:
+            return "REENTRY"
+        ticket = int(getattr(position, "ticket", 0) or 0)
+        if ticket > 0:
+            for record in reversed(self._read_execution_log_records()):
+                if int(record.get("ticket") or 0) != ticket:
+                    continue
+                role = str(
+                    dict(record.get("plan_snapshot") or {})
+                    .get("stop_management_parameters", {})
+                    .get("m24_entry_role", "")
+                ).upper()
+                if role in {"INITIAL", "REENTRY"}:
+                    return role
+        return "UNKNOWN"
+
+    def _model25_position_role_preflight(
+        self,
+        order: ExecutionOrder,
+        positions: list[object],
+    ) -> ExecutionResult | None:
+        """Permite no M25 uma INITIAL e uma REENTRY por simbolo."""
+        candidate_role = self._model25_order_role(order)
+        if candidate_role not in {"INITIAL", "REENTRY"}:
+            return ExecutionResult(False, "REJECTED", "M25 sem papel INITIAL/REENTRY identificavel.")
+        for position in positions:
+            comment = str(getattr(position, "comment", "") or "").upper()
+            if "M25" not in comment.split():
+                continue
+            open_side = self._position_side(position, {})
+            if open_side in {"BUY", "SELL"} and open_side != str(order.side).upper():
+                return ExecutionResult(False, "REJECTED", f"M25 {order.symbol} aguarda encerrar o lado anterior antes de inverter.")
+            if self._model25_position_role(position) in {candidate_role, "UNKNOWN"}:
+                return ExecutionResult(False, "REJECTED", f"M25 ja possui {candidate_role} aberta em {order.symbol}.")
+        return None
+
+    def _model25_pending_transition_preflight_locked(
+        self,
+        order: ExecutionOrder,
+    ) -> ExecutionResult | None:
+        """Mantem no maximo uma pendencia M25 por papel e simbolo."""
+        if not is_model25(getattr(order, "operational_model", "")):
+            return None
+        orders_get = getattr(self.mt5, "orders_get", None)
+        if not callable(orders_get):
+            return None
+        try:
+            pending_orders = list(orders_get(symbol=order.symbol) or [])
+        except Exception as exc:  # noqa: BLE001
+            return ExecutionResult(False, "ERROR", f"M25 nao conseguiu auditar pendencias: {exc}")
+        candidate_role = self._model25_order_role(order)
+        candidate_side = str(order.side or "").upper()
+        buy_stop = getattr(self.mt5, "ORDER_TYPE_BUY_STOP", None)
+        sell_stop = getattr(self.mt5, "ORDER_TYPE_SELL_STOP", None)
+        pending_types = {value for value in (buy_stop, sell_stop) if value is not None}
+        for pending in pending_orders:
+            comment = str(getattr(pending, "comment", "") or "").upper()
+            tokens = set(comment.split())
+            if "M25" not in tokens or getattr(pending, "type", None) not in pending_types:
+                continue
+            pending_side = "BUY" if getattr(pending, "type", None) == buy_stop else "SELL"
+            if candidate_role == "INITIAL" and pending_side != candidate_side:
+                response = self.mt5.order_send(
+                    {
+                        "action": self.mt5.TRADE_ACTION_REMOVE,
+                        "order": int(getattr(pending, "ticket", 0) or 0),
+                        "symbol": order.symbol,
+                        "comment": "TraderIA M25 reverse cleanup",
+                    }
+                )
+                result = self._result_from_response(response)
+                if not result.accepted:
+                    return ExecutionResult(False, "REJECTED", "M25 nao conseguiu cancelar pendencia do lado anterior.", error_code=result.error_code)
+                continue
+            if candidate_role == "REENTRY" and "REENTRY" in tokens:
+                return ExecutionResult(False, "REJECTED", f"M25 ja possui reentrada pendente em {order.symbol}; sera reposicionada em outro ciclo apos expirar ou executar.")
+        return None
+
+    @staticmethod
+    def _model25_order_role(order: ExecutionOrder) -> str:
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        return str(parameters.get("m25_entry_role") or "").upper()
+
+    def _model25_position_role(self, position: object) -> str:
+        tokens = set(str(getattr(position, "comment", "") or "").upper().split())
+        if "INITIAL" in tokens:
+            return "INITIAL"
+        if "REENTRY" in tokens:
+            return "REENTRY"
+        ticket = int(getattr(position, "ticket", 0) or 0)
+        for record in reversed(self._read_execution_log_records()):
+            if int(record.get("ticket") or 0) != ticket:
+                continue
+            role = str(dict(record.get("plan_snapshot") or {}).get("stop_management_parameters", {}).get("m25_entry_role", "")).upper()
+            if role in {"INITIAL", "REENTRY"}:
+                return role
+        return "UNKNOWN"
+
     def _record_counts_as_plan_evaluation(self, record: dict[str, Any]) -> bool:
         """Duplicidade de plano so nasce de ordem aceita pelo MT5."""
         return bool(record.get("accepted", False))
@@ -1821,6 +2144,7 @@ mt5.shutdown()
         parameters = parameters_value if isinstance(parameters_value, dict) else {}
         return {
             "accepted": bool(record.get("accepted", False)),
+            "ticket": record.get("ticket"),
             "plan_identity": record.get("plan_identity"),
             "operational_model": record.get("operational_model"),
             "symbol": record.get("symbol"),
@@ -1838,6 +2162,8 @@ mt5.shutdown()
                     "source_operational_model": parameters.get(
                         "source_operational_model"
                     ),
+                    "m24_entry_role": parameters.get("m24_entry_role"),
+                    "m25_entry_role": parameters.get("m25_entry_role"),
                 },
             },
         }
@@ -1910,7 +2236,7 @@ mt5.shutdown()
             if _is_basket_model(record_model)
             else record_model
         ) or record_model
-        record_uses_no_target = is_model24(record_model) or self._model_uses_no_target(
+        record_uses_no_target = is_model24(record_model) or is_model25(record_model) or self._model_uses_no_target(
             effective_model,
             record_parameters.get("active_entry_order_type"),
         )
@@ -2172,8 +2498,14 @@ mt5.shutdown()
                 self.execution_log_cache_signature = None
 
     def _order_comment(self, order: ExecutionOrder) -> str:
+        if is_model25(getattr(order, "operational_model", "")):
+            base = model25_order_comment(getattr(order, "operational_model", ""))
+            role = self._model25_order_role(order)
+            return f"{base} {role}" if role in {"INITIAL", "REENTRY"} else base
         if is_model24(getattr(order, "operational_model", "")):
-            return model24_order_comment(getattr(order, "operational_model", ""))
+            base = model24_order_comment(getattr(order, "operational_model", ""))
+            role = self._model24_order_role(order)
+            return f"{base} {role}" if role in {"INITIAL", "REENTRY"} else base
         if is_model23(getattr(order, "operational_model", "")):
             return model23_order_comment(getattr(order, "operational_model", ""))
         return f"TraderIA {self._model_comment(getattr(order, 'operational_model', ''))}"
@@ -2183,7 +2515,7 @@ mt5.shutdown()
         match = re.search(r"(?:MODELO[_ ]?|^M)(\d{1,2})(?:_|\b)", model)
         if match is not None:
             number = int(match.group(1))
-            if 1 <= number <= 24:
+            if 1 <= number <= 25:
                 return f"M{number}"
         if model in {
             "MODELO_2_ESPELHO_BETA2_RR1",
