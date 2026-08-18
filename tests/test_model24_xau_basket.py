@@ -27,6 +27,7 @@ from application.dashboard_service import (
     MT5_MODEL_24_SOURCE_MODEL_IDS,
     MT5_OPERATIONAL_MODEL_8,
     MT5_OPERATIONAL_MODEL_24,
+    MT5_OPERATIONAL_MODEL_25,
     MT5_OPERATIONAL_MODEL_WITH_24,
 )
 from application.dashboard_view_model import (
@@ -547,6 +548,18 @@ def test_service_selects_only_the_seven_m24_sources() -> None:
     service.set_mt5_operational_model(MT5_OPERATIONAL_MODEL_WITH_24)
     assert service.get_mt5_operational_model() == MT5_OPERATIONAL_MODEL_WITH_24
     assert service._mt5_direct_routing_enabled()
+
+
+def test_model24_can_run_with_model25_without_expanding_direct_selection() -> None:
+    service = object.__new__(DashboardService)
+    service.set_mt5_operational_models((MT5_OPERATIONAL_MODEL_25,))
+    service.set_mt5_operational_model(MT5_OPERATIONAL_MODEL_WITH_24)
+
+    assert service._mt5_operational_models_to_evaluate() == (
+        MT5_OPERATIONAL_MODEL_25,
+    )
+    assert service._mt5_model24_routing_enabled()
+    assert service._mt5_model25_routing_enabled()
 
 
 def test_m24_does_not_require_valid_h1_research_plan_before_its_own_route() -> None:

@@ -2571,9 +2571,9 @@ def _persist_mt5_operational_model_form_selection() -> str:
 
     if basket24_checked and direct_enabled:
         selected = MT5_OPERATIONAL_MODEL_WITH_24
-        persisted_models = tuple(
-            model for model in selected_models if model in MT5_MODEL_24_SOURCE_MODEL_IDS
-        ) or MT5_MODEL_24_SOURCE_MODEL_IDS
+        # As fontes internas da cesta M24 nao substituem os modelos diretos
+        # escolhidos pelo usuario para operar ao lado dela.
+        persisted_models = selected_models
     elif basket24_checked:
         selected = MT5_OPERATIONAL_MODEL_24
         persisted_models = MT5_MODEL_24_SOURCE_MODEL_IDS
@@ -2895,22 +2895,20 @@ def _load_persisted_mt5_operational_models() -> tuple[str, ...]:
             str(item or "").upper(),
             str(item or "").upper(),
         )
-        if normalized in MT5_MODEL_23_SOURCE_MODEL_IDS and normalized not in selected:
+        if normalized in MT5_ACTIVE_SOURCE_MODEL_IDS and normalized not in selected:
             selected.append(normalized)
     if selected:
         return tuple(selected)
     mode = _valid_mt5_operational_model(data.get("model"))
-    if mode in {
-        MT5_OPERATIONAL_MODEL_ALL,
-        MT5_OPERATIONAL_MODEL_23,
-        MT5_OPERATIONAL_MODEL_WITH_23,
-    }:
+    if mode == MT5_OPERATIONAL_MODEL_ALL:
+        return MT5_ACTIVE_SOURCE_MODEL_IDS
+    if mode in {MT5_OPERATIONAL_MODEL_23, MT5_OPERATIONAL_MODEL_WITH_23}:
         return MT5_MODEL_23_SOURCE_MODEL_IDS
     if mode in {MT5_OPERATIONAL_MODEL_24, MT5_OPERATIONAL_MODEL_WITH_24}:
         return MT5_MODEL_24_SOURCE_MODEL_IDS
     if mode == MT5_OPERATIONAL_MODEL_8_TO_17:
         return MT5_OPERATIONAL_MODEL_8_TO_17_IDS
-    if mode in MT5_MODEL_23_SOURCE_MODEL_IDS:
+    if mode in MT5_ACTIVE_SOURCE_MODEL_IDS:
         return (mode,)
     return (MT5_OPERATIONAL_MODEL_1,)
 
@@ -2927,20 +2925,21 @@ def _persist_mt5_operational_model(
             str(item or "").upper(),
             str(item or "").upper(),
         )
-        if candidate in MT5_MODEL_23_SOURCE_MODEL_IDS and candidate not in selected:
+        if candidate in MT5_ACTIVE_SOURCE_MODEL_IDS and candidate not in selected:
             selected.append(candidate)
     if not selected:
         if normalized in {MT5_OPERATIONAL_MODEL_24, MT5_OPERATIONAL_MODEL_WITH_24}:
             selected = list(MT5_MODEL_24_SOURCE_MODEL_IDS)
+        elif normalized == MT5_OPERATIONAL_MODEL_ALL:
+            selected = list(MT5_ACTIVE_SOURCE_MODEL_IDS)
         elif normalized in {
-            MT5_OPERATIONAL_MODEL_ALL,
             MT5_OPERATIONAL_MODEL_23,
             MT5_OPERATIONAL_MODEL_WITH_23,
         }:
             selected = list(MT5_MODEL_23_SOURCE_MODEL_IDS)
         elif normalized == MT5_OPERATIONAL_MODEL_8_TO_17:
             selected = list(MT5_OPERATIONAL_MODEL_8_TO_17_IDS)
-        elif normalized in MT5_MODEL_23_SOURCE_MODEL_IDS:
+        elif normalized in MT5_ACTIVE_SOURCE_MODEL_IDS:
             selected = [normalized]
         else:
             selected = [MT5_OPERATIONAL_MODEL_1]

@@ -1365,11 +1365,7 @@ class DashboardService:
             return configured or MT5_MODEL_23_SOURCE_MODEL_IDS
         if selected == MT5_OPERATIONAL_MODEL_WITH_24:
             configured = tuple(
-                model
-                for model in tuple(
-                    getattr(self, "mt5_selected_operational_models", ()) or ()
-                )
-                if model in MT5_MODEL_24_SOURCE_MODEL_IDS
+                getattr(self, "mt5_selected_operational_models", ()) or ()
             )
             return configured or MT5_MODEL_24_SOURCE_MODEL_IDS
         if selected == MT5_OPERATIONAL_MODEL_8_TO_17:

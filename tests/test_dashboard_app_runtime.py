@@ -1074,6 +1074,53 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             finally:
                 dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
 
+    def test_formulario_preserva_m24_com_m25_sem_marcar_todos(self) -> None:
+        original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
+        model25 = dashboard_app.MT5_OPERATIONAL_MODEL_25
+        session_state = {
+            dashboard_app._mt5_operational_model_checkbox_key(
+                dashboard_app.MT5_OPERATIONAL_MODEL_ALL
+            ): False,
+            dashboard_app._mt5_operational_model_checkbox_key(
+                dashboard_app.MT5_OPERATIONAL_MODEL_23
+            ): False,
+            dashboard_app._mt5_operational_model_checkbox_key(
+                dashboard_app.MT5_OPERATIONAL_MODEL_24
+            ): True,
+        }
+        for model in dashboard_app.MT5_ACTIVE_SOURCE_MODEL_IDS:
+            session_state[
+                dashboard_app._mt5_operational_model_checkbox_key(model)
+            ] = model == model25
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = (
+                Path(temp_dir) / "mt5_operational_model.json"
+            )
+            try:
+                dashboard_app._persist_mt5_operational_model(
+                    dashboard_app.MT5_OPERATIONAL_MODEL_23,
+                )
+                with patch.object(dashboard_app.st, "session_state", session_state):
+                    selected = (
+                        dashboard_app._persist_mt5_operational_model_form_selection()
+                    )
+
+                self.assertEqual(
+                    selected,
+                    dashboard_app.MT5_OPERATIONAL_MODEL_WITH_24,
+                )
+                self.assertEqual(
+                    dashboard_app._load_persisted_mt5_operational_models(),
+                    (model25,),
+                )
+                self.assertNotEqual(
+                    dashboard_app._load_persisted_mt5_operational_model(),
+                    dashboard_app.MT5_OPERATIONAL_MODEL_ALL,
+                )
+            finally:
+                dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
+
     def test_chaveamento_renderiza_grade_visivel_sem_lista_suspensa(self) -> None:
         source = inspect.getsource(
             dashboard_app._render_mt5_operational_model_selector
