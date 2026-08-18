@@ -7996,16 +7996,11 @@ class DashboardService:
             else "INITIAL"
         )
         entry_decision = initial if role == "INITIAL" else reentry
-        filters_allowed = True
         filter_reason = (
             "M24_REENTRY_PRECO_SMA20_E_RSI50_SEM_NOVO_CRUZAMENTO"
             if role == "REENTRY"
-            else "BASE_M8"
+            else "M24_DISTANCE_ATR_ONLY"
         )
-        if role == "INITIAL" and source != MT5_OPERATIONAL_MODEL_8:
-            filter_decision = evaluate_xau_trend_filter_entry(source, rows)
-            filters_allowed = bool(filter_decision.filter_allowed)
-            filter_reason = filter_decision.status
 
         source_parameters = {
             **dict(plan.stop_management_parameters or {}),
@@ -8014,7 +8009,7 @@ class DashboardService:
             "m24_distance_atr_min": MODEL_24_DISTANCE_ATR_MIN,
             "m24_distance_uses_direction": False,
         }
-        use_market = role == "INITIAL" and entry_decision.ready and filters_allowed
+        use_market = role == "INITIAL" and entry_decision.ready
         use_structural = role == "REENTRY" and entry_decision.ready
         if use_market:
             direction = entry_decision.direction
@@ -8036,7 +8031,7 @@ class DashboardService:
             wait_status = entry_decision.status
             wait_reason = (
                 f"M24/{source_label}: {entry_decision.reason} "
-                f"Filtro da fonte: {filter_reason}."
+                f"Filtro proprio: {filter_reason}."
             )
             parameters = {
                 **source_parameters,
@@ -8364,6 +8359,7 @@ class DashboardService:
             "m25_distance_atr": decision.distance_atr,
             "m25_distance_atr_min": MODEL_25_DISTANCE_ATR_MIN,
             "m25_distance_uses_direction": False,
+            "m25_filter_status": "M25_DISTANCE_ATR_ONLY",
             "m25_symbol": pair,
         }
         if self._supplemental_m5_is_seed_only(pair):

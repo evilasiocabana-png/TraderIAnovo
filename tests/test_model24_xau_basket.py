@@ -680,6 +680,69 @@ def test_service_materializes_initial_m24_without_individual_tp(
     assert not plan.stop_management_parameters["m24_individual_target_enabled"]
 
 
+def test_m24_source_cannot_add_adx_or_sma_slope_filter(tmp_path: Path) -> None:
+    service = object.__new__(DashboardService)
+    object.__setattr__(
+        service,
+        "mt5_market_data_service",
+        SimpleNamespace(
+            latest_forex_candles={("XAUUSD", "M5"): _buy_cross_candles()}
+        ),
+    )
+
+    with patch(
+        "application.model24_xau_basket.MODEL_24_RUNTIME_STATE_PATH",
+        tmp_path / "runtime.json",
+    ), patch(
+        "application.dashboard_service.evaluate_xau_trend_filter_entry",
+        side_effect=AssertionError("M24 nao deve herdar filtro da fonte"),
+    ):
+        row, plan = service._mt5_model24_variant_from_source(
+            _source_row(),
+            _source_plan(),
+            source_operational_model=MT5_MODEL_24_SOURCE_MODEL_IDS[-1],
+            source_ready=False,
+        )
+
+    assert row.decision == "BUY"
+    assert plan.status == "PLANO_VALIDO"
+    assert plan.stop_management_parameters["m24_filter_status"] == (
+        "M24_DISTANCE_ATR_ONLY"
+    )
+
+
+def test_m25_uses_only_distance_atr_filter(tmp_path: Path) -> None:
+    service = object.__new__(DashboardService)
+    object.__setattr__(
+        service,
+        "mt5_market_data_service",
+        SimpleNamespace(
+            latest_forex_candles={("XAUUSD", "M5"): _buy_cross_candles()}
+        ),
+    )
+
+    with patch(
+        "application.model25_multi_asset_rsi50_basket.MODEL_25_RUNTIME_STATE_PATH",
+        tmp_path / "runtime25.json",
+    ), patch.object(
+        DashboardService,
+        "_supplemental_m5_is_seed_only",
+        return_value=False,
+    ):
+        row, plan = service._mt5_model25_multi_asset_plan(
+            _source_row(),
+            _source_plan(),
+        )
+
+    assert row.decision == "BUY"
+    assert plan.status == "PLANO_VALIDO"
+    parameters = plan.stop_management_parameters
+    assert parameters["m25_filter_status"] == "M25_DISTANCE_ATR_ONLY"
+    assert parameters["m25_distance_atr_min"] == 0.25
+    assert "m25_adx14" not in parameters
+    assert "m25_sma50_slope" not in parameters
+
+
 def test_service_blocks_m24_plan_on_non_xau_symbol() -> None:
     service = object.__new__(DashboardService)
     row = _source_row()

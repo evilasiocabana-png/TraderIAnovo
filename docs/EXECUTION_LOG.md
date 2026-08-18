@@ -1803,3 +1803,11 @@ Novas entradas devem registrar:
   estrutural;
 - testes impedem regressao para a maxima/minima e comprovam a busca alem das
   cinco velas mais recentes.
+# 2026-08-18 - Remocao de filtros contaminantes das fontes M24
+
+- auditoria confirmou que o roteamento M24 reaplicava filtros ADX e inclinacao
+  da SMA50 pertencentes a M19/M21/M22;
+- as fontes M8, M10 e M18-M22 agora servem somente como identidade e auditoria;
+- todas as variantes M24 usam o mesmo contrato, cujo unico filtro adicional e
+  `abs(SMA20-SMA50)/ATR14 >= 0,25`;
+- teste impede que o avaliador de filtros da fonte volte a participar do M24.

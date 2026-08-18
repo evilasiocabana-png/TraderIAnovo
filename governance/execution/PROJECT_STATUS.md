@@ -10,6 +10,8 @@ Status: pronto para fluxo de inbox.
   reconhecem a identidade M25.
 - Estado, duplicidade e papeis `INITIAL/REENTRY` sao isolados por ativo.
 - Dados M5 usam o snapshot compartilhado; Lab pesado permanece fora do ciclo.
+- O unico filtro adicional M25 e distancia SMA20/SMA50 de `0,25 ATR`; ADX e
+  inclinacao da SMA50 nao bloqueiam suas entradas.
 - Cesta M25 fecha somente suas posicoes em `+US$1.000` liquidos.
 - Reentradas M25 usam o fechamento do ultimo topo/fundo principal 2+2
   confirmado na janela M5 de ate 200 velas como TP individual.
@@ -32,6 +34,8 @@ Status: pronto para fluxo de inbox.
 
 - M24 criado como cesta XAUUSD/M5 independente do M23.
 - Fontes fixas: M8, M10 e M18-M22.
+- As fontes identificam apenas a origem; M24 nao herda ADX, inclinacao ou filtros
+  proprios delas. O unico filtro adicional e distancia SMA20/SMA50 de `0,25 ATR`.
 - Entrada inicial: preco cruza e permanece alem da SMA20; RSI14 cruza e
   permanece alem de 50. Os dois cruzamentos podem ocorrer em M5 diferentes.
 - Reentrada unica e pendente: fechamento e RSI no lado permitido geram

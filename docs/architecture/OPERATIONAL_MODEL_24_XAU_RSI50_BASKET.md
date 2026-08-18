@@ -22,7 +22,10 @@ BUY exige:
 2. o RSI14 cruzou 50 de baixo para cima e permanece acima de 50;
 3. os dois cruzamentos podem ter ocorrido em candles M5 diferentes;
 4. existe microfundo 1+1 confirmado nos ultimos cinco M5 para definir o SL;
-5. os filtros especificos da fonte aprovam a entrada inicial.
+5. a distancia absoluta `abs(SMA20 - SMA50) / ATR14` e pelo menos `0,25`.
+
+M8, M10 e M18-M22 identificam apenas a origem da variante. O M24 nao herda
+ADX, inclinacao da SMA50 ou qualquer outro filtro desses modelos-fonte.
 
 Se o primeiro evento perder validade antes do segundo, a entrada BUY nao e
 liberada. SELL e simetrico: preco cruza e permanece abaixo da SMA20, RSI14 cruza
@@ -113,6 +116,9 @@ M10 ou M18-M22 como modelo-fonte. Nesse caso, `ALPHA024`, a politica
 e `m24_entry_role` continuam identificando o M24 e obrigam o registro do Full
 Exit extremo. Sem esse reconhecimento, o fechamento ocorre, mas o descarte da
 primeira reentrada nao seria armado.
+
+Os IDs de fonte servem para identidade, comentario e auditoria. Eles nao alteram
+o gatilho nem acrescentam filtros ao contrato M24.
 
 ## Cesta financeira
 

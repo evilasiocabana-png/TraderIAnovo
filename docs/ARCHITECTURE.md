@@ -545,6 +545,9 @@ RSI14 em 50 e so entra a mercado se ambos continuarem validos na mesma direcao.
 A reentrada nao exige novo cruzamento: gera BUY_STOP/SELL_STOP na maxima/minima
 do ultimo M5 quando fechamento e RSI permanecem do lado permitido. O SL usa o
 micro pivo 1+1 confirmado mais recente, limitado aos ultimos cinco M5 fechados.
+As fontes M8, M10 e M18-M22 sao somente identidades de origem e auditoria: o
+M24 nao herda ADX, inclinacao da SMA50 nem filtros proprios dessas fontes. Seu
+unico filtro adicional e `abs(SMA20-SMA50)/ATR14 >= 0,25`.
 O roteamento da cesta cria esse plano M5 antes da barreira do plano heuristico
 H1; assim, `SEM_GATILHO_VALIDO` no plano-base nao impede a avaliacao do M24.
 O Position Manager aceita somente novos micro pivos que apertem o stop. Depois de Full Exit
@@ -570,3 +573,5 @@ real permanece bloqueada e nenhuma ativacao automatica ocorre na implantacao.
 Assim como no M24, a entrada inicial nao possui TP individual e a reentrada usa
 como TP o fechamento, nunca o extremo, do ultimo pivo principal 2+2 confirmado
 na janela deslizante de ate 200 velas M5 fechadas.
+M25 tambem usa somente o filtro `abs(SMA20-SMA50)/ATR14 >= 0,25`; ADX e
+inclinacao da SMA50 nao integram seu contrato.

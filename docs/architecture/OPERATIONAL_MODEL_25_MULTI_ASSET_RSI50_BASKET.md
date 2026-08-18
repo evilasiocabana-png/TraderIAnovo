@@ -33,6 +33,8 @@ Alternativos:
 Cada ativo possui estado proprio. A entrada inicial usa os cruzamentos mantidos
 de preco/SMA20 e RSI14/50, filtro absoluto de distancia
 `abs(SMA20 - SMA50) / ATR14 >= 0,25`, volume `0,20` e nao envia TP individual.
+Esse e o unico filtro adicional do M25: ADX e inclinacao da SMA50 nao participam
+da liberacao da entrada.
 
 Depois da entrada inicial aceita, a reentrada usa a correcao e retomada no M5,
 volume `0,10`, ordem Stop no extremo da ultima vela fechada, SL no extremo
