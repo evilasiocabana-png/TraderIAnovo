@@ -1,6 +1,6 @@
 # TraderIA Novo - Rastreabilidade da Logica de Setup
 
-`M24_CONTRACT=M24_SETUP_V4_20260819; SHA256=6b80b8928dc6ad3389c8295913bb2d2f81b3c6365f0716adff971124ec2d4dfd`
+`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
 
 ## Contrato M24
 
@@ -14,6 +14,9 @@ do fechamento no historico MT5 e identifica a ordem posterior pelo papel
 `CONTINUATION`, com volume canonico `0,40`.
 O plano `INITIAL` transporta distancia fixa de TP `0,25`; a `CONTINUATION`
 transporta TP `0,13` e SL no extremo do M5 fechado anterior mais um pip.
+O SL da `INITIAL` tambem usa o M5 fechado imediatamente anterior a entrada:
+minima menos `0,01` no BUY ou maxima mais `0,01` no SELL. O candle antigo do
+cruzamento preco/SMA20 continua identificando o gatilho, nao o stop.
 
 Este documento mapeia entrada, saida, stop management e consumo operacional do
 setup calculado pelo Lab.

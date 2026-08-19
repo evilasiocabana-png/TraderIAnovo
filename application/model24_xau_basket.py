@@ -637,18 +637,21 @@ def evaluate_model24_rsi50_market_entry(
         )
         stop_reference_label = "microfundo/microtopo M5 confirmado 1+1"
     else:
-        crossing_candle = closed[int(price_cross_index)]
+        previous_closed_candle = closed[-1]
         stop_reference = _number(
-            crossing_candle,
+            previous_closed_candle,
             "low" if side == "BUY" else "high",
         )
-        stop_reference_time = _time(crossing_candle)
-        stop_reference_label = "candle M5 que cruzou a SMA20"
+        stop_reference_time = _time(previous_closed_candle)
+        stop_reference_label = "M5 fechado imediatamente anterior a entrada"
     if stop_reference is None:
         return Model24EntryDecision(
             direction="WAIT",
             status="M24_INITIAL_SEM_EXTREMO_VALIDO_PARA_SL",
-            reason="O candle de referencia da entrada inicial nao possui extremo valido.",
+            reason=(
+                "O M5 fechado imediatamente anterior a entrada inicial nao "
+                "possui extremo valido."
+            ),
             entry_price=entry,
             **common,
         )
@@ -663,7 +666,10 @@ def evaluate_model24_rsi50_market_entry(
         return Model24EntryDecision(
             direction="WAIT",
             status="M24_STOP_INICIAL_INVALIDO",
-            reason="O candle de referencia da entrada inicial nao produz SL valido.",
+            reason=(
+                "O extremo do M5 fechado imediatamente anterior a entrada "
+                "inicial nao produz SL valido."
+            ),
             entry_price=entry,
             initial_stop=stop,
             micro_swing_price=float(stop_reference),

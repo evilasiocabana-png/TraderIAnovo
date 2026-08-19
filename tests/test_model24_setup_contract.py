@@ -59,6 +59,7 @@ def test_m24_public_text_is_derived_from_current_rules() -> None:
     assert MODEL_24_SETUP.initial_crosses_may_be_asynchronous
     assert "preco cruza sma20 e rsi14 cruza 50" in public_text
     assert "podem ocorrer em m5 diferentes" in public_text
+    assert "m5 fechado imediatamente anterior a entrada" in public_text
     assert "dois fechamentos favoraveis" in public_text
     assert "micro-pivo 1+1" in public_text
     assert "0,25" in fields["TP inicial"]

@@ -84,7 +84,7 @@ class Model24SetupContract:
 
 
 MODEL_24_SETUP = Model24SetupContract(
-    version="M24_SETUP_V4_20260819",
+    version="M24_SETUP_V5_20260819",
     model_id="MODELO_24_XAU_RSI50_BASKET",
     runtime_source="M24_PROPRIO",
     symbol="XAUUSD",
@@ -104,7 +104,7 @@ MODEL_24_SETUP = Model24SetupContract(
     initial_requires_rsi_cross=True,
     initial_crosses_may_be_asynchronous=True,
     initial_requires_micro_pivot=False,
-    initial_stop_source="SMA20_PRICE_CROSS_CANDLE_EXTREME_PLUS_1_PIP",
+    initial_stop_source="PREVIOUS_CLOSED_CANDLE_EXTREME_PLUS_1_PIP",
     initial_trailing_source="SMA20_AFTER_TWO_FAVORABLE_CLOSES",
     initial_individual_target=True,
     initial_target_distance=0.25,
@@ -154,7 +154,8 @@ def model24_public_setup_fields() -> dict[str, str]:
             "ultimo M5 fechado + |SMA20-SMA50| / ATR14 >= 0,25"
         ),
         "SL inicial": (
-            "1 pip alem do extremo da vela que cruzou SMA20; apos dois "
+            "1 pip alem do extremo do M5 fechado imediatamente anterior a "
+            "entrada; apos dois "
             "fechamentos favoraveis, SMA20 move o SL somente a favor"
         ),
         "TP inicial": "0,25 no preco a partir da entrada",

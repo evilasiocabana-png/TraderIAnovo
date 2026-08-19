@@ -2,19 +2,21 @@
 
 Status: pronto para fluxo de inbox.
 
-`M24_CONTRACT=M24_SETUP_V4_20260819; SHA256=6b80b8928dc6ad3389c8295913bb2d2f81b3c6365f0716adff971124ec2d4dfd`
+`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
 
 `M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
 
-## Contrato vigente M24 - 2026-08-19
+## Contrato vigente M24 V5 - 2026-08-19
 
 - M24 atual e uma unica rota autonoma `M24_PROPRIO` em XAUUSD/M5;
 - entrada inicial: novo cruzamento do preco/SMA20 e novo cruzamento RSI14/50 na
   mesma direcao; podem ocorrer em M5 diferentes, mas ambos permanecem validos;
 - distancia atual `abs(SMA20-SMA50)/ATR14 >= 0,25` e obrigatoria; micro-pivo
   inicial continua dispensado;
-- SL inicial: extremo do candle do cruzamento mais um pip; depois de dois
-  fechamentos favoraveis, trailing pela SMA20 somente a favor;
+- SL inicial: extremo do M5 fechado imediatamente anterior a entrada, afastado
+  `0,01` (minima no BUY, maxima no SELL); o candle do cruzamento permanece
+  apenas como gatilho; depois de dois fechamentos favoraveis, trailing pela
+  SMA20 somente a favor;
 - TP inicial: distancia fixa de `0,25` ancorada no preco executavel;
 - reentrada: ordem Stop, SL no micro-pivo 1+1 mais um pip e TP obrigatorio no
   fechamento do micro-pivo 1+1 lucrativo mais recente;

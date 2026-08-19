@@ -1,5 +1,20 @@
 # Execution Log
 
+## 2026-08-19 - M24 SL da INITIAL no M5 fechado anterior
+
+- contrato promovido para `M24_SETUP_V5_20260819`;
+- o cruzamento novo do preco com a SMA20 permanece integralmente como gatilho
+  da `INITIAL`, junto do cruzamento RSI14/50 e do filtro de distancia;
+- o SL deixou de usar o candle historico onde ocorreu o cruzamento e passou a
+  usar o M5 fechado imediatamente anterior a entrada a mercado;
+- BUY usa a minima desse candle menos `0,01`; SELL usa a maxima mais `0,01`;
+- TP inicial, trailing SMA20, reentrada, continuacao, volumes e saidas nao
+  foram alterados;
+- validacao focada: 51 testes aprovados; conjunto ampliado M24/Position
+  Manager/Robo Demo: 125 testes e 4 subtestes aprovados;
+- gate critico: 203 testes aprovados; auditoria arquitetural: `OK`;
+- nenhuma validacao conectou ou enviou ordem ao MT5.
+
 ## 2026-08-19 - M24 TP fixo na INITIAL e CONTINUATION
 
 - contrato promovido para `M24_SETUP_V4_20260819`;

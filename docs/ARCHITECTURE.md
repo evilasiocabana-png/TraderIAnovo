@@ -1,6 +1,6 @@
 # Architecture
 
-`M24_CONTRACT=M24_SETUP_V4_20260819; SHA256=6b80b8928dc6ad3389c8295913bb2d2f81b3c6365f0716adff971124ec2d4dfd`
+`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
 
 `M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
 
@@ -547,6 +547,8 @@ continua como alvo coletivo. A entrada inicial exige cruzamento do preco na
 SMA20 e cruzamento do RSI14 em 50 na mesma direcao. Os eventos podem ocorrer
 em M5 diferentes, mas ambos devem permanecer validos e a distancia atual
 `abs(SMA20-SMA50)/ATR14` deve ser pelo menos `0,25`.
+A `INITIAL` preserva esses cruzamentos como gatilho, mas calcula o SL pelo
+extremo do M5 fechado imediatamente anterior a entrada, com `0,01` de margem.
 A reentrada nao exige novo cruzamento: gera BUY_STOP/SELL_STOP na maxima/minima
 do ultimo M5 quando fechamento e RSI permanecem do lado permitido. O SL usa o
 micro pivo 1+1 confirmado mais recente, limitado aos ultimos cinco M5 fechados.

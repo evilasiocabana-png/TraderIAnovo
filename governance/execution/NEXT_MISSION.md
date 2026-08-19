@@ -1,6 +1,6 @@
 # Next Mission
 
-`M24_CONTRACT=M24_SETUP_V4_20260819; SHA256=6b80b8928dc6ad3389c8295913bb2d2f81b3c6365f0716adff971124ec2d4dfd`
+`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
 
 `M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
 
@@ -30,8 +30,9 @@ O relatorio operacional tambem passou a expor o papel da entrada M24
 O contrato atual possui entrada inicial a mercado somente depois de novos
 cruzamentos do preco/SMA20 e RSI14/50 na mesma direcao. Eles podem ocorrer em
 M5 diferentes, mas ambos devem permanecer validos e a distancia atual deve ser
-`>= 0,25 ATR`; nao exige micro-pivo inicial. O SL nasce no extremo do candle
-do cruzamento do preco mais um pip e o TP fica a `0,25` do preco executavel.
+`>= 0,25 ATR`; nao exige micro-pivo inicial. O cruzamento do preco continua
+como gatilho, mas o SL nasce no extremo do M5 fechado imediatamente anterior,
+afastado `0,01`, e o TP fica a `0,25` do preco executavel.
 Apos dois fechamentos favoraveis, o SL acompanha a SMA20 somente a favor. A
 reentrada e uma ordem Stop atualizada a cada M5, com SL e TP baseados no
 micro-pivo 1+1 mais recente.

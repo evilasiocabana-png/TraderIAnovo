@@ -1,6 +1,6 @@
 # Modelo Operacional 24 — XAU/M5 RSI50 Basket
 
-`M24_CONTRACT=M24_SETUP_V4_20260819; SHA256=6b80b8928dc6ad3389c8295913bb2d2f81b3c6365f0716adff971124ec2d4dfd`
+`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
 
 Fonte executavel unica: `application/model24_setup_contract.py`. Em caso de
 divergencia com uma descricao historica, este marker e o contrato executavel
@@ -45,9 +45,10 @@ sem acumular candles antigos quando um novo M5 fecha.
 
 Se o preco ou o RSI perderem validade, a entrada BUY nao e liberada. SELL e
 simetrico: preco cruza e permanece abaixo da SMA20 com RSI14 abaixo de 50. A
-entrada inicial nao exige micro-pivo. O SL nasce um pip alem do extremo do
-candle que cruzou a SMA20: minima menos um pip para BUY e maxima mais um pip
-para SELL.
+entrada inicial nao exige micro-pivo. O cruzamento do preco com a SMA20
+permanece como gatilho, mas nao define mais o SL. O SL usa o M5 fechado
+imediatamente anterior a entrada: minima menos `0,01` para BUY e maxima mais
+`0,01` para SELL.
 
 A `INITIAL` recebe TP fixo a `0,25` do preco executavel: BUY em
 `entrada + 0,25` e SELL em `entrada - 0,25`. O provider reancora esse alvo no
@@ -181,6 +182,8 @@ ordens e estados usam uma unica identidade M24.
 ## Cesta financeira
 
 - entrada `INITIAL`: TP nativo MT5 a `0,25` do preco executavel;
+- entrada `INITIAL`: SL na minima do M5 fechado imediatamente anterior menos
+  `0,01` no BUY ou maxima mais `0,01` no SELL;
 - entrada `REENTRY`: TP no fechamento do candle que formou o topo/fundo
   estrutural anterior a correcao;
 - entrada `CONTINUATION`: TP nativo MT5 a `0,13` do preco executavel;
@@ -214,7 +217,8 @@ ordens e estados usam uma unica identidade M24.
   contrato canonico `Candle` (`fechamento/maxima/minima/data`) usado no runtime.
 - M24 é modelo ativo e selecionável, mas não é ativado automaticamente pela implantação.
 - Testes dedicados cobrem cruzamento inicial do preco com confirmacao do RSI
-  atual, manutencao das condicoes, reentrada pendente, SL um pip alem do
+  atual, manutencao das condicoes, SL inicial bilateral no extremo do M5
+  fechado imediatamente anterior, reentrada pendente, SL um pip alem do
   micro-pivo 1+1, confirmacao de dois fechamentos antes do trailing SMA20 da
   entrada inicial, remocao de TP no RSI extremo, trailing monotono, isolamento M23/M24,
   liberacao da primeira reentrada apos RSI extremo, rota autonoma unica, TP

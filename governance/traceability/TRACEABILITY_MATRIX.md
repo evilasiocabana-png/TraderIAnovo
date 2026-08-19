@@ -1,6 +1,6 @@
 # TraderIA Novo - Matriz de Rastreabilidade
 
-`M24_CONTRACT=M24_SETUP_V4_20260819; SHA256=6b80b8928dc6ad3389c8295913bb2d2f81b3c6365f0716adff971124ec2d4dfd`
+`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
 
 Matriz ponta a ponta para revisar melhorias no GitHub.
 
@@ -19,7 +19,7 @@ Matriz ponta a ponta para revisar melhorias no GitHub.
 | MT5 Indicador | MQL5 | visual entry/stop/target | `TraderIAVisualSignals.mq5` |
 | Relatorio | `DashboardMT5TradeAuditViewModel` | auditoria local x MT5 | `get_mt5_trade_audit_report()` |
 | Contrato M24 | `Model24SetupContract` | versao e fingerprint | `application/model24_setup_contract.py` |
-| Plano M24 | `stop_management_parameters` | versao/fingerprint; TP INITIAL 0,25; TP CONTINUATION 0,13; SL CONTINUATION no M5 anterior | `DashboardService` |
+| Plano M24 | `stop_management_parameters` | versao/fingerprint; SL INITIAL no M5 anterior +/-0,01; TP INITIAL 0,25; TP CONTINUATION 0,13; SL CONTINUATION no M5 anterior | `DashboardService` |
 | Estado M24 | JSON local nao versionado | `setup_contract_version`, `setup_contract_fingerprint` | `model24_xau_basket.py` |
 | Tela M24 | tabela de setup | campos derivados do contrato | `model24_public_setup_fields()` |
 | CONTINUATION M24 | watch persistido + historico MT5 | TP da REENTRY, lado, RSI extremo, papel, volume 0,40, TP 0,13 e SL no M5 anterior | `model24_xau_basket.py` + `MT5DemoExecutionProvider` |

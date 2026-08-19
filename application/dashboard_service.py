@@ -8447,7 +8447,8 @@ class DashboardService:
             invalid_reason="",
             invalid_fields=(),
             stop_reason=(
-                "SL no extremo do candle M5 que cruzou a SMA20, com margem de 1 pip."
+                "SL no extremo do M5 fechado imediatamente anterior a entrada, "
+                "com margem de 1 pip."
                 if entry_role == "INITIAL"
                 else (
                     "SL da CONTINUATION um pip alem do extremo do M5 "

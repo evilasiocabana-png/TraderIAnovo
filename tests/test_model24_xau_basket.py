@@ -292,7 +292,7 @@ def test_m24_buy_can_pass_with_sma20_below_sma50_when_distance_is_valid() -> Non
     assert decision.distance_atr == 0.50
 
 
-def test_initial_entry_uses_price_cross_current_rsi_and_cross_candle_stop() -> None:
+def test_initial_entry_keeps_cross_trigger_and_uses_previous_closed_candle_stop() -> None:
     candles = _separate_buy_cross_candles()
     decision = evaluate_model24_rsi50_market_entry(
         candles,
@@ -304,8 +304,9 @@ def test_initial_entry_uses_price_cross_current_rsi_and_cross_candle_stop() -> N
     assert decision.rsi14 is not None and decision.rsi14 > 50.0
     assert decision.entry_price is not None and decision.sma20 is not None
     assert decision.entry_price > decision.sma20
-    assert decision.micro_swing_price is not None
-    assert decision.initial_stop == decision.micro_swing_price - 0.01
+    assert decision.micro_swing_price == candles[-2]["low"]
+    assert decision.micro_swing_time == decision.closed_candle_time
+    assert decision.initial_stop == candles[-2]["low"] - 0.01
     assert decision.price_cross_time != "N/D"
     assert decision.rsi_cross_time != "N/D"
     assert decision.price_cross_time != decision.rsi_cross_time
@@ -368,14 +369,38 @@ def test_initial_entry_accepts_canonical_candle_with_portuguese_fields() -> None
     assert decision.closed_candle_time != "N/D"
 
 
-def test_initial_entry_uses_cross_candle_even_without_confirmed_micro_pivot() -> None:
+def test_initial_entry_uses_previous_closed_candle_without_micro_pivot() -> None:
+    candles = _buy_cross_candles(micro_pivot=False)
     decision = evaluate_model24_rsi50_market_entry(
-        _buy_cross_candles(micro_pivot=False),
+        candles,
         entry_role="INITIAL",
     )
 
     assert decision.ready
     assert decision.status == "M24_INITIAL_BUY_PRECO_SMA20_RSI50_MERCADO_PRONTA"
+    assert decision.micro_swing_price == candles[-2]["low"]
+    assert decision.initial_stop == candles[-2]["low"] - 0.01
+
+
+def test_initial_sell_uses_previous_closed_high_plus_one_pip() -> None:
+    candles = [
+        {
+            **row,
+            "open": 200.0 - row["open"],
+            "high": 200.0 - row["low"],
+            "low": 200.0 - row["high"],
+            "close": 200.0 - row["close"],
+        }
+        for row in _separate_buy_cross_candles()
+    ]
+
+    decision = evaluate_model24_rsi50_market_entry(candles, entry_role="INITIAL")
+
+    assert decision.ready
+    assert decision.direction == "SELL"
+    assert decision.micro_swing_price == candles[-2]["high"]
+    assert decision.micro_swing_time == decision.closed_candle_time
+    assert decision.initial_stop == candles[-2]["high"] + 0.01
 
 
 def test_pending_reentry_uses_last_closed_candle_for_trigger_and_stop() -> None:
@@ -1045,7 +1070,7 @@ def test_service_materializes_initial_m24_with_fixed_point_two_five_tp(
     )
     assert (
         plan.stop_management_parameters["m24_initial_stop_source"]
-        == "SMA20_PRICE_CROSS_CANDLE_EXTREME_PLUS_1_PIP"
+        == "PREVIOUS_CLOSED_CANDLE_EXTREME_PLUS_1_PIP"
     )
 
 

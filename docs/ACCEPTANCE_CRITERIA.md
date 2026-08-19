@@ -1,6 +1,6 @@
 # Acceptance Criteria
 
-`M24_CONTRACT=M24_SETUP_V4_20260819; SHA256=6b80b8928dc6ad3389c8295913bb2d2f81b3c6365f0716adff971124ec2d4dfd`
+`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
 
 `M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
 
@@ -85,8 +85,9 @@ Aceito quando:
   ambos devem existir e permanecer validos;
 - a distancia atual `abs(SMA20-SMA50)/ATR14` deve ser maior ou igual a
   `0,25` para liberar a entrada;
-- entrada inicial entra a mercado sem micro-pivo e usa como SL o extremo do
-  candle que cruzou a SMA20, acrescido de margem de um pip;
+- entrada inicial entra a mercado sem micro-pivo; o cruzamento preco/SMA20
+  permanece como gatilho, mas o SL usa o M5 fechado imediatamente anterior:
+  minima menos `0,01` no BUY e maxima mais `0,01` no SELL;
 - depois de dois fechamentos favoraveis consecutivos, a SMA20 pode apertar o
   SL inicial e nunca afrouxa-lo;
 - entrada principal nao exige SMA20 acima/abaixo da SMA50 e nao executa Full
