@@ -13,27 +13,33 @@ import time
 from typing import Any, Iterable, Protocol
 from uuid import uuid4
 
+from application.model24_setup_contract import (
+    MODEL_24_SETUP,
+    MODEL_24_SETUP_CONTRACT_FINGERPRINT,
+    MODEL_24_SETUP_CONTRACT_VERSION,
+)
 
-MODEL_24_ID = "MODELO_24_XAU_RSI50_BASKET"
+MODEL_24_ID = MODEL_24_SETUP.model_id
 MODEL_24_ALPHA_ID = "ALPHA024_XAU_RSI50_MULTI_SOURCE"
 MODEL_24_ALPHA_VERSION = "M24_ENTRY_V1"
 MODEL_24_BETA_ID = "BETA024_BASKET_FULL_EXIT_1000"
 MODEL_24_BETA_VERSION = "M24_EXIT_V1"
 MODEL_24_ENTRY_SOURCE = "MODEL_24_XAU_SOURCE_SIGNAL"
 MODEL_24_EXIT_POLICY = "M24_SOURCE_EXIT_PLUS_BASKET_1000"
-MODEL_24_FULL_EXIT_USD = 1000.0
-MODEL_24_INITIAL_VOLUME = 0.20
-MODEL_24_REENTRY_VOLUME = 0.10
-MODEL_24_PIP_SIZE = 0.01
-MODEL_24_ATR_PERIOD = 14
-MODEL_24_DISTANCE_ATR_MIN = 0.25
-MODEL_24_TIMEFRAME = "M5"
-MODEL_24_SYMBOL = "XAUUSD"
+MODEL_24_FULL_EXIT_USD = MODEL_24_SETUP.basket_full_exit_usd
+MODEL_24_INITIAL_VOLUME = MODEL_24_SETUP.initial_volume
+MODEL_24_REENTRY_VOLUME = MODEL_24_SETUP.reentry_volume
+MODEL_24_PIP_SIZE = MODEL_24_SETUP.pip_size
+MODEL_24_ATR_PERIOD = MODEL_24_SETUP.atr_period
+MODEL_24_DISTANCE_ATR_MIN = MODEL_24_SETUP.distance_atr_min
+MODEL_24_TIMEFRAME = MODEL_24_SETUP.timeframe
+MODEL_24_SYMBOL = MODEL_24_SETUP.symbol
+MODEL_24_RUNTIME_SOURCE = MODEL_24_SETUP.runtime_source
 MODEL_24_STATE_PATH = Path(".traderia") / "model24_basket_state.json"
 MODEL_24_RUNTIME_STATE_PATH = Path(".traderia") / "model24_runtime_state.json"
 MODEL_24_AUDIT_PATH = Path(".traderia") / "model24_basket_audit.jsonl"
-MODEL_24_SOURCE_MODEL_NUMBERS = (8, 10, 18, 19, 20, 21, 22)
-MODEL_24_SOURCE_MODEL_IDS = (
+MODEL_24_LEGACY_SOURCE_MODEL_NUMBERS = (8, 10, 18, 19, 20, 21, 22)
+MODEL_24_LEGACY_SOURCE_MODEL_IDS = (
     "MODELO_8_XAU_M5_SMA_RSI_REENTRY",
     "MODELO_10_XAU_M5_SMA_RSI_MA_DISTANCE_ATR",
     "MODELO_18_XAU_M5_SMA_RSI_REENTRY_TP75",
@@ -42,6 +48,10 @@ MODEL_24_SOURCE_MODEL_IDS = (
     "MODELO_21_XAU_M5_SMA_RSI_SMA50_SLOPE_REENTRY_TP75",
     "MODELO_22_XAU_M5_SMA_RSI_TREND_FILTERS_REENTRY_TP75",
 )
+# O runtime atual calcula um unico M24 autonomo. A lista legada acima existe
+# apenas para reconhecer snapshots, comentarios e historicos anteriores.
+MODEL_24_SOURCE_MODEL_NUMBERS = MODEL_24_LEGACY_SOURCE_MODEL_NUMBERS
+MODEL_24_SOURCE_MODEL_IDS = (MODEL_24_ID,)
 
 _LOCK = threading.RLock()
 
@@ -67,20 +77,31 @@ def is_model24(value: object) -> bool:
 
 
 def model24_variant_id(source_operational_model: object) -> str:
-    number = operational_model_number(source_operational_model)
-    if number not in MODEL_24_SOURCE_MODEL_NUMBERS:
-        raise ValueError("M24 aceita somente as fontes M8, M10 e M18-M22.")
-    return f"{MODEL_24_ID}_SOURCE_M{number}"
+    """Retorna a identidade unica usada por novas ordens M24.
+
+    O argumento permanece por compatibilidade com chamadas antigas. Variantes
+    ``SOURCE_M<n>`` continuam reconhecidas em historicos, mas nao sao mais
+    produzidas pelo runtime.
+    """
+    del source_operational_model
+    return MODEL_24_ID
 
 
 def model24_source_model_id(value: object) -> str:
-    match = re.search(r"_SOURCE_M(\d{1,2})(?:_|\b|$)", str(value or "").upper())
+    normalized = str(value or "").upper()
+    if normalized == MODEL_24_ID:
+        return MODEL_24_RUNTIME_SOURCE
+    match = re.search(r"_SOURCE_M(\d{1,2})(?:_|\b|$)", normalized)
     return f"M{int(match.group(1))}" if match is not None else "N/D"
 
 
 def model24_order_comment(value: object) -> str:
     source = model24_source_model_id(value)
-    return "TraderIA M24" if source == "N/D" else f"TraderIA M24 S{source[1:]}"
+    return (
+        "TraderIA M24"
+        if source in {"N/D", MODEL_24_RUNTIME_SOURCE}
+        else f"TraderIA M24 S{source[1:]}"
+    )
 
 
 def model24_position_matches(position: object) -> bool:
@@ -264,17 +285,24 @@ def evaluate_model24_reentry_opportunity(
 
 def _model24_source_key(value: object) -> str:
     if is_model24(value):
-        source = model24_source_model_id(value)
-        if source != "N/D":
-            return source
+        return MODEL_24_RUNTIME_SOURCE
     number = operational_model_number(value)
-    if number not in MODEL_24_SOURCE_MODEL_NUMBERS:
-        raise ValueError("M24 aceita somente as fontes M8, M10 e M18-M22.")
-    return f"M{number}"
+    if number not in MODEL_24_LEGACY_SOURCE_MODEL_NUMBERS:
+        raise ValueError("Identidade M24 invalida para o estado operacional.")
+    # Chamadas legadas convergem para o mesmo estado autonomo. Isso impede que
+    # sete rotas equivalentes consumam ou liberem entradas separadamente.
+    return MODEL_24_RUNTIME_SOURCE
 
 
 def _write_runtime_state(payload: dict[str, Any]) -> None:
-    _atomic_json_write(MODEL_24_RUNTIME_STATE_PATH, payload)
+    versioned_payload = dict(payload)
+    versioned_payload.update(
+        {
+            "setup_contract_version": MODEL_24_SETUP_CONTRACT_VERSION,
+            "setup_contract_fingerprint": MODEL_24_SETUP_CONTRACT_FINGERPRINT,
+        }
+    )
+    _atomic_json_write(MODEL_24_RUNTIME_STATE_PATH, versioned_payload)
 
 
 def _load_runtime_state() -> dict[str, Any]:
@@ -282,7 +310,47 @@ def _load_runtime_state() -> dict[str, Any]:
         payload = json.loads(MODEL_24_RUNTIME_STATE_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
         return {}
-    return dict(payload) if isinstance(payload, dict) else {}
+    if not isinstance(payload, dict):
+        return {}
+    normalized = dict(payload)
+    sources = dict(normalized.get("sources") or {})
+    if MODEL_24_RUNTIME_SOURCE not in sources:
+        latest_state: dict[str, Any] = {}
+        latest_updated_at = ""
+        for legacy_key, legacy_value in sources.items():
+            if str(legacy_key).upper() not in {
+                f"M{number}" for number in MODEL_24_LEGACY_SOURCE_MODEL_NUMBERS
+            }:
+                continue
+            candidate = dict(legacy_value or {})
+            candidate_updated_at = str(candidate.get("updated_at") or "")
+            if candidate_updated_at >= latest_updated_at:
+                latest_state = candidate
+                latest_updated_at = candidate_updated_at
+        if latest_state:
+            sources[MODEL_24_RUNTIME_SOURCE] = latest_state
+    # Estados antigos podem conter ``<memory at 0x...>`` quando um registro
+    # numpy/MT5 teve o atributo ``.data`` confundido com a data do candle.
+    # Preserva a trava conservadora, mas elimina identidades volateis.
+    for source_key, source_value in tuple(sources.items()):
+        state = dict(source_value or {})
+        extreme_candle = str(state.get("last_extreme_exit_candle") or "")
+        if extreme_candle.startswith("<memory at "):
+            side = str(state.get("trend_side") or "").upper()
+            status = str(state.get("last_extreme_exit_status") or "").upper()
+            state["last_extreme_exit_candle"] = "N/D"
+            state["last_extreme_exit_event_key"] = f"{side}|{status}|N/D"
+        for field_name in ("last_entry_candle",):
+            if str(state.get(field_name) or "").startswith("<memory at "):
+                state[field_name] = "N/D"
+        blocked_key = str(state.get("blocked_reentry_opportunity_key") or "")
+        if "<memory at " in blocked_key:
+            state["blocked_reentry_opportunity_key"] = ""
+        sources[source_key] = state
+    if str(normalized.get("last_initial_candle") or "").startswith("<memory at "):
+        normalized["last_initial_candle"] = "N/D"
+    normalized["sources"] = sources
+    return normalized
 
 
 def _model24_last_initial_side(payload: dict[str, Any]) -> str:
@@ -307,7 +375,7 @@ def _model24_last_initial_side(payload: dict[str, Any]) -> str:
 class Model24EntryDecision:
     direction: str = "WAIT"
     status: str = "M24_AGUARDA_RSI50"
-    reason: str = "Aguardando cruzamento confirmado do RSI14 no nivel 50."
+    reason: str = "Aguardando cruzamento do preco na SMA20 e confirmacao RSI50."
     closed_candle_time: str = "N/D"
     entry_price: float | None = None
     initial_stop: float | None = None
@@ -338,16 +406,25 @@ def evaluate_model24_rsi50_market_entry(
     candles: Iterable[object],
     *,
     entry_role: str = "INITIAL",
+    pip_size: float = MODEL_24_PIP_SIZE,
+    require_rsi_cross: bool = MODEL_24_SETUP.initial_requires_rsi_cross,
+    initial_stop_from_micro_pivot: bool = MODEL_24_SETUP.initial_requires_micro_pivot,
 ) -> Model24EntryDecision:
-    """Avalia a entrada inicial; RSI e preco podem confirmar em velas distintas."""
-    rows = list(candles or ())[-201:]
+    """Avalia a entrada inicial pelo cruzamento do preco e pelo nivel do RSI."""
+    rows = list(candles or ())[-MODEL_24_SETUP.raw_candles:]
     normalized_role = str(entry_role or "INITIAL").upper()
     if normalized_role == "REENTRY":
-        return evaluate_model24_pending_reentry(rows)
-    if len(rows) < 201:
+        return evaluate_model24_pending_reentry(rows, pip_size=pip_size)
+    if len(rows) < MODEL_24_SETUP.raw_candles:
         return Model24EntryDecision(
-            status=f"M24_AQUECENDO_{len(rows)}_DE_201_CANDLES",
-            reason="M24 exige 200 candles M5 fechados e o candle atual em formacao.",
+            status=(
+                f"M24_AQUECENDO_{len(rows)}_DE_"
+                f"{MODEL_24_SETUP.raw_candles}_CANDLES"
+            ),
+            reason=(
+                f"M24 exige {MODEL_24_SETUP.closed_candles} candles M5 fechados "
+                "e o candle atual em formacao."
+            ),
         )
     closed = rows[:-1]
     closes = [_number(row, "close") for row in closed]
@@ -357,12 +434,15 @@ def evaluate_model24_rsi50_market_entry(
             reason="Candle M5 fechado sem preco de fechamento valido.",
         )
     values = [float(value) for value in closes if value is not None]
-    sma20 = _sma(values, 20)
-    sma50 = _sma(values, 50)
+    sma20 = _sma(values, MODEL_24_SETUP.sma_fast_period)
+    sma50 = _sma(values, MODEL_24_SETUP.sma_slow_period)
     atr14 = _model24_atr(closed)
     distance_atr = _model24_distance_atr(sma20, sma50, atr14)
     cross_side, price_cross_index, rsi_cross_index, rsi_values = (
-        _model24_initial_cross_confirmation(values)
+        _model24_initial_cross_confirmation(
+            values,
+            require_rsi_cross=require_rsi_cross,
+        )
     )
     rsi14 = rsi_values[-1]
     previous_rsi14 = rsi_values[-2]
@@ -397,52 +477,69 @@ def evaluate_model24_rsi50_market_entry(
         )
     if cross_side not in {"BUY", "SELL"}:
         return Model24EntryDecision(
-            status="M24_INITIAL_AGUARDA_CRUZAMENTOS_PRECO_SMA20_E_RSI50",
+            status="M24_INITIAL_AGUARDA_CRUZAMENTO_PRECO_SMA20_E_NIVEL_RSI50",
             reason=(
-                "Entrada inicial aguarda os cruzamentos confirmados do preco "
-                "na SMA20 e do RSI14 no nivel 50 na mesma direcao; os eventos "
-                "podem ocorrer em velas M5 diferentes."
+                "Entrada inicial aguarda o preco cruzar a SMA20 e permanecer "
+                "do lado confirmado pelo RSI14: BUY com RSI>50 ou SELL com "
+                "RSI<50. O RSI nao precisa produzir um novo cruzamento."
             ),
             **common,
         )
     side = cross_side
     entry = float(values[-1])
-    swing, swing_time = _latest_micro_swing(closed, side, maximum_age=5)
-    if swing is None:
+    if initial_stop_from_micro_pivot:
+        stop_reference, stop_reference_time = _latest_micro_swing(
+            closed,
+            side,
+            maximum_age=MODEL_24_SETUP.reentry_micro_pivot_maximum_age,
+        )
+        stop_reference_label = "microfundo/microtopo M5 confirmado 1+1"
+    else:
+        crossing_candle = closed[int(price_cross_index)]
+        stop_reference = _number(
+            crossing_candle,
+            "low" if side == "BUY" else "high",
+        )
+        stop_reference_time = _time(crossing_candle)
+        stop_reference_label = "candle M5 que cruzou a SMA20"
+    if stop_reference is None:
         return Model24EntryDecision(
             direction="WAIT",
-            status="M24_INITIAL_AGUARDA_MICRO_PIVO_CONFIRMADO",
-            reason=(
-                "A entrada inicial exige microfundo/microtopo 1+1 confirmado "
-                "nos ultimos cinco M5."
-            ),
+            status="M24_INITIAL_SEM_EXTREMO_VALIDO_PARA_SL",
+            reason="O candle de referencia da entrada inicial nao possui extremo valido.",
             entry_price=entry,
             **common,
         )
-    stop = float(swing or 0.0)
+    normalized_pip_size = max(float(pip_size or MODEL_24_PIP_SIZE), 0.0)
+    stop = (
+        float(stop_reference) - normalized_pip_size
+        if side == "BUY"
+        else float(stop_reference) + normalized_pip_size
+    )
     valid = stop < entry if side == "BUY" else stop > entry
     if not valid:
         return Model24EntryDecision(
             direction="WAIT",
-            status="M24_STOP_MICRO_ESTRUTURAL_INVALIDO",
-            reason="O microtopo/microfundo mais recente nao produz SL valido.",
+            status="M24_STOP_INICIAL_INVALIDO",
+            reason="O candle de referencia da entrada inicial nao produz SL valido.",
             entry_price=entry,
             initial_stop=stop,
-            micro_swing_price=stop,
-            micro_swing_time=swing_time,
+            micro_swing_price=float(stop_reference),
+            micro_swing_time=stop_reference_time,
             **common,
         )
     return Model24EntryDecision(
         direction=side,
-        status=f"M24_INITIAL_{side}_CRUZAMENTOS_SMA20_RSI50_MERCADO_PRONTA",
+        status=f"M24_INITIAL_{side}_PRECO_SMA20_RSI50_MERCADO_PRONTA",
         reason=(
-            f"{side} inicial a mercado: preco e RSI14 cruzaram seus niveis na "
-            "mesma direcao, ainda que em velas distintas; SL no micro pivo."
+            f"{side} inicial a mercado: preco cruzou a SMA20 e o RSI14 confirma "
+            f"o lado sem exigir novo cruzamento; SL um pip alem do "
+            f"{stop_reference_label}."
         ),
         entry_price=entry,
         initial_stop=stop,
-        micro_swing_price=stop,
-        micro_swing_time=swing_time,
+        micro_swing_price=float(stop_reference),
+        micro_swing_time=stop_reference_time,
         **common,
     )
 
@@ -453,11 +550,17 @@ def evaluate_model24_pending_reentry(
     pip_size: float = MODEL_24_PIP_SIZE,
 ) -> Model24EntryDecision:
     """Reentrada que acompanha cada M5 depois de uma correcao confirmada."""
-    rows = list(candles or ())[-201:]
-    if len(rows) < 201:
+    rows = list(candles or ())[-MODEL_24_SETUP.raw_candles:]
+    if len(rows) < MODEL_24_SETUP.raw_candles:
         return Model24EntryDecision(
-            status=f"M24_AQUECENDO_{len(rows)}_DE_201_CANDLES",
-            reason="M24 exige 200 candles M5 fechados e o candle atual em formacao.",
+            status=(
+                f"M24_AQUECENDO_{len(rows)}_DE_"
+                f"{MODEL_24_SETUP.raw_candles}_CANDLES"
+            ),
+            reason=(
+                f"M24 exige {MODEL_24_SETUP.closed_candles} candles M5 fechados "
+                "e o candle atual em formacao."
+            ),
         )
     closed = rows[:-1]
     closes = [_number(row, "close") for row in closed]
@@ -467,12 +570,12 @@ def evaluate_model24_pending_reentry(
             reason="Candle M5 fechado sem preco de fechamento valido.",
         )
     values = [float(value) for value in closes if value is not None]
-    sma20 = _sma(values, 20)
-    sma50 = _sma(values, 50)
+    sma20 = _sma(values, MODEL_24_SETUP.sma_fast_period)
+    sma50 = _sma(values, MODEL_24_SETUP.sma_slow_period)
     atr14 = _model24_atr(closed)
     distance_atr = _model24_distance_atr(sma20, sma50, atr14)
-    rsi14 = _wilder_rsi(values, 14)
-    previous_rsi14 = _wilder_rsi(values[:-1], 14)
+    rsi14 = _wilder_rsi(values, MODEL_24_SETUP.rsi_period)
+    previous_rsi14 = _wilder_rsi(values[:-1], MODEL_24_SETUP.rsi_period)
     common = {
         "closed_candle_time": _time(closed[-1]),
         "sma20": sma20,
@@ -492,21 +595,31 @@ def evaluate_model24_pending_reentry(
             ),
             **common,
         )
-    if values[-1] > sma20 and 50.0 < rsi14 < 70.0:
+    if (
+        values[-1] > sma20
+        and MODEL_24_SETUP.reentry_buy_rsi_min
+        < rsi14
+        < MODEL_24_SETUP.reentry_buy_rsi_max
+    ):
         side = "BUY"
         entry = _number(closed[-1], "high")
         order_type = "BUY_STOP"
         correction_found = any(
             (_number(row, "close") or 0.0) < (_number(row, "open") or 0.0)
-            for row in closed[-5:]
+            for row in closed[-MODEL_24_SETUP.reentry_correction_lookback:]
         )
-    elif values[-1] < sma20 and 30.0 < rsi14 < 50.0:
+    elif (
+        values[-1] < sma20
+        and MODEL_24_SETUP.reentry_sell_rsi_min
+        < rsi14
+        < MODEL_24_SETUP.reentry_sell_rsi_max
+    ):
         side = "SELL"
         entry = _number(closed[-1], "low")
         order_type = "SELL_STOP"
         correction_found = any(
             (_number(row, "close") or 0.0) > (_number(row, "open") or 0.0)
-            for row in closed[-5:]
+            for row in closed[-MODEL_24_SETUP.reentry_correction_lookback:]
         )
     else:
         return Model24EntryDecision(
@@ -528,25 +641,27 @@ def evaluate_model24_pending_reentry(
             **common,
         )
     trigger = float(entry or 0.0)
-    reference_candle = closed[-1]
-    reference_extreme = _number(
-        reference_candle,
-        "low" if side == "BUY" else "high",
+    micro_swing, micro_swing_time = _latest_micro_swing(
+        closed,
+        side,
+        maximum_age=MODEL_24_SETUP.reentry_micro_pivot_maximum_age,
     )
-    if reference_extreme is None:
+    if micro_swing is None:
         return Model24EntryDecision(
             direction=side,
-            status="M24_REENTRY_AGUARDA_EXTREMO_VELA_FECHADA",
-            reason="Ultima vela M5 fechada sem extremo valido para definir o SL.",
+            status="M24_REENTRY_AGUARDA_MICRO_PIVO_1X1",
+            reason=(
+                "Reentrada aguarda microfundo/microtopo M5 confirmado 1+1 "
+                "para definir o SL."
+            ),
             **common,
         )
     normalized_pip_size = max(float(pip_size or MODEL_24_PIP_SIZE), 0.0)
     stop = (
-        float(reference_extreme) - normalized_pip_size
+        float(micro_swing) - normalized_pip_size
         if side == "BUY"
-        else float(reference_extreme) + normalized_pip_size
+        else float(micro_swing) + normalized_pip_size
     )
-    reference_time = _time(reference_candle)
     valid = stop < trigger if side == "BUY" else stop > trigger
     if not valid:
         return Model24EntryDecision(
@@ -555,15 +670,15 @@ def evaluate_model24_pending_reentry(
             reason="Extremo oposto da ultima vela M5 nao produz SL valido.",
             entry_price=trigger,
             initial_stop=stop,
-            micro_swing_price=stop,
-            micro_swing_time=reference_time,
+            micro_swing_price=float(micro_swing),
+            micro_swing_time=micro_swing_time,
             **common,
         )
     structural_target, structural_target_time = _model24_reentry_structural_target(
         closed,
         side,
         trigger,
-        maximum_age=200,
+        maximum_age=MODEL_24_SETUP.closed_candles,
     )
     if structural_target is None:
         return Model24EntryDecision(
@@ -571,12 +686,12 @@ def evaluate_model24_pending_reentry(
             status="M24_REENTRY_AGUARDA_ALVO_ESTRUTURAL_VALIDO",
             reason=(
                 "Reentrada aguarda um fechamento valido no candle que formou o "
-                "topo/fundo favoravel anterior para definir o TP."
+                "microtopo/microfundo favoravel anterior para definir o TP."
             ),
             entry_price=trigger,
             initial_stop=stop,
-            micro_swing_price=stop,
-            micro_swing_time=reference_time,
+            micro_swing_price=float(micro_swing),
+            micro_swing_time=micro_swing_time,
             **common,
         )
     return Model24EntryDecision(
@@ -585,12 +700,13 @@ def evaluate_model24_pending_reentry(
         reason=(
             f"Reentrada {order_type}: correcao M5 confirmada e RSI14 na faixa; "
             "a pendente caminha pelo extremo de cada novo M5 fechado e o SL "
-            "usa o extremo oposto da mesma vela com folga de 0,01."
+            "fica um pip alem do microfundo/microtopo confirmado 1+1. "
+            "TP estrutural obrigatorio disponivel."
         ),
         entry_price=trigger,
         initial_stop=stop,
-        micro_swing_price=stop,
-        micro_swing_time=reference_time,
+        micro_swing_price=float(micro_swing),
+        micro_swing_time=micro_swing_time,
         structural_target_price=structural_target,
         structural_target_time=structural_target_time,
         **common,
@@ -629,6 +745,38 @@ def model24_micro_pivot_stop(
         normalized,
         maximum_age=max(1, int(maximum_age)),
     )
+
+
+def model24_sma20_stop_after_two_closes(
+    candles: Iterable[object],
+    side: object,
+) -> tuple[float | None, str]:
+    """Libera a SMA20 como SL apos dois fechamentos favoraveis consecutivos."""
+    rows = list(candles or ())
+    normalized = str(side or "").upper()
+    minimum_rows = MODEL_24_SETUP.sma_fast_period + 2
+    if normalized not in {"BUY", "SELL"} or len(rows) < minimum_rows:
+        return None, "N/D"
+    closed = rows[:-1]
+    closes = [_number(row, "close") for row in closed]
+    minimum_closed = MODEL_24_SETUP.sma_fast_period + 1
+    if len(closes) < minimum_closed or any(
+        value is None for value in closes[-minimum_closed:]
+    ):
+        return None, "N/D"
+    values = [float(value) for value in closes if value is not None]
+    previous_sma20 = _sma(values[:-1], MODEL_24_SETUP.sma_fast_period)
+    current_sma20 = _sma(values, MODEL_24_SETUP.sma_fast_period)
+    previous_close = values[-2]
+    current_close = values[-1]
+    confirmed = (
+        previous_close > previous_sma20 and current_close > current_sma20
+        if normalized == "BUY"
+        else previous_close < previous_sma20 and current_close < current_sma20
+    )
+    if not confirmed:
+        return None, _time(closed[-1])
+    return float(current_sma20), _time(closed[-1])
 
 
 @dataclass(frozen=True)
@@ -775,35 +923,33 @@ def _model24_reentry_structural_target(
     *,
     maximum_age: int = 200,
 ) -> tuple[float | None, str]:
-    """Retorna o fechamento do ultimo topo/fundo principal confirmado 2+2."""
-    if len(rows) < 6:
+    """Retorna o fechamento do microtopo/microfundo confirmado 1+1."""
+    if len(rows) < 3:
         return None, "N/D"
     normalized = str(side or "").upper()
     field = "high" if normalized == "BUY" else "low" if normalized == "SELL" else ""
     if not field:
         return None, "N/D"
-    # O ultimo candle fechado define a pendente. O alvo pertence ao movimento
-    # principal anterior a correcao: um pivo confirmado por duas velas de cada
-    # lado. A cotacao do TP e sempre o fechamento da vela que formou esse pivo,
-    # nunca sua maxima/minima.
-    start = max(2, len(rows) - max(5, int(maximum_age)))
-    for index in range(len(rows) - 3, start - 1, -1):
+    # O ultimo candle fechado define a pendente. O alvo pertence ao micro pivo
+    # anterior mais recente, confirmado por uma vela de cada lado. A cotacao do
+    # TP e o fechamento do candle que formou o microtopo/microfundo, nunca sua
+    # maxima/minima.
+    start = max(1, len(rows) - max(3, int(maximum_age)))
+    for index in range(len(rows) - 2, start - 1, -1):
         extreme = _number(rows[index], field)
         target = _number(rows[index], "close")
         neighbors = [
             _number(rows[neighbor], field)
-            for neighbor in (index - 2, index - 1, index + 1, index + 2)
+            for neighbor in (index - 1, index + 1)
         ]
         if extreme is None or target is None or any(value is None for value in neighbors):
             continue
-        left = [float(value) for value in neighbors[:2]]
-        right = [float(value) for value in neighbors[2:]]
+        left = float(neighbors[0])
+        right = float(neighbors[1])
         confirmed = (
-            all(float(extreme) > value for value in left)
-            and all(float(extreme) >= value for value in right)
+            float(extreme) > left and float(extreme) >= right
             if normalized == "BUY"
-            else all(float(extreme) < value for value in left)
-            and all(float(extreme) <= value for value in right)
+            else float(extreme) < left and float(extreme) <= right
         )
         if not confirmed:
             continue
@@ -814,25 +960,31 @@ def _model24_reentry_structural_target(
         )
         if valid:
             return float(target), _time(rows[index])
+        # O TP pertence ao micro pivo mais recente. Nao recue para uma
+        # estrutura antiga apenas para obter um preco do lado lucrativo da
+        # pendente; a reentrada deve aguardar novo encaixe estrutural.
+        return None, "N/D"
     return None, "N/D"
 
 
 def _model24_initial_cross_confirmation(
     values: list[float],
+    *,
+    require_rsi_cross: bool = False,
 ) -> tuple[str, int | None, int | None, list[float]]:
-    """Confirma os ultimos cruzamentos SMA20/RSI50, mesmo em velas distintas."""
+    """Confirma o cruzamento do preco; o cruzamento do RSI e opcional."""
     rsi_values = [
-        _wilder_rsi(values[: index + 1], 14)
+        _wilder_rsi(values[: index + 1], MODEL_24_SETUP.rsi_period)
         for index in range(len(values))
     ]
-    if len(values) < 21:
+    if len(values) < MODEL_24_SETUP.sma_fast_period + 1:
         return "WAIT", None, None, rsi_values
 
     price_cross_up: int | None = None
     price_cross_down: int | None = None
-    for index in range(20, len(values)):
-        previous_sma = _sma(values[:index], 20)
-        current_sma = _sma(values[: index + 1], 20)
+    for index in range(MODEL_24_SETUP.sma_fast_period, len(values)):
+        previous_sma = _sma(values[:index], MODEL_24_SETUP.sma_fast_period)
+        current_sma = _sma(values[: index + 1], MODEL_24_SETUP.sma_fast_period)
         if values[index - 1] <= previous_sma and values[index] > current_sma:
             price_cross_up = index
         elif values[index - 1] >= previous_sma and values[index] < current_sma:
@@ -840,21 +992,25 @@ def _model24_initial_cross_confirmation(
 
     rsi_cross_up: int | None = None
     rsi_cross_down: int | None = None
-    for index in range(15, len(values)):
+    for index in range(MODEL_24_SETUP.rsi_period + 1, len(values)):
         previous_rsi = rsi_values[index - 1]
         current_rsi = rsi_values[index]
-        if previous_rsi <= 50.0 and current_rsi > 50.0:
+        if previous_rsi <= MODEL_24_SETUP.rsi_level and current_rsi > MODEL_24_SETUP.rsi_level:
             rsi_cross_up = index
-        elif previous_rsi >= 50.0 and current_rsi < 50.0:
+        elif previous_rsi >= MODEL_24_SETUP.rsi_level and current_rsi < MODEL_24_SETUP.rsi_level:
             rsi_cross_down = index
 
-    sma20 = _sma(values, 20)
+    sma20 = _sma(values, MODEL_24_SETUP.sma_fast_period)
     rsi14 = rsi_values[-1]
-    if values[-1] > sma20 and rsi14 > 50.0:
-        if price_cross_up is not None and rsi_cross_up is not None:
+    if values[-1] > sma20 and rsi14 > MODEL_24_SETUP.rsi_level:
+        if price_cross_up is not None and (
+            not require_rsi_cross or rsi_cross_up is not None
+        ):
             return "BUY", price_cross_up, rsi_cross_up, rsi_values
-    elif values[-1] < sma20 and rsi14 < 50.0:
-        if price_cross_down is not None and rsi_cross_down is not None:
+    elif values[-1] < sma20 and rsi14 < MODEL_24_SETUP.rsi_level:
+        if price_cross_down is not None and (
+            not require_rsi_cross or rsi_cross_down is not None
+        ):
             return "SELL", price_cross_down, rsi_cross_down, rsi_values
     return "WAIT", None, None, rsi_values
 
@@ -939,13 +1095,23 @@ def _number(row: object, field: str) -> float | None:
 
 
 def _time(row: object) -> str:
-    value = (
-        row.get("time", row.get("data"))
-        if isinstance(row, dict)
-        else getattr(row, "time", getattr(row, "data", None))
-    )
+    if isinstance(row, dict):
+        value = row.get("time", row.get("data"))
+    else:
+        value = None
+        for field_name in ("time", "datetime", "timestamp", "data"):
+            try:
+                candidate = row[field_name]  # type: ignore[index]
+            except (KeyError, IndexError, TypeError, ValueError):
+                candidate = getattr(row, field_name, None)
+            if candidate not in (None, "") and not isinstance(candidate, memoryview):
+                value = candidate
+                break
     if isinstance(value, datetime):
-        return value.isoformat()
+        normalized = value
+        if normalized.tzinfo is None:
+            normalized = normalized.replace(tzinfo=timezone.utc)
+        return normalized.isoformat()
     try:
         return datetime.fromtimestamp(float(value), tz=timezone.utc).isoformat()
     except (TypeError, ValueError, OSError):

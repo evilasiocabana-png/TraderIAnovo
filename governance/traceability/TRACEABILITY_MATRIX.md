@@ -1,5 +1,7 @@
 # TraderIA Novo - Matriz de Rastreabilidade
 
+`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+
 Matriz ponta a ponta para revisar melhorias no GitHub.
 
 ## Fluxo Alpha -> Relatorio
@@ -16,6 +18,10 @@ Matriz ponta a ponta para revisar melhorias no GitHub.
 | MT5 JSON | `signals[]` | `stop_management`, `lab_configuration` | `MT5VisualSignalExporter` |
 | MT5 Indicador | MQL5 | visual entry/stop/target | `TraderIAVisualSignals.mq5` |
 | Relatorio | `DashboardMT5TradeAuditViewModel` | auditoria local x MT5 | `get_mt5_trade_audit_report()` |
+| Contrato M24 | `Model24SetupContract` | versao e fingerprint | `application/model24_setup_contract.py` |
+| Plano M24 | `stop_management_parameters` | `m24_setup_contract_version`, `m24_setup_contract_fingerprint` | `DashboardService` |
+| Estado M24 | JSON local nao versionado | `setup_contract_version`, `setup_contract_fingerprint` | `model24_xau_basket.py` |
+| Tela M24 | tabela de setup | campos derivados do contrato | `model24_public_setup_fields()` |
 
 ## Perguntas obrigatorias para qualquer melhoria
 
@@ -38,6 +44,7 @@ Matriz ponta a ponta para revisar melhorias no GitHub.
 | Grafico MT5 poluido | validar filtro `is_positioned`/visual |
 | Relatorio decide setup | revisar dependencia do Relatorio |
 | Runtime versionado | checar `.traderia`, logs e bancos fora do Git |
+| Regra M24 diverge entre motor, tela e docs | validar fingerprint e `tests/test_model24_setup_contract.py` |
 
 ## Documentos relacionados
 

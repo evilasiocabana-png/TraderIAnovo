@@ -1074,7 +1074,7 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertEqual(mt5.last_request["tp"], 130.0)
         self.assertEqual(
             mt5.last_request["comment"],
-            "TraderIA M24 S20 REENTRY",
+            "TraderIA M24 REENTRY",
         )
 
     def test_m24_reentrada_sell_envia_tp_no_fundo_estrutural(self) -> None:
@@ -1180,6 +1180,24 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
 
         self.assertIsNotNone(blocked)
         self.assertIn("posicao reentrada aberta", blocked.message)
+
+    def test_m24_libera_nova_reentrada_depois_da_anterior_encerrar(self) -> None:
+        open_reentry = SimpleNamespace(
+            ticket=24002,
+            symbol="XAUUSD",
+            comment="TraderIA M24 REENTRY",
+        )
+        mt5 = _FakeMT5(open_positions=[open_reentry])
+        provider = self._provider(mt5)
+        next_reentry = self._m24_order("REENTRY")
+
+        while_open = provider._open_position_model_limit_preflight(next_reentry)
+        mt5.open_positions = []
+        after_close = provider._open_position_model_limit_preflight(next_reentry)
+
+        self.assertIsNotNone(while_open)
+        self.assertIn("posicao reentrada aberta", while_open.message)
+        self.assertIsNone(after_close)
 
     def test_m24_identifica_papel_de_posicao_legada_pelo_ticket(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

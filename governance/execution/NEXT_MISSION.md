@@ -1,5 +1,7 @@
 # Next Mission
 
+`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+
 Proxima missao recomendada, ainda nao autorizada automaticamente:
 
 ```text
@@ -22,15 +24,16 @@ reconciliacao viva das 201 velas M5 nos 19 ativos.
 O relatorio operacional tambem passou a expor o papel da entrada M24
 (`PRINCIPAL` ou `REENTRADA`) antes do alvo.
 
-O contrato atual possui entrada inicial a mercado apos cruzamentos SMA20/RSI50
-mantidos, mesmo quando ocorrerem em velas diferentes. A reentrada e uma ordem
-Stop atualizada a cada M5, sem novo cruzamento, mas com preco e RSI ainda no
-lado permitido. O SL usa o micro pivo 1+1 anterior mais proximo, com idade
-maxima de cinco M5 fechados e atualizacao somente a favor.
+O contrato atual possui entrada inicial a mercado apos o cruzamento do preco
+na SMA20, com o RSI14 atual do mesmo lado de 50; nao exige cruzamento do RSI nem
+micro-pivo inicial. O SL nasce no extremo do candle do cruzamento mais um pip e,
+apos dois fechamentos favoraveis, acompanha a SMA20 somente a favor. A
+reentrada e uma ordem Stop atualizada a cada M5, com SL e TP baseados no
+micro-pivo 1+1 mais recente.
 
-A observacao deve confirmar que a posicao principal nao fecha por inversao
-SMA20/SMA50; ela conserva Full Exit RSI 70/30, SL e cesta. A inversao das medias
-e a perda do RSI50 continuam sendo protecoes das reentradas.
+A observacao deve confirmar que nenhuma posicao M24 fecha por inversao
+SMA20/SMA50 e que tanto `INITIAL` quanto `REENTRY` fecham na inversao RSI50 e
+no retorno RSI 70/30, alem de SL e cesta.
 
 A auditoria paper/demo deve confirmar tambem que, apos Full Exit RSI 70/30, a
 primeira reentrada do mesmo lado fica bloqueada e apenas a segunda oportunidade

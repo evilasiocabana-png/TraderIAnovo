@@ -2,6 +2,26 @@
 
 Status: pronto para fluxo de inbox.
 
+`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+
+## Contrato vigente M24 - 2026-08-19
+
+- M24 atual e uma unica rota autonoma `M24_PROPRIO` em XAUUSD/M5;
+- entrada inicial: preco cruza SMA20, RSI14 atual confirma o mesmo lado de 50,
+  sem exigir cruzamento do RSI nem micro-pivo;
+- SL inicial: extremo do candle do cruzamento mais um pip; depois de dois
+  fechamentos favoraveis, trailing pela SMA20 somente a favor;
+- reentrada: ordem Stop, SL no micro-pivo 1+1 mais um pip e TP obrigatorio no
+  fechamento do micro-pivo 1+1 lucrativo mais recente;
+- `INITIAL` e `REENTRY` saem por inversao RSI50 e retorno RSI 70/30; nenhuma sai
+  por inversao SMA20/SMA50;
+- interface, motor, Trade Plan, runtime e documentos ativos agora compartilham
+  contrato versionado e fingerprint; teste impede drift documental;
+- corrigida a identidade temporal de registros MT5 para nunca persistir o
+  `memoryview` de `.data` como horario do candle;
+- secoes M24 datadas antes de 2026-08-19 abaixo sao historico de execucao e nao
+  substituem este contrato vigente.
+
 ## Sincronizacao do ciclo M25 - 2026-08-18
 
 - o ciclo de fundo passa a restaurar M25 a partir da mesma lista canonica usada
@@ -43,7 +63,7 @@ Status: pronto para fluxo de inbox.
 - teste de interface comprovou a troca M23 -> M24 na mesma tela e restaurou o
   estado operacional anterior ao final da validacao.
 
-## Estado Operacional M24 - 2026-08-17
+## Estado Operacional M24 - 2026-08-17 (historico substituido)
 
 - M24 criado como cesta XAUUSD/M5 independente do M23.
 - Fontes fixas: M8, M10 e M18-M22.

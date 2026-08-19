@@ -112,8 +112,47 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(service._execution_volume(signal, principal), 0.20)
-        self.assertEqual(service._execution_volume(signal, reentry), 0.10)
+        self.assertEqual(service._execution_volume(signal, principal), 0.30)
+        self.assertEqual(service._execution_volume(signal, reentry), 0.20)
+
+    def test_m24_inicial_sem_tp_ou_rr_e_plano_valido(self) -> None:
+        provider = _AcceptingProvider()
+        service = MT5DemoRobotService(
+            execution_service=DemoExecutionService(provider=provider),
+            enabled=True,
+        )
+        model = model24_variant_id("MODELO_24_XAU_RSI50_BASKET")
+        signal = MT5DemoRobotSignal(
+            **{
+                **self._signal("BUY").__dict__,
+                "symbol": "XAUUSD",
+                "timeframe": "M5",
+                "operational_model": model,
+            }
+        )
+        plan = MT5DemoTradePlan(
+            **{
+                **self._plan("BUY").__dict__,
+                "symbol": "XAUUSD",
+                "timeframe": "M5",
+                "entry_price": 4355.0,
+                "stop": 4335.0,
+                "target": 0.0,
+                "risk_reward": 0.0,
+                "operational_model": model,
+                "stop_management_parameters": {
+                    "source_operational_model": model,
+                    "m24_entry_role": "INITIAL",
+                    "m24_individual_target_enabled": False,
+                },
+            }
+        )
+
+        result = service.evaluate_once(signal, plan)
+
+        self.assertEqual(result.status, "EXECUTED")
+        self.assertEqual(len(provider.orders), 1)
+        self.assertEqual(provider.orders[0].target, 0.0)
 
     def test_nao_reopera_mesmo_candle(self) -> None:
         provider = _AcceptingProvider()

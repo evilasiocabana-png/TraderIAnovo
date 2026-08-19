@@ -41,6 +41,7 @@ def _reentry_rows() -> list[dict[str, float]]:
         )
     rows[-3]["close"] = rows[-2]["high"] + 0.001
     rows[-3]["high"] = rows[-3]["close"] + 0.0001
+    rows[-4]["low"] = min(rows[-5]["low"], rows[-3]["low"]) - 0.001
     rows.append(dict(rows[-1], time=rows[-1]["time"] + 300))
     return rows
 
@@ -78,7 +79,8 @@ def test_model25_reentry_uses_forex_pip_without_changing_m24_logic() -> None:
         decision = evaluate_model25_pending_reentry(rows, symbol="EURUSD")
     assert decision.ready
     assert decision.status.startswith("M25_")
-    assert decision.initial_stop == rows[-2]["low"] - 0.0001
+    assert decision.micro_swing_price is not None
+    assert decision.initial_stop == decision.micro_swing_price - 0.0001
 
 
 def test_model25_role_state_is_independent_per_symbol(tmp_path: Path) -> None:

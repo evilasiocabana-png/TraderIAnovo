@@ -1,5 +1,15 @@
 # TraderIA Novo - Rastreabilidade da Logica de Setup
 
+`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+
+## Contrato M24
+
+O M24 nao replica sua regra em textos de tela. A autoridade e
+`application/model24_setup_contract.py`; `model24_xau_basket.py`,
+`dashboard_service.py`, `position_manager_service.py` e `dashboard_app.py`
+consomem esse contrato. Trade Plans e estado persistem versao/fingerprint, e
+os testes comparam este marker em todos os documentos ativos.
+
 Este documento mapeia entrada, saida, stop management e consumo operacional do
 setup calculado pelo Lab.
 

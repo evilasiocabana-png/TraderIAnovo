@@ -103,6 +103,10 @@ from application.model24_xau_basket import (
     MODEL_24_ID as MT5_OPERATIONAL_MODEL_24,
     MODEL_24_SOURCE_MODEL_IDS,
 )
+from application.model24_setup_contract import (
+    MODEL_24_SETUP,
+    model24_public_setup_fields,
+)
 from application.model25_multi_asset_rsi50_basket import (
     MODEL_25_ID as MT5_OPERATIONAL_MODEL_25,
     MODEL_25_SYMBOLS,
@@ -333,16 +337,19 @@ MT5_ACTIVE_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_25,
 )
 MT5_SELECTABLE_OPERATIONAL_MODEL_IDS = (
-    *MT5_ACTIVE_SOURCE_MODEL_IDS,
+    *(
+        model
+        for model in MT5_ACTIVE_SOURCE_MODEL_IDS
+        if model != MT5_OPERATIONAL_MODEL_25
+    ),
     MT5_OPERATIONAL_MODEL_23,
     MT5_OPERATIONAL_MODEL_24,
+    MT5_OPERATIONAL_MODEL_25,
 )
 MT5_MODEL_23_SOURCE_MODEL_IDS = tuple(
     model for model in MT5_ACTIVE_SOURCE_MODEL_IDS if model != MT5_OPERATIONAL_MODEL_25
 )
-MT5_MODEL_24_SOURCE_MODEL_IDS = tuple(
-    model for model in MT5_ACTIVE_SOURCE_MODEL_IDS if model in MODEL_24_SOURCE_MODEL_IDS
-)
+MT5_MODEL_24_SOURCE_MODEL_IDS = MODEL_24_SOURCE_MODEL_IDS
 MT5_OPERATIONAL_MODEL_8_TO_22_IDS = (
     MT5_OPERATIONAL_MODEL_8,
     MT5_OPERATIONAL_MODEL_10,
@@ -2760,8 +2767,9 @@ def _render_mt5_operational_model_selector() -> str:
         basket_columns[3].metric("Full Exit", "+US$ 1.000,00")
     if selected in {MT5_OPERATIONAL_MODEL_24, MT5_OPERATIONAL_MODEL_WITH_24}:
         st.warning(
-            "M24 ativo em XAUUSD/M5 pelas fontes M8, M10 e M18-M22. Sem TP "
-            "individual; a cesta faz Full Exit em +US$1.000 liquidos."
+            "M24 ativo e autonomo em XAUUSD/M5. Uma unica leitura calcula o "
+            "setup, sem fontes duplicadas; a cesta faz Full Exit em "
+            "+US$1.000 liquidos."
         )
         basket = _load_mt5_model24_basket_state()
         basket_columns = st.columns(4)
@@ -5815,29 +5823,34 @@ def _model23_theoretical_entry_detail_rows(
 
 
 def _model24_setup_rows() -> list[dict[str, object]]:
-    """Contrato auditavel das sete rotas internas do M24."""
-    return [
-        {
-            "Modelo": "M24",
-            "Fonte": _mt5_operational_model_short_label(source),
-            "Par": "XAUUSD",
-            "Timeframe": "M5",
-            "Entrada inicial": (
-                "micro-pivo 1+1 + RSI14 cruza 50 + fechamento alem da SMA20"
-            ),
-            "Distancia medias": (
-                "|SMA20-SMA50| / ATR14 >= 0,25 (somente forca; sem direcao)"
-            ),
-            "Reentrada 1": "BUY_STOP/SELL_STOP no extremo do M5 anterior",
-            "Reentrada 2": "RSI14 cruza 50 a mercado com SMA20/50 alinhadas",
-            "SL reentrada 2": "extremo do candle anterior; move somente a favor",
-            "TP individual": (
-                "inicial sem TP; reentrada no fechamento do candle estrutural"
-            ),
-            "Full Exit cesta": "+US$ 1.000 liquidos",
-        }
-        for source in MT5_MODEL_24_SOURCE_MODEL_IDS
-    ]
+    """Contrato auditavel da unica rota autonoma do M24."""
+    background = _load_demo_robot_background_state()
+    result_status = str(
+        background.get("result_status")
+        or background.get("status")
+        or "AGUARDANDO_CICLO_M24"
+    ).strip()
+    normalized_status = result_status.upper()
+    if normalized_status in {"EXECUTED", "ACCEPTED", "REQUEST_EXECUTED"}:
+        send_prefix = "PRONTO"
+    elif any(
+        token in normalized_status
+        for token in ("BLOQ", "REJEIT", "ERRO", "INVALID", "DISABLED")
+    ):
+        send_prefix = "BLOQ"
+    else:
+        send_prefix = "AGUARDA"
+    send_reason = str(background.get("message") or result_status).strip()
+    row: dict[str, object] = {
+        "Modelo": "M24",
+        "Origem": MODEL_24_SETUP.runtime_source,
+        "Par": MODEL_24_SETUP.symbol,
+        "Timeframe": MODEL_24_SETUP.timeframe,
+        "Envio": f"{send_prefix}: {result_status}",
+        "Motivo envio": send_reason,
+    }
+    row.update(model24_public_setup_fields())
+    return [row]
 
 
 def _model25_theoretical_entry_rows_from_background(
@@ -6168,7 +6181,7 @@ def _exibir_entradas_teoricas_mt5(
     }:
         st.subheader("Entrada Teorica MT5 - Modelo 24")
         st.caption(
-            "Contrato das rotas M8, M10 e M18-M22. O executor usa o mesmo cache "
+            "Contrato autonomo M24. O executor reutiliza o cache deslizante "
             "XAUUSD/M5 e nao realiza leitura adicional do MT5."
         )
         _render_stable_readonly_table(

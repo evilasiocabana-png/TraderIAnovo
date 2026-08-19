@@ -1,5 +1,78 @@
 # Execution Log
 
+## 2026-08-19 - Contrato canonico M24 e protecao contra drift
+
+- criada fonte unica e imutavel `application/model24_setup_contract.py`, com
+  versao e fingerprint SHA-256 compartilhados pelo motor, tela, Trade Plan,
+  runtime e documentos ativos;
+- eliminados textos antigos da tabela M24: o setup atual nao exige cruzamento
+  do RSI nem micro-pivo inicial, usa trailing SMA20 apos dois fechamentos,
+  micro-pivo 1+1 no SL/TP da reentrada e RSI50 em `INITIAL` e `REENTRY`;
+- documentos datados foram mantidos como historico; criterios, arquitetura,
+  status e proxima missao agora declaram o contrato vigente explicitamente;
+- corrigida a leitura de horario de registros MT5/numpy: o campo indexado
+  `time` prevalece e o `memoryview` exposto por `.data` nunca vira identidade
+  persistida do candle;
+- estados legados contendo `<memory at 0x...>` sao sanitizados em leitura sem
+  desligar a trava conservadora de primeira reentrada;
+- testes falham quando constantes, tela, plano ou documentos ativos divergem
+  da versao/fingerprint canonica;
+- nenhuma ordem MT5 foi aberta, fechada, cancelada ou modificada nesta auditoria.
+
+## 2026-08-19 - M24 inicial simplificada no preco/SMA20
+
+- a entrada inicial M24 exige somente o cruzamento confirmado do preco com a
+  SMA20, RSI14 atual do mesmo lado de 50 e distancia absoluta SMA20/SMA50 de no
+  minimo `0,25 ATR`;
+- removidas da entrada inicial as exigencias de novo cruzamento do RSI14 e de
+  micro-pivo 1+1;
+- o SL inicial usa um pip alem do extremo do candle que cruzou a SMA20;
+- reentrada, SL/TP estrutural, volumes e saidas permaneceram inalterados;
+- M25 preserva explicitamente seu contrato anterior.
+
+## 2026-08-19 - M24 reentrada no rompimento sem gate de TP
+
+- mantido o BUY_STOP na maxima e o SELL_STOP na minima do ultimo M5 fechado
+  depois do recuo em direcao a SMA20;
+- o TP estrutural deixou de ser requisito para publicar a reentrada;
+- quando existir microtopo/microfundo lucrativo, seu fechamento continua sendo
+  usado como TP; sem alvo valido, a ordem usa TP zero e sai por SL ou Full Exit;
+- micro-pivo 1+1 continua obrigatorio para formar o SL da reentrada;
+- mantida somente uma reentrada aberta por vez.
+
+## 2026-08-19 - Correcao: TP estrutural obrigatorio na reentrada M24
+
+- revertido o fallback temporario que permitia reentrada M24 com TP zero;
+- toda nova reentrada exige fechamento valido de microtopo para BUY ou de
+  microfundo para SELL, obrigatoriamente no lado lucrativo da entrada;
+- sem esse alvo, o estado permanece
+  `M24_REENTRY_AGUARDA_ALVO_ESTRUTURAL_VALIDO` e nenhuma ordem e publicada;
+- entrada inicial simplificada, SL, volumes e Full Exit permanecem inalterados.
+
+## 2026-08-18 - M24: TP no microtopo/microfundo mais recente
+
+- O TP da reentrada usa o fechamento do microtopo (BUY) ou microfundo (SELL)
+  confirmado 1+1 mais recente.
+- O runtime nao recua para uma estrutura antiga quando esse fechamento ainda
+  nao e valido em relacao a entrada pendente; nesse caso aguarda novo encaixe.
+- A entrada INITIAL permanece unica por lado; repeticoes no mesmo lado sao
+  classificadas como REENTRY pelo estado persistente.
+- O SL da INITIAL e da REENTRY foi unificado: BUY fica um pip abaixo da minima
+  do microfundo 1+1; SELL fica um pip acima da maxima do microtopo 1+1.
+- O Position Manager aplica a mesma folga de um pip ao mover o SL e nunca o
+  afasta contra a posicao.
+
+## 2026-08-18 - Pip do SL por ativo no M25
+
+- corrigido o SL inicial do M25 para usar um pip real do simbolo, em vez de
+  reutilizar `0,01` do XAUUSD em todos os pares;
+- Forex nao JPY usa `0,0001`; JPY, XAUUSD e BTCUSD usam `0,01`;
+- BUY posiciona o SL um pip abaixo da minima de referencia e SELL um pip acima
+  da maxima de referencia, na entrada inicial e na reentrada;
+- preservado o TP estrutural no fechamento do topo anterior para BUY e no
+  fechamento do fundo anterior para SELL;
+- nenhuma ordem ou posicao aberta foi modificada durante a validacao.
+
 ## 2026-08-18 - Sincronizacao M25 entre seletor e ciclo de fundo
 
 - Sintoma: M25 aparecia selecionado no painel local/publico, mas os ativos
@@ -1830,3 +1903,83 @@ Novas entradas devem registrar:
 - todas as variantes M24 usam o mesmo contrato, cujo unico filtro adicional e
   `abs(SMA20-SMA50)/ATR14 >= 0,25`;
 - teste impede que o avaliador de filtros da fonte volte a participar do M24.
+# 2026-08-18 - Tabela de contrato M24 alinhada ao executor
+
+- removida da tabela MT5 a antiga `Reentrada 2` a mercado, inexistente no
+  contrato operacional atual;
+- a entrada inicial agora descreve os cruzamentos confirmados de preco/SMA20 e
+  RSI14/50, que podem ocorrer em velas M5 diferentes, mais o micro-pivo 1+1;
+- a unica reentrada exibida passa a ser a pendente no extremo do ultimo M5
+  fechado, apos correcao e faixa RSI valida;
+- SL, TP estrutural, saidas individuais e Full Exit financeiro de US$ 1.000
+  ficam explicitados sem alterar calculo, ordem ou gerenciamento no MT5.
+# 2026-08-18 - M24 transformado em modelo autonomo
+
+- O runtime deixou de multiplicar o mesmo sinal XAUUSD/M5 pelas fontes M8,
+  M10 e M18-M22.
+- Novas decisoes usam uma unica identidade `MODELO_24_XAU_RSI50_BASKET`, uma
+  unica candidata por ciclo e o estado `M24_PROPRIO`.
+- SMA20, SMA50, RSI14, ATR14, distancia minima de 0,25 ATR, volumes, SL, TP e
+  Full Exit de +US$1.000 foram preservados.
+- Variantes e comentarios antigos `SOURCE_M<n>`/`M24 S<n>` continuam
+  reconhecidos para historico e Position Manager.
+# 2026-08-18 - M24 inicial sem gate de micro-pivo
+
+- A entrada inicial do M24 deixou de exigir microfundo/microtopo 1+1.
+- O gatilho inicial permanece baseado nos cruzamentos confirmados de preco/SMA20
+  e RSI14/50, mantendo o filtro de distancia absoluta SMA20/SMA50 em ATR.
+- O SL inicial passa a usar o extremo do candle M5 que cruzou a SMA20 mais
+  `0,01` de protecao, sem transformar esse extremo em novo gate de entrada.
+- Corrigido o roteamento autonomo: o M24 agora normaliza o envelope do ciclo
+  para XAUUSD/M5 e produz somente um candidato por ciclo, independentemente da
+  primeira linha recebida do monitor Forex.
+- O M24 voltou a integrar explicitamente o aquecimento e a atualizacao da janela
+  deslizante XAUUSD/M5; a separacao das fontes antigas nao deixa mais o cache
+  operacional congelado.
+- A janela operacional permanece em 201 registros: 200 M5 fechados para os
+  indicadores e o candle corrente separado, substituindo o mais antigo a cada
+  novo fechamento.
+- O estado do ciclo passou a priorizar o diagnostico M24, impedindo que o WAIT
+  generico do ultimo par H1 esconda o bloqueio real de distancia, RSI, preco ou
+  pendencia.
+- A entrada `INITIAL` do M24 passou a mover o SL pelos microfundos 1+1
+  confirmados no BUY e microtopos 1+1 no SELL, com margem de `0,01`, somente a
+  favor e sem afrouxar o risco.
+- A tabela teorica M24 passou a mostrar `Envio` depois de `Timeframe` e o motivo
+  completo do ultimo ciclo, reutilizando o estado de fundo sem nova leitura MT5.
+# 2026-08-18 - M24: inversao RSI50 e validacao da troca de lado
+
+- Auditada a venda XAUUSD encerrada pelo Position Manager no cruzamento do
+  RSI14 para cima de 50.
+- Corrigido o alcance da regra: o Full Exit por inversao RSI50 agora protege
+  tanto posicoes iniciais quanto reentradas do M24/M25.
+- Corrigido o validador Demo que rejeitava indevidamente a entrada inicial M24
+  sem TP/RR, embora esse seja o contrato operacional do modelo.
+- A entrada oposta somente e enviada em ciclo posterior ao fechamento, quando
+  o novo gatilho M24 permanece valido.
+
+- Corrigida a referencia do TP das reentradas: o alvo passa a usar o fechamento
+  do microtopo/microfundo 1+1 mais recente, em vez de um pivo principal 2+2
+  antigo.
+
+# 2026-08-18 - M24: volume e protecao SMA20 da entrada inicial
+
+- A entrada `INITIAL` continua limitada a uma vez por lado e preserva o alvo
+  vigente do modelo.
+- O SL nasce um pip alem do microfundo 1+1 no BUY ou do microtopo 1+1 no SELL.
+- Depois de dois candles M5 fechados consecutivos acima da SMA20 no BUY ou
+  abaixo da SMA20 no SELL, o Position Manager passa a usar a SMA20 como
+  candidato de SL, sempre sem afrouxar o stop e sem atravessar o preco atual.
+- A `REENTRY` permanece protegida pelos micro-pivos 1+1 mais recentes com
+  margem de um pip; ela nao foi migrada para o trailing SMA20.
+- Novas ordens M24 usam `0,30` lote na `INITIAL` e `0,20` lote na `REENTRY`.
+- Validacao focada: 117 testes e 2 subtestes aprovados.
+# 2026-08-19 - Regra sequencial de reentradas M24 consolidada
+
+- confirmado que o M24 aceita varias reentradas ao longo da mesma perna;
+- mantida a trava de somente uma posicao `REENTRY` aberta por vez;
+- uma nova rodada e liberada quando a anterior encerra e surge uma oportunidade
+  valida em novo candle;
+- mantidas a pendencia unica por rodada e a idempotencia do mesmo sinal/candle;
+- adicionado teste de regressao para bloqueio simultaneo e liberacao apos o
+  encerramento da reentrada anterior.

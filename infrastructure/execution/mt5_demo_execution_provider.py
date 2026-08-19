@@ -1913,7 +1913,7 @@ mt5.shutdown()
         order: ExecutionOrder,
         positions: list[object],
     ) -> ExecutionResult | None:
-        """Permite no M24 somente uma INITIAL e uma REENTRY posicionadas."""
+        """Permite varias rodadas M24, com uma INITIAL e uma REENTRY simultaneas."""
         candidate_role = self._model24_order_role(order)
         if candidate_role not in {"INITIAL", "REENTRY"}:
             return ExecutionResult(
@@ -1952,7 +1952,7 @@ mt5.shutdown()
         self,
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
-        """Evita hedge e mais de uma reentrada M24 ainda pendente."""
+        """Evita hedge e mantem uma unica reentrada M24 pendente por rodada."""
         if not is_model24(getattr(order, "operational_model", "")):
             return None
         orders_get = getattr(self.mt5, "orders_get", None)

@@ -459,17 +459,25 @@ class DemoExecutionService:
             model = str(parameters.get("source_operational_model") or "").upper()
             if not model:
                 return False
+        model24_requires_target = original_is_model24 and (
+            str(parameters.get("m24_entry_role") or "").upper()
+            in {"REENTRY", "STRUCTURAL_REENTRY"}
+            and bool(parameters.get("m24_individual_target_enabled"))
+            and float(getattr(order, "target", 0.0) or 0.0) > 0.0
+        )
         requires_target = (not original_is_model24) and xau_model_requires_target(
             model,
             parameters.get("active_entry_order_type"),
         )
-        if model in XAU_IMPROVED_REENTRY_MODEL_IDS and requires_target:
+        if model24_requires_target or (
+            model in XAU_IMPROVED_REENTRY_MODEL_IDS and requires_target
+        ):
             if order.side == "BUY":
                 return order.stop < order.entry_price < order.target
             if order.side == "SELL":
                 return order.target < order.entry_price < order.stop
             return False
-        if model in {
+        if original_is_model24 or model in {
             MODEL_3_ID,
             MODEL_8_ID,
             MODEL_15_ID,

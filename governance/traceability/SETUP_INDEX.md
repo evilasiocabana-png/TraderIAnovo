@@ -1,5 +1,7 @@
 # TraderIA Novo - Setup Index
 
+`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+
 Indice dos setups/modelos operacionais pesquisados pelo Lab e consumidos pelo
 Forex MT5.
 
@@ -46,6 +48,10 @@ Alpha + modelo + par + timeframe + parametros de entrada
 | LIQUIDITY_SPREAD_FILTER | ALPHA015 | filtro de liquidez/spread | spread, spread medio, tick volume | Lab escolhe `stop_management` |
 | BETA002_REVERSAL_SIGNAL | ALPHA016 | reversao do fluxo anterior | EMAs, momentum, volatilidade, ATR | Pesquisa existente |
 | MULTI_CURRENCY_GRID_MEAN_REVERSION | ALPHA017 | reversao a media em extremo nao tendencial | Bollinger, Z-Score, RSI, `adx_max`, ATR | Somente Replay; sem grade operacional |
+| M24_XAU_RSI50_BASKET | ALPHA024 | cruzamento preco/SMA20 com RSI14 atual confirmando 50 | SMA20/50, RSI14, ATR14, micro-pivo 1+1, contrato versionado | RSI50 e 70/30; sem inversao SMA |
+
+O setup M24 e definido em `application/model24_setup_contract.py`. Textos da
+interface, plano e documentos nao podem manter copias independentes da regra.
 
 ## Stop management suportado
 

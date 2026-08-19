@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import dashboard_app
+from application.model24_setup_contract import model24_public_setup_fields
 from core.background_runtime_registry import (
     clear_background_snapshot,
     publish_background_snapshot,
@@ -75,6 +76,28 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         )
 
         self.assertEqual(output["GBPUSD"], "BLOQ: SEXTA_FINAL_BLOQUEADO")
+
+    def test_model24_exibe_envio_depois_do_timeframe_com_motivo_real(self) -> None:
+        with patch.object(
+            dashboard_app,
+            "_load_demo_robot_background_state",
+            return_value={
+                "status": "ARMED_WAITING",
+                "result_status": "M24_DISTANCE_ATR_BLOQUEADO",
+                "message": "Distancia atual abaixo de 0,25 ATR.",
+            },
+        ):
+            row = dashboard_app._model24_setup_rows()[0]
+
+        columns = list(row)
+        self.assertEqual(
+            columns[:6],
+            ["Modelo", "Origem", "Par", "Timeframe", "Envio", "Motivo envio"],
+        )
+        self.assertEqual(row["Envio"], "BLOQ: M24_DISTANCE_ATR_BLOQUEADO")
+        self.assertEqual(row["Motivo envio"], "Distancia atual abaixo de 0,25 ATR.")
+        for field, expected in model24_public_setup_fields().items():
+            self.assertEqual(row[field], expected)
 
     def test_curva_patrimonial_converte_fechamento_para_horario_do_brasil(self) -> None:
         cutoff = dashboard_app.datetime(
@@ -468,7 +491,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 operational_model_number(model_id)
                 for model_id in dashboard_app.MT5_SELECTABLE_OPERATIONAL_MODEL_IDS
             ),
-            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 25, 23, 24),
+            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25),
         )
         for restored_source in (
             dashboard_app.MT5_OPERATIONAL_MODEL_3,

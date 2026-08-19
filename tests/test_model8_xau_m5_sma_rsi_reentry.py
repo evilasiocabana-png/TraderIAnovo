@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from application.model8_xau_m5_sma_rsi_reentry import (
     MODEL_8_ID,
+    _candle_time,
     evaluate_model8_entry,
     evaluate_model8_exit,
     load_model8_runtime_state,
@@ -29,6 +30,31 @@ from domain.operational_model_policy import (
     is_retired_operational_model,
 )
 from research.mt5_research_trade_plan import MT5ResearchTradePlan
+
+
+class _MT5RecordWithMemoryViewData:
+    """Reproduz o conflito entre numpy-record.data e o campo MT5 time."""
+
+    data = memoryview(b"mt5")
+
+    def __getitem__(self, field: str) -> object:
+        if field == "time":
+            return 1_776_211_200
+        raise KeyError(field)
+
+
+class Model8CandleTimeTests(unittest.TestCase):
+    def test_mt5_record_uses_stable_time_field_instead_of_memory_address(self) -> None:
+        candle_time = _candle_time(_MT5RecordWithMemoryViewData())
+
+        self.assertEqual(candle_time, "2026-04-15T00:00:00+00:00")
+        self.assertNotIn("memory", candle_time)
+
+    def test_portuguese_data_field_remains_supported(self) -> None:
+        self.assertEqual(
+            _candle_time({"data": "2026-08-19T10:00:00+00:00"}),
+            "2026-08-19T10:00:00+00:00",
+        )
 
 
 def _candles(closes: list[float], *, pivot: str = "low") -> list[dict[str, float | str]]:
@@ -286,6 +312,56 @@ class Model8XauM5Test(unittest.TestCase):
                 _candles(closes),
                 "BUY",
                 reentry_position=False,
+            )
+        self.assertEqual(decision.action, "HOLD_POSITION")
+
+    def test_m24_buy_inicial_fecha_no_cruzamento_rsi50_para_baixo(self) -> None:
+        closes = [100.0 + (index * 0.2) for index in range(60)]
+        with patch(
+            "application.model8_xau_m5_sma_rsi_reentry._wilder_rsi",
+            side_effect=(49.0, 51.0),
+        ):
+            decision = evaluate_model8_exit(
+                _candles(closes),
+                "BUY",
+                reentry_position=False,
+                rsi50_inversion_exit_enabled=True,
+            )
+        self.assertEqual(decision.action, "FULL_EXIT")
+        self.assertEqual(
+            decision.status,
+            "M24_EXIT_RSI50_CRUZOU_PARA_BAIXO_BUY",
+        )
+
+    def test_m24_sell_inicial_fecha_no_cruzamento_rsi50_para_cima(self) -> None:
+        closes = [120.0 - (index * 0.2) for index in range(60)]
+        with patch(
+            "application.model8_xau_m5_sma_rsi_reentry._wilder_rsi",
+            side_effect=(51.0, 49.0),
+        ):
+            decision = evaluate_model8_exit(
+                _candles(closes),
+                "SELL",
+                reentry_position=False,
+                rsi50_inversion_exit_enabled=True,
+            )
+        self.assertEqual(decision.action, "FULL_EXIT")
+        self.assertEqual(
+            decision.status,
+            "M24_EXIT_RSI50_CRUZOU_PARA_CIMA_SELL",
+        )
+
+    def test_m24_nao_fecha_sem_novo_cruzamento_rsi50(self) -> None:
+        closes = [120.0 - (index * 0.2) for index in range(60)]
+        with patch(
+            "application.model8_xau_m5_sma_rsi_reentry._wilder_rsi",
+            side_effect=(55.0, 55.0),
+        ):
+            decision = evaluate_model8_exit(
+                _candles(closes),
+                "SELL",
+                rsi50_inversion_exit_enabled=True,
+                sma_inversion_exit_enabled=False,
             )
         self.assertEqual(decision.action, "HOLD_POSITION")
 

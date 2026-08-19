@@ -139,6 +139,10 @@ from application.model24_xau_basket import (
     MODEL_24_FULL_EXIT_USD,
     MODEL_24_INITIAL_VOLUME,
     MODEL_24_REENTRY_VOLUME,
+    MODEL_24_RUNTIME_SOURCE,
+    MODEL_24_SETUP,
+    MODEL_24_SETUP_CONTRACT_FINGERPRINT,
+    MODEL_24_SETUP_CONTRACT_VERSION,
     MODEL_24_ID as MT5_OPERATIONAL_MODEL_24,
     MODEL_24_SOURCE_MODEL_IDS,
     Model24BasketManager,
@@ -148,7 +152,6 @@ from application.model24_xau_basket import (
     is_model24,
     mark_model24_market_entry_accepted,
     model24_market_entry_role,
-    model24_variant_id,
 )
 from application.model25_multi_asset_rsi50_basket import (
     MODEL_25_ALPHA_ID,
@@ -408,9 +411,7 @@ MT5_MODEL_23_RETIRED_SOURCE_MODEL_IDS = (
 MT5_MODEL_23_SOURCE_MODEL_IDS = tuple(
     model for model in MT5_ACTIVE_SOURCE_MODEL_IDS if model != MT5_OPERATIONAL_MODEL_25
 )
-MT5_MODEL_24_SOURCE_MODEL_IDS = tuple(
-    model for model in MT5_ACTIVE_SOURCE_MODEL_IDS if model in MODEL_24_SOURCE_MODEL_IDS
-)
+MT5_MODEL_24_SOURCE_MODEL_IDS = MODEL_24_SOURCE_MODEL_IDS
 MT5_OPERATIONAL_MODEL_IDS = (
     *MT5_ACTIVE_SOURCE_MODEL_IDS,
     MT5_OPERATIONAL_MODEL_23,
@@ -1781,6 +1782,7 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_10,
             MT5_OPERATIONAL_MODEL_11,
             MT5_OPERATIONAL_MODEL_12,
+            MT5_OPERATIONAL_MODEL_24,
         }.intersection(selected_models):
             self.mt5_market_data_service.refresh_supplemental_forex_candles(
                 {MODEL_8_SYMBOL: {MODEL_8_TIMEFRAME}},
@@ -1842,6 +1844,7 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_10,
             MT5_OPERATIONAL_MODEL_11,
             MT5_OPERATIONAL_MODEL_12,
+            MT5_OPERATIONAL_MODEL_24,
         }.intersection(selected_models):
             requested.add(MODEL_8_SYMBOL)
         if set(FOREX_SMA_RSI_MODEL_IDS).intersection(selected_models):
@@ -6894,6 +6897,7 @@ class DashboardService:
         )
 
         last_waiting: DashboardDemoRobotViewModel | None = None
+        last_model24_waiting: DashboardDemoRobotViewModel | None = None
         last_executed: DashboardDemoRobotViewModel | None = None
         basket_mode = self._mt5_model23_routing_enabled()
         basket24_mode = self._mt5_model24_routing_enabled()
@@ -6909,6 +6913,7 @@ class DashboardService:
         if basket25_block is not None:
             return basket25_block
         selected_models = self._mt5_operational_models_to_evaluate()
+        m24_candidate_added = False
         for source_row in rows:
             if basket_mode:
                 basket_block = self._evaluate_model23_risk_gate(pair, timeframe)
@@ -6979,7 +6984,48 @@ class DashboardService:
                 )
                 for route in routes:
                     route_to_basket = route != "DIRECT"
-                    if route == "M24" and operational_model not in MT5_MODEL_24_SOURCE_MODEL_IDS:
+                    if route == "M24":
+                        if m24_candidate_added:
+                            continue
+                        m24_candidate_added = True
+                        model_row, model_plan = self._mt5_model24_variant_from_source(
+                            row,
+                            plan,
+                            source_operational_model=MT5_OPERATIONAL_MODEL_24,
+                            source_ready=False,
+                        )
+                        if (
+                            str(getattr(model_row, "decision", "") or "").upper()
+                            in {"BUY", "SELL"}
+                            and model_plan.status == "PLANO_VALIDO"
+                        ):
+                            model_candidates.append(
+                                (MT5_OPERATIONAL_MODEL_24, model_row, model_plan)
+                            )
+                        else:
+                            last_model24_waiting = self._demo_robot_view_model(
+                                row=model_row,
+                                status="ARMED_WAITING",
+                                message=(
+                                    "M24 aquecido e monitorando a janela deslizante "
+                                    "XAUUSD/M5."
+                                ),
+                                result_status=model_plan.status,
+                                result_message=model_plan.reason,
+                                entry_price=model_plan.entry_price,
+                                stop=model_plan.stop,
+                                target=model_plan.target,
+                                provider="MT5_DEMO",
+                                mt5_order_send_enabled=True,
+                                rejection_tree=self._demo_robot_rejection_tree(
+                                    model_row,
+                                    model_plan,
+                                    enabled=self.mt5_demo_robot_service.enabled,
+                                    mt5_order_send_enabled=True,
+                                    result_status=model_plan.status,
+                                    result_message=model_plan.reason,
+                                ),
+                            )
                         continue
                     source_model = dynamic_exit_source_model(operational_model)
                     if source_model is None:
@@ -7022,21 +7068,6 @@ class DashboardService:
                             model_row,
                             model_plan,
                             source_operational_model=operational_model,
-                        )
-                        if not (
-                            str(getattr(model_row, "decision", "") or "").upper()
-                            in {"BUY", "SELL"}
-                            and model_plan.status == "PLANO_VALIDO"
-                        ):
-                            continue
-                        model_candidates.append((basket_model, model_row, model_plan))
-                    elif route == "M24":
-                        basket_model = model24_variant_id(operational_model)
-                        model_row, model_plan = self._mt5_model24_variant_from_source(
-                            model_row,
-                            model_plan,
-                            source_operational_model=operational_model,
-                            source_ready=source_ready,
                         )
                         if not (
                             str(getattr(model_row, "decision", "") or "").upper()
@@ -7151,7 +7182,11 @@ class DashboardService:
                         return basket25_block
                 time_context = self.forex_time_layer.classify(
                     model_row.pair,
-                    str(getattr(source_row, "last_candle_time", "")),
+                    (
+                        signal_candle_time
+                        if candidate_is_m24
+                        else str(getattr(source_row, "last_candle_time", ""))
+                    ),
                     server_timestamp=self._mt5_server_timestamp(model_row.pair),
                     allow_static_rollover=False,
                 )
@@ -7286,15 +7321,12 @@ class DashboardService:
                         result_message=result.message,
                     ),
                 )
+                if candidate_is_m24:
+                    last_model24_waiting = last_waiting
             if last_executed is not None:
                 continue
 
-        object.__setattr__(
-            self,
-            "last_demo_robot_status",
-            last_executed
-            or last_waiting
-            or DashboardDemoRobotViewModel(
+        default_waiting = DashboardDemoRobotViewModel(
                 status="ARMED_WAITING",
                 message="Robo demo armado e sem gatilho valido no momento.",
                 selected_pair=pair,
@@ -7306,9 +7338,34 @@ class DashboardService:
                 provider="MT5_DEMO",
                 mt5_order_send_enabled=True,
                 audit_log=self._demo_robot_audit_rows(),
+            )
+        object.__setattr__(
+            self,
+            "last_demo_robot_status",
+            self._preferred_demo_cycle_status(
+                last_executed=last_executed,
+                last_model24_waiting=last_model24_waiting,
+                last_waiting=last_waiting,
+                default_waiting=default_waiting,
             ),
         )
         return self.last_demo_robot_status
+
+    @staticmethod
+    def _preferred_demo_cycle_status(
+        *,
+        last_executed: DashboardDemoRobotViewModel | None,
+        last_model24_waiting: DashboardDemoRobotViewModel | None,
+        last_waiting: DashboardDemoRobotViewModel | None,
+        default_waiting: DashboardDemoRobotViewModel,
+    ) -> DashboardDemoRobotViewModel:
+        """Preserva o diagnostico M24 em vez do ultimo WAIT generico do lote."""
+        return (
+            last_executed
+            or last_model24_waiting
+            or last_waiting
+            or default_waiting
+        )
 
     @staticmethod
     def _mt5_requires_valid_base_research_plan(
@@ -7937,46 +7994,14 @@ class DashboardService:
         source_operational_model: str,
         source_ready: bool,
     ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
-        """Materializa M24 com entrada inicial a mercado e reentrada pendente."""
-        source = str(source_operational_model or "").upper()
-        source_number = operational_model_number(source)
-        source_label = f"M{source_number}" if source_number is not None else "N/D"
-        if str(row.pair or "").upper() != MODEL_8_SYMBOL:
-            status = "M24_ESCOPO_SOMENTE_XAUUSD"
-            reason = f"M24/{source_label} opera exclusivamente {MODEL_8_SYMBOL}/M5."
-            parameters = {
-                **dict(plan.stop_management_parameters or {}),
-                "source_operational_model": source,
-                "m24_scope_symbol": MODEL_8_SYMBOL,
-                "full_exit_usd": MODEL_24_FULL_EXIT_USD,
-            }
-            return (
-                replace(
-                    row,
-                    decision="WAIT",
-                    theoretical_entry_direction="WAIT",
-                    theoretical_entry_status=status,
-                    theoretical_entry_price=None,
-                    theoretical_entry_reason=reason,
-                    active_model=f"M24 <- {source_label}",
-                    reason=reason,
-                    research_plan_status=status,
-                    research_plan_reason=reason,
-                    lab_parameters=parameters,
-                ),
-                replace(
-                    plan,
-                    direction="WAIT",
-                    entry_price=None,
-                    stop=None,
-                    target=None,
-                    status=status,
-                    reason=reason,
-                    invalid_reason=status,
-                    invalid_fields=("symbol",),
-                    stop_management_parameters=parameters,
-                ),
-            )
+        """Materializa o M24 autonomo com uma unica leitura XAUUSD/M5."""
+        del source_ready
+        source = MT5_OPERATIONAL_MODEL_24
+        source_label = MODEL_24_RUNTIME_SOURCE
+        # O M24 nao herda o mercado da linha que abriu o ciclo. A linha e apenas
+        # um envelope de transporte; o contrato operacional e sempre XAUUSD/M5.
+        row = replace(row, pair=MODEL_8_SYMBOL, timeframe=MODEL_8_TIMEFRAME)
+        plan = replace(plan, symbol=MODEL_8_SYMBOL, timeframe=MODEL_8_TIMEFRAME)
         candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
         rows = list(candles.get((MODEL_8_SYMBOL, MODEL_8_TIMEFRAME), []) or [])[
             -OPERATIONAL_INDICATOR_RAW_CANDLES:
@@ -8004,6 +8029,8 @@ class DashboardService:
 
         source_parameters = {
             **dict(plan.stop_management_parameters or {}),
+            "m24_setup_contract_version": MODEL_24_SETUP_CONTRACT_VERSION,
+            "m24_setup_contract_fingerprint": MODEL_24_SETUP_CONTRACT_FINGERPRINT,
             "m24_atr14": entry_decision.atr14,
             "m24_distance_atr": entry_decision.distance_atr,
             "m24_distance_atr_min": MODEL_24_DISTANCE_ATR_MIN,
@@ -8048,7 +8075,7 @@ class DashboardService:
                     theoretical_entry_status=wait_status,
                     theoretical_entry_price=None,
                     theoretical_entry_reason=wait_reason,
-                    active_model=f"M24 <- {source_label}",
+                    active_model="M24",
                     reason=wait_reason,
                     lab_alpha_id=MODEL_24_ALPHA_ID,
                     lab_alpha_version=MODEL_24_ALPHA_VERSION,
@@ -8091,8 +8118,8 @@ class DashboardService:
         if is_reentry and not structural_target_valid:
             wait_status = "M24_REENTRY_AGUARDA_ALVO_ESTRUTURAL_VALIDO"
             wait_reason = (
-                f"M24/{source_label}: topo/fundo anterior a correcao ausente ou "
-                "fora do lado lucrativo da reentrada."
+                f"M24/{source_label}: microtopo/microfundo anterior ausente ou "
+                "fora do lado lucrativo da reentrada; TP e obrigatorio."
             )
             wait_parameters = {
                 **source_parameters,
@@ -8110,7 +8137,7 @@ class DashboardService:
                     theoretical_entry_status=wait_status,
                     theoretical_entry_price=None,
                     theoretical_entry_reason=wait_reason,
-                    active_model=f"M24 <- {source_label} | {entry_role}",
+                    active_model=f"M24 | {entry_role}",
                     reason=wait_reason,
                     lab_parameters=wait_parameters,
                     research_plan_status=wait_status,
@@ -8162,7 +8189,7 @@ class DashboardService:
                         theoretical_entry_status=reentry_gate.status,
                         theoretical_entry_price=None,
                         theoretical_entry_reason=wait_reason,
-                        active_model=f"M24 <- {source_label} | {entry_role}",
+                        active_model=f"M24 | {entry_role}",
                         reason=wait_reason,
                         lab_alpha_id=MODEL_24_ALPHA_ID,
                         lab_alpha_version=MODEL_24_ALPHA_VERSION,
@@ -8189,10 +8216,10 @@ class DashboardService:
             **source_parameters,
             "source_operational_model": source,
             "source_model_label": source_label,
-            "source_stop_management": plan.stop_management,
-            "source_beta_id": plan.beta_id,
-            "source_beta_version": plan.beta_version,
-            "source_beta_mode": plan.beta_mode,
+            "source_stop_management": MODEL_24_EXIT_POLICY,
+            "source_beta_id": MODEL_24_BETA_ID,
+            "source_beta_version": MODEL_24_BETA_VERSION,
+            "source_beta_mode": "SOURCE_EXIT_PLUS_BASKET_1000",
             "active_entry_order_type": active_order_type,
             "m24_entry_role": entry_role,
             "m24_initial_volume": MODEL_24_INITIAL_VOLUME,
@@ -8204,7 +8231,23 @@ class DashboardService:
             ),
             "m24_reentry_position": is_reentry,
             "m24_micro_pivot_stop_enabled": is_reentry,
-            "m24_micro_pivot_maximum_age": 5,
+            "m24_initial_micro_pivot_trailing_enabled": False,
+            "m24_initial_sma20_trailing_enabled": not is_reentry,
+            "m24_initial_stop_source": (
+                MODEL_24_SETUP.initial_stop_source
+                if not is_reentry
+                else MODEL_24_SETUP.reentry_stop_source
+            ),
+            "m24_stop_source": (
+                MODEL_24_SETUP.initial_stop_source
+                if not is_reentry
+                else MODEL_24_SETUP.reentry_stop_source
+            ),
+            "m24_initial_trailing_source": MODEL_24_SETUP.initial_trailing_source,
+            "m24_reentry_target_source": MODEL_24_SETUP.reentry_target_source,
+            "m24_micro_pivot_maximum_age": (
+                MODEL_24_SETUP.reentry_micro_pivot_maximum_age
+            ),
             "m24_micro_pivot_time": (
                 entry_decision.micro_swing_time
             ),
@@ -8247,11 +8290,10 @@ class DashboardService:
             invalid_reason="",
             invalid_fields=(),
             stop_reason=(
-                "SL no micro-pivo 1+1 recente."
+                "SL no extremo do candle M5 que cruzou a SMA20, com margem de 1 pip."
                 if entry_role == "INITIAL"
                 else (
-                    "SL da reentrada no micro-pivo 1+1 confirmado; novos micro "
-                    "pivos so movem o stop a favor."
+                    "SL da reentrada um pip alem do micro-pivo M5 confirmado 1+1."
                 )
             ),
             target_reason=(
@@ -8289,7 +8331,7 @@ class DashboardService:
             theoretical_entry_candle=candle_time,
             theoretical_entry_price=entry,
             theoretical_entry_reason=reason,
-            active_model=f"M24 <- {source_label} | {entry_role}",
+            active_model=f"M24 | {entry_role}",
             reason=reason,
             lab_alpha_id=MODEL_24_ALPHA_ID,
             lab_alpha_version=MODEL_24_ALPHA_VERSION,
@@ -8335,7 +8377,7 @@ class DashboardService:
         candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
         rows = list(candles.get((pair, MODEL_25_TIMEFRAME), []) or [
         ])[-OPERATIONAL_INDICATOR_RAW_CANDLES:]
-        initial = evaluate_model25_rsi50_market_entry(rows)
+        initial = evaluate_model25_rsi50_market_entry(rows, symbol=pair)
         reentry = evaluate_model25_pending_reentry(rows, symbol=pair)
         crossing_side = (
             initial.direction

@@ -1,5 +1,14 @@
 # TraderIA Novo - Fluxo Operacional E Relacoes De Ponta A Ponta
 
+`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+
+## Rota autonoma M24
+
+O M24 e calculado uma unica vez por ciclo sobre o cache `XAUUSD/M5`. Seu
+contrato executavel fica em `application/model24_setup_contract.py`; o plano,
+a interface e o estado persistido carregam a mesma versao/fingerprint. IDs de
+fontes antigas sao somente compatibilidade historica e nao multiplicam o setup.
+
 ## Rota Combinavel M23
 
 Quando M23 esta selecionado, os modelos marcados continuam calculando seus sinais

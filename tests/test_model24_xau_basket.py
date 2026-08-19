@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import math
+import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
+from application.model24_setup_contract import (
+    MODEL_24_SETUP_CONTRACT_FINGERPRINT,
+    MODEL_24_SETUP_CONTRACT_VERSION,
+)
 from application.model24_xau_basket import (
     MODEL_24_ID,
     Model24BasketManager,
@@ -18,10 +24,17 @@ from application.model24_xau_basket import (
     mark_model24_market_entry_accepted,
     model24_market_entry_role,
     model24_micro_pivot_stop,
+    model24_sma20_stop_after_two_closes,
     model24_order_comment,
     model24_variant_id,
+    _load_runtime_state,
     _model24_distance_atr,
     _model24_reentry_structural_target,
+    _time,
+)
+from application.model25_multi_asset_rsi50_basket import (
+    evaluate_model25_rsi50_market_entry,
+    model25_symbol_pip_size,
 )
 from application.dashboard_service import (
     DashboardService,
@@ -32,6 +45,7 @@ from application.dashboard_service import (
     MT5_OPERATIONAL_MODEL_WITH_24,
 )
 from application.dashboard_view_model import (
+    DashboardDemoRobotViewModel,
     DashboardMT5ForexSignalRowViewModel,
 )
 from research.mt5_research_trade_plan import MT5ResearchTradePlan
@@ -41,6 +55,104 @@ from domain.operational_model_policy import (
     operational_model_number,
 )
 from domain.candle import Candle
+
+
+class _M24MT5RecordWithMemoryViewData:
+    data = memoryview(b"mt5")
+
+    def __getitem__(self, field: str) -> object:
+        if field == "time":
+            return 1_776_211_200
+        raise KeyError(field)
+
+
+def test_m24_time_prefers_stable_mt5_field_over_memoryview_data() -> None:
+    assert _time(_M24MT5RecordWithMemoryViewData()) == "2026-04-15T00:00:00+00:00"
+
+
+def test_runtime_load_sanitizes_legacy_memory_addresses(tmp_path: Path) -> None:
+    state_path = tmp_path / "model24_runtime_state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "last_initial_candle": "<memory at 0xAAA>",
+                "sources": {
+                    "M24_PROPRIO": {
+                        "trend_side": "BUY",
+                        "last_entry_candle": "<memory at 0xBBB>",
+                        "last_extreme_exit_status": (
+                            "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY"
+                        ),
+                        "last_extreme_exit_candle": "<memory at 0xCCC>",
+                        "last_extreme_exit_event_key": "BUY|EXIT|<memory at 0xCCC>",
+                        "blocked_reentry_opportunity_key": (
+                            "REENTRY|BUY|<memory at 0xDDD>"
+                        ),
+                        "skip_first_reentry_after_extreme": True,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with patch(
+        "application.model24_xau_basket.MODEL_24_RUNTIME_STATE_PATH",
+        state_path,
+    ):
+        payload = _load_runtime_state()
+
+    state = payload["sources"]["M24_PROPRIO"]
+    assert payload["last_initial_candle"] == "N/D"
+    assert state["last_entry_candle"] == "N/D"
+    assert state["last_extreme_exit_candle"] == "N/D"
+    assert state["last_extreme_exit_event_key"].endswith("|N/D")
+    assert state["blocked_reentry_opportunity_key"] == ""
+    assert state["skip_first_reentry_after_extreme"] is True
+
+
+def test_sma20_stop_is_released_after_two_buy_closes_above_average() -> None:
+    rows = [
+        {"time": float(index), "close": float(100 + index)}
+        for index in range(21)
+    ]
+    rows.append({"time": 21.0, "close": 121.0})
+
+    stop, candle_time = model24_sma20_stop_after_two_closes(rows, "BUY")
+
+    assert stop == pytest.approx(110.5)
+    assert candle_time != "N/D"
+
+
+def test_sma20_stop_is_released_after_two_sell_closes_below_average() -> None:
+    rows = [
+        {"time": float(index), "close": float(120 - index)}
+        for index in range(21)
+    ]
+    rows.append({"time": 21.0, "close": 99.0})
+
+    stop, candle_time = model24_sma20_stop_after_two_closes(rows, "SELL")
+
+    assert stop == pytest.approx(109.5)
+    assert candle_time != "N/D"
+
+
+def test_sma20_stop_waits_until_both_closed_candles_are_favorable() -> None:
+    rows = [
+        {"time": float(index), "close": 100.0}
+        for index in range(19)
+    ]
+    rows.extend(
+        [
+            {"time": 19.0, "close": 99.0},
+            {"time": 20.0, "close": 101.0},
+            {"time": 21.0, "close": 101.0},
+        ]
+    )
+
+    stop, _candle_time = model24_sma20_stop_after_two_closes(rows, "BUY")
+
+    assert stop is None
 
 
 def _buy_cross_candles(*, micro_pivot: bool = True) -> list[dict[str, float]]:
@@ -160,7 +272,7 @@ def test_m24_buy_can_pass_with_sma20_below_sma50_when_distance_is_valid() -> Non
     assert decision.distance_atr == 0.50
 
 
-def test_initial_entry_latches_price_and_rsi_crosses_from_different_m5() -> None:
+def test_initial_entry_uses_price_cross_current_rsi_and_cross_candle_stop() -> None:
     candles = _separate_buy_cross_candles()
     decision = evaluate_model24_rsi50_market_entry(
         candles,
@@ -172,11 +284,54 @@ def test_initial_entry_latches_price_and_rsi_crosses_from_different_m5() -> None
     assert decision.rsi14 is not None and decision.rsi14 > 50.0
     assert decision.entry_price is not None and decision.sma20 is not None
     assert decision.entry_price > decision.sma20
-    assert decision.initial_stop == candles[-3]["low"]
-    assert decision.price_cross_time != decision.rsi_cross_time
+    assert decision.micro_swing_price is not None
+    assert decision.initial_stop == decision.micro_swing_price - 0.01
     assert decision.price_cross_time != "N/D"
-    assert decision.rsi_cross_time != "N/D"
     assert "INITIAL" in decision.status
+
+
+def test_m24_initial_does_not_require_a_new_rsi_cross_or_micro_pivot() -> None:
+    candles = _buy_cross_candles(micro_pivot=False)
+
+    with patch(
+        "application.model24_xau_basket._wilder_rsi",
+        return_value=60.0,
+    ):
+        decision = evaluate_model24_rsi50_market_entry(
+            candles,
+            entry_role="INITIAL",
+        )
+
+    assert decision.ready
+    assert decision.direction == "BUY"
+    assert decision.rsi_cross_time == "N/D"
+    assert decision.micro_swing_time == decision.price_cross_time
+
+
+def test_m25_initial_forex_stop_uses_one_symbol_pip_beyond_extreme() -> None:
+    candles = _separate_buy_cross_candles()
+
+    decision = evaluate_model25_rsi50_market_entry(candles, symbol="EURUSD")
+
+    micro_bottom, _ = model24_micro_pivot_stop(candles, "BUY")
+    assert micro_bottom is not None
+    assert decision.ready
+    assert decision.initial_stop == pytest.approx(
+        micro_bottom - 0.0001
+    )
+    assert model25_symbol_pip_size("EURUSD") == 0.0001
+
+
+def test_m25_initial_jpy_and_xau_stops_use_one_cent_pip() -> None:
+    candles = _separate_buy_cross_candles()
+
+    jpy = evaluate_model25_rsi50_market_entry(candles, symbol="USDJPY")
+    xau = evaluate_model25_rsi50_market_entry(candles, symbol="XAUUSD")
+
+    assert jpy.ready and xau.ready
+    assert jpy.initial_stop == xau.initial_stop
+    assert model25_symbol_pip_size("USDJPY") == 0.01
+    assert model25_symbol_pip_size("XAUUSD") == 0.01
 
 
 def test_initial_entry_accepts_canonical_candle_with_portuguese_fields() -> None:
@@ -200,14 +355,14 @@ def test_initial_entry_accepts_canonical_candle_with_portuguese_fields() -> None
     assert decision.closed_candle_time != "N/D"
 
 
-def test_initial_entry_does_not_fallback_without_confirmed_micro_pivot() -> None:
+def test_initial_entry_uses_cross_candle_even_without_confirmed_micro_pivot() -> None:
     decision = evaluate_model24_rsi50_market_entry(
         _buy_cross_candles(micro_pivot=False),
         entry_role="INITIAL",
     )
 
-    assert not decision.ready
-    assert decision.status == "M24_INITIAL_AGUARDA_MICRO_PIVO_CONFIRMADO"
+    assert decision.ready
+    assert decision.status == "M24_INITIAL_BUY_PRECO_SMA20_RSI50_MERCADO_PRONTA"
 
 
 def test_pending_reentry_uses_last_closed_candle_for_trigger_and_stop() -> None:
@@ -226,11 +381,32 @@ def test_pending_reentry_uses_last_closed_candle_for_trigger_and_stop() -> None:
     assert decision.direction == "BUY"
     assert decision.rsi14 == 60.0
     assert decision.entry_price == candles[-2]["high"]
-    assert decision.initial_stop == candles[-2]["low"] - 0.01
+    assert candidate is not None
+    assert decision.initial_stop == candidate - 0.01
     assert decision.structural_target_price == target_candle["close"]
     assert decision.structural_target_price > decision.entry_price
     assert candidate == candles[-3]["low"]
     assert candle_time != "N/D"
+
+
+def test_pending_reentry_waits_without_structural_target() -> None:
+    candles = _buy_cross_candles()
+    candles[-2]["open"] = candles[-2]["close"] + 0.05
+
+    with patch(
+        "application.model24_xau_basket._wilder_rsi",
+        side_effect=(60.0, 59.0),
+    ), patch(
+        "application.model24_xau_basket._model24_reentry_structural_target",
+        return_value=(None, "N/D"),
+    ):
+        decision = evaluate_model24_pending_reentry(candles)
+
+    assert not decision.ready
+    assert decision.direction == "BUY"
+    assert decision.entry_price == candles[-2]["high"]
+    assert decision.structural_target_price is None
+    assert decision.status == "M24_REENTRY_AGUARDA_ALVO_ESTRUTURAL_VALIDO"
 
 
 def test_pending_buy_reentry_requires_rsi_to_remain_above_50() -> None:
@@ -245,7 +421,7 @@ def test_pending_buy_reentry_requires_rsi_to_remain_above_50() -> None:
     assert decision.status == "M24_REENTRY_AGUARDA_PRECO_SMA20_E_FAIXA_RSI"
 
 
-def test_rsi50_reentry_does_not_require_old_micro_pivot_for_initial_stop() -> None:
+def test_rsi50_reentry_waits_without_confirmed_micro_pivot_for_stop() -> None:
     candles = _buy_cross_candles(micro_pivot=False)
     candles[-2]["open"] = candles[-2]["close"] + 0.05
     _set_valid_buy_structural_close_target(candles)
@@ -254,8 +430,8 @@ def test_rsi50_reentry_does_not_require_old_micro_pivot_for_initial_stop() -> No
         entry_role="REENTRY",
     )
 
-    assert decision.ready
-    assert decision.initial_stop == candles[-2]["low"] - 0.01
+    assert not decision.ready
+    assert decision.status == "M24_REENTRY_AGUARDA_MICRO_PIVO_1X1"
 
 
 def test_micro_pivot_stop_finds_confirmed_micro_top_for_sell() -> None:
@@ -292,12 +468,12 @@ def test_pending_sell_reentry_uses_last_closed_low_and_high_for_stop() -> None:
     assert decision.ready
     assert decision.direction == "SELL"
     assert decision.entry_price == 98.8
-    assert decision.initial_stop == candles[-2]["high"] + 0.01
+    assert decision.initial_stop == candles[-3]["high"] + 0.01
     assert decision.structural_target_price == 98.2
     assert "SELL_STOP" in decision.status
 
 
-def test_reentry_target_uses_close_of_confirmed_main_bottom_not_its_low() -> None:
+def test_reentry_target_uses_close_of_confirmed_micro_bottom_not_its_low() -> None:
     rows = [
         {"time": index, "high": high, "low": low, "close": close}
         for index, (high, low, close) in enumerate(
@@ -325,18 +501,50 @@ def test_reentry_target_uses_close_of_confirmed_main_bottom_not_its_low() -> Non
     assert target_time != "N/D"
 
 
-def test_reentry_target_reaches_main_bottom_beyond_five_recent_candles() -> None:
+def test_reentry_target_prefers_latest_profitable_micro_bottom() -> None:
     rows = [
         {"time": index, "high": 120.0 + index, "low": 110.0 + index, "close": 115.0 + index}
         for index in range(12)
     ]
     rows[2].update({"low": 90.0, "close": 95.0})
-    for index in range(3, 12):
-        rows[index].update({"low": 100.0 + index, "close": 102.0 + index})
+    rows[7].update({"low": 97.0, "close": 99.0})
+    rows[6].update({"low": 101.0, "close": 103.0})
+    rows[8].update({"low": 100.0, "close": 102.0})
 
     target, _ = _model24_reentry_structural_target(rows, "SELL", 110.0)
 
-    assert target == 95.0
+    assert target == 99.0
+
+
+def test_reentry_buy_target_uses_close_of_latest_micro_top() -> None:
+    rows = [
+        {"time": index, "high": high, "low": 90.0, "close": close}
+        for index, (high, close) in enumerate(
+            ((100.0, 98.0), (105.0, 103.0), (102.0, 101.0), (104.0, 102.0))
+        )
+    ]
+
+    target, target_time = _model24_reentry_structural_target(rows, "BUY", 101.0)
+
+    assert target == 103.0
+    assert target != 105.0
+    assert target_time != "N/D"
+
+
+def test_reentry_target_does_not_skip_invalid_latest_micro_top() -> None:
+    rows = [
+        {"time": "1", "high": 100.0, "low": 95.0, "close": 98.0},
+        {"time": "2", "high": 110.0, "low": 97.0, "close": 108.0},
+        {"time": "3", "high": 105.0, "low": 96.0, "close": 103.0},
+        {"time": "4", "high": 107.0, "low": 98.0, "close": 104.0},
+        {"time": "5", "high": 109.0, "low": 99.0, "close": 105.0},
+        {"time": "6", "high": 106.0, "low": 98.0, "close": 103.0},
+    ]
+
+    target, target_time = _model24_reentry_structural_target(rows, "BUY", 106.0)
+
+    assert target is None
+    assert target_time == "N/D"
 
 
 def test_pending_reentry_waits_until_buy_correction_exists() -> None:
@@ -567,20 +775,22 @@ def test_basket_state_write_retries_short_windows_lock(tmp_path: Path) -> None:
     assert state_path.exists()
 
 
-def test_identity_and_comment_are_source_specific() -> None:
+def test_identity_and_comment_are_standalone_for_new_m24_orders() -> None:
     variant = model24_variant_id("MODELO_20_XAU_M5_SMA_RSI_MA_DISTANCE_ATR_REENTRY_TP75")
-    assert variant == f"{MODEL_24_ID}_SOURCE_M20"
-    assert model24_order_comment(variant) == "TraderIA M24 S20"
+    assert variant == MODEL_24_ID
+    assert model24_order_comment(variant) == "TraderIA M24"
+    assert model24_order_comment(f"{MODEL_24_ID}_SOURCE_M20") == "TraderIA M24 S20"
     assert operational_model_number(MODEL_24_ID) == 24
     assert is_active_operational_model(variant)
     assert not is_retired_operational_model(variant)
 
 
-def test_service_selects_only_the_seven_m24_sources() -> None:
+def test_service_selects_only_the_standalone_m24_route() -> None:
     service = object.__new__(DashboardService)
     service.set_mt5_operational_model(MT5_OPERATIONAL_MODEL_24)
 
     assert service._mt5_operational_models_to_evaluate() == MT5_MODEL_24_SOURCE_MODEL_IDS
+    assert MT5_MODEL_24_SOURCE_MODEL_IDS == (MODEL_24_ID,)
     assert service._mt5_model24_routing_enabled()
     assert not service._mt5_direct_routing_enabled()
 
@@ -591,6 +801,29 @@ def test_service_selects_only_the_seven_m24_sources() -> None:
     service.set_mt5_operational_model(MT5_OPERATIONAL_MODEL_WITH_24)
     assert service.get_mt5_operational_model() == MT5_OPERATIONAL_MODEL_WITH_24
     assert service._mt5_direct_routing_enabled()
+
+
+def test_m24_waiting_diagnostic_has_priority_over_generic_batch_wait() -> None:
+    m24_waiting = DashboardDemoRobotViewModel(
+        status="ARMED_WAITING",
+        model="M24",
+        result_status="M24_DISTANCE_ATR_BLOQUEADO",
+    )
+    generic_waiting = DashboardDemoRobotViewModel(
+        status="AGUARDANDO_PLANO",
+        model="TREND_PULLBACK",
+        selected_pair="BTCUSD",
+    )
+
+    selected = DashboardService._preferred_demo_cycle_status(
+        last_executed=None,
+        last_model24_waiting=m24_waiting,
+        last_waiting=generic_waiting,
+        default_waiting=DashboardDemoRobotViewModel(),
+    )
+
+    assert selected is m24_waiting
+    assert selected.result_status == "M24_DISTANCE_ATR_BLOQUEADO"
 
 
 def test_model24_can_run_with_model25_without_expanding_direct_selection() -> None:
@@ -678,6 +911,23 @@ def test_service_materializes_initial_m24_without_individual_tp(
     assert plan.stop_management_parameters["m24_entry_role"] == "INITIAL"
     assert not plan.stop_management_parameters["m24_reentry_position"]
     assert not plan.stop_management_parameters["m24_individual_target_enabled"]
+    assert not plan.stop_management_parameters["m24_micro_pivot_stop_enabled"]
+    assert not plan.stop_management_parameters[
+        "m24_initial_micro_pivot_trailing_enabled"
+    ]
+    assert plan.stop_management_parameters["m24_initial_sma20_trailing_enabled"]
+    assert (
+        plan.stop_management_parameters["m24_setup_contract_version"]
+        == MODEL_24_SETUP_CONTRACT_VERSION
+    )
+    assert (
+        plan.stop_management_parameters["m24_setup_contract_fingerprint"]
+        == MODEL_24_SETUP_CONTRACT_FINGERPRINT
+    )
+    assert (
+        plan.stop_management_parameters["m24_initial_stop_source"]
+        == "SMA20_PRICE_CROSS_CANDLE_EXTREME_PLUS_1_PIP"
+    )
 
 
 def test_m24_source_cannot_add_adx_or_sma_slope_filter(tmp_path: Path) -> None:
@@ -743,22 +993,37 @@ def test_m25_uses_only_distance_atr_filter(tmp_path: Path) -> None:
     assert "m25_sma50_slope" not in parameters
 
 
-def test_service_blocks_m24_plan_on_non_xau_symbol() -> None:
+def test_service_normalizes_non_xau_transport_row_to_standalone_xau_route(
+    tmp_path: Path,
+) -> None:
     service = object.__new__(DashboardService)
     row = _source_row()
     object.__setattr__(row, "pair", "EURUSD")
-
-    transformed_row, plan = service._mt5_model24_variant_from_source(
-        row,
-        _source_plan(symbol="EURUSD"),
-        source_operational_model=MT5_OPERATIONAL_MODEL_8,
-        source_ready=False,
+    object.__setattr__(
+        service,
+        "mt5_market_data_service",
+        SimpleNamespace(
+            latest_forex_candles={("XAUUSD", "M5"): _buy_cross_candles()}
+        ),
     )
 
-    assert transformed_row.decision == "WAIT"
-    assert transformed_row.pair == "EURUSD"
-    assert plan.status == "M24_ESCOPO_SOMENTE_XAUUSD"
-    assert plan.entry_price is None
+    with patch(
+        "application.model24_xau_basket.MODEL_24_RUNTIME_STATE_PATH",
+        tmp_path / "runtime.json",
+    ):
+        transformed_row, plan = service._mt5_model24_variant_from_source(
+            row,
+            _source_plan(symbol="EURUSD"),
+            source_operational_model=MT5_OPERATIONAL_MODEL_8,
+            source_ready=False,
+        )
+
+    assert transformed_row.pair == "XAUUSD"
+    assert transformed_row.timeframe == "M5"
+    assert transformed_row.decision == "BUY"
+    assert plan.symbol == "XAUUSD"
+    assert plan.timeframe == "M5"
+    assert plan.status == "PLANO_VALIDO"
 
 
 def test_service_builds_pending_reentry_from_price_above_sma20(tmp_path: Path) -> None:
@@ -800,7 +1065,9 @@ def test_service_builds_pending_reentry_from_price_above_sma20(tmp_path: Path) -
 
     assert plan.target is not None and plan.target > plan.entry_price
     assert plan.entry_price == candles[-2]["high"]
-    assert plan.stop == candles[-2]["low"] - 0.01
+    micro_bottom, _ = model24_micro_pivot_stop(candles, "BUY")
+    assert micro_bottom is not None
+    assert plan.stop == micro_bottom - 0.01
     assert plan.stop_management_parameters["active_entry_order_type"] == "BUY_STOP"
     assert plan.stop_management_parameters["m24_entry_role"] == "REENTRY"
     assert plan.stop_management_parameters["m24_reentry_position"]
@@ -809,7 +1076,43 @@ def test_service_builds_pending_reentry_from_price_above_sma20(tmp_path: Path) -
     assert plan.stop_management_parameters["m24_structural_target_price"] == plan.target
 
 
-def test_service_allows_pending_reentry_without_old_micro_pivot(tmp_path: Path) -> None:
+def test_service_blocks_m24_reentry_without_structural_target(
+    tmp_path: Path,
+) -> None:
+    candles = _buy_cross_candles()
+    candles[-2]["open"] = candles[-2]["close"] + 0.05
+    service = object.__new__(DashboardService)
+    object.__setattr__(
+        service,
+        "mt5_market_data_service",
+        SimpleNamespace(latest_forex_candles={("XAUUSD", "M5"): candles}),
+    )
+
+    with patch(
+        "application.model24_xau_basket.MODEL_24_RUNTIME_STATE_PATH",
+        tmp_path / "runtime.json",
+    ), patch(
+        "application.model24_xau_basket._model24_reentry_structural_target",
+        return_value=(None, "N/D"),
+    ):
+        mark_model24_market_entry_accepted(
+            MT5_OPERATIONAL_MODEL_8,
+            "BUY",
+            "entrada-inicial",
+        )
+        _row, plan = service._mt5_model24_variant_from_source(
+            _source_row(),
+            _source_plan(direction="BUY"),
+            source_operational_model=MT5_OPERATIONAL_MODEL_8,
+            source_ready=False,
+        )
+
+    assert plan.status == "M24_REENTRY_AGUARDA_ALVO_ESTRUTURAL_VALIDO"
+    assert plan.direction == "WAIT"
+    assert plan.target is None
+
+
+def test_service_waits_for_pending_reentry_without_micro_pivot(tmp_path: Path) -> None:
     candles = _buy_cross_candles(micro_pivot=False)
     candles[-2]["open"] = candles[-2]["close"] + 0.05
     _set_valid_buy_structural_close_target(candles)
@@ -844,11 +1147,8 @@ def test_service_allows_pending_reentry_without_old_micro_pivot(tmp_path: Path) 
             source_ready=False,
         )
 
-    assert plan.direction == "BUY"
-    assert plan.status == "PLANO_VALIDO"
-    assert plan.entry_price == candles[-2]["high"]
-    assert plan.stop == candles[-2]["low"] - 0.01
-    assert plan.target is not None
+    assert plan.direction == "WAIT"
+    assert plan.status == "M24_REENTRY_AGUARDA_MICRO_PIVO_1X1"
 
 
 def test_service_keeps_first_post_extreme_reentry_blocked_until_new_m5(

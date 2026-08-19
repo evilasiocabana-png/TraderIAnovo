@@ -80,9 +80,17 @@ def _m25_decision(decision: Model24EntryDecision) -> Model24EntryDecision:
 
 def evaluate_model25_rsi50_market_entry(
     candles: Iterable[object],
+    *,
+    symbol: object = "XAUUSD",
 ) -> Model24EntryDecision:
     return _m25_decision(
-        evaluate_model24_rsi50_market_entry(candles, entry_role="INITIAL")
+        evaluate_model24_rsi50_market_entry(
+            candles,
+            entry_role="INITIAL",
+            pip_size=model25_symbol_pip_size(symbol),
+            require_rsi_cross=True,
+            initial_stop_from_micro_pivot=True,
+        )
     )
 
 

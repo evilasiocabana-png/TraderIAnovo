@@ -448,6 +448,7 @@ def evaluate_model8_exit(
     extreme_armed: bool = False,
     reentry_position: bool = False,
     sma_inversion_exit_enabled: bool = True,
+    rsi50_inversion_exit_enabled: bool = False,
 ) -> Model8ExitDecision:
     """Avalia Full Exit por SMA20/50 e RSI, conforme o contrato da posicao."""
     rows = list(candles or ())[-MODEL_8_LOOKBACK_CANDLES :]
@@ -516,6 +517,31 @@ def evaluate_model8_exit(
             **common,
         )
 
+    if rsi50_inversion_exit_enabled:
+        buy_crossed_down = (
+            normalized_side == "BUY"
+            and previous_rsi14 >= MODEL_8_RSI_BUY_FILTER
+            and rsi14 < MODEL_8_RSI_BUY_FILTER
+        )
+        sell_crossed_up = (
+            normalized_side == "SELL"
+            and previous_rsi14 <= MODEL_8_RSI_SELL_FILTER
+            and rsi14 > MODEL_8_RSI_SELL_FILTER
+        )
+        if buy_crossed_down or sell_crossed_up:
+            direction = "PARA_BAIXO_BUY" if buy_crossed_down else "PARA_CIMA_SELL"
+            return Model8ExitDecision(
+                action="FULL_EXIT",
+                status=f"M24_EXIT_RSI50_CRUZOU_{direction}",
+                reason=(
+                    "Candle M5 confirmou o cruzamento inverso do RSI14 em 50; "
+                    "encerrar integralmente a posicao antes de permitir a "
+                    "entrada inicial oposta."
+                ),
+                extreme_armed=False,
+                **common,
+            )
+
     if (
         reentry_position
         and normalized_side == "BUY"
@@ -567,8 +593,13 @@ def evaluate_model8_exit(
             action="HOLD_POSITION",
             status="M8_HOLD_BUY",
             reason=(
-                "Nao houve cruzamento confirmado do RSI14 de 70 para baixo; "
-                "a regra SMA20/SMA50 aplicavel nao determinou saida."
+                "Nao houve cruzamento confirmado do RSI14 de 70 para baixo"
+                + (
+                    " nem inversao de 50 contra o BUY"
+                    if rsi50_inversion_exit_enabled
+                    else ""
+                )
+                + "; a regra SMA20/SMA50 aplicavel nao determinou saida."
             ),
             extreme_armed=rsi14 >= MODEL_8_RSI_BUY_EXIT,
             **common,
@@ -593,8 +624,13 @@ def evaluate_model8_exit(
         action="HOLD_POSITION",
         status="M8_HOLD_SELL",
         reason=(
-            "Nao houve cruzamento confirmado do RSI14 de 30 para cima; "
-            "a regra SMA20/SMA50 aplicavel nao determinou saida."
+            "Nao houve cruzamento confirmado do RSI14 de 30 para cima"
+            + (
+                " nem inversao de 50 contra o SELL"
+                if rsi50_inversion_exit_enabled
+                else ""
+            )
+            + "; a regra SMA20/SMA50 aplicavel nao determinou saida."
         ),
         extreme_armed=rsi14 <= MODEL_8_RSI_SELL_EXIT,
         **common,
@@ -964,16 +1000,31 @@ def _candle_value(candle: object, field: str) -> float | None:
 
 
 def _candle_time(candle: object) -> str:
-    for name in ("data", "time", "datetime", "timestamp"):
+    # Registros numpy/MT5 expõem ``.data`` como memoryview. Ler atributos antes
+    # do campo indexado fazia esse endereço de memória virar a identidade do
+    # candle no estado persistido, quebrando idempotência e o bloqueio de
+    # reentrada após saída extrema.
+    for name in ("time", "datetime", "timestamp", "data"):
         if isinstance(candle, dict):
             value = candle.get(name)
         else:
-            value = getattr(candle, name, None)
-            if value is None:
-                try:
-                    value = candle[name]  # type: ignore[index]
-                except (KeyError, IndexError, TypeError, ValueError):
-                    value = None
-        if value not in (None, ""):
-            return str(value)
+            try:
+                value = candle[name]  # type: ignore[index]
+            except (KeyError, IndexError, TypeError, ValueError):
+                value = getattr(candle, name, None)
+        if value in (None, "") or isinstance(value, memoryview):
+            continue
+        if isinstance(value, datetime):
+            normalized = value
+            if normalized.tzinfo is None:
+                normalized = normalized.replace(tzinfo=timezone.utc)
+            return normalized.isoformat()
+        if isinstance(value, (int, float)):
+            try:
+                return datetime.fromtimestamp(
+                    float(value), tz=timezone.utc
+                ).isoformat()
+            except (OverflowError, OSError, ValueError):
+                continue
+        return str(value)
     return "N/D"

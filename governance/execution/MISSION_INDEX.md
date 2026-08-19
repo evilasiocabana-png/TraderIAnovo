@@ -50,6 +50,7 @@ Indice oficial das missoes executadas pelo fluxo `codex/inbox`.
 | MISSION_TIA-040_M24_SKIP_FIRST_POST_EXTREME_REENTRY | Ignorar primeira reentrada M24 apos Full Exit RSI 70/30 | completed | 2026-08-17 | 2026-08-17 | N/D | codex/multi-ea-trading-lab | 33c7d02 | Codex |
 | MISSION_TIA-041_M24_INITIAL_CROSSES_PENDING_REENTRY | Separar cruzamentos da entrada inicial e simplificar reentrada pendente M24 | completed | 2026-08-17 | 2026-08-17 | N/D | codex/multi-ea-trading-lab | 7350e4b, d665719, f91c01b, 1553f7e | Codex |
 | MISSION_TIA-042_M24_PRINCIPAL_NO_SMA_INVERSION_EXIT | Remover inversao SMA20/50 da saida principal M24 | completed | 2026-08-17 | 2026-08-17 | N/D | codex/multi-ea-trading-lab | 1bdfaf1 | Codex |
+| MISSION_TIA-043_M24_CANONICAL_SETUP_GUARD | Canonicalizar setup M24 e impedir drift de motor, tela, estado e docs | completed | 2026-08-19 | 2026-08-19 | N/D | codex/multi-ea-trading-lab | PENDING | Codex |
 
 ## Regras
 

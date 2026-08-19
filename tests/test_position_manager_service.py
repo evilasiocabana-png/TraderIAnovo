@@ -812,9 +812,123 @@ class PositionManagerServiceTest(unittest.TestCase):
         )
 
         self.assertEqual(result.status, "STOP_MOVED")
-        self.assertAlmostEqual(provider.modified_stop or 0.0, 100.5)
+        self.assertAlmostEqual(provider.modified_stop or 0.0, 100.49)
         self.assertIn("M24_MICRO_PIVOT_TRAILING", result.evidence)
         self.assertEqual(provider.modify_calls, 1)
+
+    def test_m24_initial_buy_trails_sma20_after_two_favorable_closes(self) -> None:
+        candles = [
+            {"time": 1.0, "open": 101.0, "high": 102.0, "low": 100.8, "close": 101.5},
+            {"time": 2.0, "open": 101.5, "high": 103.0, "low": 101.2, "close": 102.5},
+            {"time": 3.0, "open": 102.5, "high": 104.0, "low": 102.0, "close": 103.5},
+            {"time": 4.0, "open": 103.5, "high": 104.0, "low": 100.5, "close": 102.0},
+            {"time": 5.0, "open": 102.0, "high": 105.0, "low": 101.5, "close": 104.5},
+            {"time": 6.0, "open": 104.5, "high": 106.0, "low": 104.0, "close": 105.0},
+        ]
+        provider = _FakePositionProvider(
+            position=_position("XAUUSD", "BUY", 101.0, 99.0, 0.0),
+            price=105.0,
+            candles=candles,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        with patch.object(
+            position_manager_module,
+            "model24_sma20_stop_after_two_closes",
+            return_value=(103.25, "candle-2"),
+        ):
+            result = manager.manage_plan(
+                self._plan(
+                    "XAUUSD",
+                    "BUY",
+                    entry=101.0,
+                    stop=99.0,
+                    target=0.0,
+                    stop_management="M24_SOURCE_EXIT_PLUS_BASKET_1000",
+                    parameters={
+                        "m24_entry_role": "INITIAL",
+                        "m24_reentry_position": False,
+                    },
+                    operational_model="MODELO_24_XAU_RSI50_BASKET",
+                )
+            )
+
+        self.assertEqual(result.status, "STOP_MOVED")
+        self.assertAlmostEqual(provider.modified_stop or 0.0, 103.25)
+        self.assertIn("M24_INITIAL_SMA20_TRAILING", result.evidence)
+
+    def test_m24_initial_sell_trails_sma20_after_two_favorable_closes(self) -> None:
+        candles = [
+            {"time": 1.0, "open": 105.0, "high": 105.8, "low": 104.0, "close": 104.5},
+            {"time": 2.0, "open": 104.5, "high": 105.0, "low": 103.0, "close": 103.5},
+            {"time": 3.0, "open": 103.5, "high": 106.0, "low": 102.0, "close": 102.5},
+            {"time": 4.0, "open": 102.5, "high": 104.0, "low": 101.0, "close": 101.5},
+            {"time": 5.0, "open": 101.5, "high": 103.0, "low": 100.0, "close": 100.5},
+            {"time": 6.0, "open": 100.5, "high": 101.0, "low": 99.0, "close": 100.0},
+        ]
+        provider = _FakePositionProvider(
+            position=_position("XAUUSD", "SELL", 105.0, 108.0, 0.0),
+            price=100.0,
+            candles=candles,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        with patch.object(
+            position_manager_module,
+            "model24_sma20_stop_after_two_closes",
+            return_value=(102.75, "candle-2"),
+        ):
+            result = manager.manage_plan(
+                self._plan(
+                    "XAUUSD",
+                    "SELL",
+                    entry=105.0,
+                    stop=108.0,
+                    target=0.0,
+                    stop_management="M24_SOURCE_EXIT_PLUS_BASKET_1000",
+                    parameters={
+                        "m24_entry_role": "INITIAL",
+                        "m24_reentry_position": False,
+                    },
+                    operational_model="MODELO_24_XAU_RSI50_BASKET",
+                )
+            )
+
+        self.assertEqual(result.status, "STOP_MOVED")
+        self.assertAlmostEqual(provider.modified_stop or 0.0, 102.75)
+        self.assertIn("M24_INITIAL_SMA20_TRAILING", result.evidence)
+
+    def test_m24_initial_never_moves_buy_stop_backwards(self) -> None:
+        candles = [
+            {"time": 1.0, "open": 101.0, "high": 102.0, "low": 100.8, "close": 101.5},
+            {"time": 2.0, "open": 101.5, "high": 103.0, "low": 101.2, "close": 102.5},
+            {"time": 3.0, "open": 102.5, "high": 104.0, "low": 102.0, "close": 103.5},
+            {"time": 4.0, "open": 103.5, "high": 104.0, "low": 100.5, "close": 102.0},
+            {"time": 5.0, "open": 102.0, "high": 105.0, "low": 101.5, "close": 104.5},
+            {"time": 6.0, "open": 104.5, "high": 106.0, "low": 104.0, "close": 105.0},
+        ]
+        provider = _FakePositionProvider(
+            position=_position("XAUUSD", "BUY", 101.0, 101.0, 0.0),
+            price=105.0,
+            candles=candles,
+        )
+        manager = self._manager(provider, enabled=True)
+
+        result = manager.manage_plan(
+            self._plan(
+                "XAUUSD",
+                "BUY",
+                entry=101.0,
+                stop=101.0,
+                target=0.0,
+                stop_management="M24_SOURCE_EXIT_PLUS_BASKET_1000",
+                parameters={"m24_entry_role": "INITIAL"},
+                operational_model="MODELO_24_XAU_RSI50_BASKET",
+            )
+        )
+
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertEqual(provider.modify_calls, 0)
 
     def test_m24_reentry_never_loosens_stop_to_older_micro_pivot(self) -> None:
         candles = [
@@ -997,6 +1111,7 @@ class PositionManagerServiceTest(unittest.TestCase):
             "BUY",
             reentry_position=False,
             sma_inversion_exit_enabled=False,
+            rsi50_inversion_exit_enabled=True,
         )
         self.assertEqual(result.action, "HOLD_POSITION")
         self.assertEqual(provider.close_calls, 0)
@@ -1045,6 +1160,7 @@ class PositionManagerServiceTest(unittest.TestCase):
             "BUY",
             reentry_position=True,
             sma_inversion_exit_enabled=False,
+            rsi50_inversion_exit_enabled=True,
         )
         self.assertEqual(result.action, "HOLD_POSITION")
         self.assertEqual(provider.close_calls, 0)

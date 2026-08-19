@@ -1,5 +1,7 @@
 # Architecture
 
+`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+
 ## Modelo 23
 
 O M23 e o acumulador financeiro das entradas validas dos modelos selecionados e
@@ -533,20 +535,19 @@ ou fechar ordem, mover SL/TP, recalcular indicadores ou iniciar o Lab.
 
 ## Modelo 24
 
-O contrato completo do M24 esta em
+O contrato completo e vigente do M24 esta em
 `docs/architecture/OPERATIONAL_MODEL_24_XAU_RSI50_BASKET.md`. O modelo reutiliza
 o cache compartilhado XAUUSD/M5, mas possui identidade, estado, comentario MT5,
 resultado financeiro e auditoria independentes do M23. O provider envia `tp=0`
-somente para a entrada inicial M24; a reentrada leva o TP no fechamento da vela
-que formou o ultimo topo/fundo principal 2+2 confirmado. A cesta liquida de
-+US$1.000 continua como alvo coletivo. A entrada inicial memoriza separadamente
-o cruzamento do preco na SMA20 e o cruzamento do
-RSI14 em 50 e so entra a mercado se ambos continuarem validos na mesma direcao.
+somente para a entrada inicial M24; a reentrada exige TP no fechamento do
+microtopo/microfundo 1+1 lucrativo mais recente. A cesta liquida de +US$1.000
+continua como alvo coletivo. A entrada inicial exige cruzamento do preco na
+SMA20 e RSI14 atual do mesmo lado de 50, sem exigir novo cruzamento do RSI.
 A reentrada nao exige novo cruzamento: gera BUY_STOP/SELL_STOP na maxima/minima
 do ultimo M5 quando fechamento e RSI permanecem do lado permitido. O SL usa o
 micro pivo 1+1 confirmado mais recente, limitado aos ultimos cinco M5 fechados.
-As fontes M8, M10 e M18-M22 sao somente identidades de origem e auditoria: o
-M24 nao herda ADX, inclinacao da SMA50 nem filtros proprios dessas fontes. Seu
+M8, M10 e M18-M22 sao somente identidades historicas legadas: o M24 atual tem
+uma unica rota autonoma e nao herda ADX, inclinacao da SMA50 nem filtros. Seu
 unico filtro adicional e `abs(SMA20-SMA50)/ATR14 >= 0,25`.
 O roteamento da cesta cria esse plano M5 antes da barreira do plano heuristico
 H1; assim, `SEM_GATILHO_VALIDO` no plano-base nao impede a avaliacao do M24.
@@ -554,9 +555,8 @@ O Position Manager aceita somente novos micro pivos que apertem o stop. Depois d
 por retorno do RSI abaixo de 70 no BUY ou acima de 30 no SELL, o runtime M24
 persiste por fonte e direcao a primeira oportunidade bloqueada. A segunda so e
 reconhecida quando a chave inclui uma nova vela M5 fechada, impedindo que o ciclo
-leve conte repetidamente o mesmo sinal. A entrada principal M24 nao consulta a
-relacao SMA20/SMA50 e tambem nao fecha por inversao dessas medias; essa protecao,
-assim como a perda do RSI50, permanece restrita as reentradas.
+leve conte repetidamente o mesmo sinal. Nenhuma posicao M24 fecha por inversao
+SMA20/SMA50. Tanto `INITIAL` quanto `REENTRY` fecham na inversao do RSI50.
 
 ## Modelo 25
 

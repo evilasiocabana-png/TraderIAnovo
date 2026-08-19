@@ -1,5 +1,7 @@
 # Acceptance Criteria
 
+`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+
 ## Criterios Gerais
 
 Toda mudanca deve:
@@ -73,13 +75,15 @@ PY
 
 Aceito quando:
 
-- opera somente XAUUSD/M5 pelas fontes M8, M10 e M18-M22;
+- opera uma unica rota autonoma `M24_PROPRIO` somente em XAUUSD/M5; IDs de
+  fontes M8, M10 e M18-M22 sao reconhecidos apenas em historico legado;
 - nunca reutiliza precos/SL do XAUUSD para gerar candidato em outro simbolo;
-- entrada inicial exige cruzamento do preco na SMA20 e do RSI14 no nivel 50 na
-  mesma direcao; os eventos podem ocorrer em M5 diferentes, mas ambos precisam
-  permanecer validos ate o segundo completar o sinal;
-- entrada inicial usa micro pivo 1+1 anterior mais proximo como SL e entra a
-  mercado somente depois da confirmacao do conjunto;
+- entrada inicial exige cruzamento do preco na SMA20 e RSI14 atual do mesmo
+  lado de 50, sem exigir novo cruzamento do RSI;
+- entrada inicial entra a mercado sem micro-pivo e usa como SL o extremo do
+  candle que cruzou a SMA20, acrescido de margem de um pip;
+- depois de dois fechamentos favoraveis consecutivos, a SMA20 pode apertar o
+  SL inicial e nunca afrouxa-lo;
 - entrada principal nao exige SMA20 acima/abaixo da SMA50 e nao executa Full
   Exit quando essas duas medias invertem; BUY e SELL sao simetricos;
 - reentrada nao exige novo cruzamento: BUY requer fechamento acima da SMA20 e
@@ -90,8 +94,8 @@ Aceito quando:
   do M24;
 - o avaliador M24 aceita diretamente os objetos `Candle` canonicos recebidos do
   cache operacional, sem conversao manual de campos;
-- a entrada inicial M24 envia `tp=0`; a reentrada envia TP no fechamento da
-  vela do ultimo topo/fundo principal 2+2 confirmado na janela de ate 200 M5;
+- a entrada inicial M24 envia `tp=0`; a reentrada exige TP no fechamento do
+  microtopo/microfundo 1+1 lucrativo mais recente;
 - o TP da reentrada nunca usa a maxima/minima da vela estrutural;
 - a reentrada exige SL em micro pivo 1+1 confirmado nos ultimos cinco
   candles M5 fechados;
@@ -101,9 +105,9 @@ Aceito quando:
   acima de 30, a primeira oportunidade de reentrada na mesma direcao e ignorada;
 - repeticoes do mesmo sinal na mesma vela M5 nao contam como segunda
   oportunidade; somente uma nova oportunidade valida em nova vela e liberada;
-- Full Exit RSI 70/30, SL individual e cesta continuam ativos na entrada
-  principal; perda do RSI50 e inversao SMA20/50 continuam ativas somente nas
-  reentradas;
+- Full Exit RSI 70/30, inversao do RSI50, SL individual e cesta permanecem
+  ativos tanto na entrada inicial quanto na reentrada; inversao SMA20/50 nao
+  encerra nenhuma posicao M24;
 - cesta fecha somente posicoes M24 em +US$1.000 liquidos;
 - comentarios, estado, auditoria e relatorio distinguem M24 de M23;
 - a tabela `Em negociacao` mostra `Tipo de entrada` antes de `Alvo`, usando

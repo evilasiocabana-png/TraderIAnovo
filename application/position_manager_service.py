@@ -84,9 +84,12 @@ from application.model24_xau_basket import (
     MODEL_24_BETA_ID,
     MODEL_24_BETA_VERSION,
     MODEL_24_EXIT_POLICY,
+    MODEL_24_PIP_SIZE,
+    MODEL_24_SETUP,
     is_model24,
     mark_model24_extreme_full_exit,
     model24_micro_pivot_stop,
+    model24_sma20_stop_after_two_closes,
 )
 from application.model25_multi_asset_rsi50_basket import (
     MODEL_25_ALPHA_ID,
@@ -95,6 +98,7 @@ from application.model25_multi_asset_rsi50_basket import (
     MODEL_25_EXIT_POLICY,
     is_model25,
     mark_model25_extreme_full_exit,
+    model25_symbol_pip_size,
 )
 from domain.contracts.beta_strategy import BetaDecision, BetaStrategyContext
 
@@ -1484,6 +1488,14 @@ class PositionManagerService:
         ) or (
             active_entry_order_type in {"BUY_STOP", "SELL_STOP"}
         )
+        m24_rsi50_exit_enabled = bool(
+            m24_trade_plan
+            and (
+                MODEL_24_SETUP.rsi50_exit_reentry
+                if reentry_position
+                else MODEL_24_SETUP.rsi50_exit_initial
+            )
+        )
         decision = (
             evaluate_forex_sma_rsi_exit(
                 candles, snapshot.side, reentry_position=reentry_position,
@@ -1493,7 +1505,14 @@ class PositionManagerService:
                 candles,
                 snapshot.side,
                 reentry_position=reentry_position,
-                sma_inversion_exit_enabled=not basket_rsi_trade_plan,
+                sma_inversion_exit_enabled=(
+                    MODEL_24_SETUP.sma20_sma50_exit
+                    if m24_trade_plan
+                    else not m25_trade_plan
+                ),
+                rsi50_inversion_exit_enabled=(
+                    m24_rsi50_exit_enabled or m25_trade_plan
+                ),
             )
         )
         spec = (
@@ -1536,7 +1555,6 @@ class PositionManagerService:
         if (
             decision.action != "FULL_EXIT"
             and basket_rsi_trade_plan
-            and reentry_position
         ):
             basket_label = "M25" if m25_trade_plan else "M24"
             basket_beta_id = MODEL_25_BETA_ID if m25_trade_plan else MODEL_24_BETA_ID
@@ -1553,7 +1571,7 @@ class PositionManagerService:
                 and decision.rsi14 is not None
                 and float(decision.rsi14) <= 30.0
             )
-            if target_is_active and rsi_extreme:
+            if reentry_position and target_is_active and rsi_extreme:
                 return PositionManagerDecision(
                     symbol=plan.symbol,
                     ticket=snapshot.ticket,
@@ -1581,16 +1599,37 @@ class PositionManagerService:
                     ),
                     beta_closed_candle_time=decision.closed_candle_time,
                 )
-            maximum_age = int(
-                parameters.get("m25_micro_pivot_maximum_age")
-                or parameters.get("m24_micro_pivot_maximum_age")
-                or 5
-            )
-            candidate, trailing_candle = model24_micro_pivot_stop(
-                candles,
-                snapshot.side,
-                maximum_age=maximum_age,
-            )
+            initial_m24_sma20_trailing = m24_trade_plan and not reentry_position
+            if initial_m24_sma20_trailing:
+                candidate, trailing_candle = model24_sma20_stop_after_two_closes(
+                    candles,
+                    snapshot.side,
+                )
+            elif reentry_position:
+                maximum_age = int(
+                    parameters.get("m25_micro_pivot_maximum_age")
+                    or parameters.get("m24_micro_pivot_maximum_age")
+                    or 5
+                )
+                candidate, trailing_candle = model24_micro_pivot_stop(
+                    candles,
+                    snapshot.side,
+                    maximum_age=maximum_age,
+                )
+                if candidate is not None:
+                    pip_size = (
+                        model25_symbol_pip_size(plan.symbol)
+                        if m25_trade_plan
+                        else MODEL_24_PIP_SIZE
+                    )
+                    candidate = (
+                        float(candidate) - pip_size
+                        if snapshot.side == "BUY"
+                        else float(candidate) + pip_size
+                    )
+            else:
+                candidate = None
+                trailing_candle = "N/D"
             if (
                 candidate is not None
                 and self._is_better_stop(snapshot.side, candidate, snapshot.current_stop)
@@ -1603,11 +1642,22 @@ class PositionManagerService:
                 return PositionManagerDecision(
                     symbol=plan.symbol,
                     ticket=snapshot.ticket,
-                    state=f"{basket_label}_REENTRY_MICRO_PIVOT_TRAILING",
+                    state=(
+                        "M24_INITIAL_SMA20_TRAILING"
+                        if initial_m24_sma20_trailing
+                        else f"{basket_label}_REENTRY_MICRO_PIVOT_TRAILING"
+                    ),
                     action="PROTECT_POSITION",
                     reason=(
-                        f"{basket_label} reentrada: mover SL para o micro pivo 1+1 M5 "
-                        "confirmado mais recente, somente em direcao favoravel."
+                        f"{basket_label} "
+                        f"{'entrada inicial' if initial_m24_sma20_trailing else 'reentrada'}: "
+                        + (
+                            "apos dois fechamentos M5 favoraveis, acompanhar o SL "
+                            "pela SMA20, somente em direcao mais protetiva."
+                            if initial_m24_sma20_trailing
+                            else "mover SL para o micro pivo 1+1 M5 confirmado mais "
+                            "recente, somente em direcao favoravel."
+                        )
                     ),
                     confidence=1.0,
                     beta_id=basket_beta_id,
@@ -1622,8 +1672,16 @@ class PositionManagerService:
                     requested_stop=candidate,
                     evidence=snapshot.evidence
                     + (
-                        f"{basket_label}_MICRO_PIVOT_TRAILING",
-                        f"{basket_label}_MICRO_PIVOT_CANDLE={trailing_candle}",
+                        (
+                            "M24_INITIAL_SMA20_TRAILING"
+                            if initial_m24_sma20_trailing
+                            else f"{basket_label}_MICRO_PIVOT_TRAILING"
+                        ),
+                        (
+                            f"M24_SMA20_CONFIRMATION_CANDLE={trailing_candle}"
+                            if initial_m24_sma20_trailing
+                            else f"{basket_label}_MICRO_PIVOT_CANDLE={trailing_candle}"
+                        ),
                     ),
                     beta_closed_candle_time=trailing_candle,
                 )
@@ -1662,6 +1720,10 @@ class PositionManagerService:
                     f"M25_NO_SMA20_50_INVERSION_EXIT={basket_rsi_trade_plan}"
                     if m25_trade_plan
                     else f"M24_NO_SMA20_50_INVERSION_EXIT={basket_rsi_trade_plan}"
+                ),
+                (
+                    f"{'M25' if m25_trade_plan else 'M24'}_RSI50_INVERSION_EXIT="
+                    f"{basket_rsi_trade_plan}"
                 ),
                 f"M8_STATUS={decision.status}",
             ),
