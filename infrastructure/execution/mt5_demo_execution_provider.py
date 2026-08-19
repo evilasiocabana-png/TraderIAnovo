@@ -1541,6 +1541,7 @@ mt5.shutdown()
             self.mt5.ORDER_TYPE_BUY if side == "BUY" else self.mt5.ORDER_TYPE_SELL
         )
         price = float(getattr(tick, "ask") if side == "BUY" else getattr(tick, "bid"))
+        target = self._effective_order_target(order, price)
         return {
             "action": self.mt5.TRADE_ACTION_DEAL,
             "symbol": order.symbol,
@@ -1548,7 +1549,7 @@ mt5.shutdown()
             "type": order_type,
             "price": price,
             "sl": float(order.stop),
-            "tp": 0.0 if self._is_no_target_model(order) else float(order.target),
+            "tp": 0.0 if self._is_no_target_model(order) else float(target or 0.0),
             "deviation": self.deviation,
             "magic": self.magic,
             "comment": self._order_comment(order),
@@ -1567,7 +1568,7 @@ mt5.shutdown()
         ask = self._positive_float(getattr(tick, "ask", None))
         price = ask if side == "BUY" else bid
         stop = self._positive_float(getattr(order, "stop", None))
-        target = self._positive_float(getattr(order, "target", None))
+        target = self._effective_order_target(order, price or 0.0)
         if price is None:
             return ExecutionResult(
                 accepted=False,
@@ -1693,14 +1694,42 @@ mt5.shutdown()
                 )
         return None
 
+    def _effective_order_target(
+        self,
+        order: ExecutionOrder,
+        execution_price: float,
+    ) -> float | None:
+        """Reancora TP fixo do M24 no preco executavel da ordem a mercado."""
+        target = self._positive_float(getattr(order, "target", None))
+        if (
+            not is_model24(getattr(order, "operational_model", ""))
+            or self._is_pending_stop_order(order)
+        ):
+            return target
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        role = str(parameters.get("m24_entry_role") or "").upper()
+        distance = self._positive_float(parameters.get("m24_target_distance"))
+        if role not in {"INITIAL", "CONTINUATION"} or distance is None:
+            return target
+        side = str(order.side or "").upper()
+        if side not in {"BUY", "SELL"} or execution_price <= 0.0:
+            return target
+        info = self.mt5.symbol_info(order.symbol)
+        digits = int(getattr(info, "digits", 2) or 2)
+        return round(
+            float(execution_price) + distance
+            if side == "BUY"
+            else float(execution_price) - distance,
+            digits,
+        )
+
     def _is_no_target_model(self, order: ExecutionOrder) -> bool:
         snapshot = dict(getattr(order, "plan_snapshot", None) or {})
         parameters = dict(snapshot.get("stop_management_parameters") or {})
         if is_model24(getattr(order, "operational_model", "")):
             return not (
-                str(parameters.get("m24_entry_role") or "").upper()
-                in {"REENTRY", "STRUCTURAL_REENTRY"}
-                and bool(parameters.get("m24_individual_target_enabled"))
+                bool(parameters.get("m24_individual_target_enabled"))
                 and self._positive_float(getattr(order, "target", None)) is not None
             )
         if is_model25(getattr(order, "operational_model", "")):

@@ -128,7 +128,7 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
         self.assertEqual(service._execution_volume(signal, reentry), 0.20)
         self.assertEqual(service._execution_volume(signal, continuation), 0.40)
 
-    def test_m24_inicial_sem_tp_ou_rr_e_plano_valido(self) -> None:
+    def test_m24_inicial_com_tp_fixo_e_plano_valido(self) -> None:
         provider = _AcceptingProvider()
         service = MT5DemoRobotService(
             execution_service=DemoExecutionService(provider=provider),
@@ -150,13 +150,13 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
                 "timeframe": "M5",
                 "entry_price": 4355.0,
                 "stop": 4335.0,
-                "target": 0.0,
-                "risk_reward": 0.0,
+                "target": 4355.25,
+                "risk_reward": 0.0125,
                 "operational_model": model,
                 "stop_management_parameters": {
                     "source_operational_model": model,
                     "m24_entry_role": "INITIAL",
-                    "m24_individual_target_enabled": False,
+                    "m24_individual_target_enabled": True,
                 },
             }
         )
@@ -165,7 +165,7 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
 
         self.assertEqual(result.status, "EXECUTED")
         self.assertEqual(len(provider.orders), 1)
-        self.assertEqual(provider.orders[0].target, 0.0)
+        self.assertEqual(provider.orders[0].target, 4355.25)
 
     def test_m25_bloqueia_qualquer_mercado_fora_de_xauusd_m5(self) -> None:
         source_model = "MODELO_8_XAU_M5_SMA_RSI_REENTRY"

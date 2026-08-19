@@ -1113,7 +1113,7 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertEqual(mt5.last_request["type"], mt5.ORDER_TYPE_SELL_STOP)
         self.assertEqual(mt5.last_request["tp"], 110.0)
 
-    def test_m24_initial_preserva_tp_zero(self) -> None:
+    def test_m24_initial_envia_tp_fixo_de_point_two_five(self) -> None:
         mt5 = _FakeMT5()
         mt5.tick = SimpleNamespace(ask=120.02, bid=120.00)
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1137,17 +1137,18 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
                         "stop_management_parameters": {
                             "source_operational_model": MODEL_8_ID,
                             "active_entry_order_type": "MARKET",
-                            "m24_individual_target_enabled": False,
+                            "m24_individual_target_enabled": True,
                             "m24_entry_role": "INITIAL",
+                            "m24_target_distance": 0.25,
                         },
                     },
                 )
             )
         self.assertTrue(result.accepted)
         self.assertEqual(mt5.last_request["action"], mt5.TRADE_ACTION_DEAL)
-        self.assertEqual(mt5.last_request["tp"], 0.0)
+        self.assertEqual(mt5.last_request["tp"], 120.27)
 
-    def test_m24_continuation_envia_mercado_sem_tp_e_com_papel_no_comentario(self) -> None:
+    def test_m24_continuation_envia_mercado_com_tp_e_com_papel_no_comentario(self) -> None:
         mt5 = _FakeMT5()
         mt5.tick = SimpleNamespace(ask=120.02, bid=120.00)
         provider = self._provider(mt5)
@@ -1156,7 +1157,7 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
 
         self.assertTrue(result.accepted)
         self.assertEqual(mt5.last_request["action"], mt5.TRADE_ACTION_DEAL)
-        self.assertEqual(mt5.last_request["tp"], 0.0)
+        self.assertEqual(mt5.last_request["tp"], 120.15)
         self.assertEqual(mt5.last_request["comment"], "TraderIA M24 CONTINUATION")
 
     def test_m24_continuation_confirma_somente_saida_reentry_por_tp(self) -> None:
@@ -1362,13 +1363,22 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         source_model: str = MODEL_8_ID,
     ) -> ExecutionOrder:
         normalized_side = str(side).upper()
+        target = (
+            120.25
+            if role == "INITIAL"
+            else 120.13
+            if role == "CONTINUATION"
+            else 0.0
+        )
+        if normalized_side == "SELL" and target > 0.0:
+            target = 119.75 if role == "INITIAL" else 119.87
         return ExecutionOrder(
             symbol="XAUUSD",
             side=normalized_side,
             quantity=0.01,
             entry_price=120.0,
             stop=110.0 if normalized_side == "BUY" else 130.0,
-            target=0.0,
+            target=target,
             operational_model=model24_variant_id(source_model),
             plan_snapshot={
                 "candle_time": "2099-08-19T12:00:00+00:00",
@@ -1382,6 +1392,15 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
                         else f"{normalized_side}_STOP"
                     ),
                     "m24_entry_role": role,
+                    "m24_individual_target_enabled": role
+                    in {"INITIAL", "CONTINUATION"},
+                    "m24_target_distance": (
+                        0.25
+                        if role == "INITIAL"
+                        else 0.13
+                        if role == "CONTINUATION"
+                        else None
+                    ),
                 }
             },
         )

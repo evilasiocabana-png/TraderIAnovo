@@ -1,5 +1,21 @@
 # Execution Log
 
+## 2026-08-19 - M24 TP fixo na INITIAL e CONTINUATION
+
+- contrato promovido para `M24_SETUP_V4_20260819`;
+- `INITIAL` recebe TP a `0,25` do preco executavel da ordem a mercado;
+- `CONTINUATION` recebe TP a `0,13`, nivel executavel mais proximo da metade
+  de `0,25` para o tick size `0,01` do XAUUSD;
+- SL da `CONTINUATION` passa a usar a minima do M5 fechado anterior menos um
+  pip no BUY e a maxima mais um pip no SELL;
+- reentrada preserva integralmente seu TP e SL estruturais 1+1;
+- provider reancora somente os TPs fixos da `INITIAL`/`CONTINUATION` no tick
+  executavel e mantem o alvo absoluto da ordem Stop de reentrada;
+- ponto de restauracao: tag `restore-traderia-20260819-1705` e pacote local
+  `.traderia/restore_points/20260819_170530`;
+- validacao ampla: 374 testes e 45 subtestes aprovados; gate critico: 203
+  testes aprovados, sem envio MT5.
+
 ## 2026-08-19 - M25 restrito a XAUUSD e agregado de sete fontes
 
 - promovido o contrato `M25_XAU_SOURCES_V2_20260819` para operar somente

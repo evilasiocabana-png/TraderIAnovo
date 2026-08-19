@@ -13,9 +13,11 @@ from application.model24_xau_basket import (
     MODEL_24_CONTINUATION_VOLUME,
     MODEL_24_FULL_EXIT_USD,
     MODEL_24_INITIAL_VOLUME,
+    MODEL_24_INITIAL_TARGET_DISTANCE,
     MODEL_24_PIP_SIZE,
     MODEL_24_REENTRY_VOLUME,
     MODEL_24_RUNTIME_SOURCE,
+    MODEL_24_CONTINUATION_TARGET_DISTANCE,
 )
 
 
@@ -43,6 +45,8 @@ def test_m24_exported_constants_come_from_canonical_contract() -> None:
     assert MODEL_24_INITIAL_VOLUME == MODEL_24_SETUP.initial_volume
     assert MODEL_24_REENTRY_VOLUME == MODEL_24_SETUP.reentry_volume
     assert MODEL_24_CONTINUATION_VOLUME == MODEL_24_SETUP.continuation_volume == 0.40
+    assert MODEL_24_INITIAL_TARGET_DISTANCE == 0.25
+    assert MODEL_24_CONTINUATION_TARGET_DISTANCE == 0.13
     assert MODEL_24_FULL_EXIT_USD == MODEL_24_SETUP.basket_full_exit_usd
 
 
@@ -57,6 +61,9 @@ def test_m24_public_text_is_derived_from_current_rules() -> None:
     assert "podem ocorrer em m5 diferentes" in public_text
     assert "dois fechamentos favoraveis" in public_text
     assert "micro-pivo 1+1" in public_text
+    assert "0,25" in fields["TP inicial"]
+    assert "continuation usa distancia fixa de 0,13" in public_text
+    assert "extremo do m5 fechado anterior" in public_text
     assert "initial, reentry e continuation saem" in public_text
     assert "sem descarte da primeira reentrada" in public_text
     assert "topo/fundo principal 2+2" not in public_text

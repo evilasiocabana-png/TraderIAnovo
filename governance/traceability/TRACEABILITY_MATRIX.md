@@ -1,6 +1,6 @@
 # TraderIA Novo - Matriz de Rastreabilidade
 
-`M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
+`M24_CONTRACT=M24_SETUP_V4_20260819; SHA256=6b80b8928dc6ad3389c8295913bb2d2f81b3c6365f0716adff971124ec2d4dfd`
 
 Matriz ponta a ponta para revisar melhorias no GitHub.
 
@@ -19,10 +19,10 @@ Matriz ponta a ponta para revisar melhorias no GitHub.
 | MT5 Indicador | MQL5 | visual entry/stop/target | `TraderIAVisualSignals.mq5` |
 | Relatorio | `DashboardMT5TradeAuditViewModel` | auditoria local x MT5 | `get_mt5_trade_audit_report()` |
 | Contrato M24 | `Model24SetupContract` | versao e fingerprint | `application/model24_setup_contract.py` |
-| Plano M24 | `stop_management_parameters` | `m24_setup_contract_version`, `m24_setup_contract_fingerprint` | `DashboardService` |
+| Plano M24 | `stop_management_parameters` | versao/fingerprint; TP INITIAL 0,25; TP CONTINUATION 0,13; SL CONTINUATION no M5 anterior | `DashboardService` |
 | Estado M24 | JSON local nao versionado | `setup_contract_version`, `setup_contract_fingerprint` | `model24_xau_basket.py` |
 | Tela M24 | tabela de setup | campos derivados do contrato | `model24_public_setup_fields()` |
-| CONTINUATION M24 | watch persistido + historico MT5 | TP da REENTRY, lado, RSI extremo, papel e volume 0,40 | `model24_xau_basket.py` + `MT5DemoExecutionProvider` |
+| CONTINUATION M24 | watch persistido + historico MT5 | TP da REENTRY, lado, RSI extremo, papel, volume 0,40, TP 0,13 e SL no M5 anterior | `model24_xau_basket.py` + `MT5DemoExecutionProvider` |
 | Contrato M25 | constantes + fingerprint | XAUUSD/M5, M8/M10/M18-M22, lotes e Full Exit | `model25_multi_asset_rsi50_basket.py` |
 | Plano M25 | `stop_management_parameters` | fonte, versao/fingerprint, papel, entrada, SL e TP copiados | `DashboardService` |
 | Ordem M25 | variante + comentario MT5 | `SOURCE_M<n>` e `TraderIA M25 S<n>` | `MT5DemoExecutionProvider` |

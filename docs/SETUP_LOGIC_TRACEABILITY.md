@@ -1,6 +1,6 @@
 # TraderIA Novo - Rastreabilidade da Logica de Setup
 
-`M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
+`M24_CONTRACT=M24_SETUP_V4_20260819; SHA256=6b80b8928dc6ad3389c8295913bb2d2f81b3c6365f0716adff971124ec2d4dfd`
 
 ## Contrato M24
 
@@ -12,6 +12,8 @@ os testes comparam este marker em todos os documentos ativos.
 O estado de continuidade registra o TP da `REENTRY`, exige confirmacao read-only
 do fechamento no historico MT5 e identifica a ordem posterior pelo papel
 `CONTINUATION`, com volume canonico `0,40`.
+O plano `INITIAL` transporta distancia fixa de TP `0,25`; a `CONTINUATION`
+transporta TP `0,13` e SL no extremo do M5 fechado anterior mais um pip.
 
 Este documento mapeia entrada, saida, stop management e consumo operacional do
 setup calculado pelo Lab.

@@ -1,6 +1,6 @@
 # Modelo Operacional 24 — XAU/M5 RSI50 Basket
 
-`M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
+`M24_CONTRACT=M24_SETUP_V4_20260819; SHA256=6b80b8928dc6ad3389c8295913bb2d2f81b3c6365f0716adff971124ec2d4dfd`
 
 Fonte executavel unica: `application/model24_setup_contract.py`. Em caso de
 divergencia com uma descricao historica, este marker e o contrato executavel
@@ -48,6 +48,11 @@ simetrico: preco cruza e permanece abaixo da SMA20 com RSI14 abaixo de 50. A
 entrada inicial nao exige micro-pivo. O SL nasce um pip alem do extremo do
 candle que cruzou a SMA20: minima menos um pip para BUY e maxima mais um pip
 para SELL.
+
+A `INITIAL` recebe TP fixo a `0,25` do preco executavel: BUY em
+`entrada + 0,25` e SELL em `entrada - 0,25`. O provider reancora esse alvo no
+tick usado para a ordem a mercado, evitando que atraso entre plano e envio
+altere a distancia solicitada.
 
 Depois da abertura, a entrada `INITIAL` preserva esse SL ate existirem dois
 candles M5 fechados consecutivos do lado favoravel da SMA20. No BUY, ambos os
@@ -107,8 +112,11 @@ Depois dessa confirmacao:
   `RSI14 > 70`;
 - SELL entra a mercado quando o fechamento continua abaixo do TP anterior e
   `RSI14 < 30`;
-- o SL fica um pip alem do microfundo/microtopo 1+1 confirmado mais recente;
-- nao existe TP individual;
+- o SL usa o M5 fechado imediatamente anterior: minima menos um pip no BUY e
+  maxima mais um pip no SELL;
+- o TP individual fica a `0,13` do preco executavel (`entrada + 0,13` no BUY e
+  `entrada - 0,13` no SELL), normalizacao executavel da metade de `0,25` para
+  o tick size `0,01` do XAUUSD;
 - o volume e `0,40` lote;
 - BUY faz Full Exit quando o RSI retorna para abaixo de 70; SELL faz Full Exit
   quando retorna para acima de 30;
@@ -172,10 +180,10 @@ ordens e estados usam uma unica identidade M24.
 
 ## Cesta financeira
 
-- entrada `INITIAL`: TP nativo MT5 `0.0`;
+- entrada `INITIAL`: TP nativo MT5 a `0,25` do preco executavel;
 - entrada `REENTRY`: TP no fechamento do candle que formou o topo/fundo
   estrutural anterior a correcao;
-- entrada `CONTINUATION`: TP nativo MT5 `0.0`;
+- entrada `CONTINUATION`: TP nativo MT5 a `0,13` do preco executavel;
 - entrada inicial e reentrada exigem `abs(SMA20 - SMA50) / ATR14 >= 0,25`;
 - essa distancia mede somente separacao/forca e nunca define BUY ou SELL;
 - entrada `INITIAL`: volume `0,30` lote;
@@ -221,9 +229,10 @@ ordens e estados usam uma unica identidade M24.
 - O encerramento libera a avaliacao da entrada inicial oposta no ciclo
   seguinte; a nova entrada continua exigindo o cruzamento proprio do preco na
   SMA20 e a confirmacao do RSI atual.
-- A entrada inicial do M24 nao possui TP individual e, por isso, nao depende de
-  RR positivo para ser validada. Reentradas com alvo estrutural continuam
-  validando o TP herdado do proprio setup.
+- A entrada inicial do M24 possui TP individual fixo a `0,25` do preco
+  executavel e valida RR positivo. Reentradas com alvo estrutural continuam
+  validando o TP herdado do proprio setup. A `CONTINUATION` usa TP fixo de
+  `0,13`.
 
 ## TP da reentrada
 

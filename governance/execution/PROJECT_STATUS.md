@@ -2,7 +2,7 @@
 
 Status: pronto para fluxo de inbox.
 
-`M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
+`M24_CONTRACT=M24_SETUP_V4_20260819; SHA256=6b80b8928dc6ad3389c8295913bb2d2f81b3c6365f0716adff971124ec2d4dfd`
 
 `M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
 
@@ -15,11 +15,13 @@ Status: pronto para fluxo de inbox.
   inicial continua dispensado;
 - SL inicial: extremo do candle do cruzamento mais um pip; depois de dois
   fechamentos favoraveis, trailing pela SMA20 somente a favor;
+- TP inicial: distancia fixa de `0,25` ancorada no preco executavel;
 - reentrada: ordem Stop, SL no micro-pivo 1+1 mais um pip e TP obrigatorio no
   fechamento do micro-pivo 1+1 lucrativo mais recente;
 - a primeira reentrada valida apos Full Exit RSI 70/30 nao e descartada;
 - `CONTINUATION`: somente apos TP confirmado da `REENTRY`, preco alem do alvo e
-  RSI extremo; mercado, `0,40` lote, SL no micro-pivo 1+1 e sem TP individual;
+  RSI extremo; mercado, `0,40` lote, TP fixo `0,13` e SL um pip alem do extremo
+  do M5 fechado anterior;
 - `INITIAL`, `REENTRY` e `CONTINUATION` saem pelas regras RSI do contrato;
   nenhuma sai por inversao SMA20/SMA50;
 - interface, motor, Trade Plan, runtime e documentos ativos agora compartilham

@@ -563,9 +563,7 @@ class MT5DemoRobotService:
         } and not requires_target
         if validation_is_model24:
             no_target_model = not (
-                str(parameters.get("m24_entry_role") or "").upper()
-                in {"REENTRY", "STRUCTURAL_REENTRY"}
-                and bool(parameters.get("m24_individual_target_enabled"))
+                bool(parameters.get("m24_individual_target_enabled"))
                 and float(trade_plan.target or 0.0) > 0.0
             )
         if validation_is_model25 and not validation_is_model25_source:

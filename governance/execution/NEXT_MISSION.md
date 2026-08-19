@@ -1,6 +1,6 @@
 # Next Mission
 
-`M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
+`M24_CONTRACT=M24_SETUP_V4_20260819; SHA256=6b80b8928dc6ad3389c8295913bb2d2f81b3c6365f0716adff971124ec2d4dfd`
 
 `M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
 
@@ -31,8 +31,8 @@ O contrato atual possui entrada inicial a mercado somente depois de novos
 cruzamentos do preco/SMA20 e RSI14/50 na mesma direcao. Eles podem ocorrer em
 M5 diferentes, mas ambos devem permanecer validos e a distancia atual deve ser
 `>= 0,25 ATR`; nao exige micro-pivo inicial. O SL nasce no extremo do candle
-do cruzamento do preco mais um pip e,
-apos dois fechamentos favoraveis, acompanha a SMA20 somente a favor. A
+do cruzamento do preco mais um pip e o TP fica a `0,25` do preco executavel.
+Apos dois fechamentos favoraveis, o SL acompanha a SMA20 somente a favor. A
 reentrada e uma ordem Stop atualizada a cada M5, com SL e TP baseados no
 micro-pivo 1+1 mais recente.
 
@@ -44,7 +44,8 @@ mais descartada.
 Tambem deve confirmar a nova `CONTINUATION`: somente depois do historico MT5
 confirmar que a `REENTRY` zerou pelo TP estrutural, entra a mercado com `0,40`
 lote se o preco continuar alem do alvo e o RSI permanecer extremo (`BUY > 70`,
-`SELL < 30`), usa SL no pivo 1+1 anterior e faz Full Exit no retorno de 70/30.
+`SELL < 30`), usa TP fixo de `0,13`, SL um pip alem do extremo do M5 fechado
+anterior e faz Full Exit no retorno de 70/30.
 
 Pendencia registrada em 2026-07-13:
 

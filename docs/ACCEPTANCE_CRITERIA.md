@@ -1,6 +1,6 @@
 # Acceptance Criteria
 
-`M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
+`M24_CONTRACT=M24_SETUP_V4_20260819; SHA256=6b80b8928dc6ad3389c8295913bb2d2f81b3c6365f0716adff971124ec2d4dfd`
 
 `M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
 
@@ -99,8 +99,10 @@ Aceito quando:
   do M24;
 - o avaliador M24 aceita diretamente os objetos `Candle` canonicos recebidos do
   cache operacional, sem conversao manual de campos;
-- a entrada inicial M24 envia `tp=0`; a reentrada exige TP no fechamento do
-  microtopo/microfundo 1+1 lucrativo mais recente;
+- a entrada inicial M24 envia TP fixo a `0,25` do preco executavel; BUY soma
+  `0,25` e SELL subtrai `0,25`;
+- a reentrada exige TP no fechamento do microtopo/microfundo 1+1 lucrativo
+  mais recente;
 - o TP da reentrada nunca usa a maxima/minima da vela estrutural;
 - a reentrada exige SL em micro pivo 1+1 confirmado nos ultimos cinco
   candles M5 fechados;
@@ -112,9 +114,10 @@ Aceito quando:
   que o historico MT5 confirmar o encerramento efetivo dessa reentrada por TP;
 - BUY `CONTINUATION` exige preco acima do TP anterior e RSI14 maior que 70;
   SELL exige preco abaixo do TP anterior e RSI14 menor que 30;
-- `CONTINUATION` entra a mercado com `0,40` lote, SL um pip alem do ultimo
-  micro-pivo 1+1, sem TP individual, e sai integralmente no retorno do RSI
-  abaixo de 70 no BUY ou acima de 30 no SELL;
+- `CONTINUATION` entra a mercado com `0,40` lote, SL na minima do M5 fechado
+  anterior menos um pip no BUY ou maxima mais um pip no SELL, TP fixo a `0,13`
+  do preco executavel e saida integral no retorno do RSI abaixo de 70 no BUY
+  ou acima de 30 no SELL;
 - existe no maximo uma posicao M24 aberta por papel (`INITIAL`, `REENTRY` e
   `CONTINUATION`) e lados opostos nunca coexistem;
 - Full Exit RSI 70/30, inversao do RSI50, SL individual e cesta permanecem

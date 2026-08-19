@@ -8209,6 +8209,36 @@ class DashboardService:
                 else structural_target < entry
             )
         )
+        fixed_target_distance = (
+            MODEL_24_SETUP.initial_target_distance
+            if entry_role == "INITIAL"
+            else MODEL_24_SETUP.continuation_target_distance
+            if is_continuation
+            else 0.0
+        )
+        individual_target = (
+            structural_target
+            if structural_target_valid
+            else round(
+                entry
+                + (
+                    fixed_target_distance
+                    if direction == "BUY"
+                    else -fixed_target_distance
+                ),
+                2,
+            )
+            if fixed_target_distance > 0.0
+            else 0.0
+        )
+        individual_target_valid = bool(
+            individual_target > 0.0
+            and (
+                individual_target > entry
+                if direction == "BUY"
+                else individual_target < entry
+            )
+        )
         if is_reentry and not structural_target_valid:
             wait_status = "M24_REENTRY_AGUARDA_ALVO_ESTRUTURAL_VALIDO"
             wait_reason = (
@@ -8353,7 +8383,11 @@ class DashboardService:
                 MODEL_24_SETUP.reentry_micro_pivot_maximum_age
             ),
             "m24_micro_pivot_time": (
-                entry_decision.micro_swing_time
+                entry_decision.micro_swing_time if is_reentry else "N/D"
+            ),
+            "m24_continuation_previous_candle_stop_enabled": is_continuation,
+            "m24_continuation_previous_candle_time": (
+                entry_decision.micro_swing_time if is_continuation else "N/D"
             ),
             "m24_structural_target_price": (
                 structural_target if structural_target_valid else None
@@ -8364,7 +8398,16 @@ class DashboardService:
                 else "N/D"
             ),
             "m24_previous_candle_trailing_enabled": False,
-            "m24_individual_target_enabled": structural_target_valid,
+            "m24_individual_target_enabled": individual_target_valid,
+            "m24_initial_target_distance": (
+                MODEL_24_SETUP.initial_target_distance
+            ),
+            "m24_continuation_target_distance": (
+                MODEL_24_SETUP.continuation_target_distance
+            ),
+            "m24_target_distance": (
+                fixed_target_distance if fixed_target_distance > 0.0 else None
+            ),
             "m24_continuation_target_exit_confirmed": (
                 continuation_target_exit_confirmed if is_continuation else False
             ),
@@ -8386,15 +8429,17 @@ class DashboardService:
             direction=direction,
             entry_price=entry,
             stop=stop,
-            target=structural_target if structural_target_valid else 0.0,
+            target=individual_target if individual_target_valid else 0.0,
             risk_reward=(
-                abs(structural_target - entry) / risk
-                if structural_target_valid and risk > 0.0
+                abs(individual_target - entry) / risk
+                if individual_target_valid and risk > 0.0
                 else 0.0
             ),
             risk_pips=risk,
             reward_pips=(
-                abs(structural_target - entry) if structural_target_valid else 0.0
+                abs(individual_target - entry)
+                if individual_target_valid
+                else 0.0
             ),
             reward_percent=0.0,
             status="PLANO_VALIDO",
@@ -8405,7 +8450,8 @@ class DashboardService:
                 "SL no extremo do candle M5 que cruzou a SMA20, com margem de 1 pip."
                 if entry_role == "INITIAL"
                 else (
-                    "SL da CONTINUATION um pip alem do fundo/topo anterior 1+1."
+                    "SL da CONTINUATION um pip alem do extremo do M5 "
+                    "fechado anterior."
                 )
                 if is_continuation
                 else (
@@ -8415,7 +8461,9 @@ class DashboardService:
             target_reason=(
                 "TP da reentrada no topo/fundo anterior ao inicio da correcao."
                 if structural_target_valid
-                else "INITIAL/CONTINUATION sem TP individual; cesta M24 zera em +US$1.000."
+                else "TP fixo da INITIAL em 0,25 no preco."
+                if entry_role == "INITIAL"
+                else "TP fixo da CONTINUATION em 0,13 no preco."
             ),
             stop_management=MODEL_24_EXIT_POLICY,
             stop_management_parameters=parameters,
@@ -8461,11 +8509,11 @@ class DashboardService:
             research_plan_entry_price=entry,
             research_plan_stop=stop,
             research_plan_target=(
-                structural_target if structural_target_valid else 0.0
+                individual_target if individual_target_valid else 0.0
             ),
             research_plan_risk_reward=(
-                abs(structural_target - entry) / risk
-                if structural_target_valid and risk > 0.0
+                abs(individual_target - entry) / risk
+                if individual_target_valid and risk > 0.0
                 else 0.0
             ),
             research_plan_risk_pips=risk,

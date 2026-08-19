@@ -461,14 +461,16 @@ def test_continuation_enters_after_confirmed_reentry_tp_with_extreme_rsi(
     assert "CONTINUATION" in decision.status
     assert decision.entry_price == current_close
     assert decision.structural_target_price is None
-    assert decision.micro_swing_price is not None
+    previous_candle = candles[-2]
     if side == "BUY":
+        assert decision.micro_swing_price == previous_candle["low"]
         assert decision.initial_stop == pytest.approx(
-            decision.micro_swing_price - 0.01
+            previous_candle["low"] - 0.01
         )
     else:
+        assert decision.micro_swing_price == previous_candle["high"]
         assert decision.initial_stop == pytest.approx(
-            decision.micro_swing_price + 0.01
+            previous_candle["high"] + 0.01
         )
 
 
@@ -998,7 +1000,7 @@ def _source_plan(**changes: object) -> MT5ResearchTradePlan:
     return MT5ResearchTradePlan(**values)
 
 
-def test_service_materializes_initial_m24_without_individual_tp(
+def test_service_materializes_initial_m24_with_fixed_point_two_five_tp(
     tmp_path: Path,
 ) -> None:
     service = object.__new__(DashboardService)
@@ -1023,10 +1025,11 @@ def test_service_materializes_initial_m24_without_individual_tp(
 
     assert row.decision == "BUY"
     assert plan.status == "PLANO_VALIDO"
-    assert plan.target == 0.0
+    assert plan.target == round(float(plan.entry_price) + 0.25, 2)
     assert plan.stop_management_parameters["m24_entry_role"] == "INITIAL"
     assert not plan.stop_management_parameters["m24_reentry_position"]
-    assert not plan.stop_management_parameters["m24_individual_target_enabled"]
+    assert plan.stop_management_parameters["m24_individual_target_enabled"]
+    assert plan.stop_management_parameters["m24_target_distance"] == 0.25
     assert not plan.stop_management_parameters["m24_micro_pivot_stop_enabled"]
     assert not plan.stop_management_parameters[
         "m24_initial_micro_pivot_trailing_enabled"
@@ -1116,13 +1119,15 @@ def test_service_materializes_continuation_market_with_point_four_lot(
     parameters = plan.stop_management_parameters
     assert row.decision == "BUY"
     assert plan.status == "PLANO_VALIDO"
-    assert plan.target == 0.0
+    assert plan.target == 101.13
     assert parameters["m24_entry_role"] == "CONTINUATION"
     assert parameters["active_entry_order_type"] == "MARKET"
     assert parameters["execution_volume"] == 0.40
     assert parameters["m24_continuation_position"]
     assert not parameters["m24_initial_sma20_trailing_enabled"]
-    assert not parameters["m24_individual_target_enabled"]
+    assert parameters["m24_individual_target_enabled"]
+    assert parameters["m24_target_distance"] == 0.13
+    assert parameters["m24_continuation_previous_candle_stop_enabled"]
 
 
 def test_m24_source_cannot_add_adx_or_sma_slope_filter(tmp_path: Path) -> None:

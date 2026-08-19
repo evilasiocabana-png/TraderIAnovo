@@ -36,6 +36,8 @@ class Model24SetupContract:
     initial_requires_micro_pivot: bool
     initial_stop_source: str
     initial_trailing_source: str
+    initial_individual_target: bool
+    initial_target_distance: float
     reentry_correction_lookback: int
     reentry_micro_pivot_maximum_age: int
     reentry_buy_rsi_min: float
@@ -51,6 +53,7 @@ class Model24SetupContract:
     continuation_sell_rsi_max: float
     continuation_stop_source: str
     continuation_individual_target: bool
+    continuation_target_distance: float
     rsi50_exit_initial: bool
     rsi50_exit_reentry: bool
     rsi50_exit_continuation: bool
@@ -81,7 +84,7 @@ class Model24SetupContract:
 
 
 MODEL_24_SETUP = Model24SetupContract(
-    version="M24_SETUP_V3_20260819",
+    version="M24_SETUP_V4_20260819",
     model_id="MODELO_24_XAU_RSI50_BASKET",
     runtime_source="M24_PROPRIO",
     symbol="XAUUSD",
@@ -103,6 +106,8 @@ MODEL_24_SETUP = Model24SetupContract(
     initial_requires_micro_pivot=False,
     initial_stop_source="SMA20_PRICE_CROSS_CANDLE_EXTREME_PLUS_1_PIP",
     initial_trailing_source="SMA20_AFTER_TWO_FAVORABLE_CLOSES",
+    initial_individual_target=True,
+    initial_target_distance=0.25,
     reentry_correction_lookback=5,
     reentry_micro_pivot_maximum_age=5,
     reentry_buy_rsi_min=50.0,
@@ -116,8 +121,9 @@ MODEL_24_SETUP = Model24SetupContract(
     continuation_requires_reentry_target_exit=True,
     continuation_buy_rsi_min=70.0,
     continuation_sell_rsi_max=30.0,
-    continuation_stop_source="LATEST_MICRO_PIVOT_1X1_PLUS_1_PIP",
-    continuation_individual_target=False,
+    continuation_stop_source="PREVIOUS_CLOSED_CANDLE_EXTREME_PLUS_1_PIP",
+    continuation_individual_target=True,
+    continuation_target_distance=0.13,
     rsi50_exit_initial=True,
     rsi50_exit_reentry=True,
     rsi50_exit_continuation=True,
@@ -151,6 +157,7 @@ def model24_public_setup_fields() -> dict[str, str]:
             "1 pip alem do extremo da vela que cruzou SMA20; apos dois "
             "fechamentos favoraveis, SMA20 move o SL somente a favor"
         ),
+        "TP inicial": "0,25 no preco a partir da entrada",
         "Reentrada": (
             "correcao nos ultimos 5 M5 + preco alem da SMA20 + RSI14 em "
             "50/70 BUY ou 30/50 SELL"
@@ -163,13 +170,14 @@ def model24_public_setup_fields() -> dict[str, str]:
             "maxima de 5 M5; move somente a favor"
         ),
         "TP individual": (
-            "inicial sem TP; reentrada exige o fechamento lucrativo do "
-            "microtopo/microfundo 1+1 mais recente; CONTINUATION sem TP"
+            "INITIAL usa distancia fixa de 0,25; reentrada exige o fechamento "
+            "lucrativo do microtopo/microfundo 1+1 mais recente; "
+            "CONTINUATION usa distancia fixa de 0,13"
         ),
         "Continuacao": (
             "apos a REENTRY zerar no TP confirmado: BUY a mercado se o preco "
             "continuar acima do alvo e RSI14>70, SELL espelhado com RSI14<30; "
-            "SL 1 pip alem do micro-pivo 1+1 anterior"
+            "SL 1 pip alem do extremo do M5 fechado anterior"
         ),
         "Saida individual": (
             "INITIAL, REENTRY e CONTINUATION saem na inversao RSI50 ou no "

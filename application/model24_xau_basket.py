@@ -30,6 +30,10 @@ MODEL_24_FULL_EXIT_USD = MODEL_24_SETUP.basket_full_exit_usd
 MODEL_24_INITIAL_VOLUME = MODEL_24_SETUP.initial_volume
 MODEL_24_REENTRY_VOLUME = MODEL_24_SETUP.reentry_volume
 MODEL_24_CONTINUATION_VOLUME = MODEL_24_SETUP.continuation_volume
+MODEL_24_INITIAL_TARGET_DISTANCE = MODEL_24_SETUP.initial_target_distance
+MODEL_24_CONTINUATION_TARGET_DISTANCE = (
+    MODEL_24_SETUP.continuation_target_distance
+)
 MODEL_24_PIP_SIZE = MODEL_24_SETUP.pip_size
 MODEL_24_ATR_PERIOD = MODEL_24_SETUP.atr_period
 MODEL_24_DISTANCE_ATR_MIN = MODEL_24_SETUP.distance_atr_min
@@ -929,34 +933,35 @@ def evaluate_model24_continuation(
             ),
             **common,
         )
-    micro_swing, micro_swing_time = _latest_micro_swing(
-        closed,
-        side,
-        maximum_age=MODEL_24_SETUP.reentry_micro_pivot_maximum_age,
+    previous_candle = closed[-1]
+    stop_reference = _number(
+        previous_candle,
+        "low" if side == "BUY" else "high",
     )
-    if micro_swing is None:
+    stop_reference_time = _time(previous_candle)
+    if stop_reference is None:
         return Model24EntryDecision(
             direction=side,
-            status="M24_CONTINUATION_AGUARDA_MICRO_PIVO_1X1",
-            reason="CONTINUATION aguarda fundo/topo anterior confirmado 1+1 para SL.",
+            status="M24_CONTINUATION_AGUARDA_EXTREMO_CANDLE_ANTERIOR",
+            reason="CONTINUATION aguarda o extremo valido do M5 fechado anterior.",
             **common,
         )
     normalized_pip_size = max(float(pip_size or MODEL_24_PIP_SIZE), 0.0)
     stop = (
-        float(micro_swing) - normalized_pip_size
+        float(stop_reference) - normalized_pip_size
         if side == "BUY"
-        else float(micro_swing) + normalized_pip_size
+        else float(stop_reference) + normalized_pip_size
     )
     valid = stop < current_close if side == "BUY" else stop > current_close
     if not valid:
         return Model24EntryDecision(
             direction=side,
             status="M24_CONTINUATION_STOP_INVALIDO",
-            reason="Fundo/topo anterior nao produz SL valido para CONTINUATION.",
+            reason="O M5 fechado anterior nao produz SL valido para CONTINUATION.",
             entry_price=current_close,
             initial_stop=stop,
-            micro_swing_price=float(micro_swing),
-            micro_swing_time=micro_swing_time,
+            micro_swing_price=float(stop_reference),
+            micro_swing_time=stop_reference_time,
             **common,
         )
     return Model24EntryDecision(
@@ -965,12 +970,12 @@ def evaluate_model24_continuation(
         reason=(
             f"CONTINUATION {side} a mercado apos TP confirmado da REENTRY: "
             f"preco continuou alem de {target:.2f}, RSI14={rsi14:.2f} e SL "
-            "ficou um pip alem do fundo/topo anterior 1+1."
+            "ficou um pip alem do extremo do M5 fechado anterior."
         ),
         entry_price=current_close,
         initial_stop=stop,
-        micro_swing_price=float(micro_swing),
-        micro_swing_time=micro_swing_time,
+        micro_swing_price=float(stop_reference),
+        micro_swing_time=stop_reference_time,
         **common,
     )
 

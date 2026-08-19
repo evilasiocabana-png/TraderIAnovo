@@ -1,6 +1,6 @@
 # Architecture
 
-`M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
+`M24_CONTRACT=M24_SETUP_V4_20260819; SHA256=6b80b8928dc6ad3389c8295913bb2d2f81b3c6365f0716adff971124ec2d4dfd`
 
 `M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
 
@@ -540,9 +540,9 @@ ou fechar ordem, mover SL/TP, recalcular indicadores ou iniciar o Lab.
 O contrato completo e vigente do M24 esta em
 `docs/architecture/OPERATIONAL_MODEL_24_XAU_RSI50_BASKET.md`. O modelo reutiliza
 o cache compartilhado XAUUSD/M5, mas possui identidade, estado, comentario MT5,
-resultado financeiro e auditoria independentes do M23. O provider envia `tp=0`
-somente para a entrada inicial M24; a reentrada exige TP no fechamento do
-microtopo/microfundo 1+1 lucrativo mais recente. A cesta liquida de +US$1.000
+resultado financeiro e auditoria independentes do M23. O provider reancora o
+TP fixo da entrada inicial a `0,25` do preco executavel; a reentrada exige TP
+no fechamento do microtopo/microfundo 1+1 lucrativo mais recente. A cesta liquida de +US$1.000
 continua como alvo coletivo. A entrada inicial exige cruzamento do preco na
 SMA20 e cruzamento do RSI14 em 50 na mesma direcao. Os eventos podem ocorrer
 em M5 diferentes, mas ambos devem permanecer validos e a distancia atual
@@ -559,8 +559,8 @@ O Position Manager aceita somente novos micro pivos que apertem o stop. Depois
 de Full Exit por retorno do RSI 70/30, a primeira reentrada valida do mesmo lado
 nao e mais descartada. A `CONTINUATION` e liberada somente quando o historico
 MT5 confirma que a `REENTRY` zerou pelo TP, o preco continua alem desse alvo e
-o RSI permanece extremo; entra a mercado com `0,40` lote, sem TP e com SL no
-micro-pivo 1+1 anterior. Nenhuma posicao M24 fecha por inversao SMA20/SMA50.
+o RSI permanece extremo; entra a mercado com `0,40` lote, TP fixo a `0,13` e
+SL um pip alem do extremo do M5 fechado anterior. Nenhuma posicao M24 fecha por inversao SMA20/SMA50.
 `INITIAL`, `REENTRY` e `CONTINUATION` preservam as saidas RSI do contrato.
 
 ## Modelo 25
