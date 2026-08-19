@@ -6,7 +6,7 @@ Data: 2026-08-19
 
 Branch: `codex/multi-ea-trading-lab`
 
-Commit funcional: `PENDING`
+Commit funcional: `ae5268c`
 
 ## Objetivo
 
