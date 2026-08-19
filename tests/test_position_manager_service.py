@@ -1166,6 +1166,57 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertEqual(provider.close_calls, 0)
         self.assertIn("M24_NO_SMA20_50_INVERSION_EXIT=True", result.evidence)
 
+    def test_m24_continuation_full_exit_no_retorno_do_rsi_extremo(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("XAUUSD", "BUY", 101.0, 99.0, 0.0),
+            price=105.0,
+            candles=[],
+        )
+        manager = self._manager(provider, enabled=True)
+        exit_decision = SimpleNamespace(
+            action="FULL_EXIT",
+            status="M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
+            reason="RSI retornou de acima de 70 para abaixo de 70.",
+            rsi14=69.0,
+            previous_rsi14=71.0,
+            sma20=104.0,
+            sma50=100.0,
+            closed_candle_time="candle-continuation",
+        )
+
+        with patch(
+            "application.position_manager_service.evaluate_model8_exit",
+            return_value=exit_decision,
+        ) as evaluate_exit:
+            result = manager.manage_plan(
+                self._plan(
+                    "XAUUSD",
+                    "BUY",
+                    entry=101.0,
+                    stop=99.0,
+                    target=0.0,
+                    stop_management="M24_SOURCE_EXIT_PLUS_BASKET_1000",
+                    parameters={
+                        "m24_entry_role": "CONTINUATION",
+                        "m24_continuation_position": True,
+                        "m24_reentry_position": False,
+                        "active_entry_order_type": "MARKET",
+                    },
+                    operational_model="MODELO_24_XAU_RSI50_BASKET_SOURCE_M8",
+                )
+            )
+
+        evaluate_exit.assert_called_once_with(
+            (),
+            "BUY",
+            reentry_position=False,
+            sma_inversion_exit_enabled=False,
+            rsi50_inversion_exit_enabled=True,
+            extreme_return_exit_enabled=True,
+        )
+        self.assertEqual(result.status, "POSITION_CLOSED")
+        self.assertEqual(provider.close_calls, 1)
+
     def test_m24_reentrada_remove_tp_no_rsi_extremo_e_preserva_posicao(self) -> None:
         scenarios = (("BUY", 71.0), ("SELL", 29.0))
         for side, rsi in scenarios:

@@ -1146,6 +1146,60 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertEqual(mt5.last_request["action"], mt5.TRADE_ACTION_DEAL)
         self.assertEqual(mt5.last_request["tp"], 0.0)
 
+    def test_m24_continuation_envia_mercado_sem_tp_e_com_papel_no_comentario(self) -> None:
+        mt5 = _FakeMT5()
+        mt5.tick = SimpleNamespace(ask=120.02, bid=120.00)
+        provider = self._provider(mt5)
+
+        result = provider.submit_order(self._m24_order("CONTINUATION"))
+
+        self.assertTrue(result.accepted)
+        self.assertEqual(mt5.last_request["action"], mt5.TRADE_ACTION_DEAL)
+        self.assertEqual(mt5.last_request["tp"], 0.0)
+        self.assertEqual(mt5.last_request["comment"], "TraderIA M24 CONTINUATION")
+
+    def test_m24_continuation_confirma_somente_saida_reentry_por_tp(self) -> None:
+        mt5 = _FakeMT5()
+        mt5.history_deals = [
+            SimpleNamespace(
+                symbol="XAUUSD",
+                reason=mt5.DEAL_REASON_TP,
+                entry=mt5.DEAL_ENTRY_OUT,
+                type=mt5.DEAL_TYPE_SELL,
+                price=3500.0,
+                comment="TraderIA M24 REENTRY",
+                magic=0,
+            )
+        ]
+        provider = self._provider(mt5)
+
+        confirmed = provider.model24_reentry_target_exit_confirmed(
+            symbol="XAUUSD",
+            side="BUY",
+            target_price=3500.0,
+            since="2026-08-19T10:00:00+00:00",
+        )
+        mt5.history_deals[0].reason = 999
+        rejected = provider.model24_reentry_target_exit_confirmed(
+            symbol="XAUUSD",
+            side="BUY",
+            target_price=3500.0,
+            since="2026-08-19T10:00:00+00:00",
+        )
+        mt5.history_deals[0].reason = mt5.DEAL_REASON_TP
+        mt5.history_deals[0].comment = "TraderIA M25 REENTRY"
+        mt5.history_deals[0].magic = provider.magic
+        wrong_model = provider.model24_reentry_target_exit_confirmed(
+            symbol="XAUUSD",
+            side="BUY",
+            target_price=3500.0,
+            since="2026-08-19T10:00:00+00:00",
+        )
+
+        self.assertTrue(confirmed)
+        self.assertFalse(rejected)
+        self.assertFalse(wrong_model)
+
     def test_m24_limita_uma_posicao_por_papel(self) -> None:
         open_initial = SimpleNamespace(
             ticket=24001,
@@ -1180,6 +1234,21 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
 
         self.assertIsNotNone(blocked)
         self.assertIn("posicao reentrada aberta", blocked.message)
+
+    def test_m24_limita_uma_continuation_posicionada(self) -> None:
+        open_continuation = SimpleNamespace(
+            ticket=24007,
+            symbol="XAUUSD",
+            comment="TraderIA M24 CONTINUATION",
+        )
+        provider = self._provider(_FakeMT5(open_positions=[open_continuation]))
+
+        blocked = provider._open_position_model_limit_preflight(
+            self._m24_order("CONTINUATION"),
+        )
+
+        self.assertIsNotNone(blocked)
+        self.assertIn("posicao continuacao aberta", blocked.message)
 
     def test_m24_libera_nova_reentrada_depois_da_anterior_encerrar(self) -> None:
         open_reentry = SimpleNamespace(
@@ -1301,11 +1370,14 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
             target=0.0,
             operational_model=model24_variant_id(source_model),
             plan_snapshot={
+                "candle_time": "2099-08-19T12:00:00+00:00",
+                "indicator_source": "MT5_NATIVE",
+                "indicator_closed_candle_time": "2099-08-19T12:00:00+00:00",
                 "stop_management_parameters": {
                     "source_operational_model": source_model,
                     "active_entry_order_type": (
                         "MARKET"
-                        if role == "INITIAL"
+                        if role in {"INITIAL", "CONTINUATION"}
                         else f"{normalized_side}_STOP"
                     ),
                     "m24_entry_role": role,
@@ -1796,6 +1868,11 @@ class _FakeMT5:
     TRADE_ACTION_PENDING = 7
     TRADE_ACTION_REMOVE = 8
     TRADE_RETCODE_DONE = 10009
+    DEAL_ENTRY_OUT = 10
+    DEAL_ENTRY_OUT_BY = 11
+    DEAL_REASON_TP = 20
+    DEAL_TYPE_BUY = 30
+    DEAL_TYPE_SELL = 31
     TIMEFRAME_M1 = 1
 
     def __init__(self, trade_mode: int = 0, open_positions=None) -> None:
@@ -1812,6 +1889,7 @@ class _FakeMT5:
         self.pending_orders = []
         self.requests = []
         self.profit_scale = 1.0
+        self.history_deals = []
 
     def initialize(self):
         self.initialize_calls += 1
@@ -1835,6 +1913,10 @@ class _FakeMT5:
 
     def orders_get(self, symbol: str | None = None):
         return self.pending_orders
+
+    def history_deals_get(self, start: datetime, end: datetime):
+        del start, end
+        return self.history_deals
 
     def copy_rates_from_pos(
         self,

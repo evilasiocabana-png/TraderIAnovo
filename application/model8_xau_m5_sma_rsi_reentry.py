@@ -449,6 +449,7 @@ def evaluate_model8_exit(
     reentry_position: bool = False,
     sma_inversion_exit_enabled: bool = True,
     rsi50_inversion_exit_enabled: bool = False,
+    extreme_return_exit_enabled: bool = False,
 ) -> Model8ExitDecision:
     """Avalia Full Exit por SMA20/50 e RSI, conforme o contrato da posicao."""
     rows = list(candles or ())[-MODEL_8_LOOKBACK_CANDLES :]
@@ -516,6 +517,22 @@ def evaluate_model8_exit(
             extreme_armed=bool(extreme_armed),
             **common,
         )
+
+    if extreme_return_exit_enabled:
+        returned_from_buy_extreme = normalized_side == "BUY" and rsi14 < 70.0
+        returned_from_sell_extreme = normalized_side == "SELL" and rsi14 > 30.0
+        if returned_from_buy_extreme or returned_from_sell_extreme:
+            level = "70_PARA_BAIXO_BUY" if returned_from_buy_extreme else "30_PARA_CIMA_SELL"
+            return Model8ExitDecision(
+                action="FULL_EXIT",
+                status=f"M24_CONTINUATION_EXIT_RSI_{level}",
+                reason=(
+                    "CONTINUATION perdeu o RSI extremo exigido; encerrar "
+                    "integralmente mesmo apos reinicio ou candle nao observado."
+                ),
+                extreme_armed=False,
+                **common,
+            )
 
     if rsi50_inversion_exit_enabled:
         buy_crossed_down = (

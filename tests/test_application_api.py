@@ -365,10 +365,14 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                       'has_open_position_for_model': "(self, symbol: 'str', "
                                                                      "operational_model: 'str') -> "
                                                                      "'bool'",
-                                      'list_audit_log': '(self) -> '
-                                                        "'list[DemoExecutionAuditRecord]'",
-                                      'list_open_positions': "(self) -> 'list[object]'",
-                                      'modify_position_sl': "(self, symbol: 'str', ticket: 'int', "
+                                       'list_audit_log': '(self) -> '
+                                                         "'list[DemoExecutionAuditRecord]'",
+                                       'list_open_positions': "(self) -> 'list[object]'",
+                                       'model24_reentry_target_exit_confirmed': "(self, *, symbol: 'str', "
+                                                                                 "side: 'str', "
+                                                                                 "target_price: 'float', "
+                                                                                 "since: 'str') -> 'bool'",
+                                       'modify_position_sl': "(self, symbol: 'str', ticket: 'int', "
                                                             "new_stop: 'float') -> 'object'",
                                       'prepare_order': "(self, strategy_signal: 'StrategySignal', "
                                                        "market_snapshot: 'MarketSnapshot', "

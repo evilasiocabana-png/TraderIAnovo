@@ -1,6 +1,6 @@
 # Next Mission
 
-`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+`M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
 
 Proxima missao recomendada, ainda nao autorizada automaticamente:
 
@@ -22,22 +22,26 @@ limitado as fontes do M23 foi removido; a observacao deve confirmar a
 reconciliacao viva das 201 velas M5 nos 19 ativos.
 
 O relatorio operacional tambem passou a expor o papel da entrada M24
-(`PRINCIPAL` ou `REENTRADA`) antes do alvo.
+(`PRINCIPAL`, `REENTRADA` ou `CONTINUAÇÃO`) antes do alvo.
 
-O contrato atual possui entrada inicial a mercado apos o cruzamento do preco
-na SMA20, com o RSI14 atual do mesmo lado de 50; nao exige cruzamento do RSI nem
-micro-pivo inicial. O SL nasce no extremo do candle do cruzamento mais um pip e,
+O contrato atual possui entrada inicial a mercado somente depois de novos
+cruzamentos do preco/SMA20 e RSI14/50 na mesma direcao. Eles podem ocorrer em
+M5 diferentes, mas ambos devem permanecer validos e a distancia atual deve ser
+`>= 0,25 ATR`; nao exige micro-pivo inicial. O SL nasce no extremo do candle
+do cruzamento do preco mais um pip e,
 apos dois fechamentos favoraveis, acompanha a SMA20 somente a favor. A
 reentrada e uma ordem Stop atualizada a cada M5, com SL e TP baseados no
 micro-pivo 1+1 mais recente.
 
 A observacao deve confirmar que nenhuma posicao M24 fecha por inversao
-SMA20/SMA50 e que tanto `INITIAL` quanto `REENTRY` fecham na inversao RSI50 e
-no retorno RSI 70/30, alem de SL e cesta.
+SMA20/SMA50 e que `INITIAL`, `REENTRY` e `CONTINUATION` preservam as saidas
+RSI e de cesta. A primeira reentrada valida apos Full Exit RSI 70/30 nao e
+mais descartada.
 
-A auditoria paper/demo deve confirmar tambem que, apos Full Exit RSI 70/30, a
-primeira reentrada do mesmo lado fica bloqueada e apenas a segunda oportunidade
-em nova vela M5 e liberada, simetricamente para BUY e SELL.
+Tambem deve confirmar a nova `CONTINUATION`: somente depois do historico MT5
+confirmar que a `REENTRY` zerou pelo TP estrutural, entra a mercado com `0,40`
+lote se o preco continuar alem do alvo e o RSI permanecer extremo (`BUY > 70`,
+`SELL < 30`), usa SL no pivo 1+1 anterior e faz Full Exit no retorno de 70/30.
 
 Pendencia registrada em 2026-07-13:
 

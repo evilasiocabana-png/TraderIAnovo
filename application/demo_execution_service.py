@@ -47,6 +47,16 @@ class DemoExecutionProvider(Protocol):
     def list_open_positions(self) -> list[object]:
         """Lista posicoes abertas quando o provider suportar."""
 
+    def model24_reentry_target_exit_confirmed(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        target_price: float,
+        since: str,
+    ) -> bool:
+        """Confirma no historico se uma REENTRY M24 encerrou pelo TP."""
+
     def get_current_price(self, symbol: str) -> float | None:
         """Retorna preco atual usado para acompanhar posicao aberta."""
 
@@ -169,6 +179,17 @@ class DisabledDemoExecutionProvider:
 
     def list_open_positions(self) -> list[object]:
         return []
+
+    def model24_reentry_target_exit_confirmed(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        target_price: float,
+        since: str,
+    ) -> bool:
+        """Provider desabilitado nunca confirma o fechamento por TP."""
+        return False
 
     def get_current_price(self, symbol: str) -> float | None:
         return None
@@ -321,6 +342,34 @@ class DemoExecutionService:
         if callable(list_positions):
             return list(list_positions() or [])
         return []
+
+    def model24_reentry_target_exit_confirmed(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        target_price: float,
+        since: str,
+    ) -> bool:
+        """Consulta read-only e falha fechado quando o provider nao suportar."""
+        checker = getattr(
+            self.provider,
+            "model24_reentry_target_exit_confirmed",
+            None,
+        )
+        if not callable(checker):
+            return False
+        try:
+            return bool(
+                checker(
+                    symbol=symbol,
+                    side=side,
+                    target_price=target_price,
+                    since=since,
+                )
+            )
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return False
 
     def get_current_price(self, symbol: str) -> float | None:
         """Consulta preco atual pelo provider demo."""

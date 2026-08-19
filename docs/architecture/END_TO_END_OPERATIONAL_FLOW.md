@@ -1,6 +1,6 @@
 # TraderIA Novo - Fluxo Operacional E Relacoes De Ponta A Ponta
 
-`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+`M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
 
 ## Rota autonoma M24
 
@@ -8,6 +8,10 @@ O M24 e calculado uma unica vez por ciclo sobre o cache `XAUUSD/M5`. Seu
 contrato executavel fica em `application/model24_setup_contract.py`; o plano,
 a interface e o estado persistido carregam a mesma versao/fingerprint. IDs de
 fontes antigas sao somente compatibilidade historica e nao multiplicam o setup.
+Apos o TP confirmado de uma `REENTRY`, o mesmo ciclo pode publicar uma
+`CONTINUATION` a mercado com `0,40` lote quando preco e RSI extremo confirmam a
+continuidade. O watch e persistente, consumido no aceite e falha fechado sem a
+confirmacao read-only do historico MT5.
 
 ## Rota Combinavel M23
 

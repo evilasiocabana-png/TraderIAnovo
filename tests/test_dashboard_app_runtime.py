@@ -2839,12 +2839,24 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 },
             }
         )
+        continuation = SimpleNamespace(
+            **{
+                **vars(principal),
+                "plan_snapshot": {
+                    "stop_management_parameters": {
+                        "m24_entry_role": "CONTINUATION"
+                    }
+                },
+            }
+        )
 
         principal_view = dashboard_app._mt5_open_trade_compact_row(principal)
         reentrada_view = dashboard_app._mt5_open_trade_compact_row(reentrada)
+        continuation_view = dashboard_app._mt5_open_trade_compact_row(continuation)
 
         self.assertEqual(principal_view["Tipo de entrada"], "PRINCIPAL")
         self.assertEqual(reentrada_view["Tipo de entrada"], "REENTRADA")
+        self.assertEqual(continuation_view["Tipo de entrada"], "CONTINUAÇÃO")
         columns = list(principal_view)
         self.assertEqual(
             columns.index("Tipo de entrada") + 1,

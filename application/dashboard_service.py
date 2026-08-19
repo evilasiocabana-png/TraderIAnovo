@@ -137,6 +137,7 @@ from application.model24_xau_basket import (
     MODEL_24_EXIT_POLICY,
     MODEL_24_DISTANCE_ATR_MIN,
     MODEL_24_FULL_EXIT_USD,
+    MODEL_24_CONTINUATION_VOLUME,
     MODEL_24_INITIAL_VOLUME,
     MODEL_24_REENTRY_VOLUME,
     MODEL_24_RUNTIME_SOURCE,
@@ -146,11 +147,16 @@ from application.model24_xau_basket import (
     MODEL_24_ID as MT5_OPERATIONAL_MODEL_24,
     MODEL_24_SOURCE_MODEL_IDS,
     Model24BasketManager,
+    evaluate_model24_continuation,
     evaluate_model24_pending_reentry,
     evaluate_model24_reentry_opportunity,
     evaluate_model24_rsi50_market_entry,
     is_model24,
+    mark_model24_continuation_accepted,
+    mark_model24_continuation_target_exit_confirmed,
     mark_model24_market_entry_accepted,
+    mark_model24_reentry_target_armed,
+    model24_continuation_watch,
     model24_market_entry_role,
 )
 from application.model25_multi_asset_rsi50_basket import (
@@ -7259,11 +7265,34 @@ class DashboardService:
                         return status_view
                     if candidate_is_m24 and result.status == "EXECUTED":
                         parameters = dict(model_plan.stop_management_parameters or {})
-                        if str(parameters.get("m24_entry_role") or "").upper() in {
-                            "INITIAL",
-                            "REENTRY",
-                        } and str(parameters.get("active_entry_order_type") or "").upper() == "MARKET":
+                        accepted_role = str(
+                            parameters.get("m24_entry_role") or ""
+                        ).upper()
+                        accepted_order_type = str(
+                            parameters.get("active_entry_order_type") or ""
+                        ).upper()
+                        if accepted_role == "INITIAL" and accepted_order_type == "MARKET":
                             mark_model24_market_entry_accepted(
+                                parameters.get("source_operational_model"),
+                                model_plan.direction,
+                                signal_candle_time,
+                            )
+                        elif accepted_role == "REENTRY" and accepted_order_type in {
+                            "BUY_STOP",
+                            "SELL_STOP",
+                        }:
+                            mark_model24_reentry_target_armed(
+                                parameters.get("source_operational_model"),
+                                model_plan.direction,
+                                model_plan.target,
+                                parameters.get("m24_structural_target_time"),
+                                signal_candle_time,
+                            )
+                        elif (
+                            accepted_role == "CONTINUATION"
+                            and accepted_order_type == "MARKET"
+                        ):
+                            mark_model24_continuation_accepted(
                                 parameters.get("source_operational_model"),
                                 model_plan.direction,
                                 signal_candle_time,
@@ -8008,9 +8037,46 @@ class DashboardService:
         ]
         initial = evaluate_model24_rsi50_market_entry(rows, entry_role="INITIAL")
         reentry = evaluate_model24_pending_reentry(rows)
+        continuation_watch = model24_continuation_watch(source)
+        continuation_target_exit_confirmed = bool(
+            continuation_watch.get("target_exit_confirmed")
+        )
+        confirmation_reader = getattr(
+            getattr(self, "demo_robot_execution_service", None),
+            "model24_reentry_target_exit_confirmed",
+            None,
+        )
+        if (
+            continuation_watch
+            and not continuation_target_exit_confirmed
+            and callable(confirmation_reader)
+        ):
+            continuation_target_exit_confirmed = bool(
+                confirmation_reader(
+                    symbol=MODEL_8_SYMBOL,
+                    side=str(continuation_watch.get("side") or ""),
+                    target_price=float(
+                        continuation_watch.get("target_price") or 0.0
+                    ),
+                    since=str(continuation_watch.get("armed_at") or ""),
+                )
+            )
+            if continuation_target_exit_confirmed:
+                mark_model24_continuation_target_exit_confirmed(
+                    source,
+                    continuation_watch.get("side"),
+                    continuation_watch.get("target_price"),
+                )
+        continuation = evaluate_model24_continuation(
+            rows,
+            watch=continuation_watch,
+            target_exit_confirmed=continuation_target_exit_confirmed,
+        )
         crossing_side = (
             initial.direction
-            if initial.direction in {"BUY", "SELL"}
+            if initial.ready
+            else continuation.direction
+            if continuation.ready
             else reentry.direction
             if reentry.direction in {"BUY", "SELL"}
             else "WAIT"
@@ -8020,11 +8086,21 @@ class DashboardService:
             if crossing_side in {"BUY", "SELL"}
             else "INITIAL"
         )
-        entry_decision = initial if role == "INITIAL" else reentry
+        if continuation.ready and role == "REENTRY":
+            role = "CONTINUATION"
+        entry_decision = (
+            initial
+            if role == "INITIAL"
+            else continuation
+            if role == "CONTINUATION"
+            else reentry
+        )
         filter_reason = (
             "M24_REENTRY_PRECO_SMA20_E_RSI50_SEM_NOVO_CRUZAMENTO"
             if role == "REENTRY"
-            else "M24_DISTANCE_ATR_ONLY"
+            else "M24_CONTINUATION_TP_CONFIRMADO_PRECO_RSI_EXTREMO"
+            if role == "CONTINUATION"
+            else "M24_CRUZAMENTOS_PRECO_RSI_E_DISTANCIA_ATR"
         )
 
         source_parameters = {
@@ -8038,6 +8114,7 @@ class DashboardService:
         }
         use_market = role == "INITIAL" and entry_decision.ready
         use_structural = role == "REENTRY" and entry_decision.ready
+        use_continuation = role == "CONTINUATION" and entry_decision.ready
         if use_market:
             direction = entry_decision.direction
             entry = float(entry_decision.entry_price or 0.0)
@@ -8052,6 +8129,14 @@ class DashboardService:
             stop = float(entry_decision.initial_stop or 0.0)
             active_order_type = "BUY_STOP" if direction == "BUY" else "SELL_STOP"
             entry_role = "REENTRY"
+            reason = entry_decision.reason
+            candle_time = entry_decision.closed_candle_time
+        elif use_continuation:
+            direction = entry_decision.direction
+            entry = float(entry_decision.entry_price or 0.0)
+            stop = float(entry_decision.initial_stop or 0.0)
+            active_order_type = "MARKET"
+            entry_role = "CONTINUATION"
             reason = entry_decision.reason
             candle_time = entry_decision.closed_candle_time
         else:
@@ -8101,6 +8186,7 @@ class DashboardService:
 
         risk = abs(entry - stop)
         is_reentry = entry_role in {"REENTRY", "STRUCTURAL_REENTRY"}
+        is_continuation = entry_role == "CONTINUATION"
         structural_target = (
             float(entry_decision.structural_target_price or 0.0)
             if is_reentry
@@ -8224,23 +8310,33 @@ class DashboardService:
             "m24_entry_role": entry_role,
             "m24_initial_volume": MODEL_24_INITIAL_VOLUME,
             "m24_reentry_volume": MODEL_24_REENTRY_VOLUME,
+            "m24_continuation_volume": MODEL_24_CONTINUATION_VOLUME,
             "execution_volume": (
                 MODEL_24_INITIAL_VOLUME
                 if entry_role == "INITIAL"
+                else MODEL_24_CONTINUATION_VOLUME
+                if is_continuation
                 else MODEL_24_REENTRY_VOLUME
             ),
             "m24_reentry_position": is_reentry,
+            "m24_continuation_position": is_continuation,
             "m24_micro_pivot_stop_enabled": is_reentry,
             "m24_initial_micro_pivot_trailing_enabled": False,
-            "m24_initial_sma20_trailing_enabled": not is_reentry,
+            "m24_initial_sma20_trailing_enabled": (
+                entry_role == "INITIAL"
+            ),
             "m24_initial_stop_source": (
                 MODEL_24_SETUP.initial_stop_source
-                if not is_reentry
+                if entry_role == "INITIAL"
+                else MODEL_24_SETUP.continuation_stop_source
+                if is_continuation
                 else MODEL_24_SETUP.reentry_stop_source
             ),
             "m24_stop_source": (
                 MODEL_24_SETUP.initial_stop_source
-                if not is_reentry
+                if entry_role == "INITIAL"
+                else MODEL_24_SETUP.continuation_stop_source
+                if is_continuation
                 else MODEL_24_SETUP.reentry_stop_source
             ),
             "m24_initial_trailing_source": MODEL_24_SETUP.initial_trailing_source,
@@ -8261,6 +8357,14 @@ class DashboardService:
             ),
             "m24_previous_candle_trailing_enabled": False,
             "m24_individual_target_enabled": structural_target_valid,
+            "m24_continuation_target_exit_confirmed": (
+                continuation_target_exit_confirmed if is_continuation else False
+            ),
+            "m24_continuation_source_target": (
+                continuation_watch.get("target_price")
+                if is_continuation
+                else None
+            ),
             "m24_filter_status": filter_reason,
             "m24_reentry_gate_status": (
                 reentry_gate.status if reentry_gate is not None else "N/A"
@@ -8293,13 +8397,17 @@ class DashboardService:
                 "SL no extremo do candle M5 que cruzou a SMA20, com margem de 1 pip."
                 if entry_role == "INITIAL"
                 else (
+                    "SL da CONTINUATION um pip alem do fundo/topo anterior 1+1."
+                )
+                if is_continuation
+                else (
                     "SL da reentrada um pip alem do micro-pivo M5 confirmado 1+1."
                 )
             ),
             target_reason=(
                 "TP da reentrada no topo/fundo anterior ao inicio da correcao."
                 if structural_target_valid
-                else "Entrada inicial sem TP individual; cesta M24 zera em +US$1.000."
+                else "INITIAL/CONTINUATION sem TP individual; cesta M24 zera em +US$1.000."
             ),
             stop_management=MODEL_24_EXIT_POLICY,
             stop_management_parameters=parameters,

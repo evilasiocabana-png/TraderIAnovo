@@ -10,6 +10,7 @@ from application.model24_setup_contract import (
 )
 from application.model24_xau_basket import (
     MODEL_24_DISTANCE_ATR_MIN,
+    MODEL_24_CONTINUATION_VOLUME,
     MODEL_24_FULL_EXIT_USD,
     MODEL_24_INITIAL_VOLUME,
     MODEL_24_PIP_SIZE,
@@ -41,6 +42,7 @@ def test_m24_exported_constants_come_from_canonical_contract() -> None:
     assert MODEL_24_PIP_SIZE == MODEL_24_SETUP.pip_size
     assert MODEL_24_INITIAL_VOLUME == MODEL_24_SETUP.initial_volume
     assert MODEL_24_REENTRY_VOLUME == MODEL_24_SETUP.reentry_volume
+    assert MODEL_24_CONTINUATION_VOLUME == MODEL_24_SETUP.continuation_volume == 0.40
     assert MODEL_24_FULL_EXIT_USD == MODEL_24_SETUP.basket_full_exit_usd
 
 
@@ -49,10 +51,14 @@ def test_m24_public_text_is_derived_from_current_rules() -> None:
     public_text = " ".join(fields.values()).lower()
 
     assert MODEL_24_SETUP.version in fields["Contrato"]
-    assert "sem exigir novo cruzamento do rsi" in public_text
+    assert MODEL_24_SETUP.initial_requires_rsi_cross
+    assert MODEL_24_SETUP.initial_crosses_may_be_asynchronous
+    assert "preco cruza sma20 e rsi14 cruza 50" in public_text
+    assert "podem ocorrer em m5 diferentes" in public_text
     assert "dois fechamentos favoraveis" in public_text
     assert "micro-pivo 1+1" in public_text
-    assert "initial e reentry saem" in public_text
+    assert "initial, reentry e continuation saem" in public_text
+    assert "sem descarte da primeira reentrada" in public_text
     assert "topo/fundo principal 2+2" not in public_text
 
 

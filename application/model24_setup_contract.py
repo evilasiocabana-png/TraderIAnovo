@@ -30,7 +30,9 @@ class Model24SetupContract:
     pip_size: float
     initial_volume: float
     reentry_volume: float
+    continuation_volume: float
     initial_requires_rsi_cross: bool
+    initial_crosses_may_be_asynchronous: bool
     initial_requires_micro_pivot: bool
     initial_stop_source: str
     initial_trailing_source: str
@@ -43,14 +45,22 @@ class Model24SetupContract:
     reentry_stop_source: str
     reentry_target_source: str
     reentry_target_required: bool
+    continuation_enabled: bool
+    continuation_requires_reentry_target_exit: bool
+    continuation_buy_rsi_min: float
+    continuation_sell_rsi_max: float
+    continuation_stop_source: str
+    continuation_individual_target: bool
     rsi50_exit_initial: bool
     rsi50_exit_reentry: bool
+    rsi50_exit_continuation: bool
     rsi_extreme_exit: bool
     sma20_sma50_exit: bool
     skip_first_reentry_after_extreme: bool
     basket_full_exit_usd: float
     max_open_initial: int
     max_open_reentry: int
+    max_open_continuation: int
 
     def payload(self) -> dict[str, object]:
         return asdict(self)
@@ -71,7 +81,7 @@ class Model24SetupContract:
 
 
 MODEL_24_SETUP = Model24SetupContract(
-    version="M24_SETUP_V1_20260819",
+    version="M24_SETUP_V3_20260819",
     model_id="MODELO_24_XAU_RSI50_BASKET",
     runtime_source="M24_PROPRIO",
     symbol="XAUUSD",
@@ -87,7 +97,9 @@ MODEL_24_SETUP = Model24SetupContract(
     pip_size=0.01,
     initial_volume=0.30,
     reentry_volume=0.20,
-    initial_requires_rsi_cross=False,
+    continuation_volume=0.40,
+    initial_requires_rsi_cross=True,
+    initial_crosses_may_be_asynchronous=True,
     initial_requires_micro_pivot=False,
     initial_stop_source="SMA20_PRICE_CROSS_CANDLE_EXTREME_PLUS_1_PIP",
     initial_trailing_source="SMA20_AFTER_TWO_FAVORABLE_CLOSES",
@@ -100,14 +112,22 @@ MODEL_24_SETUP = Model24SetupContract(
     reentry_stop_source="LATEST_MICRO_PIVOT_1X1_PLUS_1_PIP",
     reentry_target_source="LATEST_PROFITABLE_MICRO_PIVOT_1X1_CLOSE",
     reentry_target_required=True,
+    continuation_enabled=True,
+    continuation_requires_reentry_target_exit=True,
+    continuation_buy_rsi_min=70.0,
+    continuation_sell_rsi_max=30.0,
+    continuation_stop_source="LATEST_MICRO_PIVOT_1X1_PLUS_1_PIP",
+    continuation_individual_target=False,
     rsi50_exit_initial=True,
     rsi50_exit_reentry=True,
+    rsi50_exit_continuation=True,
     rsi_extreme_exit=True,
     sma20_sma50_exit=False,
-    skip_first_reentry_after_extreme=True,
+    skip_first_reentry_after_extreme=False,
     basket_full_exit_usd=1000.0,
     max_open_initial=1,
     max_open_reentry=1,
+    max_open_continuation=1,
 )
 
 MODEL_24_SETUP_CONTRACT_VERSION = MODEL_24_SETUP.version
@@ -120,8 +140,9 @@ def model24_public_setup_fields() -> dict[str, str]:
     return {
         "Contrato": f"{setup.version} | {setup.fingerprint[:12]}",
         "Entrada inicial": (
-            "preco cruza SMA20 e permanece do lado; RSI14 atual confirma o "
-            "mesmo lado de 50, sem exigir novo cruzamento do RSI"
+            "preco cruza SMA20 e RSI14 cruza 50 na mesma direcao; os eventos "
+            "podem ocorrer em M5 diferentes, mas ambos devem existir e "
+            "permanecer validos"
         ),
         "Confirmacao inicial": (
             "ultimo M5 fechado + |SMA20-SMA50| / ATR14 >= 0,25"
@@ -143,16 +164,21 @@ def model24_public_setup_fields() -> dict[str, str]:
         ),
         "TP individual": (
             "inicial sem TP; reentrada exige o fechamento lucrativo do "
-            "microtopo/microfundo 1+1 mais recente"
+            "microtopo/microfundo 1+1 mais recente; CONTINUATION sem TP"
+        ),
+        "Continuacao": (
+            "apos a REENTRY zerar no TP confirmado: BUY a mercado se o preco "
+            "continuar acima do alvo e RSI14>70, SELL espelhado com RSI14<30; "
+            "SL 1 pip alem do micro-pivo 1+1 anterior"
         ),
         "Saida individual": (
-            "INITIAL e REENTRY saem na inversao RSI50 ou no retorno RSI 70/30; "
-            "nenhuma sai por inversao SMA20/SMA50"
+            "INITIAL, REENTRY e CONTINUATION saem na inversao RSI50 ou no "
+            "retorno RSI 70/30; nenhuma sai por inversao SMA20/SMA50"
         ),
-        "Volumes": "INITIAL 0,30 | REENTRY 0,20",
+        "Volumes": "INITIAL 0,30 | REENTRY 0,20 | CONTINUATION 0,40",
         "Limite": (
-            "maximo 1 INITIAL e 1 REENTRY; varias reentradas sequenciais, "
-            "nunca duas REENTRY abertas"
+            "maximo 1 INITIAL, 1 REENTRY e 1 CONTINUATION; sem descarte da "
+            "primeira reentrada apos saida RSI 70/30"
         ),
         "Cesta": "somente M24; Full Exit liquido em +US$1.000",
     }

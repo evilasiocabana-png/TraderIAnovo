@@ -30,7 +30,8 @@ as alteracoes nao voltem a se perder ou divergir.
 - constantes, avaliadores, Position Manager, Trade Plan e tabela publica
   consomem o mesmo contrato;
 - novas gravacoes do plano e runtime carregam versao/fingerprint;
-- estado legado com `<memory at 0x...>` e sanitizado conservadoramente;
+- estado legado com `<memory at 0x...>` e sanitizado conservadoramente e
+  regravado imediatamente com versao/fingerprint;
 - documentos ativos declaram marker exato e teste impede drift;
 - log historico foi preservado e o status vigente passou a prevalecer de forma
   explicita;
@@ -45,6 +46,10 @@ as alteracoes nao voltem a se perder ou divergir.
 - `scripts/architecture_audit.py`: `OK`;
 - `scripts/architecture_health.py`: `CRITICO` somente pelo debito preexistente
   de UI desacoplada, com drift classificado como informativo;
+- validacao operacional read-only em 2026-08-19: M24 selecionado, robo em
+  `ARMED_WAITING`, Pepperstone-Demo `61551556` conectada e Expert permitido;
+- estado atual `M24_REENTRY_AGUARDA_CORRECAO_M5`: espera valida do setup, sem
+  posicao aberta nem ordem pendente M24;
 - nenhuma ordem MT5 foi aberta, fechada, cancelada ou modificada.
 
 ## Contrato vigente

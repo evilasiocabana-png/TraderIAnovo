@@ -29,6 +29,7 @@ MODEL_24_EXIT_POLICY = "M24_SOURCE_EXIT_PLUS_BASKET_1000"
 MODEL_24_FULL_EXIT_USD = MODEL_24_SETUP.basket_full_exit_usd
 MODEL_24_INITIAL_VOLUME = MODEL_24_SETUP.initial_volume
 MODEL_24_REENTRY_VOLUME = MODEL_24_SETUP.reentry_volume
+MODEL_24_CONTINUATION_VOLUME = MODEL_24_SETUP.continuation_volume
 MODEL_24_PIP_SIZE = MODEL_24_SETUP.pip_size
 MODEL_24_ATR_PERIOD = MODEL_24_SETUP.atr_period
 MODEL_24_DISTANCE_ATR_MIN = MODEL_24_SETUP.distance_atr_min
@@ -150,6 +151,15 @@ def mark_model24_market_entry_accepted(
                 "blocked_reentry_opportunity_key",
                 "blocked_reentry_at",
                 "released_reentry_opportunity_key",
+                "continuation_status",
+                "continuation_side",
+                "continuation_target_price",
+                "continuation_target_time",
+                "continuation_armed_candle",
+                "continuation_armed_at",
+                "continuation_consumed_candle",
+                "continuation_consumed_at",
+                "continuation_target_exit_confirmed_at",
             ):
                 state.pop(field_name, None)
         state.update({
@@ -171,6 +181,140 @@ def mark_model24_market_entry_accepted(
         _write_runtime_state(payload)
 
 
+def mark_model24_reentry_target_armed(
+    source_model: object,
+    trend_side: object,
+    target_price: object,
+    target_time: object,
+    candle_time: object,
+) -> None:
+    """Arma a CONTINUATION somente depois do aceite da REENTRY com TP."""
+    source = _model24_source_key(source_model)
+    side = str(trend_side or "").upper()
+    try:
+        target = float(target_price)
+    except (TypeError, ValueError):
+        return
+    if side not in {"BUY", "SELL"} or target <= 0.0:
+        return
+    with _LOCK:
+        payload = _load_runtime_state()
+        sources = dict(payload.get("sources") or {})
+        state = dict(sources.get(source) or {})
+        state.update(
+            {
+                "continuation_status": "WAITING_REENTRY_TARGET_EXIT",
+                "continuation_side": side,
+                "continuation_target_price": target,
+                "continuation_target_time": str(target_time or "N/D"),
+                "continuation_armed_candle": str(candle_time or "N/D"),
+                "continuation_armed_at": datetime.now(timezone.utc).isoformat(),
+                "continuation_target_exit_confirmed_at": "",
+                "continuation_consumed_candle": "",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        sources[source] = state
+        payload["sources"] = sources
+        _write_runtime_state(payload)
+
+
+def model24_continuation_watch(source_model: object) -> dict[str, Any]:
+    """Retorna uma copia do watch de TP que pode liberar CONTINUATION."""
+    source = _model24_source_key(source_model)
+    with _LOCK:
+        payload = _load_runtime_state()
+        state = dict(dict(payload.get("sources") or {}).get(source) or {})
+    status = str(state.get("continuation_status") or "")
+    if status not in {
+        "WAITING_REENTRY_TARGET_EXIT",
+        "REENTRY_TARGET_EXIT_CONFIRMED",
+    }:
+        return {}
+    side = str(state.get("continuation_side") or "").upper()
+    try:
+        target = float(state.get("continuation_target_price") or 0.0)
+    except (TypeError, ValueError):
+        return {}
+    if side not in {"BUY", "SELL"} or target <= 0.0:
+        return {}
+    return {
+        "side": side,
+        "target_price": target,
+        "target_time": str(state.get("continuation_target_time") or "N/D"),
+        "armed_candle": str(state.get("continuation_armed_candle") or "N/D"),
+        "armed_at": str(state.get("continuation_armed_at") or ""),
+        "target_exit_confirmed": status == "REENTRY_TARGET_EXIT_CONFIRMED",
+    }
+
+
+def mark_model24_continuation_target_exit_confirmed(
+    source_model: object,
+    trend_side: object,
+    target_price: object,
+) -> None:
+    """Persiste a confirmacao do TP para nao repetir consultas ao historico."""
+    source = _model24_source_key(source_model)
+    side = str(trend_side or "").upper()
+    try:
+        target = float(target_price)
+    except (TypeError, ValueError):
+        return
+    with _LOCK:
+        payload = _load_runtime_state()
+        sources = dict(payload.get("sources") or {})
+        state = dict(sources.get(source) or {})
+        try:
+            armed_target = float(state.get("continuation_target_price") or 0.0)
+        except (TypeError, ValueError):
+            return
+        if (
+            str(state.get("continuation_status") or "")
+            != "WAITING_REENTRY_TARGET_EXIT"
+            or str(state.get("continuation_side") or "").upper() != side
+            or abs(armed_target - target) > 1e-9
+        ):
+            return
+        state.update(
+            {
+                "continuation_status": "REENTRY_TARGET_EXIT_CONFIRMED",
+                "continuation_target_exit_confirmed_at": datetime.now(
+                    timezone.utc
+                ).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        sources[source] = state
+        payload["sources"] = sources
+        _write_runtime_state(payload)
+
+
+def mark_model24_continuation_accepted(
+    source_model: object,
+    trend_side: object,
+    candle_time: object,
+) -> None:
+    """Consome o watch somente depois do aceite da CONTINUATION a mercado."""
+    source = _model24_source_key(source_model)
+    side = str(trend_side or "").upper()
+    with _LOCK:
+        payload = _load_runtime_state()
+        sources = dict(payload.get("sources") or {})
+        state = dict(sources.get(source) or {})
+        state.update(
+            {
+                "continuation_status": "CONSUMED",
+                "continuation_side": side,
+                "continuation_consumed_candle": str(candle_time or "N/D"),
+                "continuation_consumed_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        sources[source] = state
+        payload["sources"] = sources
+        _write_runtime_state(payload)
+
+
 @dataclass(frozen=True)
 class Model24ReentryGateDecision:
     allowed: bool
@@ -185,7 +329,7 @@ def mark_model24_extreme_full_exit(
     exit_status: object,
     candle_time: object,
 ) -> None:
-    """Arma o descarte da primeira reentrada apos Full Exit RSI 70/30."""
+    """Registra o Full Exit extremo sem bloquear a proxima reentrada."""
     source = _model24_source_key(source_model)
     side = str(trend_side or "").upper()
     event_key = f"{side}|{str(exit_status or '').upper()}|{candle_time or 'N/D'}"
@@ -198,8 +342,9 @@ def mark_model24_extreme_full_exit(
                 {
                     "trend_side": side,
                     "initial_consumed": True,
-                    "skip_first_reentry_after_extreme": True,
+                    "skip_first_reentry_after_extreme": False,
                     "blocked_reentry_opportunity_key": "",
+                    "released_reentry_opportunity_key": "",
                     "last_extreme_exit_event_key": event_key,
                     "last_extreme_exit_status": str(exit_status or "").upper(),
                     "last_extreme_exit_candle": str(candle_time or "N/D"),
@@ -216,7 +361,7 @@ def evaluate_model24_reentry_opportunity(
     trend_side: object,
     opportunity_key: object,
 ) -> Model24ReentryGateDecision:
-    """Ignora a primeira oportunidade unica e libera a segunda apos RSI 70/30."""
+    """Libera toda reentrada valida; a antiga regra de descarte foi removida."""
     source = _model24_source_key(source_model)
     side = str(trend_side or "").upper()
     key = str(opportunity_key or "").strip()
@@ -224,62 +369,25 @@ def evaluate_model24_reentry_opportunity(
         payload = _load_runtime_state()
         sources = dict(payload.get("sources") or {})
         state = dict(sources.get(source) or {})
-        if not bool(state.get("skip_first_reentry_after_extreme")):
-            return Model24ReentryGateDecision(
-                allowed=True,
-                status="M24_REENTRY_SEM_DESCARTE_PENDENTE",
-                reason="Nao existe Full Exit extremo com descarte pendente.",
-            )
-        if str(state.get("trend_side") or "").upper() != side:
-            return Model24ReentryGateDecision(
-                allowed=True,
-                status="M24_REENTRY_NOVA_DIRECAO_LIBERADA",
-                reason="A trava do Full Exit pertence a outra direcao.",
-            )
-        if not key:
-            return Model24ReentryGateDecision(
-                allowed=False,
-                status="M24_REENTRY_AGUARDA_IDENTIFICAR_OPORTUNIDADE",
-                reason="A reentrada aguarda uma vela M5 fechada identificavel.",
-            )
-        blocked_key = str(state.get("blocked_reentry_opportunity_key") or "")
-        if not blocked_key:
+        if bool(state.get("skip_first_reentry_after_extreme")):
             state.update(
                 {
-                    "blocked_reentry_opportunity_key": key,
-                    "blocked_reentry_at": datetime.now(timezone.utc).isoformat(),
+                    "skip_first_reentry_after_extreme": False,
+                    "blocked_reentry_opportunity_key": "",
+                    "released_reentry_opportunity_key": key,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
             sources[source] = state
             payload["sources"] = sources
             _write_runtime_state(payload)
-            blocked_key = key
-        if blocked_key == key:
-            return Model24ReentryGateDecision(
-                allowed=False,
-                status="M24_REENTRY_PRIMEIRA_OPORTUNIDADE_IGNORADA",
-                reason=(
-                    "Primeira oportunidade de reentrada apos Full Exit RSI 70/30 "
-                    "ignorada; aguardar a segunda oportunidade em nova vela M5."
-                ),
-                blocked_opportunity_key=blocked_key,
-            )
-        state.update(
-            {
-                "skip_first_reentry_after_extreme": False,
-                "released_reentry_opportunity_key": key,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
-        )
-        sources[source] = state
-        payload["sources"] = sources
-        _write_runtime_state(payload)
         return Model24ReentryGateDecision(
             allowed=True,
-            status="M24_REENTRY_SEGUNDA_OPORTUNIDADE_LIBERADA",
-            reason="Segunda oportunidade valida apos Full Exit RSI 70/30 liberada.",
-            blocked_opportunity_key=blocked_key,
+            status="M24_REENTRY_LIBERADA_SEM_DESCARTE_POS_EXTREMO",
+            reason=(
+                "Reentrada valida liberada; nao existe descarte automatico da "
+                "primeira oportunidade apos Full Exit RSI 70/30."
+            ),
         )
 
 
@@ -313,6 +421,12 @@ def _load_runtime_state() -> dict[str, Any]:
     if not isinstance(payload, dict):
         return {}
     normalized = dict(payload)
+    needs_rewrite = (
+        str(normalized.get("setup_contract_version") or "")
+        != MODEL_24_SETUP_CONTRACT_VERSION
+        or str(normalized.get("setup_contract_fingerprint") or "")
+        != MODEL_24_SETUP_CONTRACT_FINGERPRINT
+    )
     sources = dict(normalized.get("sources") or {})
     if MODEL_24_RUNTIME_SOURCE not in sources:
         latest_state: dict[str, Any] = {}
@@ -329,9 +443,10 @@ def _load_runtime_state() -> dict[str, Any]:
                 latest_updated_at = candidate_updated_at
         if latest_state:
             sources[MODEL_24_RUNTIME_SOURCE] = latest_state
+            needs_rewrite = True
     # Estados antigos podem conter ``<memory at 0x...>`` quando um registro
     # numpy/MT5 teve o atributo ``.data`` confundido com a data do candle.
-    # Preserva a trava conservadora, mas elimina identidades volateis.
+    # Elimina identidades volateis e remove a trava de reentrada aposentada.
     for source_key, source_value in tuple(sources.items()):
         state = dict(source_value or {})
         extreme_candle = str(state.get("last_extreme_exit_candle") or "")
@@ -340,16 +455,38 @@ def _load_runtime_state() -> dict[str, Any]:
             status = str(state.get("last_extreme_exit_status") or "").upper()
             state["last_extreme_exit_candle"] = "N/D"
             state["last_extreme_exit_event_key"] = f"{side}|{status}|N/D"
+            needs_rewrite = True
         for field_name in ("last_entry_candle",):
             if str(state.get(field_name) or "").startswith("<memory at "):
                 state[field_name] = "N/D"
+                needs_rewrite = True
         blocked_key = str(state.get("blocked_reentry_opportunity_key") or "")
         if "<memory at " in blocked_key:
             state["blocked_reentry_opportunity_key"] = ""
+            needs_rewrite = True
+        if not MODEL_24_SETUP.skip_first_reentry_after_extreme and bool(
+            state.get("skip_first_reentry_after_extreme")
+        ):
+            state["skip_first_reentry_after_extreme"] = False
+            state["blocked_reentry_opportunity_key"] = ""
+            state["released_reentry_opportunity_key"] = ""
+            needs_rewrite = True
         sources[source_key] = state
     if str(normalized.get("last_initial_candle") or "").startswith("<memory at "):
         normalized["last_initial_candle"] = "N/D"
+        needs_rewrite = True
     normalized["sources"] = sources
+    normalized["setup_contract_version"] = MODEL_24_SETUP_CONTRACT_VERSION
+    normalized["setup_contract_fingerprint"] = (
+        MODEL_24_SETUP_CONTRACT_FINGERPRINT
+    )
+    if needs_rewrite:
+        try:
+            _write_runtime_state(normalized)
+        except OSError:
+            # A decisao usa imediatamente o estado sanitizado mesmo se o
+            # Windows/OneDrive bloquear transitoriamente a persistencia.
+            pass
     return normalized
 
 
@@ -375,7 +512,7 @@ def _model24_last_initial_side(payload: dict[str, Any]) -> str:
 class Model24EntryDecision:
     direction: str = "WAIT"
     status: str = "M24_AGUARDA_RSI50"
-    reason: str = "Aguardando cruzamento do preco na SMA20 e confirmacao RSI50."
+    reason: str = "Aguardando novos cruzamentos do preco/SMA20 e RSI14/50."
     closed_candle_time: str = "N/D"
     entry_price: float | None = None
     initial_stop: float | None = None
@@ -410,7 +547,7 @@ def evaluate_model24_rsi50_market_entry(
     require_rsi_cross: bool = MODEL_24_SETUP.initial_requires_rsi_cross,
     initial_stop_from_micro_pivot: bool = MODEL_24_SETUP.initial_requires_micro_pivot,
 ) -> Model24EntryDecision:
-    """Avalia a entrada inicial pelo cruzamento do preco e pelo nivel do RSI."""
+    """Avalia os cruzamentos novos de preco/SMA20 e RSI50 da entrada inicial."""
     rows = list(candles or ())[-MODEL_24_SETUP.raw_candles:]
     normalized_role = str(entry_role or "INITIAL").upper()
     if normalized_role == "REENTRY":
@@ -477,11 +614,12 @@ def evaluate_model24_rsi50_market_entry(
         )
     if cross_side not in {"BUY", "SELL"}:
         return Model24EntryDecision(
-            status="M24_INITIAL_AGUARDA_CRUZAMENTO_PRECO_SMA20_E_NIVEL_RSI50",
+            status="M24_INITIAL_AGUARDA_CRUZAMENTOS_PRECO_SMA20_E_RSI50",
             reason=(
-                "Entrada inicial aguarda o preco cruzar a SMA20 e permanecer "
-                "do lado confirmado pelo RSI14: BUY com RSI>50 ou SELL com "
-                "RSI<50. O RSI nao precisa produzir um novo cruzamento."
+                "Entrada inicial exige novo cruzamento do preco na SMA20 e "
+                "novo cruzamento do RSI14 em 50 na mesma direcao. Podem "
+                "ocorrer em candles M5 diferentes, mas ambos devem existir "
+                "e permanecer validos."
             ),
             **common,
         )
@@ -532,8 +670,9 @@ def evaluate_model24_rsi50_market_entry(
         direction=side,
         status=f"M24_INITIAL_{side}_PRECO_SMA20_RSI50_MERCADO_PRONTA",
         reason=(
-            f"{side} inicial a mercado: preco cruzou a SMA20 e o RSI14 confirma "
-            f"o lado sem exigir novo cruzamento; SL um pip alem do "
+            f"{side} inicial a mercado: preco cruzou a SMA20 e o RSI14 cruzou "
+            f"50 na mesma direcao; eventos nao simultaneos foram mantidos "
+            f"validos. SL um pip alem do "
             f"{stop_reference_label}."
         ),
         entry_price=entry,
@@ -709,6 +848,129 @@ def evaluate_model24_pending_reentry(
         micro_swing_time=micro_swing_time,
         structural_target_price=structural_target,
         structural_target_time=structural_target_time,
+        **common,
+    )
+
+
+def evaluate_model24_continuation(
+    candles: Iterable[object],
+    *,
+    watch: dict[str, Any] | None,
+    target_exit_confirmed: bool,
+    pip_size: float = MODEL_24_PIP_SIZE,
+) -> Model24EntryDecision:
+    """Entrada CONTINUATION apos TP da REENTRY e continuacao em RSI extremo."""
+    rows = list(candles or ())[-MODEL_24_SETUP.raw_candles:]
+    if not MODEL_24_SETUP.continuation_enabled or not watch:
+        return Model24EntryDecision(
+            status="M24_CONTINUATION_SEM_TP_ARMADO",
+            reason="CONTINUATION aguarda uma REENTRY aceita com TP estrutural.",
+        )
+    if len(rows) < MODEL_24_SETUP.raw_candles:
+        return Model24EntryDecision(
+            status=f"M24_CONTINUATION_AQUECENDO_{len(rows)}_CANDLES",
+            reason="CONTINUATION aguarda a janela M5 operacional completa.",
+        )
+    closed = rows[:-1]
+    closes = [_number(row, "close") for row in closed]
+    if any(value is None for value in closes):
+        return Model24EntryDecision(
+            status="M24_CONTINUATION_DADOS_INVALIDOS",
+            reason="CONTINUATION recebeu candle M5 sem fechamento valido.",
+        )
+    side = str(watch.get("side") or "").upper()
+    try:
+        target = float(watch.get("target_price") or 0.0)
+    except (TypeError, ValueError):
+        target = 0.0
+    values = [float(value) for value in closes if value is not None]
+    current_close = values[-1]
+    rsi14 = _wilder_rsi(values, MODEL_24_SETUP.rsi_period)
+    previous_rsi14 = _wilder_rsi(values[:-1], MODEL_24_SETUP.rsi_period)
+    closed_time = _time(closed[-1])
+    common = {
+        "closed_candle_time": closed_time,
+        "rsi14": rsi14,
+        "previous_rsi14": previous_rsi14,
+        "sma20": _sma(values, MODEL_24_SETUP.sma_fast_period),
+        "sma50": _sma(values, MODEL_24_SETUP.sma_slow_period),
+        "atr14": _model24_atr(closed),
+    }
+    if side not in {"BUY", "SELL"} or target <= 0.0:
+        return Model24EntryDecision(
+            status="M24_CONTINUATION_WATCH_INVALIDO",
+            reason="CONTINUATION sem lado ou alvo estrutural auditavel.",
+            **common,
+        )
+    if not target_exit_confirmed:
+        return Model24EntryDecision(
+            direction=side,
+            status="M24_CONTINUATION_AGUARDA_FECHAMENTO_TP_CONFIRMADO",
+            reason=(
+                "CONTINUATION exige confirmacao read-only no historico MT5 de "
+                "que a REENTRY foi zerada pelo TP estrutural."
+            ),
+            **common,
+        )
+    favorable = (
+        current_close > target
+        and rsi14 > MODEL_24_SETUP.continuation_buy_rsi_min
+        if side == "BUY"
+        else current_close < target
+        and rsi14 < MODEL_24_SETUP.continuation_sell_rsi_max
+    )
+    if not favorable:
+        return Model24EntryDecision(
+            direction=side,
+            status="M24_CONTINUATION_AGUARDA_PRECO_E_RSI_EXTREMO",
+            reason=(
+                "BUY CONTINUATION exige preco acima do TP anterior e RSI14>70; "
+                "SELL exige preco abaixo do TP anterior e RSI14<30."
+            ),
+            **common,
+        )
+    micro_swing, micro_swing_time = _latest_micro_swing(
+        closed,
+        side,
+        maximum_age=MODEL_24_SETUP.reentry_micro_pivot_maximum_age,
+    )
+    if micro_swing is None:
+        return Model24EntryDecision(
+            direction=side,
+            status="M24_CONTINUATION_AGUARDA_MICRO_PIVO_1X1",
+            reason="CONTINUATION aguarda fundo/topo anterior confirmado 1+1 para SL.",
+            **common,
+        )
+    normalized_pip_size = max(float(pip_size or MODEL_24_PIP_SIZE), 0.0)
+    stop = (
+        float(micro_swing) - normalized_pip_size
+        if side == "BUY"
+        else float(micro_swing) + normalized_pip_size
+    )
+    valid = stop < current_close if side == "BUY" else stop > current_close
+    if not valid:
+        return Model24EntryDecision(
+            direction=side,
+            status="M24_CONTINUATION_STOP_INVALIDO",
+            reason="Fundo/topo anterior nao produz SL valido para CONTINUATION.",
+            entry_price=current_close,
+            initial_stop=stop,
+            micro_swing_price=float(micro_swing),
+            micro_swing_time=micro_swing_time,
+            **common,
+        )
+    return Model24EntryDecision(
+        direction=side,
+        status=f"M24_CONTINUATION_{side}_RSI_EXTREMO_MERCADO_PRONTA",
+        reason=(
+            f"CONTINUATION {side} a mercado apos TP confirmado da REENTRY: "
+            f"preco continuou alem de {target:.2f}, RSI14={rsi14:.2f} e SL "
+            "ficou um pip alem do fundo/topo anterior 1+1."
+        ),
+        entry_price=current_close,
+        initial_stop=stop,
+        micro_swing_price=float(micro_swing),
+        micro_swing_time=micro_swing_time,
         **common,
     )
 
@@ -970,9 +1232,9 @@ def _model24_reentry_structural_target(
 def _model24_initial_cross_confirmation(
     values: list[float],
     *,
-    require_rsi_cross: bool = False,
+    require_rsi_cross: bool = MODEL_24_SETUP.initial_requires_rsi_cross,
 ) -> tuple[str, int | None, int | None, list[float]]:
-    """Confirma o cruzamento do preco; o cruzamento do RSI e opcional."""
+    """Confirma cruzamentos mantidos, ainda que ocorram em M5 diferentes."""
     rsi_values = [
         _wilder_rsi(values[: index + 1], MODEL_24_SETUP.rsi_period)
         for index in range(len(values))

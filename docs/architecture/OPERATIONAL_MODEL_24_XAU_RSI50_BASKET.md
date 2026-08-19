@@ -1,6 +1,6 @@
 # Modelo Operacional 24 — XAU/M5 RSI50 Basket
 
-`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+`M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
 
 Fonte executavel unica: `application/model24_setup_contract.py`. Em caso de
 divergencia com uma descricao historica, este marker e o contrato executavel
@@ -15,8 +15,8 @@ versionado prevalecem.
 - Ativo/timeframe: `XAUUSD/M5`.
 - As linhas H1 do monitor servem apenas como envelope do ciclo. A rota M24
   normaliza esse envelope para `XAUUSD/M5` antes de calcular o plano.
-- Comentario de novas ordens MT5: `TraderIA M24 INITIAL` ou
-  `TraderIA M24 REENTRY`.
+- Comentario de novas ordens MT5: `TraderIA M24 INITIAL`,
+  `TraderIA M24 REENTRY` ou `TraderIA M24 CONTINUATION`.
 - Estado e auditoria são próprios; M23 nunca compartilha posições, resultado ou arquivo de estado com M24.
 
 ## Entrada inicial
@@ -27,8 +27,12 @@ eventos direcionais tiverem ocorrido e continuarem validos.
 BUY exige:
 
 1. o preco cruzou a SMA20 de baixo para cima e permanece acima dela;
-2. o RSI14 atual esta acima de 50; ele nao precisa produzir novo cruzamento;
+2. o RSI14 produziu novo cruzamento acima de 50 e permanece acima;
 3. a distancia absoluta `abs(SMA20 - SMA50) / ATR14` e pelo menos `0,25`.
+
+Os dois cruzamentos podem ocorrer em candles M5 diferentes. A ordem so e
+liberada quando ambos ja ocorreram na mesma direcao, continuam validos no
+candle fechado atual e a distancia permanece `>= 0,25`.
 
 O M24 calcula diretamente seu proprio setup. Ele nao depende de M8, M10 ou
 M18-M22 e nao herda ADX, inclinacao da SMA50 ou filtros desses modelos.
@@ -55,7 +59,7 @@ protegida separadamente pelos micro-pivos 1+1 com margem de um pip.
 
 A confirmacao do preco, RSI e distancia libera a entrada inicial a mercado.
 A posicao principal nao depende da relacao SMA20/SMA50 nem para entrar nem para
-sair. `INITIAL` e `REENTRY` fazem Full Exit no cruzamento do RSI14 em 50 contra
+sair. `INITIAL`, `REENTRY` e `CONTINUATION` fazem Full Exit no cruzamento do RSI14 em 50 contra
 a posicao e tambem no retorno confirmado de 70 para baixo no BUY ou de 30 para
 cima no SELL, alem do SL individual e do Full Exit financeiro da cesta.
 
@@ -90,6 +94,27 @@ perna vigente usando o estado confirmado no ultimo M5 fechado:
   inicial e para a reentrada;
 - nenhuma posicao M24, inicial ou reentrada, fecha por relacao SMA20/SMA50.
 
+## CONTINUATION apos TP da REENTRY
+
+A `CONTINUATION` somente pode ser armada por uma `REENTRY` aceita com TP
+estrutural. O runtime registra lado, preco e horario do alvo, mas a entrada
+permanece bloqueada ate o historico read-only do MT5 confirmar que a posicao
+foi efetivamente encerrada por `DEAL_REASON_TP` naquele alvo.
+
+Depois dessa confirmacao:
+
+- BUY entra a mercado quando o fechamento continua acima do TP anterior e
+  `RSI14 > 70`;
+- SELL entra a mercado quando o fechamento continua abaixo do TP anterior e
+  `RSI14 < 30`;
+- o SL fica um pip alem do microfundo/microtopo 1+1 confirmado mais recente;
+- nao existe TP individual;
+- o volume e `0,40` lote;
+- BUY faz Full Exit quando o RSI retorna para abaixo de 70; SELL faz Full Exit
+  quando retorna para acima de 30;
+- a regra e simetrica e o watch e consumido somente depois do aceite da ordem
+  a mercado pelo provider Demo.
+
 O M25 reutiliza este contrato nos 19 ativos, mas converte a margem do SL para
 o pip do proprio simbolo. Pares Forex nao JPY usam `0,0001`; pares JPY,
 `XAUUSD` e `BTCUSD` usam `0,01`. Essa conversao vale tanto para a entrada
@@ -99,10 +124,12 @@ pip nunca altera a escolha do alvo.
 
 ## Ordem de precedência
 
-1. entrada inicial a mercado depois do cruzamento do preco na SMA20, com o
-   RSI14 atual ainda do mesmo lado de 50;
-2. reentrada pendente pelo estado atual SMA20/RSI50;
-3. aguardar.
+1. entrada inicial a mercado depois dos cruzamentos do preco/SMA20 e RSI14/50,
+   ainda que ocorram em candles diferentes, desde que ambos continuem validos;
+2. `CONTINUATION` pronta apos TP confirmado da `REENTRY`, continuidade do preco
+   e RSI extremo;
+3. reentrada pendente pelo estado atual SMA20/RSI50;
+4. aguardar.
 
 Depois do aceite da entrada inicial pelo provider Demo, as proximas entradas na
 mesma direcao sao reentradas. A INITIAL e global para o M24 e alterna de lado:
@@ -115,7 +142,7 @@ perna, e vice-versa. O estado e persistido entre ciclos e reinicios.
 - cada rodada pode manter no maximo uma posicao `REENTRY` aberta por vez;
 - depois que a `REENTRY` encerrar, um novo candle e uma nova oportunidade
   valida podem iniciar a rodada seguinte;
-- `INITIAL` e `REENTRY` nunca podem coexistir em direcoes opostas; a nova
+- `INITIAL`, `REENTRY` e `CONTINUATION` nunca podem coexistir em direcoes opostas; a nova
   `INITIAL` aguarda o Position Manager encerrar a perna anterior;
 - ao surgir uma `INITIAL` na direcao oposta, pendencias M24 do lado anterior
   sao canceladas antes de qualquer novo envio;
@@ -123,32 +150,25 @@ perna, e vice-versa. O estado e persistido entre ciclos e reinicios.
 - uma nova `REENTRY` aguarda o encerramento da `REENTRY` posicionada;
 - repeticoes do mesmo candle, identidade de plano ou sinal permanecem
   bloqueadas por idempotencia;
-- INITIAL e REENTRY podem coexistir, totalizando no maximo duas posicoes M24;
+- existe no maximo uma posicao aberta por papel: uma `INITIAL`, uma `REENTRY`
+  e uma `CONTINUATION`;
 - o provider aplica a trava antes do `order_send`, independentemente da tela;
-- novas ordens gravam `INITIAL` ou `REENTRY` no comentario MT5; posicoes abertas
+- novas ordens gravam `INITIAL`, `REENTRY` ou `CONTINUATION` no comentario MT5; posicoes abertas
   anteriores a esta regra sao classificadas pelo ticket do log de execucao.
 
-## Bloqueio da primeira reentrada apos RSI extremo
+## Reentrada apos RSI extremo
 
-Quando um Full Exit individual for executado porque o RSI14 saiu de acima de
-70 para abaixo de 70 no BUY, ou de abaixo de 30 para acima de 30 no SELL:
-
-1. a primeira oportunidade valida de reentrada na mesma direcao e ignorada;
-2. repeticoes do mesmo sinal durante a mesma vela M5 continuam bloqueadas;
-3. somente a segunda oportunidade valida, identificada por uma nova vela M5
-   fechada, pode ser liberada;
-4. a regra vale para a reentrada pendente;
-5. Full Exit por perda do RSI50 de uma reentrada nao arma esse descarte.
-
-A mudanca de direcao elimina a trava pertencente ao lado anterior.
+O descarte automatico da primeira oportunidade foi removido. Depois de um
+Full Exit no retorno do RSI 70/30, a primeira reentrada valida do mesmo lado
+pode ser liberada imediatamente. Permanecem apenas as travas normais de
+idempotencia, papel ja aberto, pendencia existente e lado oposto.
 
 O Position Manager deve reconhecer uma posicao M24 pelo contrato completo, e
 nao apenas por `operational_model`. Um snapshot historico pode preservar M8,
 M10 ou M18-M22 como modelo-fonte legado. Nesse caso, `ALPHA024`, a politica
 `M24_SOURCE_EXIT_PLUS_BASKET_1000` ou os parametros `source_operational_model`
 e `m24_entry_role` continuam identificando o M24 e obrigam o registro do Full
-Exit extremo. Sem esse reconhecimento, o fechamento ocorre, mas o descarte da
-primeira reentrada nao seria armado.
+Exit extremo e a continuidade do estado auditavel.
 
 IDs legados de fonte servem somente para ler historico antigo. Novas decisoes,
 ordens e estados usam uma unica identidade M24.
@@ -158,10 +178,12 @@ ordens e estados usam uma unica identidade M24.
 - entrada `INITIAL`: TP nativo MT5 `0.0`;
 - entrada `REENTRY`: TP no fechamento do candle que formou o topo/fundo
   estrutural anterior a correcao;
+- entrada `CONTINUATION`: TP nativo MT5 `0.0`;
 - entrada inicial e reentrada exigem `abs(SMA20 - SMA50) / ATR14 >= 0,25`;
 - essa distancia mede somente separacao/forca e nunca define BUY ou SELL;
 - entrada `INITIAL`: volume `0,30` lote;
 - entrada `REENTRY`: volume `0,20` lote;
+- entrada `CONTINUATION`: volume `0,40` lote;
 - Alvo coletivo: resultado líquido da cesta M24 `>= +US$1.000`, somando `profit + swap + commission + fee` expostos pelo MT5.
 - Atingido o alvo, todas e somente as posições com comentário M24 são fechadas a mercado.
 - Posições M23 e posições diretas não participam da cesta M24.
@@ -190,8 +212,8 @@ ordens e estados usam uma unica identidade M24.
   atual, manutencao das condicoes, reentrada pendente, SL um pip alem do
   micro-pivo 1+1, confirmacao de dois fechamentos antes do trailing SMA20 da
   entrada inicial, remocao de TP no RSI extremo, trailing monotono, isolamento M23/M24,
-  descarte bilateral da primeira reentrada apos RSI extremo, rota autonoma
-  unica, TP estrutural bilateral nas reentradas e comentario MT5.
+  liberacao da primeira reentrada apos RSI extremo, rota autonoma unica, TP
+  estrutural bilateral nas reentradas, `CONTINUATION` bilateral e comentario MT5.
 ## Inversao RSI50 e troca de lado
 
 - Tanto a entrada inicial quanto a reentrada fazem `FULL_EXIT` quando o RSI14

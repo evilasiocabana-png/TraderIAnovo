@@ -82,7 +82,7 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
         self.assertEqual(order.plan_snapshot["target"], plan.target)
         self.assertEqual(audit.plan_snapshot["plan_identity"], order.plan_identity)
 
-    def test_m24_usa_lote_020_na_principal_e_010_na_reentrada(self) -> None:
+    def test_m24_usa_lotes_canonicos_por_papel(self) -> None:
         service = MT5DemoRobotService(enabled=True, volume=0.1)
         model = model24_variant_id("MODELO_8_XAU_M5_SMA_RSI_REENTRY")
         signal = MT5DemoRobotSignal(
@@ -111,9 +111,18 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
                 "stop_management_parameters": {"m24_entry_role": "REENTRY"},
             }
         )
+        continuation = MT5DemoTradePlan(
+            **{
+                **base_plan,
+                "stop_management_parameters": {
+                    "m24_entry_role": "CONTINUATION"
+                },
+            }
+        )
 
         self.assertEqual(service._execution_volume(signal, principal), 0.30)
         self.assertEqual(service._execution_volume(signal, reentry), 0.20)
+        self.assertEqual(service._execution_volume(signal, continuation), 0.40)
 
     def test_m24_inicial_sem_tp_ou_rr_e_plano_valido(self) -> None:
         provider = _AcceptingProvider()

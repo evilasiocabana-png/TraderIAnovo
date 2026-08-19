@@ -3844,6 +3844,8 @@ def _mt5_trade_entry_type_label(row: object) -> str:
     )
     for candidate in candidates:
         normalized = str(candidate or "").strip().upper()
+        if normalized in {"CONTINUATION", "CONTINUACAO", "CONTINUAÇÃO"}:
+            return "CONTINUAÇÃO"
         if normalized in {
             "REENTRY",
             "STRUCTURAL_REENTRY",

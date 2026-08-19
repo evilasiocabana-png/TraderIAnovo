@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -198,6 +198,105 @@ class MT5DemoExecutionProvider:
             )
         return list(self.mt5.positions_get() or [])
 
+    def model24_reentry_target_exit_confirmed(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        target_price: float,
+        since: str,
+    ) -> bool:
+        """Confirma read-only um negocio de saida M24 encerrado por TP."""
+        if self._external_reads_enabled():
+            payload = self._external_mt5_read(
+                "history_deals",
+                symbol=str(symbol or "").upper(),
+                since=str(since or ""),
+            )
+            if not bool(payload.get("ok")):
+                return False
+            deals = [SimpleNamespace(**dict(row)) for row in payload.get("rows", [])]
+        else:
+            initialize_check = self._initialize_check()
+            if initialize_check is not None:
+                return False
+            history_get = getattr(self.mt5, "history_deals_get", None)
+            if not callable(history_get):
+                return False
+            start = self._iso_datetime_or_default(since)
+            end = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=1)
+            deals = list(history_get(start, end) or [])
+        normalized_symbol = str(symbol or "").upper()
+        normalized_side = str(side or "").upper()
+        target = float(target_price or 0.0)
+        tolerance = max(0.05, abs(target) * 0.00001)
+        exit_entries = {
+            value
+            for value in (
+                getattr(self.mt5, "DEAL_ENTRY_OUT", None),
+                getattr(self.mt5, "DEAL_ENTRY_OUT_BY", None),
+            )
+            if value is not None
+        }
+        tp_reason = getattr(self.mt5, "DEAL_REASON_TP", None)
+        expected_close_type = (
+            getattr(self.mt5, "DEAL_TYPE_SELL", None)
+            if normalized_side == "BUY"
+            else getattr(self.mt5, "DEAL_TYPE_BUY", None)
+        )
+        reentry_position_ids = {
+            int(getattr(deal, "position_id", 0) or 0)
+            for deal in deals
+            if {"M24", "REENTRY"}.issubset(
+                set(str(getattr(deal, "comment", "") or "").upper().split())
+            )
+            and int(getattr(deal, "position_id", 0) or 0) > 0
+        }
+        for deal in reversed(deals):
+            if str(getattr(deal, "symbol", "") or "").upper() != normalized_symbol:
+                continue
+            reason_is_tp = bool(getattr(deal, "reason_is_tp", False)) or (
+                tp_reason is not None and getattr(deal, "reason", None) == tp_reason
+            )
+            entry_is_exit = bool(getattr(deal, "entry_is_exit", False)) or (
+                bool(exit_entries) and getattr(deal, "entry", None) in exit_entries
+            )
+            if not reason_is_tp or not entry_is_exit:
+                continue
+            if (
+                expected_close_type is not None
+                and getattr(deal, "type", None) != expected_close_type
+            ):
+                continue
+            try:
+                deal_price = float(getattr(deal, "price", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if abs(deal_price - target) > tolerance:
+                continue
+            comment_tokens = set(
+                str(getattr(deal, "comment", "") or "").upper().split()
+            )
+            position_id = int(getattr(deal, "position_id", 0) or 0)
+            related_reentry = {"M24", "REENTRY"}.issubset(comment_tokens) or (
+                position_id > 0 and position_id in reentry_position_ids
+            )
+            if not related_reentry:
+                continue
+            return True
+        return False
+
+    @staticmethod
+    def _iso_datetime_or_default(value: object) -> datetime:
+        text = str(value or "").strip().replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(text)
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone().replace(tzinfo=None)
+            return parsed
+        except (TypeError, ValueError):
+            return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=7)
+
     def get_current_price(self, symbol: str) -> float | None:
         """Retorna preco atual read-only para validacao de SL."""
         if self._external_reads_enabled():
@@ -325,6 +424,34 @@ elif action == "candles":
             "close": float(rate["close"]),
             "tick_volume": int(rate["tick_volume"]),
         })
+    payload = {"ok": True, "rows": rows}
+elif action == "history_deals":
+    from datetime import datetime, timedelta, timezone
+    since_text = str(request.get("since") or "").replace("Z", "+00:00")
+    try:
+        start = datetime.fromisoformat(since_text)
+        if start.tzinfo is not None:
+            start = start.astimezone().replace(tzinfo=None)
+    except (TypeError, ValueError):
+        start = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=7)
+    end = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=1)
+    values = mt5.history_deals_get(start, end)
+    symbol = str(request.get("symbol") or "").upper()
+    rows = []
+    exit_entries = {
+        value for value in (
+            getattr(mt5, "DEAL_ENTRY_OUT", None),
+            getattr(mt5, "DEAL_ENTRY_OUT_BY", None),
+        ) if value is not None
+    }
+    tp_reason = getattr(mt5, "DEAL_REASON_TP", None)
+    for item in (values or []):
+        row = item._asdict()
+        if symbol and str(row.get("symbol") or "").upper() != symbol:
+            continue
+        row["reason_is_tp"] = tp_reason is not None and row.get("reason") == tp_reason
+        row["entry_is_exit"] = bool(exit_entries) and row.get("entry") in exit_entries
+        rows.append(row)
     payload = {"ok": True, "rows": rows}
 else:
     payload = {"ok": False, "rows": [], "message": "unknown action"}
@@ -1913,13 +2040,16 @@ mt5.shutdown()
         order: ExecutionOrder,
         positions: list[object],
     ) -> ExecutionResult | None:
-        """Permite varias rodadas M24, com uma INITIAL e uma REENTRY simultaneas."""
+        """Limita cada papel M24 e impede hedge entre papeis da mesma rodada."""
         candidate_role = self._model24_order_role(order)
-        if candidate_role not in {"INITIAL", "REENTRY"}:
+        if candidate_role not in {"INITIAL", "REENTRY", "CONTINUATION"}:
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
-                message="M24 sem papel INITIAL/REENTRY identificavel foi bloqueado.",
+                message=(
+                    "M24 sem papel INITIAL/REENTRY/CONTINUATION identificavel "
+                    "foi bloqueado."
+                ),
             )
         for position in positions:
             comment = str(getattr(position, "comment", "") or "").upper()
@@ -1937,7 +2067,11 @@ mt5.shutdown()
                 )
             open_role = self._model24_position_role(position)
             if open_role in {candidate_role, "UNKNOWN"}:
-                label = "inicial" if candidate_role == "INITIAL" else "reentrada"
+                label = {
+                    "INITIAL": "inicial",
+                    "REENTRY": "reentrada",
+                    "CONTINUATION": "continuacao",
+                }[candidate_role]
                 return ExecutionResult(
                     accepted=False,
                     status="REJECTED",
@@ -1973,6 +2107,23 @@ mt5.shutdown()
         buy_stop = getattr(self.mt5, "ORDER_TYPE_BUY_STOP", None)
         sell_stop = getattr(self.mt5, "ORDER_TYPE_SELL_STOP", None)
         pending_types = {value for value in (buy_stop, sell_stop) if value is not None}
+
+        if candidate_role == "CONTINUATION":
+            model24_pending = [
+                pending
+                for pending in pending_orders
+                if "M24" in str(getattr(pending, "comment", "") or "").upper().split()
+                and getattr(pending, "type", None) in pending_types
+            ]
+            if model24_pending:
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=(
+                        "M24 CONTINUATION aguarda a remocao da reentrada pendente "
+                        "antes da entrada a mercado."
+                    ),
+                )
 
         for pending in pending_orders:
             comment = str(getattr(pending, "comment", "") or "").upper()
@@ -2030,6 +2181,8 @@ mt5.shutdown()
     def _model24_position_role(self, position: object) -> str:
         comment = str(getattr(position, "comment", "") or "").upper()
         tokens = set(comment.split())
+        if "CONTINUATION" in tokens:
+            return "CONTINUATION"
         if "INITIAL" in tokens:
             return "INITIAL"
         if "REENTRY" in tokens:
@@ -2044,7 +2197,7 @@ mt5.shutdown()
                     .get("stop_management_parameters", {})
                     .get("m24_entry_role", "")
                 ).upper()
-                if role in {"INITIAL", "REENTRY"}:
+                if role in {"INITIAL", "REENTRY", "CONTINUATION"}:
                     return role
         return "UNKNOWN"
 
@@ -2505,7 +2658,11 @@ mt5.shutdown()
         if is_model24(getattr(order, "operational_model", "")):
             base = model24_order_comment(getattr(order, "operational_model", ""))
             role = self._model24_order_role(order)
-            return f"{base} {role}" if role in {"INITIAL", "REENTRY"} else base
+            return (
+                f"{base} {role}"
+                if role in {"INITIAL", "REENTRY", "CONTINUATION"}
+                else base
+            )
         if is_model23(getattr(order, "operational_model", "")):
             return model23_order_comment(getattr(order, "operational_model", ""))
         return f"TraderIA {self._model_comment(getattr(order, 'operational_model', ''))}"

@@ -119,7 +119,7 @@ def _is_model24_trade_plan(plan: "PositionTradePlan") -> bool:
         or (
             parameters.get("source_operational_model")
             and str(parameters.get("m24_entry_role") or "").upper()
-            in {"INITIAL", "REENTRY", "STRUCTURAL_REENTRY"}
+            in {"INITIAL", "REENTRY", "STRUCTURAL_REENTRY", "CONTINUATION"}
         )
     )
 
@@ -1482,18 +1482,27 @@ class PositionManagerService:
         m24_trade_plan = _is_model24_trade_plan(plan)
         m25_trade_plan = _is_model25_trade_plan(plan)
         basket_rsi_trade_plan = m24_trade_plan or m25_trade_plan
+        m24_entry_role = str(parameters.get("m24_entry_role") or "").upper()
+        continuation_position = bool(
+            m24_trade_plan and m24_entry_role == "CONTINUATION"
+        )
         reentry_position = bool(
             parameters.get("m24_reentry_position")
             or parameters.get("m25_reentry_position")
         ) or (
             active_entry_order_type in {"BUY_STOP", "SELL_STOP"}
+            and not continuation_position
         )
         m24_rsi50_exit_enabled = bool(
             m24_trade_plan
             and (
-                MODEL_24_SETUP.rsi50_exit_reentry
-                if reentry_position
-                else MODEL_24_SETUP.rsi50_exit_initial
+                MODEL_24_SETUP.rsi50_exit_continuation
+                if continuation_position
+                else (
+                    MODEL_24_SETUP.rsi50_exit_reentry
+                    if reentry_position
+                    else MODEL_24_SETUP.rsi50_exit_initial
+                )
             )
         )
         decision = (
@@ -1512,6 +1521,11 @@ class PositionManagerService:
                 ),
                 rsi50_inversion_exit_enabled=(
                     m24_rsi50_exit_enabled or m25_trade_plan
+                ),
+                **(
+                    {"extreme_return_exit_enabled": True}
+                    if continuation_position
+                    else {}
                 ),
             )
         )

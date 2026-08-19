@@ -1,6 +1,6 @@
 # TraderIA Novo - Matriz de Rastreabilidade
 
-`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+`M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
 
 Matriz ponta a ponta para revisar melhorias no GitHub.
 
@@ -22,6 +22,7 @@ Matriz ponta a ponta para revisar melhorias no GitHub.
 | Plano M24 | `stop_management_parameters` | `m24_setup_contract_version`, `m24_setup_contract_fingerprint` | `DashboardService` |
 | Estado M24 | JSON local nao versionado | `setup_contract_version`, `setup_contract_fingerprint` | `model24_xau_basket.py` |
 | Tela M24 | tabela de setup | campos derivados do contrato | `model24_public_setup_fields()` |
+| CONTINUATION M24 | watch persistido + historico MT5 | TP da REENTRY, lado, RSI extremo, papel e volume 0,40 | `model24_xau_basket.py` + `MT5DemoExecutionProvider` |
 
 ## Perguntas obrigatorias para qualquer melhoria
 

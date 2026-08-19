@@ -1,6 +1,6 @@
 # Acceptance Criteria
 
-`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+`M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
 
 ## Criterios Gerais
 
@@ -78,8 +78,11 @@ Aceito quando:
 - opera uma unica rota autonoma `M24_PROPRIO` somente em XAUUSD/M5; IDs de
   fontes M8, M10 e M18-M22 sao reconhecidos apenas em historico legado;
 - nunca reutiliza precos/SL do XAUUSD para gerar candidato em outro simbolo;
-- entrada inicial exige cruzamento do preco na SMA20 e RSI14 atual do mesmo
-  lado de 50, sem exigir novo cruzamento do RSI;
+- entrada inicial exige novo cruzamento do preco na SMA20 e novo cruzamento do
+  RSI14 em 50 na mesma direcao; podem ocorrer em candles M5 diferentes, mas
+  ambos devem existir e permanecer validos;
+- a distancia atual `abs(SMA20-SMA50)/ATR14` deve ser maior ou igual a
+  `0,25` para liberar a entrada;
 - entrada inicial entra a mercado sem micro-pivo e usa como SL o extremo do
   candle que cruzou a SMA20, acrescido de margem de um pip;
 - depois de dois fechamentos favoraveis consecutivos, a SMA20 pode apertar o
@@ -102,16 +105,24 @@ Aceito quando:
 - o SL da reentrada so avanca para um novo micro pivo favoravel e nunca
   afrouxa;
 - depois de Full Exit BUY no retorno do RSI abaixo de 70 ou SELL no retorno
-  acima de 30, a primeira oportunidade de reentrada na mesma direcao e ignorada;
-- repeticoes do mesmo sinal na mesma vela M5 nao contam como segunda
-  oportunidade; somente uma nova oportunidade valida em nova vela e liberada;
+  acima de 30, a primeira reentrada valida na mesma direcao pode ser liberada;
+- `CONTINUATION` somente e armada por uma `REENTRY` aceita e so entra depois
+  que o historico MT5 confirmar o encerramento efetivo dessa reentrada por TP;
+- BUY `CONTINUATION` exige preco acima do TP anterior e RSI14 maior que 70;
+  SELL exige preco abaixo do TP anterior e RSI14 menor que 30;
+- `CONTINUATION` entra a mercado com `0,40` lote, SL um pip alem do ultimo
+  micro-pivo 1+1, sem TP individual, e sai integralmente no retorno do RSI
+  abaixo de 70 no BUY ou acima de 30 no SELL;
+- existe no maximo uma posicao M24 aberta por papel (`INITIAL`, `REENTRY` e
+  `CONTINUATION`) e lados opostos nunca coexistem;
 - Full Exit RSI 70/30, inversao do RSI50, SL individual e cesta permanecem
-  ativos tanto na entrada inicial quanto na reentrada; inversao SMA20/50 nao
+  ativos na entrada inicial, reentrada e continuacao; inversao SMA20/50 nao
   encerra nenhuma posicao M24;
 - cesta fecha somente posicoes M24 em +US$1.000 liquidos;
 - comentarios, estado, auditoria e relatorio distinguem M24 de M23;
 - a tabela `Em negociacao` mostra `Tipo de entrada` antes de `Alvo`, usando
-  `PRINCIPAL` ou `REENTRADA` somente quando o contrato persistido comprovar;
+  `PRINCIPAL`, `REENTRADA` ou `CONTINUAÇÃO` somente quando o contrato persistido
+  comprovar;
 - testes nao conectam nem enviam ordem ao MT5.
 
 ## Modelo 25 Multiativo M5

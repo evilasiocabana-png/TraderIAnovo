@@ -1,6 +1,6 @@
 # Architecture
 
-`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+`M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
 
 ## Modelo 23
 
@@ -542,7 +542,9 @@ resultado financeiro e auditoria independentes do M23. O provider envia `tp=0`
 somente para a entrada inicial M24; a reentrada exige TP no fechamento do
 microtopo/microfundo 1+1 lucrativo mais recente. A cesta liquida de +US$1.000
 continua como alvo coletivo. A entrada inicial exige cruzamento do preco na
-SMA20 e RSI14 atual do mesmo lado de 50, sem exigir novo cruzamento do RSI.
+SMA20 e cruzamento do RSI14 em 50 na mesma direcao. Os eventos podem ocorrer
+em M5 diferentes, mas ambos devem permanecer validos e a distancia atual
+`abs(SMA20-SMA50)/ATR14` deve ser pelo menos `0,25`.
 A reentrada nao exige novo cruzamento: gera BUY_STOP/SELL_STOP na maxima/minima
 do ultimo M5 quando fechamento e RSI permanecem do lado permitido. O SL usa o
 micro pivo 1+1 confirmado mais recente, limitado aos ultimos cinco M5 fechados.
@@ -551,12 +553,13 @@ uma unica rota autonoma e nao herda ADX, inclinacao da SMA50 nem filtros. Seu
 unico filtro adicional e `abs(SMA20-SMA50)/ATR14 >= 0,25`.
 O roteamento da cesta cria esse plano M5 antes da barreira do plano heuristico
 H1; assim, `SEM_GATILHO_VALIDO` no plano-base nao impede a avaliacao do M24.
-O Position Manager aceita somente novos micro pivos que apertem o stop. Depois de Full Exit
-por retorno do RSI abaixo de 70 no BUY ou acima de 30 no SELL, o runtime M24
-persiste por fonte e direcao a primeira oportunidade bloqueada. A segunda so e
-reconhecida quando a chave inclui uma nova vela M5 fechada, impedindo que o ciclo
-leve conte repetidamente o mesmo sinal. Nenhuma posicao M24 fecha por inversao
-SMA20/SMA50. Tanto `INITIAL` quanto `REENTRY` fecham na inversao do RSI50.
+O Position Manager aceita somente novos micro pivos que apertem o stop. Depois
+de Full Exit por retorno do RSI 70/30, a primeira reentrada valida do mesmo lado
+nao e mais descartada. A `CONTINUATION` e liberada somente quando o historico
+MT5 confirma que a `REENTRY` zerou pelo TP, o preco continua alem desse alvo e
+o RSI permanece extremo; entra a mercado com `0,40` lote, sem TP e com SL no
+micro-pivo 1+1 anterior. Nenhuma posicao M24 fecha por inversao SMA20/SMA50.
+`INITIAL`, `REENTRY` e `CONTINUATION` preservam as saidas RSI do contrato.
 
 ## Modelo 25
 

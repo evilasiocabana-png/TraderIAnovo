@@ -37,6 +37,7 @@ from application.model23_basket_accumulator import (
     is_model23,
 )
 from application.model24_xau_basket import (
+    MODEL_24_CONTINUATION_VOLUME,
     MODEL_24_ENTRY_SOURCE,
     MODEL_24_INITIAL_VOLUME,
     MODEL_24_REENTRY_VOLUME,
@@ -687,6 +688,8 @@ class MT5DemoRobotService:
             return float(self.volume)
         parameters = dict(trade_plan.stop_management_parameters or {})
         role = str(parameters.get("m24_entry_role") or "").upper()
+        if role == "CONTINUATION":
+            return MODEL_24_CONTINUATION_VOLUME
         if role in {"REENTRY", "STRUCTURAL_REENTRY"}:
             return MODEL_24_REENTRY_VOLUME
         return MODEL_24_INITIAL_VOLUME

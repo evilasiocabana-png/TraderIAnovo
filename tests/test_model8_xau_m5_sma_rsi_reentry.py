@@ -315,6 +315,24 @@ class Model8XauM5Test(unittest.TestCase):
             )
         self.assertEqual(decision.action, "HOLD_POSITION")
 
+    def test_continuation_fecha_apos_reinicio_se_rsi_ja_retornou_do_extremo(self) -> None:
+        closes = [100.0 + (index * 0.2) for index in range(60)]
+        scenarios = (("BUY", 69.0, 69.0), ("SELL", 31.0, 31.0))
+        for side, current_rsi, previous_rsi in scenarios:
+            with self.subTest(side=side), patch(
+                "application.model8_xau_m5_sma_rsi_reentry._wilder_rsi",
+                side_effect=(current_rsi, previous_rsi),
+            ):
+                decision = evaluate_model8_exit(
+                    _candles(closes),
+                    side,
+                    sma_inversion_exit_enabled=False,
+                    extreme_return_exit_enabled=True,
+                )
+
+            self.assertEqual(decision.action, "FULL_EXIT")
+            self.assertIn("M24_CONTINUATION_EXIT_RSI", decision.status)
+
     def test_m24_buy_inicial_fecha_no_cruzamento_rsi50_para_baixo(self) -> None:
         closes = [100.0 + (index * 0.2) for index in range(60)]
         with patch(

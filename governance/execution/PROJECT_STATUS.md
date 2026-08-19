@@ -2,19 +2,24 @@
 
 Status: pronto para fluxo de inbox.
 
-`M24_CONTRACT=M24_SETUP_V1_20260819; SHA256=4cf288896f842909a4ca160904aaef32577e3a027ecb7a786db9acb34a3d85b1`
+`M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
 
 ## Contrato vigente M24 - 2026-08-19
 
 - M24 atual e uma unica rota autonoma `M24_PROPRIO` em XAUUSD/M5;
-- entrada inicial: preco cruza SMA20, RSI14 atual confirma o mesmo lado de 50,
-  sem exigir cruzamento do RSI nem micro-pivo;
+- entrada inicial: novo cruzamento do preco/SMA20 e novo cruzamento RSI14/50 na
+  mesma direcao; podem ocorrer em M5 diferentes, mas ambos permanecem validos;
+- distancia atual `abs(SMA20-SMA50)/ATR14 >= 0,25` e obrigatoria; micro-pivo
+  inicial continua dispensado;
 - SL inicial: extremo do candle do cruzamento mais um pip; depois de dois
   fechamentos favoraveis, trailing pela SMA20 somente a favor;
 - reentrada: ordem Stop, SL no micro-pivo 1+1 mais um pip e TP obrigatorio no
   fechamento do micro-pivo 1+1 lucrativo mais recente;
-- `INITIAL` e `REENTRY` saem por inversao RSI50 e retorno RSI 70/30; nenhuma sai
-  por inversao SMA20/SMA50;
+- a primeira reentrada valida apos Full Exit RSI 70/30 nao e descartada;
+- `CONTINUATION`: somente apos TP confirmado da `REENTRY`, preco alem do alvo e
+  RSI extremo; mercado, `0,40` lote, SL no micro-pivo 1+1 e sem TP individual;
+- `INITIAL`, `REENTRY` e `CONTINUATION` saem pelas regras RSI do contrato;
+  nenhuma sai por inversao SMA20/SMA50;
 - interface, motor, Trade Plan, runtime e documentos ativos agora compartilham
   contrato versionado e fingerprint; teste impede drift documental;
 - corrigida a identidade temporal de registros MT5 para nunca persistir o

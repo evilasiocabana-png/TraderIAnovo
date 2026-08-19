@@ -1,5 +1,32 @@
 # Execution Log
 
+## 2026-08-19 - M24 CONTINUATION apos TP da REENTRY
+
+- removido o descarte automatico da primeira reentrada apos Full Exit RSI
+  70/30; a primeira oportunidade valida do mesmo lado pode ser liberada;
+- criado o papel `CONTINUATION`, sempre a mercado e com volume `0,40` lote;
+- a entrada so e armada por uma `REENTRY` aceita com TP e falha fechado ate o
+  historico read-only do MT5 confirmar o encerramento efetivo por esse TP;
+- BUY exige preco acima do alvo anterior e RSI14 maior que 70; SELL aplica a
+  regra espelhada abaixo do alvo e RSI14 menor que 30;
+- o SL usa um pip alem do micro-pivo 1+1 anterior, sem TP individual;
+- BUY faz Full Exit no retorno para RSI abaixo de 70 e SELL no retorno acima
+  de 30; inversao SMA20/SMA50 permanece desativada;
+- contrato promovido para `M24_SETUP_V3_20260819` e documentos ativos fixados
+  ao fingerprint canonico.
+
+## 2026-08-19 - Correcao do gatilho inicial M24 com dois cruzamentos
+
+- a INITIAL volta a exigir novo cruzamento do preco pela SMA20 e novo
+  cruzamento do RSI14 pelo nivel 50, ambos na mesma direcao;
+- os eventos nao precisam ocorrer simultaneamente: podem estar em candles M5
+  diferentes, desde que ambos tenham ocorrido e continuem validos;
+- a ordem permanece bloqueada ate a distancia atual
+  `abs(SMA20-SMA50)/ATR14` ser maior ou igual a `0,25`;
+- micro-pivo inicial continua dispensado; SL, trailing, reentrada, TP e saidas
+  nao foram alterados por esta correcao;
+- contrato promovido para `M24_SETUP_V2_20260819` com novo fingerprint.
+
 ## 2026-08-19 - Contrato canonico M24 e protecao contra drift
 
 - criada fonte unica e imutavel `application/model24_setup_contract.py`, com
@@ -14,7 +41,8 @@
   `time` prevalece e o `memoryview` exposto por `.data` nunca vira identidade
   persistida do candle;
 - estados legados contendo `<memory at 0x...>` sao sanitizados em leitura sem
-  desligar a trava conservadora de primeira reentrada;
+  desligar a trava conservadora de primeira reentrada, e a migracao e gravada
+  imediatamente com versao/fingerprint sem esperar nova operacao;
 - testes falham quando constantes, tela, plano ou documentos ativos divergem
   da versao/fingerprint canonica;
 - nenhuma ordem MT5 foi aberta, fechada, cancelada ou modificada nesta auditoria.
@@ -1983,3 +2011,13 @@ Novas entradas devem registrar:
 - mantidas a pendencia unica por rodada e a idempotencia do mesmo sinal/candle;
 - adicionado teste de regressao para bloqueio simultaneo e liberacao apos o
   encerramento da reentrada anterior.
+
+# 2026-08-19 - M24 validado no runtime local
+
+- M24 selecionado e robo Demo confirmado em `ARMED_WAITING` no ciclo leve;
+- MT5 Pepperstone-Demo `61551556` conectado, com negociacao por Expert
+  permitida;
+- setup aguardando corretamente uma correcao M5 antes da reentrada, sem
+  posicao aberta ou ordem pendente no momento da auditoria;
+- estado legado foi normalizado e regravado com versao/fingerprint canonicos;
+- nenhuma ordem foi aberta, fechada, cancelada ou modificada na validacao.
