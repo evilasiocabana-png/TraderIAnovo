@@ -1184,10 +1184,15 @@ class PositionManagerServiceTest(unittest.TestCase):
             closed_candle_time="candle-continuation",
         )
 
-        with patch(
-            "application.position_manager_service.evaluate_model8_exit",
-            return_value=exit_decision,
-        ) as evaluate_exit:
+        with (
+            patch(
+                "application.position_manager_service.evaluate_model8_exit",
+                return_value=exit_decision,
+            ) as evaluate_exit,
+            patch(
+                "application.position_manager_service.mark_model24_extreme_full_exit"
+            ) as mark_exit,
+        ):
             result = manager.manage_plan(
                 self._plan(
                     "XAUUSD",
@@ -1213,6 +1218,12 @@ class PositionManagerServiceTest(unittest.TestCase):
             sma_inversion_exit_enabled=False,
             rsi50_inversion_exit_enabled=True,
             extreme_return_exit_enabled=True,
+        )
+        mark_exit.assert_called_once_with(
+            "MODELO_24_XAU_RSI50_BASKET_SOURCE_M8",
+            "BUY",
+            "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
+            "candle-continuation",
         )
         self.assertEqual(result.status, "POSITION_CLOSED")
         self.assertEqual(provider.close_calls, 1)
