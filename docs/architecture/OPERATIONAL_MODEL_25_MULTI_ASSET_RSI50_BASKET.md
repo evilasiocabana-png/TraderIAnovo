@@ -1,86 +1,58 @@
-# Modelo Operacional 25 - M24 Multiativo M5
+# Modelo Operacional 25 - Cesta das fontes XAU
 
-## Identidade
+## Contrato vigente
 
-- ID: `MODELO_25_MULTI_ASSET_RSI50_BASKET`.
-- Alpha: `ALPHA025_MULTI_ASSET_RSI50`.
-- Beta: `BETA025_BASKET_FULL_EXIT_1000`.
-- Timeframe: M5.
-- Comentario MT5: `TraderIA M25` com o papel `INITIAL` ou `REENTRY`.
+- ID canonico preservado: `MODELO_25_MULTI_ASSET_RSI50_BASKET`.
+- Contrato: `M25_XAU_SOURCES_V2_20260819`.
+- Alpha: `ALPHA025_XAU_SOURCE_AGGREGATOR`, versao `M25_ENTRY_V2`.
+- Beta: `BETA025_BASKET_FULL_EXIT_1000`, versao `M25_EXIT_V2`.
+- Universo: exclusivamente `XAUUSD`.
+- Timeframe: exclusivamente `M5`.
+- Fontes, nesta ordem: `M8`, `M10`, `M18`, `M19`, `M20`, `M21`, `M22`.
 - Conta autorizada: somente Demo.
 
-O M25 e um modelo independente que aplica a mesma logica operacional do M24
-aos 19 ativos canonicos. Ele nao altera o M24 e nao compartilha estado,
-duplicidade, posicoes ou resultado financeiro com outros modelos.
+O M25 nao calcula um setup proprio. Ele avalia independentemente as sete fontes
+autorizadas e copia somente planos executaveis. Para cada plano, preserva sem
+recalculo a direcao, o candle do sinal, o tipo de ordem, a entrada, o SL e o TP
+da fonte. A identidade da fonte acompanha a variante e o comentario MT5, por
+exemplo `..._SOURCE_M8` e `TraderIA M25 S8`.
 
-## Universo
+## Posicoes e lotes
 
-Forex principal:
+- entrada inicial: `0,20` lote;
+- reentrada: `0,10` lote;
+- no maximo uma `INITIAL` e uma `REENTRY` por fonte;
+- fontes distintas podem manter posicoes independentes do mesmo lado;
+- lados opostos nunca coexistem dentro da cesta M25;
+- qualquer tentativa de M25 fora de XAUUSD e rejeitada novamente no Robo Demo
+  e no provider, mesmo se contornar o Dashboard.
 
-`AUDUSD`, `EURJPY`, `EURUSD`, `GBPUSD`, `NZDUSD`, `USDCAD`, `USDCHF`, `USDJPY`.
-
-Forex expandido:
-
-`AUDCAD`, `AUDJPY`, `CADCHF`, `EURNZD`, `GBPAUD`, `GBPCAD`, `GBPNZD`, `NZDCAD`,
-`NZDJPY`.
-
-Alternativos:
-
-`XAUUSD`, `BTCUSD`.
-
-## Entrada E Reentrada
-
-Cada ativo possui estado proprio. A entrada inicial usa os cruzamentos mantidos
-de preco/SMA20 e RSI14/50, filtro absoluto de distancia
-`abs(SMA20 - SMA50) / ATR14 >= 0,25`, volume `0,20` e nao envia TP individual.
-Esse e o unico filtro adicional do M25: ADX e inclinacao da SMA50 nao participam
-da liberacao da entrada.
-
-Depois da entrada inicial aceita, a reentrada usa a correcao e retomada no M5,
-volume `0,10`, ordem Stop no extremo da ultima vela fechada, SL no extremo
-oposto da mesma vela com um pip de folga e TP no fechamento do candle que
-formou o ultimo topo/fundo principal 2+2 confirmado na janela deslizante de ate
-200 velas. A maxima/minima desse pivo nunca e usada como preco do TP. O tamanho de pip e resolvido por ativo:
-`0,0001` no Forex comum e `0,01` em pares JPY, XAUUSD e BTCUSD.
-
-Existe no maximo uma posicao `INITIAL` e uma `REENTRY` por ativo M25. Posicoes
-opostas do mesmo ativo nao podem coexistir. Outro ativo continua livre para
-entrar no mesmo ciclo ou em ciclos posteriores.
+M8 e M10 podem produzir planos sem TP. M18-M22 preservam o TP estrutural quando
+a propria fonte o exigir. Nenhum alvo e inventado pelo agregador.
 
 ## Saida
 
-O Position Manager preserva a gestao RSI da copia M24 por ativo:
+Cada posicao conserva a saida tecnica de seu modelo-fonte. O Position Manager
+resolve a fonte persistida no plano antes de avaliar RSI, SMA, SL ou TP. Como
+protecao adicional, a cesta fecha somente posicoes M25 quando o resultado
+liquido agregado atingir `+US$1.000`.
 
-- no RSI extremo, remove o TP da reentrada;
-- no retorno confirmado do RSI, executa o Full Exit tecnico correspondente;
-- o SL so pode ser movido a favor;
-- a relacao SMA20/SMA50 nao executa Full Exit.
+## Estado, historico e auditoria
 
-A cesta M25 tambem possui Full Exit financeiro exclusivo em resultado liquido
-`>= +US$1.000`, somando os componentes fornecidos pelo MT5. Somente posicoes
-com comentario M25 participam desse fechamento.
+- `.traderia/model25_basket_state.json`: estado financeiro da cesta V2;
+- `.traderia/model25_basket_audit.jsonl`: auditoria dos Full Exits coletivos;
+- `.traderia/model25_runtime_state.json`: artefato legado V1, preservado apenas
+  como historico e nao lido pelo roteamento V2.
 
-## Dados E Performance
+O contrato e a impressao digital ficam gravados nos parametros do plano e
+visiveis na Entrada Teorica. Logs e avaliacoes antigos nao sao apagados; eles
+continuam identificados pelas versoes V1. O ID canonico foi mantido para que
+posicoes e auditorias anteriores nao se tornem orfas.
 
-O ciclo usa o snapshot M5 compartilhado do runtime. Candles e indicadores nao
-sao baixados novamente por modelo. O M25 calcula apenas sobre o cache atual e
-nao executa Lab, backtest ou pesquisa pesada no ciclo de 10 segundos.
+## Barreiras contra regressao
 
-O cache persistido pode aquecer a tela, mas nenhuma ordem e autorizada ate a
-janela M5 ser reconciliada com dados vivos do MT5 depois do reinicio.
-
-## Persistencia E Auditoria
-
-- `.traderia/model25_runtime_state.json`: estado de entrada/reentrada por ativo.
-- `.traderia/model25_basket_state.json`: estado financeiro compacto da cesta.
-- `.traderia/model25_basket_audit.jsonl`: resultados do Full Exit coletivo.
-
-As gravacoes JSON sao atomicas e repetem bloqueios curtos do Windows/OneDrive.
-Arquivos `.traderia` permanecem fora do Git.
-
-## Integracao Obrigatoria
-
-O M25 deve permanecer registrado na politica de modelos, DashboardService,
-Robo Demo, provider, Position Manager, MT5 Forex, Saida Teorica, Relatorio e
-testes. O modelo deve continuar selecionavel sem ativacao automatica e sem
-autorizar conta real.
+O M25 e selecionavel como cesta exclusiva. Ele nao pertence ao conjunto de
+fontes diretas, nao entra em `Todos` e nao pode ser combinado por engano com
+M23/M24. Testes verificam o universo XAUUSD, as sete fontes exatas, a copia
+literal de entrada/SL/TP, o isolamento por fonte, a rejeicao de outro simbolo e
+o Full Exit exclusivo.

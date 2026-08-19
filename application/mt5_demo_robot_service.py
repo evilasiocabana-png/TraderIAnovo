@@ -21,7 +21,7 @@ from application.model3_xau_m5_rsi50_flip import MODEL_3_ID
 from application.market_regime_pipeline import MarketRegimePipeline
 from application.model6_lab_forex_expansion import MODEL_6_ID
 from application.model7_lab_alternative_markets import MODEL_7_ID
-from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
+from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID, MODEL_8_SYMBOL
 from application.xau_m5_sma_rsi_model_family import (
     XAU_IMPROVED_REENTRY_MODEL_IDS,
     XAU_ALL_TREND_FILTER_MODEL_IDS as XAU_TREND_FILTER_MODEL_IDS,
@@ -47,6 +47,8 @@ from application.model25_multi_asset_rsi50_basket import (
     MODEL_25_ENTRY_SOURCE,
     MODEL_25_INITIAL_VOLUME,
     MODEL_25_REENTRY_VOLUME,
+    MODEL_25_SOURCE_MODEL_IDS,
+    MODEL_25_TIMEFRAME,
     is_model25,
 )
 from application.model6_original_trend_momentum import (
@@ -523,13 +525,31 @@ class MT5DemoRobotService:
         validation_model = str(signal.operational_model or "").upper()
         validation_is_model24 = is_model24(validation_model)
         validation_is_model25 = is_model25(validation_model)
-        if is_model23(validation_model) or validation_is_model24:
+        source_operational_model = str(
+            parameters.get("source_operational_model") or ""
+        ).upper()
+        validation_is_model25_source = bool(
+            validation_is_model25
+            and source_operational_model in MODEL_25_SOURCE_MODEL_IDS
+        )
+        if validation_is_model25 and (
+            str(signal.symbol or "").upper() != MODEL_8_SYMBOL
+            or str(signal.timeframe or "").upper() != MODEL_25_TIMEFRAME
+        ):
+            return "M25 opera exclusivamente XAUUSD/M5."
+        if (
+            is_model23(validation_model)
+            or validation_is_model24
+            or validation_is_model25_source
+        ):
             validation_model = str(
                 parameters.get("source_operational_model") or ""
             ).upper()
             if not validation_model:
-                return "Plano M23 sem modelo-fonte para validar SL/TP."
-        requires_target = (not validation_is_model24) and (not validation_is_model25) and xau_model_requires_target(
+                return "Plano de cesta sem modelo-fonte para validar SL/TP."
+        requires_target = (not validation_is_model24) and (
+            not validation_is_model25 or validation_is_model25_source
+        ) and xau_model_requires_target(
             validation_model,
             parameters.get("active_entry_order_type"),
         )
@@ -548,7 +568,7 @@ class MT5DemoRobotService:
                 and bool(parameters.get("m24_individual_target_enabled"))
                 and float(trade_plan.target or 0.0) > 0.0
             )
-        if validation_is_model25:
+        if validation_is_model25 and not validation_is_model25_source:
             no_target_model = not (
                 str(parameters.get("m25_entry_role") or "").upper()
                 in {"REENTRY", "STRUCTURAL_REENTRY"}

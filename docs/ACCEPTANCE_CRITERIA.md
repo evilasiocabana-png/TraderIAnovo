@@ -2,6 +2,8 @@
 
 `M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
 
+`M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
+
 ## Criterios Gerais
 
 Toda mudanca deve:
@@ -125,20 +127,21 @@ Aceito quando:
   comprovar;
 - testes nao conectam nem enviam ordem ao MT5.
 
-## Modelo 25 Multiativo M5
+## Modelo 25 - cesta das fontes XAU
 
 Aceito quando:
 
-- cobre exatamente os 19 ativos canonicos em M5;
-- replica entrada, reentrada e saida tecnica do M24 sem alterar o M24;
-- mantem estado, duplicidade e papeis `INITIAL/REENTRY` independentes por ativo;
-- admite no maximo uma posicao de cada papel por ativo e bloqueia lados opostos;
+- opera exclusivamente `XAUUSD/M5`;
+- avalia exatamente M8, M10, M18, M19, M20, M21 e M22;
+- copia sem recalculo direcao, candle, ordem, entrada, SL e TP da fonte;
+- mantem estado, duplicidade e papeis `INITIAL/REENTRY` independentes por fonte;
+- admite no maximo uma posicao de cada papel por fonte e bloqueia lados opostos;
 - usa `0,20` lote na inicial e `0,10` na reentrada;
-- aplica pip `0,0001` no Forex comum e `0,01` em JPY, XAUUSD e BTCUSD;
-- usa `tp=0` na entrada inicial e o fechamento do ultimo pivo principal 2+2
-  confirmado como TP da reentrada, sem usar a maxima/minima desse candle;
+- nao inventa TP: preserva a ausencia de alvo ou o alvo estrutural da fonte;
 - usa somente o snapshot M5 compartilhado e nao chama Lab pesado no runtime;
-- bloqueia ordens depois de reinicio ate reconciliar o cache com o MT5 vivo;
+- rejeita no Robo Demo e no provider qualquer simbolo diferente de XAUUSD;
 - fecha somente a cesta M25 ao atingir `+US$1.000` liquidos;
 - aparece no seletor, Entrada Teorica, Saida Teorica e Relatorio;
+- nao entra em `Todos` nem se combina acidentalmente com M23/M24;
+- preserva o historico V1 sem ler seu estado no roteamento V2;
 - preserva bloqueio de conta real e testes nao enviam ordens ao MT5.

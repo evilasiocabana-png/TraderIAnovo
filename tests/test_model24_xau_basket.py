@@ -38,13 +38,10 @@ from application.model24_xau_basket import (
     _model24_reentry_structural_target,
     _time,
 )
-from application.model25_multi_asset_rsi50_basket import (
-    evaluate_model25_rsi50_market_entry,
-    model25_symbol_pip_size,
-)
 from application.dashboard_service import (
     DashboardService,
     MT5_MODEL_24_SOURCE_MODEL_IDS,
+    MT5_MODEL_25_SOURCE_MODEL_IDS,
     MT5_OPERATIONAL_MODEL_8,
     MT5_OPERATIONAL_MODEL_24,
     MT5_OPERATIONAL_MODEL_25,
@@ -348,32 +345,6 @@ def test_m24_initial_accepts_distance_exactly_quarter_atr() -> None:
     assert decision.ready
     assert decision.distance_atr == 0.25
     assert decision.price_cross_time != decision.rsi_cross_time
-
-
-def test_m25_initial_forex_stop_uses_one_symbol_pip_beyond_extreme() -> None:
-    candles = _separate_buy_cross_candles()
-
-    decision = evaluate_model25_rsi50_market_entry(candles, symbol="EURUSD")
-
-    micro_bottom, _ = model24_micro_pivot_stop(candles, "BUY")
-    assert micro_bottom is not None
-    assert decision.ready
-    assert decision.initial_stop == pytest.approx(
-        micro_bottom - 0.0001
-    )
-    assert model25_symbol_pip_size("EURUSD") == 0.0001
-
-
-def test_m25_initial_jpy_and_xau_stops_use_one_cent_pip() -> None:
-    candles = _separate_buy_cross_candles()
-
-    jpy = evaluate_model25_rsi50_market_entry(candles, symbol="USDJPY")
-    xau = evaluate_model25_rsi50_market_entry(candles, symbol="XAUUSD")
-
-    assert jpy.ready and xau.ready
-    assert jpy.initial_stop == xau.initial_stop
-    assert model25_symbol_pip_size("USDJPY") == 0.01
-    assert model25_symbol_pip_size("XAUUSD") == 0.01
 
 
 def test_initial_entry_accepts_canonical_candle_with_portuguese_fields() -> None:
@@ -973,16 +944,14 @@ def test_m24_waiting_diagnostic_has_priority_over_generic_batch_wait() -> None:
     assert selected.result_status == "M24_DISTANCE_ATR_BLOQUEADO"
 
 
-def test_model24_can_run_with_model25_without_expanding_direct_selection() -> None:
+def test_model25_is_exclusive_and_expands_to_its_xau_sources() -> None:
     service = object.__new__(DashboardService)
-    service.set_mt5_operational_models((MT5_OPERATIONAL_MODEL_25,))
-    service.set_mt5_operational_model(MT5_OPERATIONAL_MODEL_WITH_24)
+    service.set_mt5_operational_model(MT5_OPERATIONAL_MODEL_25)
 
-    assert service._mt5_operational_models_to_evaluate() == (
-        MT5_OPERATIONAL_MODEL_25,
-    )
-    assert service._mt5_model24_routing_enabled()
+    assert service._mt5_operational_models_to_evaluate() == MT5_MODEL_25_SOURCE_MODEL_IDS
+    assert not service._mt5_model24_routing_enabled()
     assert service._mt5_model25_routing_enabled()
+    assert not service._mt5_direct_routing_enabled()
 
 
 def test_m24_does_not_require_valid_h1_research_plan_before_its_own_route() -> None:
@@ -1185,38 +1154,6 @@ def test_m24_source_cannot_add_adx_or_sma_slope_filter(tmp_path: Path) -> None:
     assert plan.stop_management_parameters["m24_filter_status"] == (
         "M24_CRUZAMENTOS_PRECO_RSI_E_DISTANCIA_ATR"
     )
-
-
-def test_m25_uses_only_distance_atr_filter(tmp_path: Path) -> None:
-    service = object.__new__(DashboardService)
-    object.__setattr__(
-        service,
-        "mt5_market_data_service",
-        SimpleNamespace(
-            latest_forex_candles={("XAUUSD", "M5"): _buy_cross_candles()}
-        ),
-    )
-
-    with patch(
-        "application.model25_multi_asset_rsi50_basket.MODEL_25_RUNTIME_STATE_PATH",
-        tmp_path / "runtime25.json",
-    ), patch.object(
-        DashboardService,
-        "_supplemental_m5_is_seed_only",
-        return_value=False,
-    ):
-        row, plan = service._mt5_model25_multi_asset_plan(
-            _source_row(),
-            _source_plan(),
-        )
-
-    assert row.decision == "BUY"
-    assert plan.status == "PLANO_VALIDO"
-    parameters = plan.stop_management_parameters
-    assert parameters["m25_filter_status"] == "M25_DISTANCE_ATR_ONLY"
-    assert parameters["m25_distance_atr_min"] == 0.25
-    assert "m25_adx14" not in parameters
-    assert "m25_sma50_slope" not in parameters
 
 
 def test_service_normalizes_non_xau_transport_row_to_standalone_xau_route(

@@ -4,6 +4,8 @@ Status: pronto para fluxo de inbox.
 
 `M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
 
+`M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
+
 ## Contrato vigente M24 - 2026-08-19
 
 - M24 atual e uma unica rota autonoma `M24_PROPRIO` em XAUUSD/M5;
@@ -27,7 +29,7 @@ Status: pronto para fluxo de inbox.
 - secoes M24 datadas antes de 2026-08-19 abaixo sao historico de execucao e nao
   substituem este contrato vigente.
 
-## Sincronizacao do ciclo M25 - 2026-08-18
+## Sincronizacao do ciclo M25 V1 - 2026-08-18 (historico, substituido pelo V2)
 
 - o ciclo de fundo passa a restaurar M25 a partir da mesma lista canonica usada
   pelo seletor e pela interface;
@@ -40,22 +42,20 @@ Status: pronto para fluxo de inbox.
 - regressao direcionada, 53 testes de M5/M24/M25 e gate critico com 197 testes
   aprovados sem envio MT5.
 
-## Estado Operacional M25 - 2026-08-18
+## Estado Operacional M25 - 2026-08-19
 
-- M25 implementado como copia independente da logica M24 nos 19 ativos
-  canonicos, todos em M5.
-- Runtime, Robo Demo, provider, Position Manager, MT5 Forex e Relatorio
-  reconhecem a identidade M25.
-- Estado, duplicidade e papeis `INITIAL/REENTRY` sao isolados por ativo.
-- Dados M5 usam o snapshot compartilhado; Lab pesado permanece fora do ciclo.
-- O unico filtro adicional M25 e distancia SMA20/SMA50 de `0,25 ATR`; ADX e
-  inclinacao da SMA50 nao bloqueiam suas entradas.
-- Cesta M25 fecha somente suas posicoes em `+US$1.000` liquidos.
-- Reentradas M25 usam o fechamento do ultimo topo/fundo principal 2+2
-  confirmado na janela M5 de ate 200 velas como TP individual.
-- Conta real continua bloqueada e a implantacao nao seleciona M25
-  automaticamente.
-- Testes automatizados dedicados aprovados sem acesso ao MT5.
+- Contrato V2: M25 opera exclusivamente XAUUSD/M5.
+- Fontes exatas: M8, M10, M18, M19, M20, M21 e M22.
+- O agregador copia entrada, SL, TP, ordem e candle sem recalcular o setup.
+- Identidade, duplicidade e papeis `INITIAL/REENTRY` sao isolados por fonte.
+- Robo Demo e provider rejeitam M25 fora de XAUUSD.
+- A saida tecnica permanece a da fonte; a cesta M25 adiciona Full Exit em
+  `+US$1.000` liquidos somente para suas posicoes.
+- O estado de entrada/reentrada V1 nao e lido pelo contrato V2; arquivos e
+  historico antigos permanecem preservados.
+- M25 e selecionavel como cesta exclusiva e nao foi ativado automaticamente.
+- Validacao: 378 testes + 45 subtestes focados e 203 testes criticos aprovados;
+  auditoria arquitetural `OK`, sem conexao ou envio MT5.
 
 ## Correcao do seletor MT5 - 2026-08-17
 

@@ -108,8 +108,10 @@ from application.model24_setup_contract import (
     model24_public_setup_fields,
 )
 from application.model25_multi_asset_rsi50_basket import (
+    MODEL_25_CONTRACT_FINGERPRINT,
+    MODEL_25_CONTRACT_VERSION,
     MODEL_25_ID as MT5_OPERATIONAL_MODEL_25,
-    MODEL_25_SYMBOLS,
+    MODEL_25_SOURCE_MODEL_IDS,
 )
 from application.xau_m5_sma_rsi_model_family import (
     MODEL_9_ID as MT5_OPERATIONAL_MODEL_9,
@@ -334,7 +336,6 @@ MT5_ACTIVE_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_20,
     MT5_OPERATIONAL_MODEL_21,
     MT5_OPERATIONAL_MODEL_22,
-    MT5_OPERATIONAL_MODEL_25,
 )
 MT5_SELECTABLE_OPERATIONAL_MODEL_IDS = (
     *(
@@ -350,6 +351,7 @@ MT5_MODEL_23_SOURCE_MODEL_IDS = tuple(
     model for model in MT5_ACTIVE_SOURCE_MODEL_IDS if model != MT5_OPERATIONAL_MODEL_25
 )
 MT5_MODEL_24_SOURCE_MODEL_IDS = MODEL_24_SOURCE_MODEL_IDS
+MT5_MODEL_25_SOURCE_MODEL_IDS = MODEL_25_SOURCE_MODEL_IDS
 MT5_OPERATIONAL_MODEL_8_TO_22_IDS = (
     MT5_OPERATIONAL_MODEL_8,
     MT5_OPERATIONAL_MODEL_10,
@@ -934,9 +936,14 @@ def _apply_persisted_operational_model_to_service(service: DashboardService) -> 
             direct_models_enabled=model not in {
                 MT5_OPERATIONAL_MODEL_23,
                 MT5_OPERATIONAL_MODEL_24,
+                MT5_OPERATIONAL_MODEL_25,
             },
         )
-        if model in {MT5_OPERATIONAL_MODEL_24, MT5_OPERATIONAL_MODEL_WITH_24}:
+        if model in {
+            MT5_OPERATIONAL_MODEL_24,
+            MT5_OPERATIONAL_MODEL_WITH_24,
+            MT5_OPERATIONAL_MODEL_25,
+        }:
             service.set_mt5_operational_model(model)
         return
     setter = getattr(service, "set_mt5_operational_model", None)
@@ -2433,7 +2440,7 @@ def _mt5_operational_model_labels() -> dict[str, str]:
         MT5_OPERATIONAL_MODEL_17: "Modelo 17 - Forex Setup E: filtros combinados",
         MT5_OPERATIONAL_MODEL_23: "Modelo 23 - acumulador financeiro",
         MT5_OPERATIONAL_MODEL_24: "Modelo 24 - XAU RSI50 com cesta financeira",
-        MT5_OPERATIONAL_MODEL_25: "Modelo 25 - M24 nos 19 ativos em M5",
+        MT5_OPERATIONAL_MODEL_25: "Modelo 25 - cesta das fontes XAU M8/M10/M18-M22",
     }
     for model_id in XAU_IMPROVED_REENTRY_MODEL_IDS:
         spec = trend_filter_spec(model_id)
@@ -2466,11 +2473,7 @@ def _persist_mt5_operational_model_checkbox_selection(model: str) -> None:
     """Persiste modelos diretos e uma cesta operacional por vez."""
     _mark_ui_critical_interaction()
     changed = _valid_mt5_operational_model(model)
-    sources = tuple(
-        candidate
-        for candidate in MT5_SELECTABLE_OPERATIONAL_MODEL_IDS
-        if candidate not in {MT5_OPERATIONAL_MODEL_23, MT5_OPERATIONAL_MODEL_24}
-    )
+    sources = MT5_ACTIVE_SOURCE_MODEL_IDS
     for source in sources:
         st.session_state.setdefault(
             _mt5_operational_model_checkbox_key(source),
@@ -2482,6 +2485,10 @@ def _persist_mt5_operational_model_checkbox_selection(model: str) -> None:
     )
     st.session_state.setdefault(
         _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_24),
+        False,
+    )
+    st.session_state.setdefault(
+        _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_25),
         False,
     )
     if changed == MT5_OPERATIONAL_MODEL_ALL:
@@ -2513,12 +2520,30 @@ def _persist_mt5_operational_model_checkbox_selection(model: str) -> None:
             False,
         )
     )
-    if basket24_checked:
+    basket25_checked = bool(
+        st.session_state.get(
+            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_25),
+            False,
+        )
+    )
+    if basket25_checked:
+        basket_checked = False
+        basket24_checked = False
+        selected_models = ()
+        st.session_state[
+            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_23)
+        ] = False
+        st.session_state[
+            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_24)
+        ] = False
+        for source in sources:
+            st.session_state[_mt5_operational_model_checkbox_key(source)] = False
+    elif basket24_checked:
         basket_checked = False
         st.session_state[
             _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_23)
         ] = False
-    if not selected_models and not basket_checked and not basket24_checked:
+    if not selected_models and not basket_checked and not basket24_checked and not basket25_checked:
         selected_models = (MT5_OPERATIONAL_MODEL_1,)
         st.session_state[
             _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_1)
@@ -2527,7 +2552,9 @@ def _persist_mt5_operational_model_checkbox_selection(model: str) -> None:
     st.session_state[
         _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_ALL)
     ] = all_selected
-    if basket24_checked and selected_models:
+    if basket25_checked:
+        selected = MT5_OPERATIONAL_MODEL_25
+    elif basket24_checked and selected_models:
         selected = MT5_OPERATIONAL_MODEL_WITH_24
     elif basket24_checked:
         selected = MT5_OPERATIONAL_MODEL_24
@@ -2541,7 +2568,7 @@ def _persist_mt5_operational_model_checkbox_selection(model: str) -> None:
         selected = selected_models[0]
     else:
         selected = MT5_OPERATIONAL_MODEL_CUSTOM
-    persisted_models = selected_models or sources
+    persisted_models = MT5_MODEL_25_SOURCE_MODEL_IDS if basket25_checked else selected_models or sources
     _persist_mt5_operational_model(selected, models=persisted_models)
     st.session_state[MT5_OPERATIONAL_MODEL_KEY] = selected
     st.session_state[MT5_OPERATIONAL_MODEL_SYNC_KEY] = selected
@@ -2554,7 +2581,12 @@ def _persist_mt5_operational_model_form_selection() -> str:
     sources = MT5_ACTIVE_SOURCE_MODEL_IDS
     persisted_models = _load_persisted_mt5_operational_models()
     persisted_direct_all = (
-        current not in {MT5_OPERATIONAL_MODEL_23, MT5_OPERATIONAL_MODEL_24}
+        current
+        not in {
+            MT5_OPERATIONAL_MODEL_23,
+            MT5_OPERATIONAL_MODEL_24,
+            MT5_OPERATIONAL_MODEL_25,
+        }
         and len(persisted_models) == len(sources)
     )
     all_checked = bool(
@@ -2575,7 +2607,22 @@ def _persist_mt5_operational_model_form_selection() -> str:
             False,
         )
     )
-    if basket24_checked:
+    basket25_checked = bool(
+        st.session_state.get(
+            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_25),
+            False,
+        )
+    )
+    if basket25_checked:
+        basket_checked = False
+        basket24_checked = False
+        st.session_state[
+            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_23)
+        ] = False
+        st.session_state[
+            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_24)
+        ] = False
+    elif basket24_checked:
         basket_checked = False
         st.session_state[
             _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_23)
@@ -2590,12 +2637,19 @@ def _persist_mt5_operational_model_form_selection() -> str:
 
     # "Todos" marca o conjunto inteiro. Quando todos ja estavam marcados,
     # desmarcar uma fonte prevalece sobre o checkbox agregado.
-    if all_checked and not persisted_direct_all:
+    if basket25_checked:
+        selected_models = ()
+        for source in sources:
+            st.session_state[_mt5_operational_model_checkbox_key(source)] = False
+    if all_checked and not persisted_direct_all and not basket25_checked:
         selected_models = sources
     direct_enabled = bool(selected_models)
     direct_all = len(selected_models) == len(sources)
 
-    if basket24_checked and direct_enabled:
+    if basket25_checked:
+        selected = MT5_OPERATIONAL_MODEL_25
+        persisted_models = MT5_MODEL_25_SOURCE_MODEL_IDS
+    elif basket24_checked and direct_enabled:
         selected = MT5_OPERATIONAL_MODEL_WITH_24
         # As fontes internas da cesta M24 nao substituem os modelos diretos
         # escolhidos pelo usuario para operar ao lado dela.
@@ -2652,7 +2706,12 @@ def _render_mt5_operational_model_selector() -> str:
         MT5_OPERATIONAL_MODEL_24,
         MT5_OPERATIONAL_MODEL_WITH_24,
     }
-    direct_mode = current not in {MT5_OPERATIONAL_MODEL_23, MT5_OPERATIONAL_MODEL_24}
+    basket25_mode = current == MT5_OPERATIONAL_MODEL_25
+    direct_mode = current not in {
+        MT5_OPERATIONAL_MODEL_23,
+        MT5_OPERATIONAL_MODEL_24,
+        MT5_OPERATIONAL_MODEL_25,
+    }
     persisted_revision = _mt5_operational_model_state_revision()
     refresh_widgets = (
         st.session_state.get(MT5_OPERATIONAL_MODEL_REVISION_KEY)
@@ -2664,6 +2723,8 @@ def _render_mt5_operational_model_selector() -> str:
             if candidate == MT5_OPERATIONAL_MODEL_23
             else basket24_mode
             if candidate == MT5_OPERATIONAL_MODEL_24
+            else basket25_mode
+            if candidate == MT5_OPERATIONAL_MODEL_25
             else direct_mode and candidate in persisted_models
         )
         if candidate == MT5_OPERATIONAL_MODEL_ALL:
@@ -2680,7 +2741,9 @@ def _render_mt5_operational_model_selector() -> str:
         st.markdown("#### Chaveamento operacional")
         summary = st.columns([1.0, 3.0])
         summary_label = (
-            "M24"
+            "M25"
+            if basket25_mode
+            else "M24"
             if basket24_mode and not direct_mode
             else f"{len(persisted_models)} MODELOS + M24"
             if basket24_mode
@@ -2699,7 +2762,7 @@ def _render_mt5_operational_model_selector() -> str:
         summary[1].caption(
             "Os modelos ativos ficam visiveis e podem ser combinados livremente; "
             "Todos executa o conjunto completo. M23 ou M24 pode operar junto "
-            "dos modelos diretos; somente uma cesta fica ativa por vez."
+            "dos modelos diretos; M25 e exclusivo e usa apenas XAUUSD/M5."
         )
         st.caption("Modelo ativo para envio")
         with st.form(MT5_OPERATIONAL_MODEL_FORM_KEY, border=False):
@@ -2782,8 +2845,8 @@ def _render_mt5_operational_model_selector() -> str:
         basket_columns[3].metric("Full Exit", "+US$ 1.000,00")
     if _mt5_operational_model_enabled(selected, MT5_OPERATIONAL_MODEL_25):
         st.warning(
-            "M25 ativo nos 19 ativos em M5: mesma logica operacional do M24, "
-            "com estado e cesta independentes por ativo."
+            "M25 ativo somente em XAUUSD/M5: copia independentemente entrada, "
+            "SL e TP de M8, M10 e M18-M22 para sua cesta exclusiva."
         )
         basket = _load_mt5_model25_basket_state()
         basket_columns = st.columns(4)
@@ -4315,8 +4378,8 @@ def _mt5_equity_model_setup_summary(model_filter: str) -> str:
             "com Full Exit em +US$1.000"
         ),
         "MODELO 25": (
-            "Logica M24 nos 19 ativos/M5 | estado por ativo | cesta M25 "
-            "com Full Exit em +US$1.000"
+            "XAUUSD/M5 | copia M8, M10 e M18-M22 | preserva entrada, SL e TP | "
+            "cesta M25 com Full Exit em +US$1.000"
         ),
     }
     if normalized in summaries:
@@ -6193,19 +6256,22 @@ def _exibir_entradas_teoricas_mt5(
             color_model_rows=True,
         )
     if _mt5_operational_model_enabled(operational_model, MT5_OPERATIONAL_MODEL_25):
-        st.subheader("Entrada Teorica MT5 - Modelo 25 - 19 ativos")
+        st.subheader("Entrada Teorica MT5 - Modelo 25 - fontes XAUUSD")
         st.caption(
-            "Copia operacional independente do M24 em M5. Cada ativo reutiliza "
-            "a janela compartilhada de 200 velas fechadas mais a vela atual."
+            "Copia rastreavel de M8, M10 e M18-M22. Entrada, ordem, SL e TP "
+            "permanecem exatamente os do plano-fonte em XAUUSD/M5. "
+            f"Contrato {MODEL_25_CONTRACT_VERSION}/"
+            f"{MODEL_25_CONTRACT_FINGERPRINT}; "
+            f"{len(MODEL_25_SOURCE_MODEL_IDS)} fontes."
         )
         _render_stable_readonly_table(
             _model25_theoretical_entry_rows_from_background(service),
-            model_column="Par",
+            model_column="Fonte",
             decision_column="Direcao",
             color_status_cells=True,
             color_model_rows=True,
-            empty_columns=["Par", "Timeframe", "Envio", "Direcao", "Motivo"],
-            empty_message="M25 aguardando o primeiro snapshot M5 dos 19 ativos.",
+            empty_columns=["Fonte", "Par", "Timeframe", "Envio", "Direcao", "Motivo"],
+            empty_message="M25 aguardando o primeiro snapshot XAUUSD/M5 das sete fontes.",
         )
     st.subheader("Monitor de Indicadores MT5 - modelos ativos")
     st.caption(

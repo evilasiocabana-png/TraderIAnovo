@@ -26,11 +26,14 @@ from application.model23_basket_accumulator import (
 )
 from application.model24_xau_basket import is_model24, model24_order_comment
 from application.model25_multi_asset_rsi50_basket import (
+    MODEL_25_SOURCE_MODEL_IDS,
     is_model25,
     model25_order_comment,
+    model25_position_source,
+    model25_source_model_id,
 )
 from application.model3_xau_m5_rsi50_flip import MODEL_3_ID
-from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
+from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID, MODEL_8_SYMBOL
 from application.xau_m5_sma_rsi_model_family import (
     XAU_IMPROVED_REENTRY_MODEL_IDS,
     XAU_ALL_TREND_FILTER_MODEL_IDS as XAU_TREND_FILTER_MODEL_IDS,
@@ -1701,6 +1704,12 @@ mt5.shutdown()
                 and self._positive_float(getattr(order, "target", None)) is not None
             )
         if is_model25(getattr(order, "operational_model", "")):
+            source_model = self._source_operational_model(order)
+            if source_model in MODEL_25_SOURCE_MODEL_IDS:
+                return self._model_uses_no_target(
+                    source_model,
+                    self._entry_order_type(order),
+                )
             return not (
                 str(parameters.get("m25_entry_role") or "").upper()
                 in {"REENTRY", "STRUCTURAL_REENTRY"}
@@ -2206,10 +2215,19 @@ mt5.shutdown()
         order: ExecutionOrder,
         positions: list[object],
     ) -> ExecutionResult | None:
-        """Permite no M25 uma INITIAL e uma REENTRY por simbolo."""
+        """Permite uma INITIAL e uma REENTRY M25 para cada modelo-fonte."""
+        if str(order.symbol or "").upper() != MODEL_8_SYMBOL:
+            return ExecutionResult(
+                False,
+                "REJECTED",
+                "M25 opera exclusivamente XAUUSD/M5.",
+            )
         candidate_role = self._model25_order_role(order)
         if candidate_role not in {"INITIAL", "REENTRY"}:
             return ExecutionResult(False, "REJECTED", "M25 sem papel INITIAL/REENTRY identificavel.")
+        candidate_source = self._model25_order_source(order)
+        if candidate_source == "N/D":
+            return ExecutionResult(False, "REJECTED", "M25 sem fonte M8/M10/M18-M22 identificavel.")
         for position in positions:
             comment = str(getattr(position, "comment", "") or "").upper()
             if "M25" not in comment.split():
@@ -2217,15 +2235,23 @@ mt5.shutdown()
             open_side = self._position_side(position, {})
             if open_side in {"BUY", "SELL"} and open_side != str(order.side).upper():
                 return ExecutionResult(False, "REJECTED", f"M25 {order.symbol} aguarda encerrar o lado anterior antes de inverter.")
-            if self._model25_position_role(position) in {candidate_role, "UNKNOWN"}:
-                return ExecutionResult(False, "REJECTED", f"M25 ja possui {candidate_role} aberta em {order.symbol}.")
+            open_source = self._model25_position_source(position)
+            if (
+                open_source == candidate_source
+                and self._model25_position_role(position) in {candidate_role, "UNKNOWN"}
+            ):
+                return ExecutionResult(
+                    False,
+                    "REJECTED",
+                    f"M25 {candidate_source} ja possui {candidate_role} aberta em {order.symbol}.",
+                )
         return None
 
     def _model25_pending_transition_preflight_locked(
         self,
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
-        """Mantem no maximo uma pendencia M25 por papel e simbolo."""
+        """Mantem no maximo uma pendencia M25 por papel, fonte e simbolo."""
         if not is_model25(getattr(order, "operational_model", "")):
             return None
         orders_get = getattr(self.mt5, "orders_get", None)
@@ -2237,6 +2263,9 @@ mt5.shutdown()
             return ExecutionResult(False, "ERROR", f"M25 nao conseguiu auditar pendencias: {exc}")
         candidate_role = self._model25_order_role(order)
         candidate_side = str(order.side or "").upper()
+        candidate_source = self._model25_order_source(order)
+        if candidate_source == "N/D":
+            return ExecutionResult(False, "REJECTED", "M25 pendente sem fonte identificavel.")
         buy_stop = getattr(self.mt5, "ORDER_TYPE_BUY_STOP", None)
         sell_stop = getattr(self.mt5, "ORDER_TYPE_SELL_STOP", None)
         pending_types = {value for value in (buy_stop, sell_stop) if value is not None}
@@ -2245,6 +2274,9 @@ mt5.shutdown()
             tokens = set(comment.split())
             if "M25" not in tokens or getattr(pending, "type", None) not in pending_types:
                 continue
+            pending_source = self._model25_comment_source(comment)
+            if pending_source != candidate_source:
+                continue
             pending_side = "BUY" if getattr(pending, "type", None) == buy_stop else "SELL"
             if candidate_role == "INITIAL" and pending_side != candidate_side:
                 response = self.mt5.order_send(
@@ -2252,7 +2284,7 @@ mt5.shutdown()
                         "action": self.mt5.TRADE_ACTION_REMOVE,
                         "order": int(getattr(pending, "ticket", 0) or 0),
                         "symbol": order.symbol,
-                        "comment": "TraderIA M25 reverse cleanup",
+                        "comment": f"TraderIA M25 {candidate_source} reverse cleanup",
                     }
                 )
                 result = self._result_from_response(response)
@@ -2260,7 +2292,7 @@ mt5.shutdown()
                     return ExecutionResult(False, "REJECTED", "M25 nao conseguiu cancelar pendencia do lado anterior.", error_code=result.error_code)
                 continue
             if candidate_role == "REENTRY" and "REENTRY" in tokens:
-                return ExecutionResult(False, "REJECTED", f"M25 ja possui reentrada pendente em {order.symbol}; sera reposicionada em outro ciclo apos expirar ou executar.")
+                return ExecutionResult(False, "REJECTED", f"M25 {candidate_source} ja possui reentrada pendente em {order.symbol}; sera reposicionada em outro ciclo apos expirar ou executar.")
         return None
 
     @staticmethod
@@ -2268,6 +2300,25 @@ mt5.shutdown()
         snapshot = dict(getattr(order, "plan_snapshot", None) or {})
         parameters = dict(snapshot.get("stop_management_parameters") or {})
         return str(parameters.get("m25_entry_role") or "").upper()
+
+    def _model25_order_source(self, order: ExecutionOrder) -> str:
+        source = model25_source_model_id(getattr(order, "operational_model", ""))
+        if source != "N/D":
+            return source
+        parameters = dict(
+            dict(getattr(order, "plan_snapshot", None) or {}).get(
+                "stop_management_parameters"
+            )
+            or {}
+        )
+        model = str(parameters.get("source_operational_model") or "").upper()
+        match = re.search(r"MODELO_(8|10|18|19|20|21|22)_", model)
+        return f"M{match.group(1)}" if match is not None else "N/D"
+
+    @staticmethod
+    def _model25_comment_source(comment: object) -> str:
+        match = re.search(r"\bS(8|10|18|19|20|21|22)\b", str(comment or "").upper())
+        return f"M{match.group(1)}" if match is not None else "N/D"
 
     def _model25_position_role(self, position: object) -> str:
         tokens = set(str(getattr(position, "comment", "") or "").upper().split())
@@ -2283,6 +2334,26 @@ mt5.shutdown()
             if role in {"INITIAL", "REENTRY"}:
                 return role
         return "UNKNOWN"
+
+    def _model25_position_source(self, position: object) -> str:
+        source = model25_position_source(position)
+        if source != "N/D":
+            return source
+        ticket = int(getattr(position, "ticket", 0) or 0)
+        for record in reversed(self._read_execution_log_records()):
+            if int(record.get("ticket") or 0) != ticket:
+                continue
+            parameters = dict(
+                dict(record.get("plan_snapshot") or {}).get(
+                    "stop_management_parameters", {}
+                )
+                or {}
+            )
+            model = str(parameters.get("source_operational_model") or "").upper()
+            match = re.search(r"MODELO_(8|10|18|19|20|21|22)_", model)
+            if match is not None:
+                return f"M{match.group(1)}"
+        return "N/D"
 
     def _record_counts_as_plan_evaluation(self, record: dict[str, Any]) -> bool:
         """Duplicidade de plano so nasce de ordem aceita pelo MT5."""

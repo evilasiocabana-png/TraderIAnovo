@@ -49,9 +49,12 @@ Alpha + modelo + par + timeframe + parametros de entrada
 | BETA002_REVERSAL_SIGNAL | ALPHA016 | reversao do fluxo anterior | EMAs, momentum, volatilidade, ATR | Pesquisa existente |
 | MULTI_CURRENCY_GRID_MEAN_REVERSION | ALPHA017 | reversao a media em extremo nao tendencial | Bollinger, Z-Score, RSI, `adx_max`, ATR | Somente Replay; sem grade operacional |
 | M24_XAU_RSI50_BASKET | ALPHA024 | novos cruzamentos preco/SMA20 e RSI14/50, assincronos e mantidos; CONTINUATION apos TP confirmado | distancia >=0,25 ATR, SMA20/50, RSI14, micro-pivo 1+1, contrato versionado | RSI50 e 70/30; sem inversao SMA; CONTINUATION 0,40 |
+| M25_XAU_SOURCE_AGGREGATOR | ALPHA025 | copia plano executavel de M8, M10 ou M18-M22 | XAUUSD/M5, fonte, papel, ordem, entrada, SL e TP herdados | saida tecnica da fonte + Full Exit M25 em +US$1.000 |
 
 O setup M24 e definido em `application/model24_setup_contract.py`. Textos da
 interface, plano e documentos nao podem manter copias independentes da regra.
+O M25 nao possui formula propria: seu contrato e a lista imutavel de fontes
+ficam em `application/model25_multi_asset_rsi50_basket.py`.
 
 ## Stop management suportado
 

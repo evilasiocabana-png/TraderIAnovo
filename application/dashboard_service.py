@@ -164,22 +164,20 @@ from application.model25_multi_asset_rsi50_basket import (
     MODEL_25_ALPHA_VERSION,
     MODEL_25_BETA_ID,
     MODEL_25_BETA_VERSION,
-    MODEL_25_DISTANCE_ATR_MIN,
+    MODEL_25_CONTRACT_FINGERPRINT,
+    MODEL_25_CONTRACT_VERSION,
     MODEL_25_ENTRY_SOURCE,
     MODEL_25_EXIT_POLICY,
     MODEL_25_FULL_EXIT_USD,
     MODEL_25_ID as MT5_OPERATIONAL_MODEL_25,
     MODEL_25_INITIAL_VOLUME,
     MODEL_25_REENTRY_VOLUME,
+    MODEL_25_SOURCE_MODEL_IDS,
     MODEL_25_SYMBOLS,
     MODEL_25_TIMEFRAME,
     Model25BasketManager,
-    evaluate_model25_pending_reentry,
-    evaluate_model25_reentry_opportunity,
-    evaluate_model25_rsi50_market_entry,
     is_model25,
-    mark_model25_market_entry_accepted,
-    model25_market_entry_role,
+    model25_variant_id,
 )
 from application.xau_m5_sma_rsi_model_family import (
     MODEL_9_ID as MT5_OPERATIONAL_MODEL_9,
@@ -400,7 +398,6 @@ MT5_ACTIVE_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_20,
     MT5_OPERATIONAL_MODEL_21,
     MT5_OPERATIONAL_MODEL_22,
-    MT5_OPERATIONAL_MODEL_25,
 )
 MT5_MODEL_23_RETIRED_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_3,
@@ -418,10 +415,12 @@ MT5_MODEL_23_SOURCE_MODEL_IDS = tuple(
     model for model in MT5_ACTIVE_SOURCE_MODEL_IDS if model != MT5_OPERATIONAL_MODEL_25
 )
 MT5_MODEL_24_SOURCE_MODEL_IDS = MODEL_24_SOURCE_MODEL_IDS
+MT5_MODEL_25_SOURCE_MODEL_IDS = MODEL_25_SOURCE_MODEL_IDS
 MT5_OPERATIONAL_MODEL_IDS = (
     *MT5_ACTIVE_SOURCE_MODEL_IDS,
     MT5_OPERATIONAL_MODEL_23,
     MT5_OPERATIONAL_MODEL_24,
+    MT5_OPERATIONAL_MODEL_25,
 )
 MT5_SELECTABLE_OPERATIONAL_MODEL_IDS = (
     *MT5_OPERATIONAL_MODEL_IDS,
@@ -1360,6 +1359,8 @@ class DashboardService:
             return configured or MT5_MODEL_23_SOURCE_MODEL_IDS
         if selected == MT5_OPERATIONAL_MODEL_24:
             return MT5_MODEL_24_SOURCE_MODEL_IDS
+        if selected == MT5_OPERATIONAL_MODEL_25:
+            return MT5_MODEL_25_SOURCE_MODEL_IDS
         if selected == MT5_OPERATIONAL_MODEL_CUSTOM:
             configured = tuple(
                 getattr(self, "mt5_selected_operational_models", ()) or ()
@@ -1388,6 +1389,7 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_8_TO_17,
             MT5_OPERATIONAL_MODEL_23,
             MT5_OPERATIONAL_MODEL_24,
+            MT5_OPERATIONAL_MODEL_25,
         }
 
     def _mt5_model23_routing_enabled(self) -> bool:
@@ -1403,12 +1405,13 @@ class DashboardService:
         }
 
     def _mt5_model25_routing_enabled(self) -> bool:
-        return MT5_OPERATIONAL_MODEL_25 in self._mt5_operational_models_to_evaluate()
+        return self.get_mt5_operational_model() == MT5_OPERATIONAL_MODEL_25
 
     def _mt5_direct_routing_enabled(self) -> bool:
         return self.get_mt5_operational_model() not in {
             MT5_OPERATIONAL_MODEL_23,
             MT5_OPERATIONAL_MODEL_24,
+            MT5_OPERATIONAL_MODEL_25,
         }
 
     def _mt5_entry_source_models_to_evaluate(self) -> tuple[str, ...]:
@@ -6987,6 +6990,7 @@ class DashboardService:
                     *(("DIRECT",) if direct_mode else ()),
                     *(("M23",) if basket_mode else ()),
                     *(("M24",) if basket24_mode else ()),
+                    *(("M25",) if basket25_mode else ()),
                 )
                 for route in routes:
                     route_to_basket = route != "DIRECT"
@@ -7071,6 +7075,20 @@ class DashboardService:
                     if route == "M23":
                         basket_model = model23_variant_id(operational_model)
                         model_row, model_plan = self._mt5_model23_variant_from_source(
+                            model_row,
+                            model_plan,
+                            source_operational_model=operational_model,
+                        )
+                        if not (
+                            str(getattr(model_row, "decision", "") or "").upper()
+                            in {"BUY", "SELL"}
+                            and model_plan.status == "PLANO_VALIDO"
+                        ):
+                            continue
+                        model_candidates.append((basket_model, model_row, model_plan))
+                    elif route == "M25":
+                        basket_model = model25_variant_id(operational_model)
+                        model_row, model_plan = self._mt5_model25_variant_from_source(
                             model_row,
                             model_plan,
                             source_operational_model=operational_model,
@@ -7190,7 +7208,7 @@ class DashboardService:
                     model_row.pair,
                     (
                         signal_candle_time
-                        if candidate_is_m24
+                        if candidate_is_m24 or candidate_is_m25
                         else str(getattr(source_row, "last_candle_time", ""))
                     ),
                     server_timestamp=self._mt5_server_timestamp(model_row.pair),
@@ -7305,16 +7323,6 @@ class DashboardService:
                             return basket24_after_entry
                         return status_view
                     if candidate_is_m25 and result.status == "EXECUTED":
-                        parameters = dict(model_plan.stop_management_parameters or {})
-                        if str(parameters.get("m25_entry_role") or "").upper() in {
-                            "INITIAL",
-                            "REENTRY",
-                        } and str(parameters.get("active_entry_order_type") or "").upper() == "MARKET":
-                            mark_model25_market_entry_accepted(
-                                model_row.pair,
-                                model_plan.direction,
-                                signal_candle_time,
-                            )
                         basket25_after_entry = self._evaluate_model25_risk_gate(
                             pair,
                             timeframe,
@@ -8467,187 +8475,147 @@ class DashboardService:
         )
         return transformed_row, transformed_plan
 
-    def _mt5_model25_multi_asset_plan(
+    def _mt5_model25_variant_from_source(
         self,
         row: DashboardMT5ForexSignalRowViewModel,
         plan: MT5ResearchTradePlan,
+        *,
+        source_operational_model: str,
     ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
-        """Materializa a copia M24 de forma independente em cada um dos 19 ativos."""
-        pair = str(row.pair or "").upper()
-        base_parameters = dict(plan.stop_management_parameters or {})
-        if pair not in MODEL_25_SYMBOLS:
-            status = "M25_PAR_FORA_DO_ESCOPO"
-            reason = f"M25 nao possui contrato para {pair}."
+        """Copia exatamente o plano de uma das sete fontes XAU para o M25."""
+        source = str(source_operational_model or "").upper()
+        if source not in MODEL_25_SOURCE_MODEL_IDS:
+            reason = "M25 aceita somente M8, M10 e M18-M22 como fontes XAU."
             return (
-                replace(row, decision="WAIT", theoretical_entry_direction="WAIT", theoretical_entry_status=status, theoretical_entry_price=None, theoretical_entry_reason=reason, active_model="M25", reason=reason, research_plan_status=status, research_plan_reason=reason),
-                replace(plan, direction="WAIT", entry_price=None, stop=None, target=None, status=status, reason=reason, invalid_reason=status, invalid_fields=("symbol",)),
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status="M25_FONTE_FORA_DO_CONTRATO",
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=reason,
+                    research_plan_status="M25_FONTE_FORA_DO_CONTRATO",
+                    research_plan_reason=reason,
+                ),
+                replace(
+                    plan,
+                    direction="WAIT",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    status="M25_FONTE_FORA_DO_CONTRATO",
+                    reason=reason,
+                    invalid_reason="M25_FONTE_FORA_DO_CONTRATO",
+                    invalid_fields=("source_operational_model",),
+                ),
             )
-        candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
-        rows = list(candles.get((pair, MODEL_25_TIMEFRAME), []) or [
-        ])[-OPERATIONAL_INDICATOR_RAW_CANDLES:]
-        initial = evaluate_model25_rsi50_market_entry(rows, symbol=pair)
-        reentry = evaluate_model25_pending_reentry(rows, symbol=pair)
-        crossing_side = (
-            initial.direction
-            if initial.direction in {"BUY", "SELL"}
-            else reentry.direction
-            if reentry.direction in {"BUY", "SELL"}
-            else "WAIT"
-        )
-        role = (
-            model25_market_entry_role(pair, crossing_side)
-            if crossing_side in {"BUY", "SELL"}
-            else "INITIAL"
-        )
-        decision = initial if role == "INITIAL" else reentry
-        source_parameters = {
-            **base_parameters,
-            "m25_atr14": decision.atr14,
-            "m25_sma20": decision.sma20,
-            "m25_sma50": decision.sma50,
-            "m25_rsi14": decision.rsi14,
-            "m25_distance_atr": decision.distance_atr,
-            "m25_distance_atr_min": MODEL_25_DISTANCE_ATR_MIN,
-            "m25_distance_uses_direction": False,
-            "m25_filter_status": "M25_DISTANCE_ATR_ONLY",
-            "m25_symbol": pair,
-        }
-        if self._supplemental_m5_is_seed_only(pair):
-            decision = replace(
-                decision,
-                direction="WAIT",
-                status="M25_AGUARDA_VALIDACAO_LIVE_M5",
-                reason="Janela M5 local aquecida; aguarda reconciliacao com o MT5 online.",
-                entry_price=None,
-                initial_stop=None,
+        if str(row.pair or "").upper() != MODEL_8_SYMBOL:
+            reason = "M25 opera exclusivamente XAUUSD/M5."
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status="M25_PAR_FORA_DO_ESCOPO",
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=reason,
+                    research_plan_status="M25_PAR_FORA_DO_ESCOPO",
+                    research_plan_reason=reason,
+                ),
+                replace(
+                    plan,
+                    direction="WAIT",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    status="M25_PAR_FORA_DO_ESCOPO",
+                    reason=reason,
+                    invalid_reason="M25_PAR_FORA_DO_ESCOPO",
+                    invalid_fields=("symbol",),
+                ),
             )
-        use_market = role == "INITIAL" and decision.ready
-        use_reentry = role == "REENTRY" and decision.ready
-        if not (use_market or use_reentry):
-            reason = f"M25/{pair}: {decision.reason}"
-            parameters = {
-                **source_parameters,
+
+        source_number = operational_model_number(source)
+        source_label = f"M{source_number}" if source_number is not None else "N/D"
+        parameters = dict(plan.stop_management_parameters or {})
+        order_type = str(parameters.get("active_entry_order_type") or "MARKET").upper()
+        role = "REENTRY" if order_type in {"BUY_STOP", "SELL_STOP"} else "INITIAL"
+        target = float(plan.target or 0.0)
+        parameters.update(
+            {
+                "source_operational_model": source,
+                "source_model_label": source_label,
+                "source_initial_stop": plan.stop,
+                "source_target": plan.target,
+                "source_exit_model": plan.exit_model,
+                "source_stop_management": plan.stop_management,
+                "source_stop_management_reason": plan.stop_management_reason,
+                "source_beta_id": plan.beta_id,
+                "source_beta_version": plan.beta_version,
+                "source_beta_mode": plan.beta_mode,
+                "m25_contract_version": MODEL_25_CONTRACT_VERSION,
+                "m25_contract_fingerprint": MODEL_25_CONTRACT_FINGERPRINT,
+                "m25_source_operational_model": source,
                 "m25_entry_role": role,
+                "m25_initial_volume": MODEL_25_INITIAL_VOLUME,
+                "m25_reentry_volume": MODEL_25_REENTRY_VOLUME,
+                "execution_volume": (
+                    MODEL_25_REENTRY_VOLUME if role == "REENTRY" else MODEL_25_INITIAL_VOLUME
+                ),
+                "m25_reentry_position": role == "REENTRY",
+                "m25_individual_target_enabled": target > 0.0,
                 "full_exit_usd": MODEL_25_FULL_EXIT_USD,
             }
-            return (
-                replace(row, timeframe=MODEL_25_TIMEFRAME, lab_timeframe=MODEL_25_TIMEFRAME, decision="WAIT", theoretical_entry_direction="WAIT", theoretical_entry_status=decision.status, theoretical_entry_price=None, theoretical_entry_reason=reason, active_model=f"M25 {pair} | {role}", reason=reason, lab_alpha_id=MODEL_25_ALPHA_ID, lab_alpha_version=MODEL_25_ALPHA_VERSION, beta_id=MODEL_25_BETA_ID, beta_version=MODEL_25_BETA_VERSION, lab_parameters=parameters, research_plan_status=decision.status, research_plan_reason=reason),
-                replace(plan, direction="WAIT", entry_price=None, stop=None, target=None, status=decision.status, reason=reason, invalid_reason=decision.status, invalid_fields=("m25_entry_trigger",), stop_management_parameters=parameters),
-            )
-        direction = decision.direction
-        entry = float(decision.entry_price or 0.0)
-        stop = float(decision.initial_stop or 0.0)
-        entry_role = "INITIAL" if use_market else "REENTRY"
-        active_order_type = "MARKET" if use_market else ("BUY_STOP" if direction == "BUY" else "SELL_STOP")
-        risk = abs(entry - stop)
-        structural_target = float(decision.structural_target_price or 0.0) if use_reentry else 0.0
-        structural_target_valid = bool(
-            use_reentry
-            and structural_target > 0.0
-            and (structural_target > entry if direction == "BUY" else structural_target < entry)
         )
-        if use_reentry and not structural_target_valid:
-            status = "M25_REENTRY_AGUARDA_ALVO_ESTRUTURAL_VALIDO"
-            reason = f"M25/{pair}: topo/fundo anterior a correcao ausente ou invalido."
-            parameters = {**source_parameters, "m25_entry_role": entry_role, "m25_individual_target_enabled": False, "full_exit_usd": MODEL_25_FULL_EXIT_USD}
-            return (
-                replace(row, timeframe=MODEL_25_TIMEFRAME, lab_timeframe=MODEL_25_TIMEFRAME, decision="WAIT", theoretical_entry_direction="WAIT", theoretical_entry_status=status, theoretical_entry_price=None, theoretical_entry_reason=reason, active_model=f"M25 {pair} | {entry_role}", reason=reason, lab_parameters=parameters, research_plan_status=status, research_plan_reason=reason),
-                replace(plan, direction="WAIT", entry_price=None, stop=None, target=None, status=status, reason=reason, invalid_reason=status, invalid_fields=("m25_structural_target",), stop_management_parameters=parameters),
-            )
-        reentry_gate = None
-        if use_reentry:
-            opportunity_key = f"{direction}|{decision.closed_candle_time}|{active_order_type}"
-            reentry_gate = evaluate_model25_reentry_opportunity(pair, direction, opportunity_key)
-            if not reentry_gate.allowed:
-                reason = f"M25/{pair}: {reentry_gate.reason}"
-                parameters = {**source_parameters, "m25_entry_role": entry_role, "m25_reentry_opportunity_key": opportunity_key, "m25_reentry_gate_status": reentry_gate.status, "full_exit_usd": MODEL_25_FULL_EXIT_USD}
-                return (
-                    replace(row, timeframe=MODEL_25_TIMEFRAME, lab_timeframe=MODEL_25_TIMEFRAME, decision="WAIT", theoretical_entry_direction="WAIT", theoretical_entry_status=reentry_gate.status, theoretical_entry_price=None, theoretical_entry_reason=reason, active_model=f"M25 {pair} | {entry_role}", reason=reason, lab_parameters=parameters, research_plan_status=reentry_gate.status, research_plan_reason=reason),
-                    replace(plan, direction="WAIT", entry_price=None, stop=None, target=None, status=reentry_gate.status, reason=reason, invalid_reason=reentry_gate.status, invalid_fields=("m25_first_reentry_after_extreme",), stop_management_parameters=parameters),
-                )
-        parameters = {
-            **source_parameters,
-            "active_entry_order_type": active_order_type,
-            "m25_entry_role": entry_role,
-            "m25_initial_volume": MODEL_25_INITIAL_VOLUME,
-            "m25_reentry_volume": MODEL_25_REENTRY_VOLUME,
-            "execution_volume": MODEL_25_INITIAL_VOLUME if use_market else MODEL_25_REENTRY_VOLUME,
-            "m25_reentry_position": use_reentry,
-            "m25_micro_pivot_stop_enabled": use_reentry,
-            "m25_micro_pivot_maximum_age": 5,
-            "m25_micro_pivot_time": decision.micro_swing_time,
-            "m25_structural_target_price": structural_target if structural_target_valid else None,
-            "m25_structural_target_time": decision.structural_target_time if structural_target_valid else "N/D",
-            "m25_individual_target_enabled": structural_target_valid,
-            "m25_reentry_gate_status": reentry_gate.status if reentry_gate is not None else "N/A",
-            "indicator_source": OPERATIONAL_INDICATOR_SOURCE,
-            "indicator_closed_candle_time": decision.closed_candle_time,
-            "full_exit_usd": MODEL_25_FULL_EXIT_USD,
-        }
-        target = structural_target if structural_target_valid else 0.0
-        rr = abs(target - entry) / risk if structural_target_valid and risk > 0.0 else 0.0
-        transformed_plan = replace(
+        basket_plan = replace(
             plan,
-            direction=direction,
-            entry_price=entry,
-            stop=stop,
-            target=target,
-            risk_reward=rr,
-            risk_pips=risk,
-            reward_pips=abs(target - entry) if structural_target_valid else 0.0,
-            reward_percent=0.0,
-            status="PLANO_VALIDO",
-            reason=decision.reason,
-            invalid_reason="",
-            invalid_fields=(),
-            stop_reason="SL no micro-pivo M5; reentrada protege apenas a favor.",
-            target_reason="TP estrutural da reentrada." if structural_target_valid else "Entrada inicial sem TP individual; cesta M25 zera em +US$1.000.",
             stop_management=MODEL_25_EXIT_POLICY,
             stop_management_parameters=parameters,
-            stop_management_reason="Replica a gestao M24 por ativo e adiciona Full Exit exclusivo da cesta M25.",
+            stop_management_reason=(
+                f"M25 preserva entrada, SL, TP e saida nativa do {source_label}; "
+                "adiciona apenas o Full Exit coletivo em +US$1.000."
+            ),
+            stop_reason=f"M25 copiou o SL do {source_label}: {plan.stop_reason}",
+            target_reason=f"M25 copiou o TP do {source_label}: {plan.target_reason}",
             exit_model=MODEL_25_BETA_VERSION,
             alpha_id=MODEL_25_ALPHA_ID,
             alpha_version=MODEL_25_ALPHA_VERSION,
             beta_id=MODEL_25_BETA_ID,
             beta_version=MODEL_25_BETA_VERSION,
-            beta_mode="RSI_EXIT_PLUS_BASKET_1000",
-            beta_reason="Saida RSI por ativo mais Full Exit financeiro exclusivo do M25.",
+            beta_mode="SOURCE_EXIT_PLUS_BASKET_1000",
+            beta_reason=(
+                f"Saida individual herdada do {source_label}; cesta M25 zera em "
+                "+US$1.000 liquidos."
+            ),
             source=MODEL_25_ENTRY_SOURCE,
+            reason=f"M25 captou o plano executavel do {source_label}: {plan.reason}",
         )
-        transformed_row = replace(
+        basket_row = replace(
             row,
-            timeframe=MODEL_25_TIMEFRAME,
-            lab_timeframe=MODEL_25_TIMEFRAME,
-            decision=direction,
-            theoretical_entry_direction=direction,
-            theoretical_entry_status="SINAL_TEORICO" if use_market else "ORDEM_STOP_TEORICA",
-            theoretical_entry_candle=decision.closed_candle_time,
-            theoretical_entry_price=entry,
-            theoretical_entry_reason=decision.reason,
-            active_model=f"M25 {pair} | {entry_role}",
-            reason=decision.reason,
+            active_model=f"M25 <- {source_label} | {row.active_model}",
+            reason=f"M25 captou a entrada valida do {source_label}. {row.reason}",
             lab_alpha_id=MODEL_25_ALPHA_ID,
             lab_alpha_version=MODEL_25_ALPHA_VERSION,
             beta_id=MODEL_25_BETA_ID,
             beta_version=MODEL_25_BETA_VERSION,
-            beta_mode="RSI_EXIT_PLUS_BASKET_1000",
+            beta_mode="SOURCE_EXIT_PLUS_BASKET_1000",
             lab_parameters=parameters,
             lab_configuration_source=MODEL_25_ENTRY_SOURCE,
-            research_plan_status="PLANO_VALIDO",
             research_plan_source=MODEL_25_ENTRY_SOURCE,
-            research_plan_entry_price=entry,
-            research_plan_stop=stop,
-            research_plan_target=target,
-            research_plan_risk_reward=rr,
-            research_plan_risk_pips=risk,
+            research_plan_entry_price=plan.entry_price,
+            research_plan_stop=plan.stop,
+            research_plan_target=plan.target,
+            research_plan_risk_reward=plan.risk_reward,
             research_plan_stop_management=MODEL_25_EXIT_POLICY,
             research_plan_stop_management_parameters=parameters,
-            research_plan_reason=decision.reason,
+            research_plan_reason=(
+                f"Entrada, SL e TP copiados do {source_label}; Full Exit M25 adicional."
+            ),
         )
-        return transformed_row, transformed_plan
+        return basket_row, basket_plan
 
     def model25_theoretical_entry_rows(self) -> list[dict[str, object]]:
-        """Expoe as 19 leituras M25 usando somente o cache do ciclo atual."""
+        """Expoe as sete copias XAU do M25 usando o cache unico do ciclo."""
         forex = self.get_mt5_forex_signals()
         research = self._mt5_research_source_for_reports()
         active_models = self._active_mt5_research_models_by_market(research)
@@ -8655,7 +8623,7 @@ class DashboardService:
         result: list[dict[str, object]] = []
         for source_row in self._candidate_rows_for_demo_robot(forex, "TODOS"):
             pair = str(getattr(source_row, "pair", "") or "").upper()
-            if pair not in MODEL_25_SYMBOLS:
+            if pair != MODEL_8_SYMBOL:
                 continue
             view_row = self._to_view_model_mt5_forex_signal_row(
                 source_row,
@@ -8663,29 +8631,45 @@ class DashboardService:
                 self._active_mt5_research_row_for_source_row(source_row, active_rows),
             )
             base_plan = self._mt5_research_trade_plan_for_view_row(view_row)
-            model_row, model_plan = self._mt5_model25_multi_asset_plan(view_row, base_plan)
-            parameters = dict(model_plan.stop_management_parameters or {})
-            status = str(model_plan.status or "")
-            result.append(
-                {
-                    "Par": pair,
-                    "Timeframe": MODEL_25_TIMEFRAME,
-                    "Envio": (
-                        "PRONTO"
-                        if status == "PLANO_VALIDO"
-                        and str(model_row.decision or "").upper() in {"BUY", "SELL"}
-                        else f"AGUARDA: {status or 'SEM_SINAL'}"
-                    ),
-                    "Direcao": str(model_row.decision or "WAIT").upper(),
-                    "Tipo": str(parameters.get("m25_entry_role") or "N/D"),
-                    "SMA20": parameters.get("m25_sma20"),
-                    "SMA50": parameters.get("m25_sma50"),
-                    "ATR14": parameters.get("m25_atr14"),
-                    "Distancia/ATR": parameters.get("m25_distance_atr"),
-                    "RSI14": parameters.get("m25_rsi14"),
-                    "Motivo": str(model_plan.reason or model_row.reason or "N/D"),
-                }
-            )
+            for source_model in MODEL_25_SOURCE_MODEL_IDS:
+                source_model_row, source_model_plan = self._mt5_apply_operational_model(
+                    view_row,
+                    base_plan,
+                    operational_model=source_model,
+                    allow_demo_forward_override=True,
+                )
+                model_row, model_plan = self._mt5_model25_variant_from_source(
+                    source_model_row,
+                    source_model_plan,
+                    source_operational_model=source_model,
+                )
+                parameters = dict(model_plan.stop_management_parameters or {})
+                status = str(model_plan.status or "")
+                result.append(
+                    {
+                        "Fonte": str(parameters.get("source_model_label") or "N/D"),
+                        "Par": MODEL_8_SYMBOL,
+                        "Timeframe": MODEL_25_TIMEFRAME,
+                        "Envio": (
+                            "PRONTO"
+                            if status == "PLANO_VALIDO"
+                            and str(model_row.decision or "").upper() in {"BUY", "SELL"}
+                            else f"AGUARDA: {status or 'SEM_SINAL'}"
+                        ),
+                        "Direcao": str(model_row.decision or "WAIT").upper(),
+                        "Tipo": str(parameters.get("m25_entry_role") or "N/D"),
+                        "Ordem": str(parameters.get("active_entry_order_type") or "N/D"),
+                        "Entrada": model_plan.entry_price,
+                        "SL": model_plan.stop,
+                        "TP": model_plan.target,
+                        "Contrato": (
+                            f"{MODEL_25_CONTRACT_VERSION}/"
+                            f"{MODEL_25_CONTRACT_FINGERPRINT}"
+                        ),
+                        "Motivo": str(model_plan.reason or model_row.reason or "N/D"),
+                    }
+                )
+            break
         return result
 
     def _to_mt5_demo_trade_plan(
@@ -8758,7 +8742,28 @@ class DashboardService:
                 scope_label="M1_CORE_FOREX",
             )
         if selected_model == MT5_OPERATIONAL_MODEL_25:
-            return self._mt5_model25_multi_asset_plan(row, plan)
+            reason = "M25 exige uma fonte explicita entre M8, M10 e M18-M22."
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status="M25_AGUARDA_FONTE_XAU",
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=reason,
+                ),
+                replace(
+                    plan,
+                    direction="WAIT",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    status="M25_AGUARDA_FONTE_XAU",
+                    reason=reason,
+                    invalid_reason="M25_AGUARDA_FONTE_XAU",
+                    invalid_fields=("source_operational_model",),
+                ),
+            )
         if selected_model == MT5_OPERATIONAL_MODEL_3:
             return self._mt5_model3_xau_m5_plan(row, plan)
         if selected_model in MT5_LAB_OPERATIONAL_MODELS:

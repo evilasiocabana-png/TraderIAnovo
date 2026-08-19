@@ -1,5 +1,29 @@
 # Execution Log
 
+## 2026-08-19 - M25 restrito a XAUUSD e agregado de sete fontes
+
+- promovido o contrato `M25_XAU_SOURCES_V2_20260819` para operar somente
+  XAUUSD/M5;
+- fontes fixadas em M8, M10, M18, M19, M20, M21 e M22;
+- entrada, candle, ordem, SL e TP passam a ser copiados literalmente do plano
+  executavel de cada fonte, sem formula propria do M25;
+- comentarios e variantes identificam a fonte (`M25 S8`, `SOURCE_M8`, etc.);
+- duplicidade isolada por fonte e papel, com bloqueio global de lado oposto;
+- adicionadas barreiras no Robo Demo e provider contra qualquer simbolo que
+  nao seja XAUUSD;
+- saida tecnica herdada da fonte e Full Exit adicional da cesta em +US$1.000;
+- estado V1 deixou de participar do roteamento, mas logs e arquivos antigos
+  foram preservados como historico;
+- seletor tornou o M25 uma cesta exclusiva, fora de `Todos` e sem mistura
+  acidental com M23/M24;
+- validacao focada: 378 testes e 45 subtestes aprovados; gate critico: 203
+  testes aprovados; auditoria arquitetural: `OK`;
+- pendencias anteriores preservadas: `architecture_health` continua marcando
+  a UI desacoplada como falha informativa e a analise estatica encontra BOM
+  legado em `tests/test_demo_execution_service.py`; `pyflakes` nao esta
+  instalado. Nenhuma dessas pendencias nasceu da alteracao M25;
+- nenhuma ordem foi aberta, fechada, cancelada ou modificada na validacao.
+
 ## 2026-08-19 - M24 CONTINUATION apos TP da REENTRY
 
 - removido o descarte automatico da primeira reentrada apos Full Exit RSI

@@ -1089,7 +1089,12 @@ class PositionManagerServiceTest(unittest.TestCase):
         with patch(
             "application.position_manager_service.evaluate_model8_exit",
             return_value=hold_decision,
-        ) as evaluate_exit:
+        ) as evaluate_exit, patch(
+            "application.position_manager_service.load_model8_runtime_state",
+            return_value={},
+        ), patch(
+            "application.position_manager_service.update_model8_runtime_state",
+        ):
             result = manager.manage_plan(
                 self._plan(
                     "XAUUSD",
@@ -1138,7 +1143,12 @@ class PositionManagerServiceTest(unittest.TestCase):
         with patch(
             "application.position_manager_service.evaluate_model8_exit",
             return_value=hold_decision,
-        ) as evaluate_exit:
+        ) as evaluate_exit, patch(
+            "application.position_manager_service.load_model8_runtime_state",
+            return_value={},
+        ), patch(
+            "application.position_manager_service.update_model8_runtime_state",
+        ):
             result = manager.manage_plan(
                 self._plan(
                     "XAUUSD",
@@ -1165,6 +1175,60 @@ class PositionManagerServiceTest(unittest.TestCase):
         self.assertEqual(result.action, "HOLD_POSITION")
         self.assertEqual(provider.close_calls, 0)
         self.assertIn("M24_NO_SMA20_50_INVERSION_EXIT=True", result.evidence)
+
+    def test_m25_v2_herda_saida_tecnica_da_fonte_m8(self) -> None:
+        provider = _FakePositionProvider(
+            position=_position("XAUUSD", "BUY", 101.0, 99.0, 0.0),
+            price=105.0,
+            candles=[],
+        )
+        manager = self._manager(provider, enabled=True)
+        hold_decision = SimpleNamespace(
+            action="HOLD_POSITION",
+            status="M8_HOLD_BUY",
+            reason="Fonte M8 mantem a posicao.",
+            rsi14=60.0,
+            previous_rsi14=60.0,
+            sma20=101.0,
+            sma50=100.0,
+            closed_candle_time="candle-m25-m8",
+        )
+
+        with patch(
+            "application.position_manager_service.evaluate_model8_exit",
+            return_value=hold_decision,
+        ) as evaluate_exit:
+            result = manager.manage_plan(
+                self._plan(
+                    "XAUUSD",
+                    "BUY",
+                    entry=101.0,
+                    stop=99.0,
+                    target=0.0,
+                    stop_management="M25_SOURCE_EXIT_PLUS_BASKET_1000",
+                    parameters={
+                        "source_operational_model": (
+                            "MODELO_8_XAU_M5_SMA_RSI_REENTRY"
+                        ),
+                        "m25_entry_role": "INITIAL",
+                        "m25_reentry_position": False,
+                    },
+                    operational_model=(
+                        "MODELO_25_MULTI_ASSET_RSI50_BASKET_SOURCE_M8"
+                    ),
+                    alpha_id="ALPHA025_XAU_SOURCE_AGGREGATOR",
+                )
+            )
+
+        evaluate_exit.assert_called_once_with(
+            (),
+            "BUY",
+            reentry_position=False,
+            sma_inversion_exit_enabled=True,
+            rsi50_inversion_exit_enabled=False,
+        )
+        self.assertEqual(result.action, "HOLD_POSITION")
+        self.assertEqual(provider.close_calls, 0)
 
     def test_m24_continuation_full_exit_no_retorno_do_rsi_extremo(self) -> None:
         provider = _FakePositionProvider(

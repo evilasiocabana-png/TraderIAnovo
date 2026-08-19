@@ -2,6 +2,8 @@
 
 `M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
 
+`M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
+
 ## Modelo 23
 
 O M23 e o acumulador financeiro das entradas validas dos modelos selecionados e
@@ -565,16 +567,10 @@ micro-pivo 1+1 anterior. Nenhuma posicao M24 fecha por inversao SMA20/SMA50.
 
 O contrato oficial esta em
 `docs/architecture/OPERATIONAL_MODEL_25_MULTI_ASSET_RSI50_BASKET.md`. O M25
-replica a logica operacional do M24 nos 19 ativos canonicos, sempre em M5, mas
-possui identidade, estado por simbolo, comentario, duplicidade, auditoria e
-cesta financeira proprios. Cada ativo pode manter no maximo uma entrada
-`INITIAL` e uma `REENTRY`; os demais ativos continuam independentes.
-
-O M25 reutiliza o snapshot M5 compartilhado e nunca executa Lab pesado no ciclo
-leve. O Full Exit coletivo de `+US$1.000` considera somente posicoes M25. Conta
-real permanece bloqueada e nenhuma ativacao automatica ocorre na implantacao.
-Assim como no M24, a entrada inicial nao possui TP individual e a reentrada usa
-como TP o fechamento, nunca o extremo, do ultimo pivo principal 2+2 confirmado
-na janela deslizante de ate 200 velas M5 fechadas.
-M25 tambem usa somente o filtro `abs(SMA20-SMA50)/ATR14 >= 0,25`; ADX e
-inclinacao da SMA50 nao integram seu contrato.
+opera exclusivamente `XAUUSD/M5` como agregador independente de M8, M10 e
+M18-M22. Ele nao recalcula setups: copia direcao, candle, tipo de ordem,
+entrada, SL e TP do plano executavel de cada fonte e conserva sua identidade.
+Cada fonte pode manter uma `INITIAL` e uma `REENTRY`; lados opostos nao
+coexistem. O Full Exit adicional de `+US$1.000` considera somente posicoes M25.
+O contrato V2 nao le o estado de entrada/reentrada do antigo M25 multiativo,
+mas preserva seus arquivos e logs como historico.

@@ -8,6 +8,10 @@ from application.model23_basket_accumulator import (
     model23_variant_id,
 )
 from application.model24_xau_basket import model24_variant_id
+from application.model25_multi_asset_rsi50_basket import (
+    MODEL_25_ENTRY_SOURCE,
+    model25_variant_id,
+)
 from application.mt5_demo_robot_service import (
     MT5DemoRobotService,
     MT5DemoRobotSignal,
@@ -162,6 +166,45 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
         self.assertEqual(result.status, "EXECUTED")
         self.assertEqual(len(provider.orders), 1)
         self.assertEqual(provider.orders[0].target, 0.0)
+
+    def test_m25_bloqueia_qualquer_mercado_fora_de_xauusd_m5(self) -> None:
+        source_model = "MODELO_8_XAU_M5_SMA_RSI_REENTRY"
+        model = model25_variant_id(source_model)
+
+        for symbol, timeframe in (("EURUSD", "M5"), ("XAUUSD", "H1")):
+            with self.subTest(symbol=symbol, timeframe=timeframe):
+                provider = _AcceptingProvider()
+                service = MT5DemoRobotService(
+                    execution_service=DemoExecutionService(provider=provider),
+                    enabled=True,
+                )
+                signal = MT5DemoRobotSignal(
+                    **{
+                        **self._signal("BUY").__dict__,
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "operational_model": model,
+                    }
+                )
+                plan = MT5DemoTradePlan(
+                    **{
+                        **self._plan("BUY").__dict__,
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "source": MODEL_25_ENTRY_SOURCE,
+                        "operational_model": model,
+                        "stop_management_parameters": {
+                            "source_operational_model": source_model,
+                            "m25_entry_role": "INITIAL",
+                        },
+                    }
+                )
+
+                result = service.evaluate_once(signal, plan)
+
+                self.assertEqual(result.status, "NO_TRADE_PLAN")
+                self.assertEqual(result.message, "M25 opera exclusivamente XAUUSD/M5.")
+                self.assertEqual(provider.orders, [])
 
     def test_nao_reopera_mesmo_candle(self) -> None:
         provider = _AcceptingProvider()

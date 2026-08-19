@@ -96,8 +96,8 @@ from application.model25_multi_asset_rsi50_basket import (
     MODEL_25_BETA_ID,
     MODEL_25_BETA_VERSION,
     MODEL_25_EXIT_POLICY,
+    MODEL_25_SOURCE_MODEL_IDS,
     is_model25,
-    mark_model25_extreme_full_exit,
     model25_symbol_pip_size,
 )
 from domain.contracts.beta_strategy import BetaDecision, BetaStrategyContext
@@ -133,6 +133,16 @@ def _is_model25_trade_plan(plan: "PositionTradePlan") -> bool:
         or str(parameters.get("m25_entry_role") or "").upper()
         in {"INITIAL", "REENTRY", "STRUCTURAL_REENTRY"}
     )
+
+
+def _model25_source_operational_model(plan: "PositionTradePlan") -> str:
+    if not _is_model25_trade_plan(plan):
+        return ""
+    source = str(
+        dict(plan.stop_management_parameters or {}).get("source_operational_model")
+        or ""
+    ).upper()
+    return source if source in MODEL_25_SOURCE_MODEL_IDS else ""
 
 
 class PositionManagerProvider(Protocol):
@@ -1470,7 +1480,7 @@ class PositionManagerService:
             )
             or ()
         )
-        operational_model = str(plan.operational_model or "").upper()
+        recorded_operational_model = str(plan.operational_model or "").upper()
         active_entry_order_type = str(
             dict(plan.stop_management_parameters or {}).get(
                 "active_entry_order_type",
@@ -1481,7 +1491,11 @@ class PositionManagerService:
         parameters = dict(plan.stop_management_parameters or {})
         m24_trade_plan = _is_model24_trade_plan(plan)
         m25_trade_plan = _is_model25_trade_plan(plan)
-        basket_rsi_trade_plan = m24_trade_plan or m25_trade_plan
+        m25_source_model = _model25_source_operational_model(plan)
+        operational_model = m25_source_model or recorded_operational_model
+        basket_rsi_trade_plan = m24_trade_plan or (
+            m25_trade_plan and not m25_source_model
+        )
         m24_entry_role = str(parameters.get("m24_entry_role") or "").upper()
         continuation_position = bool(
             m24_trade_plan and m24_entry_role == "CONTINUATION"
@@ -1517,10 +1531,11 @@ class PositionManagerService:
                 sma_inversion_exit_enabled=(
                     MODEL_24_SETUP.sma20_sma50_exit
                     if m24_trade_plan
-                    else not m25_trade_plan
+                    else not (m25_trade_plan and not m25_source_model)
                 ),
                 rsi50_inversion_exit_enabled=(
-                    m24_rsi50_exit_enabled or m25_trade_plan
+                    m24_rsi50_exit_enabled
+                    or (m25_trade_plan and not m25_source_model)
                 ),
                 **(
                     {"extreme_return_exit_enabled": True}
@@ -2223,22 +2238,19 @@ class PositionManagerService:
         )
         if success:
             self._mark_beta_execution(plan, decision)
-            operational_model = str(plan.operational_model or "").upper()
-            if _is_model24_trade_plan(plan) or _is_model25_trade_plan(plan):
+            recorded_operational_model = str(plan.operational_model or "").upper()
+            m25_source_model = _model25_source_operational_model(plan)
+            operational_model = m25_source_model or recorded_operational_model
+            if _is_model24_trade_plan(plan) or (
+                _is_model25_trade_plan(plan) and not m25_source_model
+            ):
                 rsi_extreme_exit = decision.state in {
                     "M8_EXIT_RSI70_CRUZOU_PARA_BAIXO_BUY",
                     "M8_EXIT_RSI30_CRUZOU_PARA_CIMA_SELL",
                 }
                 if rsi_extreme_exit:
                     parameters = dict(plan.stop_management_parameters or {})
-                    if _is_model25_trade_plan(plan):
-                        mark_model25_extreme_full_exit(
-                            plan.symbol,
-                            snapshot.side,
-                            decision.state,
-                            decision.beta_closed_candle_time,
-                        )
-                    else:
+                    if not _is_model25_trade_plan(plan):
                         mark_model24_extreme_full_exit(
                             parameters.get("source_operational_model")
                             or operational_model,

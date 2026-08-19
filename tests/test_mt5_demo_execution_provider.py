@@ -19,7 +19,8 @@ from application.model15_xau_m5_breakout import MODEL_15_ID
 from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
 from application.model23_basket_accumulator import model23_variant_id
 from application.model24_xau_basket import model24_variant_id
-from application.xau_m5_sma_rsi_model_family import MODEL_12_ID
+from application.model25_multi_asset_rsi50_basket import model25_variant_id
+from application.xau_m5_sma_rsi_model_family import MODEL_10_ID, MODEL_12_ID
 from domain.contracts.execution_order import ExecutionOrder
 from infrastructure.execution.mt5_demo_execution_provider import (
     MT5DemoExecutionProvider,
@@ -1382,6 +1383,65 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
                     ),
                     "m24_entry_role": role,
                 }
+            },
+        )
+
+    def test_m25_rejeita_qualquer_simbolo_fora_de_xauusd(self) -> None:
+        order = self._m25_order("INITIAL")
+        order = ExecutionOrder(**{**vars(order), "symbol": "EURUSD"})
+
+        rejection = self._provider(
+            _FakeMT5()
+        )._open_position_model_limit_preflight(order)
+
+        self.assertIsNotNone(rejection)
+        self.assertIn("exclusivamente XAUUSD", rejection.message)
+
+    def test_m25_isola_papeis_por_modelo_fonte(self) -> None:
+        position = SimpleNamespace(
+            ticket=25001,
+            symbol="XAUUSD",
+            comment="TraderIA M25 S8 INITIAL",
+            type=_FakeMT5.POSITION_TYPE_BUY,
+        )
+        provider = self._provider(_FakeMT5(open_positions=[position]))
+
+        same_source = provider._open_position_model_limit_preflight(
+            self._m25_order("INITIAL", source_model=MODEL_8_ID)
+        )
+        other_source = provider._open_position_model_limit_preflight(
+            self._m25_order("INITIAL", source_model=MODEL_10_ID)
+        )
+
+        self.assertIsNotNone(same_source)
+        self.assertIn("M8 ja possui INITIAL", same_source.message)
+        self.assertIsNone(other_source)
+
+    def _m25_order(
+        self,
+        role: str,
+        *,
+        source_model: str = MODEL_8_ID,
+    ) -> ExecutionOrder:
+        return ExecutionOrder(
+            symbol="XAUUSD",
+            side="BUY",
+            quantity=0.2 if role == "INITIAL" else 0.1,
+            entry_price=120.0,
+            stop=110.0,
+            target=0.0,
+            operational_model=model25_variant_id(source_model),
+            plan_snapshot={
+                "candle_time": "2099-08-19T12:00:00+00:00",
+                "indicator_source": "MT5_NATIVE",
+                "indicator_closed_candle_time": "2099-08-19T12:00:00+00:00",
+                "stop_management_parameters": {
+                    "source_operational_model": source_model,
+                    "active_entry_order_type": (
+                        "MARKET" if role == "INITIAL" else "BUY_STOP"
+                    ),
+                    "m25_entry_role": role,
+                },
             },
         )
 

@@ -115,12 +115,9 @@ Depois dessa confirmacao:
 - a regra e simetrica e o watch e consumido somente depois do aceite da ordem
   a mercado pelo provider Demo.
 
-O M25 reutiliza este contrato nos 19 ativos, mas converte a margem do SL para
-o pip do proprio simbolo. Pares Forex nao JPY usam `0,0001`; pares JPY,
-`XAUUSD` e `BTCUSD` usam `0,01`. Essa conversao vale tanto para a entrada
-inicial quanto para a reentrada. O TP continua sendo o fechamento do topo
-principal para BUY e o fechamento do fundo principal para SELL; o tamanho do
-pip nunca altera a escolha do alvo.
+O M25 nao reutiliza este contrato. Seu contrato V2 opera somente XAUUSD/M5 e
+copia os planos executaveis de M8, M10 e M18-M22, preservando entrada, SL, TP e
+saida nativa de cada fonte.
 
 ## Ordem de precedência
 

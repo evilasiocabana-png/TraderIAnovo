@@ -2,6 +2,8 @@
 
 `M24_CONTRACT=M24_SETUP_V3_20260819; SHA256=4caa2af5fb100fbf7631fbaf2655b0ab9006f4afbc55ebcf7543590d176eb60b`
 
+`M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
+
 Proxima missao recomendada, ainda nao autorizada automaticamente:
 
 ```text
@@ -10,16 +12,17 @@ MISSION_TIA-030_A_DEFINIR
 
 Objetivo: auditar M24 e M25 em paper/demo com candles novos, sem promover
 parametros, confirmando entradas, reentradas, SL favoravel e o isolamento das
-cestas. O M25 deve ser observado nos 19 ativos sem ativacao automatica.
+cestas. O M25 deve ser observado somente em XAUUSD/M5, acompanhando de forma
+independente M8, M10 e M18-M22, sem ativacao automatica.
 
 Pre-condicao de interface concluida em 2026-08-17: o seletor operacional voltou
 a renderizar `Todos` e M24 com chaves distintas e o botao `Aplicar modelos`
 persiste a escolha antes de atualizar os textos da tela.
 
-Pre-condicao de runtime concluida em 2026-08-18: o ciclo de fundo restaura M25
-pela lista canonica de modelos ativos, igual ao seletor visual. O filtro legado
-limitado as fontes do M23 foi removido; a observacao deve confirmar a
-reconciliacao viva das 201 velas M5 nos 19 ativos.
+Pre-condicao de runtime concluida em 2026-08-19: o ciclo de fundo restaura M25
+como cesta exclusiva e expande somente as sete fontes XAU do contrato V2. A
+observacao deve confirmar a reconciliacao viva das velas M5 de XAUUSD e a copia
+exata de entrada, SL e TP de cada fonte.
 
 O relatorio operacional tambem passou a expor o papel da entrada M24
 (`PRINCIPAL`, `REENTRADA` ou `CONTINUAÇÃO`) antes do alvo.
@@ -52,6 +55,14 @@ Pendencia registrada em 2026-07-13:
 - manter tabelas grandes paginadas e rastrear qualquer regressao de lentidao.
 - registrar obrigatoriamente todo travamento aparente, congelamento de UI,
   queda do Streamlit ou reinicio manual como incidente arquitetural.
+
+Pendencias de tooling confirmadas em 2026-08-19, fora do escopo M25:
+
+- corrigir o BOM legado de `tests/test_demo_execution_service.py` para o
+  compilador interno de `run_static_analysis.py`;
+- instalar `pyflakes` se a verificacao opcional passar a ser obrigatoria;
+- tratar em missao arquitetural separada a falha historica `UI desacoplada`
+  reportada por `architecture_health.py`.
 
 Qualquer proxima missao nao deve:
 
