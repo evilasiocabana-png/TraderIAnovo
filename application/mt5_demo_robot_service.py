@@ -51,6 +51,10 @@ from application.model25_multi_asset_rsi50_basket import (
     MODEL_25_TIMEFRAME,
     is_model25,
 )
+from application.model26_xau_m5_smart_money import (
+    MODEL_26_VOLUME,
+    is_model26,
+)
 from application.model6_original_trend_momentum import (
     MODEL_6_ID as HISTORICAL_MODEL_6_ID,
 )
@@ -690,7 +694,7 @@ class MT5DemoRobotService:
         signal: MT5DemoRobotSignal,
         trade_plan: MT5DemoTradePlan,
     ) -> float:
-        """Aplica lote por papel nos modelos de cesta M24/M25."""
+        """Aplica o lote contratual dos modelos com volume proprio."""
         operational_model = (
             signal.operational_model or trade_plan.operational_model or ""
         )
@@ -702,6 +706,8 @@ class MT5DemoRobotService:
                 if role in {"REENTRY", "STRUCTURAL_REENTRY"}
                 else MODEL_25_INITIAL_VOLUME
             )
+        if is_model26(operational_model):
+            return MODEL_26_VOLUME
         if not is_model24(operational_model):
             return float(self.volume)
         parameters = dict(trade_plan.stop_management_parameters or {})

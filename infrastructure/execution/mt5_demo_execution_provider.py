@@ -38,6 +38,12 @@ from application.model25_multi_asset_rsi50_basket import (
     model25_position_source,
     model25_source_model_id,
 )
+from application.model26_xau_m5_smart_money import (
+    MODEL_26_ID,
+    MODEL_26_SYMBOL,
+    MODEL_26_TIMEFRAME,
+    is_model26,
+)
 from application.model3_xau_m5_rsi50_flip import MODEL_3_ID
 from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID, MODEL_8_SYMBOL
 from application.xau_m5_sma_rsi_model_family import (
@@ -63,7 +69,7 @@ from core.mt5_process_probe import resolve_mt5_terminal_path, terminate_process_
 _MT5_ORDER_SEND_LOCK = threading.Lock()
 MAX_OPERATIONAL_MODELS_PER_SYMBOL = 22
 MAX_MODEL23_POSITIONS_PER_SYMBOL = 64
-KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 26))
+KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 27))
 INDEPENDENT_SMA_RSI_MODEL_IDS = frozenset(
     {
         MODEL_8_ID,
@@ -914,6 +920,11 @@ mt5.shutdown()
         if retirement_check is not None:
             self._write_log(order, retirement_check)
             return retirement_check
+
+        model26_scope_check = self._model26_scope_preflight(order)
+        if model26_scope_check is not None:
+            self._write_log(order, model26_scope_check)
+            return model26_scope_check
 
         native_indicator_check = self._native_indicator_source_preflight(order)
         if native_indicator_check is not None:
@@ -2149,6 +2160,29 @@ mt5.shutdown()
             ),
         )
 
+    @staticmethod
+    def _model26_scope_preflight(
+        order: ExecutionOrder,
+    ) -> ExecutionResult | None:
+        model = getattr(order, "operational_model", "")
+        if not (is_model26(model) or str(model or "").upper() == MODEL_26_ID):
+            return None
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        timeframe = str(snapshot.get("timeframe") or "").upper()
+        if (
+            str(getattr(order, "symbol", "") or "").upper() == MODEL_26_SYMBOL
+            and timeframe == MODEL_26_TIMEFRAME
+        ):
+            return None
+        return ExecutionResult(
+            accepted=False,
+            status="REJECTED",
+            message=(
+                "M26 opera exclusivamente XAUUSD/M5; simbolo ou timeframe "
+                "fora do contrato foi bloqueado no provider."
+            ),
+        )
+
     def _open_position_model_limit_preflight(
         self,
         order: ExecutionOrder,
@@ -2919,7 +2953,7 @@ mt5.shutdown()
         match = re.search(r"(?:MODELO[_ ]?|^M)(\d{1,2})(?:_|\b)", model)
         if match is not None:
             number = int(match.group(1))
-            if 1 <= number <= 25:
+            if 1 <= number <= 26:
                 return f"M{number}"
         if model in {
             "MODELO_2_ESPELHO_BETA2_RR1",

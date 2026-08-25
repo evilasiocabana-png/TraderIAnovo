@@ -113,6 +113,16 @@ from application.model25_multi_asset_rsi50_basket import (
     MODEL_25_ID as MT5_OPERATIONAL_MODEL_25,
     MODEL_25_SOURCE_MODEL_IDS,
 )
+from application.model26_xau_m5_smart_money import (
+    MODEL_26_ALPHA_ID,
+    MODEL_26_BETA_ID,
+    MODEL_26_CONTRACT_FINGERPRINT,
+    MODEL_26_CONTRACT_VERSION,
+    MODEL_26_ID as MT5_OPERATIONAL_MODEL_26,
+    MODEL_26_SYMBOL,
+    MODEL_26_TIMEFRAME,
+    model26_parameters,
+)
 from application.xau_m5_sma_rsi_model_family import (
     MODEL_9_ID as MT5_OPERATIONAL_MODEL_9,
     MODEL_10_ID as MT5_OPERATIONAL_MODEL_10,
@@ -321,6 +331,7 @@ MT5_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_23,
     MT5_OPERATIONAL_MODEL_24,
     MT5_OPERATIONAL_MODEL_25,
+    MT5_OPERATIONAL_MODEL_26,
 )
 MT5_ACTIVE_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_1,
@@ -336,6 +347,7 @@ MT5_ACTIVE_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_20,
     MT5_OPERATIONAL_MODEL_21,
     MT5_OPERATIONAL_MODEL_22,
+    MT5_OPERATIONAL_MODEL_26,
 )
 MT5_SELECTABLE_OPERATIONAL_MODEL_IDS = (
     *(
@@ -346,6 +358,7 @@ MT5_SELECTABLE_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_23,
     MT5_OPERATIONAL_MODEL_24,
     MT5_OPERATIONAL_MODEL_25,
+    MT5_OPERATIONAL_MODEL_26,
 )
 MT5_MODEL_23_EXCLUDED_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_16,
@@ -424,7 +437,7 @@ MT5_MODEL23_BASKET_STATE_PATH = Path(".traderia") / "model23_basket_state.json"
 MT5_MODEL24_BASKET_STATE_PATH = Path(".traderia") / "model24_basket_state.json"
 MT5_MODEL25_BASKET_STATE_PATH = Path(".traderia") / "model25_basket_state.json"
 MT5_ACTIVE_REPORT_MODEL_NUMBERS = (
-    1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+    1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
 )
 MT5_DEMO_ROBOT_ONLINE_STATE_PATH = (
     Path(".traderia") / "mt5_demo_robot_online_state.json"
@@ -2443,6 +2456,7 @@ def _mt5_operational_model_labels() -> dict[str, str]:
         MT5_OPERATIONAL_MODEL_23: "Modelo 23 - acumulador financeiro",
         MT5_OPERATIONAL_MODEL_24: "Modelo 24 - XAU RSI50 com cesta financeira",
         MT5_OPERATIONAL_MODEL_25: "Modelo 25 - cesta das fontes XAU M8/M10/M18-M22",
+        MT5_OPERATIONAL_MODEL_26: "Modelo 26 - XAU M5 Smart Money",
     }
     for model_id in XAU_IMPROVED_REENTRY_MODEL_IDS:
         spec = trend_filter_spec(model_id)
@@ -4412,6 +4426,10 @@ def _mt5_equity_model_setup_summary(model_filter: str) -> str:
             "XAUUSD/M5 | copia M8, M10 e M18-M22 | preserva entrada, SL e TP | "
             "cesta M25 com Full Exit em +US$1.000"
         ),
+        "MODELO 26": (
+            "XAUUSD/M5 | estrutura 2+2 + varredura + BOS/deslocamento + "
+            "FVG + Order Block + reteste | SL estrutural | RR >= 2"
+        ),
     }
     if normalized in summaries:
         return summaries[normalized]
@@ -6009,6 +6027,11 @@ def _exibir_entradas_teoricas_mt5(
             "Modelo 8 - XAUUSD M5 SMA20/50 + RSI14",
             "Entra a mercado enquanto o RSI estiver do lado de 50 permitido pela direcao SMA20/50.",
         ),
+        (
+            MT5_OPERATIONAL_MODEL_26,
+            "Modelo 26 - XAUUSD M5 Smart Money",
+            "Estrutura 2+2, varredura de liquidez, BOS com deslocamento, FVG, order block e reteste.",
+        ),
     ) + tuple(
         (
             model_id,
@@ -6091,6 +6114,13 @@ def _exibir_entradas_teoricas_mt5(
         elif source_model_id in FOREX_SMA_RSI_MODEL_IDS:
             row_builder = lambda source_row: _forex_m5_sma_rsi_entry_row(
                 service, source_row, model_id=source_model_id,
+                evaluate_live=execution_enabled,
+                decision_snapshot=shared_decisions,
+            )
+        elif source_model_id == MT5_OPERATIONAL_MODEL_26:
+            row_builder = lambda source_row: _model26_smart_money_entry_row(
+                service,
+                source_row,
                 evaluate_live=execution_enabled,
                 decision_snapshot=shared_decisions,
             )
@@ -6391,6 +6421,7 @@ def _mt5_theoretical_entry_source_rows(
         MT5_OPERATIONAL_MODEL_10,
         MT5_OPERATIONAL_MODEL_11,
         MT5_OPERATIONAL_MODEL_12,
+        MT5_OPERATIONAL_MODEL_26,
         *XAU_IMPROVED_REENTRY_MODEL_IDS,
     }
     if source_model_id not in xau_m5_models:
@@ -6584,6 +6615,104 @@ def _model3_xau_m5_rsi50_entry_row(
                 "Direcao": "WAIT",
                 "Plano Research": status,
                 "Codigo Rejeicao": status,
+            }
+        )
+    return cloned
+
+
+def _model26_smart_money_entry_row(
+    service: DashboardService,
+    row: dict[str, object],
+    *,
+    evaluate_live: bool,
+    decision_snapshot: dict[tuple[str, str], object] | None = None,
+) -> dict[str, object]:
+    """Mostra os seis gates do M26 usando a mesma decisao do executor."""
+    cloned = dict(row)
+    shared = dict(decision_snapshot or {})
+    decision = shared.get((MT5_OPERATIONAL_MODEL_26, MODEL_26_SYMBOL))
+    if decision is None:
+        decision = service._get_model26_entry_decision()
+    ready = bool(decision.ready)
+    direction = str(decision.direction if ready else "WAIT").upper()
+    parameters = model26_parameters()
+    cloned.update(
+        {
+            "_Modelo Base Raw": row.get("Modelo Ativo", ""),
+            "_Parametros Lab Raw": parameters,
+            "Modelo Ativo": "M26_SMART_MONEY_CONFLUENCE",
+            "Modelo Saida": MODEL_26_BETA_ID,
+            "Alpha Lab": MODEL_26_ALPHA_ID,
+            "Beta Lab": MODEL_26_BETA_ID,
+            "Gestao Stop": "FIXED_STOP",
+            "Par": MODEL_26_SYMBOL,
+            "TF": MODEL_26_TIMEFRAME,
+            "Timeframe": MODEL_26_TIMEFRAME,
+            "Periodo de tempo": MODEL_26_TIMEFRAME,
+            "Fonte Lab": "MODEL_26_SMART_MONEY_RULE",
+            "Familia Lab": "SMART_MONEY_CONFLUENCE",
+            "Paridade Demo": "APROVADA",
+            "Parametros Lab": " | ".join(f"{key}={value}" for key, value in parameters.items()),
+            "Candle Gatilho": decision.closed_candle_time,
+            "Candle do Sinal": decision.closed_candle_time,
+            "Candle atual modelo": decision.current_candle_time,
+            "Horario": decision.current_candle_time,
+            "Status indicadores": decision.status,
+            "Estrutura": "OK" if decision.structure_ok else "AGUARDA",
+            "Regime estrutura": decision.market_structure,
+            "Varredura": "OK" if decision.liquidity_sweep_ok else "AGUARDA",
+            "BOS/Deslocamento": "OK" if decision.bos_displacement_ok else "AGUARDA",
+            "FVG": "OK" if decision.fvg_ok else "AGUARDA",
+            "Order Block": "OK" if decision.order_block_ok else "AGUARDA",
+            "Reteste": "OK" if decision.retest_ok else "AGUARDA",
+            "Zona POI": (
+                f"{decision.poi_low:.2f} - {decision.poi_high:.2f}"
+                if decision.poi_low is not None and decision.poi_high is not None
+                else "N/D"
+            ),
+            "ATR14": decision.atr14,
+            "Entrada": decision.entry_price,
+            "Preco Teorico": decision.entry_price,
+            "Stop": decision.initial_stop,
+            "Stop Research": decision.initial_stop,
+            "Alvo Research": decision.target,
+            "RR Research": decision.risk_reward,
+            "RR Minimo": 2.0,
+            "Motivo": decision.reason,
+            "Motivo Entrada": decision.reason,
+            "Contrato": f"{MODEL_26_CONTRACT_VERSION}/{MODEL_26_CONTRACT_FINGERPRINT}",
+            "Gatilho Esperado": decision.status,
+            "Proxima Tentativa": "Reavaliar no proximo candle M5 fechado.",
+        }
+    )
+    if not evaluate_live:
+        cloned.update(
+            {
+                "Entrada Teorica": "SEM_GATILHO",
+                "Direcao Teorica": "WAIT",
+                "Direcao": "WAIT",
+                "Plano Research": "MODELO_NAO_SELECIONADO",
+                "Codigo Rejeicao": "SELECIONE_M26",
+            }
+        )
+    elif ready:
+        cloned.update(
+            {
+                "Entrada Teorica": "SINAL_TEORICO",
+                "Direcao Teorica": direction,
+                "Direcao": "COMPRAR" if direction == "BUY" else "VENDER",
+                "Plano Research": "PLANO_VALIDO",
+                "Codigo Rejeicao": "N/D",
+            }
+        )
+    else:
+        cloned.update(
+            {
+                "Entrada Teorica": "SEM_GATILHO",
+                "Direcao Teorica": "WAIT",
+                "Direcao": "WAIT",
+                "Plano Research": decision.status,
+                "Codigo Rejeicao": decision.status,
             }
         )
     return cloned
@@ -8460,6 +8589,7 @@ def _mt5_theoretical_exit_has_recorded_model(row: object) -> bool:
         or model.startswith(MT5_OPERATIONAL_MODEL_23)
         or model.startswith(MT5_OPERATIONAL_MODEL_24)
         or model.startswith(MT5_OPERATIONAL_MODEL_25)
+        or model.startswith(MT5_OPERATIONAL_MODEL_26)
     )
 
 
@@ -8474,6 +8604,8 @@ def _mt5_theoretical_exit_effective_model(
     if row_model.startswith(MT5_OPERATIONAL_MODEL_24):
         return row_model
     if row_model.startswith(MT5_OPERATIONAL_MODEL_25):
+        return row_model
+    if row_model.startswith(MT5_OPERATIONAL_MODEL_26):
         return row_model
     if row_model in LEGACY_MT5_OPERATIONAL_MODELS:
         return row_model
@@ -9488,7 +9620,7 @@ def _entry_temporal_gates_by_pair(
     A grade consolidada mistura linhas H1/M15/M5 e pode conservar uma linha
     antiga enquanto outro modelo do mesmo ativo ja recebeu candle novo. Usar a
     primeira linha fazia um estado de sexta-feira mascarar o bloqueio real do
-    setup no domingo. A selecao abaixo e comum a M1-M25 e permanece read-only.
+    setup no domingo. A selecao abaixo e comum a M1-M26 e permanece read-only.
     """
     try:
         configuration = service.configuration_service.get_configuration_data()

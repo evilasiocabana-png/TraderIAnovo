@@ -157,3 +157,21 @@ Aceito quando:
 - nao entra em `Todos` nem se combina acidentalmente com M23/M24;
 - preserva o historico V1 sem ler seu estado no roteamento V2;
 - preserva bloqueio de conta real e testes nao enviam ordens ao MT5.
+
+## Modelo 26 - Smart Money XAUUSD/M5
+
+Aceito quando:
+
+- M25 permanece inalterado;
+- opera exclusivamente `XAUUSD/M5` e somente em conta Demo;
+- usa 200 candles fechados e ignora o candle atual na decisao;
+- exige estrutura 2+2, varredura, BOS/deslocamento, FVG, Order Block e reteste;
+- BUY e SELL sao espelhos direcionais;
+- cria SL estrutural e TP com RR minimo de 2;
+- usa lote explicito de `0,10`;
+- Entrada Teorica e executor usam a mesma decisao do snapshot compartilhado;
+- o comentario MT5 preserva `M26` e a saida teorica reconhece o modelo gravado;
+- o modelo aparece no seletor, mas nao e marcado automaticamente;
+- nao executa Lab pesado, nao faz leitura MT5 adicional e nao envia ordem em teste;
+- testes de contrato, direcao, candle fechado, materializacao, volume e provider
+  permanecem aprovados.

@@ -4,6 +4,8 @@
 
 `M25_CONTRACT=M25_XAU_SOURCES_V6_20260820; FINGERPRINT=d0d758099058ffde`
 
+`M26_CONTRACT=M26_SMART_MONEY_V1_20260825; FINGERPRINT=1a5af96d8383950d`
+
 | Programa | Status |
 | --- | --- |
 | A01 Foundation | active |
@@ -14,3 +16,4 @@
 | M7 Trend Momentum Dynamic Protect Only | completed |
 | M24 XAU RSI50 Basket | V19 canonical contract; INITIAL/REENTRY com TP Fibonacci; INITIAL, REENTRY e CONTINUATION em 0,10 lote; CONTINUATION Stop no TP da INITIAL sem TP e trailing por candle; lateralizacao da REENTRY aberta reposiciona SL/TP em RR 3:1 sem nova ordem; awaiting demo observation |
 | M25 XAU Source Basket | contract V2 restricted to XAUUSD/M5; independently copies M8, M10 and M18-M22 entry/SL/TP; automated validation complete; awaiting demo observation |
+| M26 XAU M5 Smart Money | independent deterministic structure/sweep/BOS/FVG/OB/retest contract; Demo-only automated validation in progress |

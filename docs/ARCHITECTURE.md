@@ -603,3 +603,14 @@ executadas aparecem como `COMPRAR`/`VENDER`, enquanto pendencias aparecem como
 `BUY STOP`, `SELL STOP`, `BUY LIMIT`, `SELL LIMIT` ou suas variantes Stop Limit.
 Codigos de `DEAL` nao podem reutilizar o mapa ampliado de ordens, evitando
 classificar deposito, ajuste ou saldo como negociacao.
+
+## Modelo 26
+
+O contrato oficial esta em
+`docs/architecture/OPERATIONAL_MODEL_26_XAU_M5_SMART_MONEY.md`. O M26 e uma
+rota independente em `XAUUSD/M5`, sem substituir ou copiar o M25. Ele usa a
+janela compartilhada de 200 candles fechados mais o candle atual e exige a
+confluencia completa: estrutura 2+2, varredura de liquidez, BOS com
+deslocamento, FVG, Order Block e reteste. Entrada, SL e TP sao materializados
+em um unico Trade Plan; o SL e estrutural e o RR minimo e 2. O modelo opera
+somente em Demo, nao recalcula Lab pesado e nao e ativado automaticamente.

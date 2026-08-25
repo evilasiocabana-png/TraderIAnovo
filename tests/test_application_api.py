@@ -311,7 +311,9 @@ EXPECTED_PUBLIC_API: dict[str, dict[str, object]] = {'Alpha001ResearchService': 
                                   'set_mt5_operational_model': '(self, model: str) -> None',
                                   'set_mt5_operational_models': '(self, models: tuple[str, ...] | '
                                                                 'list[str], *, basket_mode: bool = '
-                                                                'False, direct_models_enabled: '
+                                                                'False, basket_models: tuple[str, '
+                                                                '...] | list[str] = (), '
+                                                                'direct_models_enabled: '
                                                                 'bool = True) -> None',
                                   'start_replay': '(self) -> application.replay_service.ReplayData',
                                   'stop_replay': '(self) -> application.replay_service.ReplayData',

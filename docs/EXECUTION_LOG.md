@@ -2153,3 +2153,18 @@ Novas entradas devem registrar:
 - O mapeamento ampliado vale somente para ordens; negocios `DEAL` preservam o
   contrato anterior para nao confundir eventos financeiros com trades.
 - Nenhuma regra de trading, envio ou cancelamento de ordem foi alterada.
+
+## 2026-08-25 - Criacao do M26 Smart Money XAUUSD/M5
+
+- criado modelo independente `MODELO_26_XAU_M5_SMART_MONEY`, sem alterar M25;
+- implementados os gates estrutura 2+2, varredura, BOS/deslocamento, FVG,
+  Order Block e reteste;
+- materializados entrada a mercado, SL estrutural, TP com RR minimo 2 e lote
+  Demo de `0,10`;
+- integrado ao seletor, snapshot compartilhado, Entrada Teorica, Saida Teorica,
+  historico, Robot Service e provider;
+- preservados candle atual fora da decisao, conta Real bloqueada e ausencia de
+  ativacao automatica.
+- o gate critico encontrou o snapshot da API do seletor desatualizado desde a
+  inclusao anterior de `basket_models`; o teste foi sincronizado com a
+  assinatura publica ja vigente, sem alterar comportamento.

@@ -179,6 +179,23 @@ from application.model25_multi_asset_rsi50_basket import (
     is_model25,
     model25_variant_id,
 )
+from application.model26_xau_m5_smart_money import (
+    MODEL_26_ALPHA_ID,
+    MODEL_26_ALPHA_VERSION,
+    MODEL_26_BETA_ID,
+    MODEL_26_BETA_VERSION,
+    MODEL_26_CONTRACT_FINGERPRINT,
+    MODEL_26_CONTRACT_VERSION,
+    MODEL_26_ID as MT5_OPERATIONAL_MODEL_26,
+    MODEL_26_MIN_RISK_REWARD,
+    MODEL_26_SOURCE,
+    MODEL_26_STOP_MANAGEMENT,
+    MODEL_26_SYMBOL,
+    MODEL_26_TIMEFRAME,
+    Model26Decision,
+    evaluate_model26_entry,
+    model26_parameters,
+)
 from application.xau_m5_sma_rsi_model_family import (
     MODEL_9_ID as MT5_OPERATIONAL_MODEL_9,
     MODEL_10_ID as MT5_OPERATIONAL_MODEL_10,
@@ -383,6 +400,7 @@ MT5_CUSTOM_OPERATIONAL_MODELS = {
     MT5_OPERATIONAL_MODEL_21,
     MT5_OPERATIONAL_MODEL_22,
     MT5_OPERATIONAL_MODEL_25,
+    MT5_OPERATIONAL_MODEL_26,
 }
 MT5_ACTIVE_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_1,
@@ -398,6 +416,7 @@ MT5_ACTIVE_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_20,
     MT5_OPERATIONAL_MODEL_21,
     MT5_OPERATIONAL_MODEL_22,
+    MT5_OPERATIONAL_MODEL_26,
 )
 MT5_MODEL_23_RETIRED_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_3,
@@ -472,6 +491,7 @@ MT5_OPERATIONAL_MODEL_BY_NUMBER = {
     23: MT5_OPERATIONAL_MODEL_23,
     24: MT5_OPERATIONAL_MODEL_24,
     25: MT5_OPERATIONAL_MODEL_25,
+    26: MT5_OPERATIONAL_MODEL_26,
 }
 MT5_RETIRED_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_3,
@@ -1899,6 +1919,7 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_11,
             MT5_OPERATIONAL_MODEL_12,
             MT5_OPERATIONAL_MODEL_24,
+            MT5_OPERATIONAL_MODEL_26,
         }.intersection(selected_models):
             self.mt5_market_data_service.refresh_supplemental_forex_candles(
                 {MODEL_8_SYMBOL: {MODEL_8_TIMEFRAME}},
@@ -1961,6 +1982,7 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_11,
             MT5_OPERATIONAL_MODEL_12,
             MT5_OPERATIONAL_MODEL_24,
+            MT5_OPERATIONAL_MODEL_26,
         }.intersection(selected_models):
             requested.add(MODEL_8_SYMBOL)
         if set(FOREX_SMA_RSI_MODEL_IDS).intersection(selected_models):
@@ -2042,6 +2064,7 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_10,
             MT5_OPERATIONAL_MODEL_11,
             MT5_OPERATIONAL_MODEL_12,
+            MT5_OPERATIONAL_MODEL_26,
         }:
             return {MODEL_8_SYMBOL: MODEL_8_TIMEFRAME}
         if selected in MT5_LAB_OPERATIONAL_MODELS:
@@ -9056,6 +9079,8 @@ class DashboardService:
             )
         if selected_model == MT5_OPERATIONAL_MODEL_8:
             return self._mt5_model8_xau_m5_plan(row, plan)
+        if selected_model == MT5_OPERATIONAL_MODEL_26:
+            return self._mt5_model26_smart_money_plan(row, plan)
         if selected_model in XAU_TREND_FILTER_MODEL_IDS:
             return self._mt5_xau_trend_filter_plan(
                 row,
@@ -9206,6 +9231,28 @@ class DashboardService:
                 ),
                 entry_price=None,
                 initial_stop=None,
+            )
+        return decision
+
+    def _get_model26_entry_decision(self) -> Model26Decision:
+        """Avalia M26 no snapshot compartilhado XAUUSD/M5, sem nova leitura MT5."""
+        candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
+        rows = list(candles.get((MODEL_26_SYMBOL, MODEL_26_TIMEFRAME), []) or [])[
+            -OPERATIONAL_INDICATOR_RAW_CANDLES:
+        ]
+        decision = evaluate_model26_entry(rows)
+        if self._supplemental_m5_is_seed_only(MODEL_26_SYMBOL):
+            return replace(
+                decision,
+                direction="WAIT",
+                status="M26_AQUECIDO_200_FECHADOS_AGUARDA_ATUALIZACAO_MT5",
+                reason=(
+                    "M26 possui 200 velas M5 fechadas, mas aguarda candle atual "
+                    "confirmado pelo MT5 antes de operar."
+                ),
+                entry_price=None,
+                initial_stop=None,
+                target=None,
             )
         return decision
 
@@ -9365,6 +9412,7 @@ class DashboardService:
                 MT5_OPERATIONAL_MODEL_3,
                 MT5_OPERATIONAL_MODEL_8,
                 MT5_OPERATIONAL_MODEL_10,
+                MT5_OPERATIONAL_MODEL_26,
                 *XAU_TREND_FILTER_MODEL_IDS,
             }
         )
@@ -9381,6 +9429,10 @@ class DashboardService:
         if MT5_OPERATIONAL_MODEL_8 in active:
             decisions[(MT5_OPERATIONAL_MODEL_8, MODEL_8_SYMBOL)] = (
                 self.get_model8_entry_decision()
+            )
+        if MT5_OPERATIONAL_MODEL_26 in active:
+            decisions[(MT5_OPERATIONAL_MODEL_26, MODEL_26_SYMBOL)] = (
+                self._get_model26_entry_decision()
             )
         for model_id in XAU_TREND_FILTER_MODEL_IDS:
             if model_id in active:
@@ -9606,6 +9658,213 @@ class DashboardService:
                 research_plan_risk_reward=0.0,
                 research_plan_risk_pips=risk,
                 research_plan_stop_management=MODEL_3_STOP_MANAGEMENT,
+                research_plan_stop_management_parameters=parameters,
+                research_plan_reason=decision.reason,
+                research_plan_diagnostics=diagnostics,
+            ),
+            plan,
+        )
+
+    def _mt5_model26_smart_money_plan(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        fallback_plan: MT5ResearchTradePlan,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        """Materializa o contrato Smart Money do M26 em XAUUSD/M5."""
+        pair = str(row.pair or "").upper()
+        if pair != MODEL_26_SYMBOL:
+            reason = f"M26 opera exclusivamente {MODEL_26_SYMBOL}/{MODEL_26_TIMEFRAME}."
+            return (
+                replace(
+                    row,
+                    timeframe=MODEL_26_TIMEFRAME,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=reason,
+                    research_plan_status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    research_plan_reason=reason,
+                ),
+                replace(
+                    fallback_plan,
+                    symbol=pair,
+                    timeframe=MODEL_26_TIMEFRAME,
+                    direction="WAIT",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    status="PAIR_OUTSIDE_MODEL_SCOPE",
+                    reason=reason,
+                    invalid_reason="PAIR_OUTSIDE_MODEL_SCOPE",
+                    invalid_fields=("symbol",),
+                ),
+            )
+        decision = self._get_model26_entry_decision()
+        parameters = model26_parameters()
+        parameters.update(
+            {
+                "active_entry_order_type": "MARKET",
+                "indicator_source": OPERATIONAL_INDICATOR_SOURCE,
+                "indicator_generated_at": decision.current_candle_time,
+                "indicator_closed_candle_time": decision.closed_candle_time,
+                "market_structure": decision.market_structure,
+                "setup_id": decision.setup_id,
+                "sweep_level": decision.sweep_level,
+                "bos_level": decision.bos_level,
+                "fvg_low": decision.fvg_low,
+                "fvg_high": decision.fvg_high,
+                "order_block_low": decision.order_block_low,
+                "order_block_high": decision.order_block_high,
+                "poi_low": decision.poi_low,
+                "poi_high": decision.poi_high,
+            }
+        )
+        diagnostics = (
+            f"ESTRUTURA={decision.market_structure}",
+            f"VARREDURA={'OK' if decision.liquidity_sweep_ok else 'AGUARDA'}",
+            f"BOS_DESLOCAMENTO={'OK' if decision.bos_displacement_ok else 'AGUARDA'}",
+            f"FVG={'OK' if decision.fvg_ok else 'AGUARDA'}",
+            f"ORDER_BLOCK={'OK' if decision.order_block_ok else 'AGUARDA'}",
+            f"RETESTE={'OK' if decision.retest_ok else 'AGUARDA'}",
+            f"ATR14={decision.atr14 if decision.atr14 is not None else 'N/D'}",
+            f"CONTRATO={MODEL_26_CONTRACT_VERSION}/{MODEL_26_CONTRACT_FINGERPRINT}",
+        )
+        common = dict(
+            symbol=MODEL_26_SYMBOL,
+            timeframe=MODEL_26_TIMEFRAME,
+            source=MODEL_26_SOURCE,
+            stop_management=MODEL_26_STOP_MANAGEMENT,
+            stop_management_parameters=parameters,
+            alpha_id=MODEL_26_ALPHA_ID,
+            alpha_version=MODEL_26_ALPHA_VERSION,
+            beta_id=MODEL_26_BETA_ID,
+            beta_version=MODEL_26_BETA_VERSION,
+            beta_mode="FIXED_STRUCTURAL_SL_TP",
+            diagnostics=diagnostics,
+        )
+        if not decision.ready:
+            wait_plan = replace(
+                fallback_plan,
+                direction="WAIT",
+                entry_price=None,
+                stop=None,
+                target=None,
+                risk_reward=0.0,
+                status=decision.status,
+                reason=decision.reason,
+                invalid_reason=decision.status,
+                invalid_fields=("smart_money_confluence",),
+                **common,
+            )
+            return (
+                replace(
+                    row,
+                    pair=MODEL_26_SYMBOL,
+                    timeframe=MODEL_26_TIMEFRAME,
+                    lab_timeframe=MODEL_26_TIMEFRAME,
+                    last_candle_time=decision.current_candle_time,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status=decision.status,
+                    theoretical_entry_candle=decision.closed_candle_time,
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=decision.reason,
+                    active_model="M26_SMART_MONEY_CONFLUENCE",
+                    active_model_indicators=diagnostics,
+                    reason=decision.reason,
+                    atr=decision.atr14,
+                    lab_alpha_id=MODEL_26_ALPHA_ID,
+                    lab_alpha_version=MODEL_26_ALPHA_VERSION,
+                    beta_id=MODEL_26_BETA_ID,
+                    beta_version=MODEL_26_BETA_VERSION,
+                    beta_mode="FIXED_STRUCTURAL_SL_TP",
+                    lab_parameters=parameters,
+                    lab_configuration_source=MODEL_26_SOURCE,
+                    research_plan_status=decision.status,
+                    research_plan_source=MODEL_26_SOURCE,
+                    research_plan_reason=decision.reason,
+                    research_plan_diagnostics=diagnostics,
+                ),
+                wait_plan,
+            )
+        entry = float(decision.entry_price or 0.0)
+        stop = float(decision.initial_stop or 0.0)
+        target = float(decision.target or 0.0)
+        risk = abs(entry - stop)
+        reward = abs(target - entry)
+        plan = MT5ResearchTradePlan(
+            direction=decision.direction,
+            entry_price=entry,
+            stop=stop,
+            target=target,
+            risk_reward=decision.risk_reward,
+            stop_multiplier=0.0,
+            exit_model=MODEL_26_BETA_VERSION,
+            exit_score=100.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            risk_pips=risk,
+            reward_pips=reward,
+            risk_percent=abs(risk / entry) if entry else 0.0,
+            reward_percent=abs(reward / entry) if entry else 0.0,
+            stop_reason="SL estrutural um pip alem da varredura ou do order block.",
+            target_reason="Liquidez externa com RR minimo 2.0.",
+            stop_management_reason="M26 preserva SL/TP estruturais fixos.",
+            beta_reason="Saida pelo SL estrutural ou TP de liquidez externa.",
+            reason=decision.reason,
+            rr_current=decision.risk_reward,
+            rr_minimum=MODEL_26_MIN_RISK_REWARD,
+            certification_score=100.0,
+            certification_grade="USER_DEFINED_DEMO",
+            certification_status="USER_APPROVED_DEMO_RULE",
+            certification_usage="Modelo M26 autorizado somente para MT5 Demo.",
+            certification_demo_allowed=True,
+            **common,
+        )
+        return (
+            replace(
+                row,
+                pair=MODEL_26_SYMBOL,
+                timeframe=MODEL_26_TIMEFRAME,
+                lab_timeframe=MODEL_26_TIMEFRAME,
+                last_candle_time=decision.current_candle_time,
+                decision=decision.direction,
+                theoretical_entry_direction=decision.direction,
+                theoretical_entry_status="SINAL_TEORICO",
+                theoretical_entry_candle=decision.closed_candle_time,
+                theoretical_entry_price=entry,
+                theoretical_entry_reason=decision.reason,
+                active_model="M26_SMART_MONEY_CONFLUENCE",
+                active_model_indicators=diagnostics,
+                reason=decision.reason,
+                atr=decision.atr14,
+                lab_alpha_id=MODEL_26_ALPHA_ID,
+                lab_alpha_version=MODEL_26_ALPHA_VERSION,
+                beta_id=MODEL_26_BETA_ID,
+                beta_version=MODEL_26_BETA_VERSION,
+                beta_mode="FIXED_STRUCTURAL_SL_TP",
+                lab_parameters=parameters,
+                lab_configuration_source=MODEL_26_SOURCE,
+                lab_confidence=1.0,
+                lab_ict_score=100.0,
+                lab_ict_grade="USER_DEFINED_DEMO",
+                lab_ict_status="USER_APPROVED_DEMO_RULE",
+                lab_ict_usage=plan.certification_usage,
+                lab_ict_demo_allowed=True,
+                entry_filter_status="OK",
+                entry_filter_parameter="M26_SMART_MONEY_CONFLUENCE",
+                entry_filter_reading=decision.status,
+                entry_filter_reason=decision.reason,
+                research_plan_status="PLANO_VALIDO",
+                research_plan_source=MODEL_26_SOURCE,
+                research_plan_entry_price=entry,
+                research_plan_stop=stop,
+                research_plan_target=target,
+                research_plan_risk_reward=decision.risk_reward,
+                research_plan_risk_pips=risk,
+                research_plan_reward_pips=reward,
+                research_plan_stop_management=MODEL_26_STOP_MANAGEMENT,
                 research_plan_stop_management_parameters=parameters,
                 research_plan_reason=decision.reason,
                 research_plan_diagnostics=diagnostics,

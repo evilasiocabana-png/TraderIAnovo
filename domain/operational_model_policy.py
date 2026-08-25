@@ -6,10 +6,10 @@ import re
 
 
 ACTIVE_OPERATIONAL_MODEL_NUMBERS = frozenset(
-    {1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25}
+    {1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26}
 )
 RETIRED_OPERATIONAL_MODEL_NUMBERS = frozenset(
-    set(range(1, 26)) - set(ACTIVE_OPERATIONAL_MODEL_NUMBERS)
+    set(range(1, 27)) - set(ACTIVE_OPERATIONAL_MODEL_NUMBERS)
 )
 ACTIVE_SCOPED_MODEL_IDS = frozenset(
     {
@@ -26,6 +26,7 @@ ACTIVE_SCOPED_MODEL_IDS = frozenset(
         "MODELO_23_BASKET_ACCUMULATOR",
         "MODELO_24_XAU_RSI50_BASKET",
         "MODELO_25_MULTI_ASSET_RSI50_BASKET",
+        "MODELO_26_XAU_M5_SMART_MONEY",
     }
 )
 RETIRED_LEGACY_MODEL_IDS = frozenset(
@@ -61,13 +62,13 @@ RETIRED_LEGACY_MODEL_IDS = frozenset(
 
 
 def operational_model_number(value: object) -> int | None:
-    """Extrai M1..M25 de IDs canonicos, aliases e comentarios de auditoria."""
+    """Extrai M1..M26 de IDs canonicos, aliases e comentarios de auditoria."""
     normalized = str(value or "").strip().upper()
     match = re.search(r"(?:MODELO[_ ]?|(?:^|[\s|])M)(\d{1,2})(?:_|\b|$)", normalized)
     if match is None:
         return None
     number = int(match.group(1))
-    return number if 1 <= number <= 25 else None
+    return number if 1 <= number <= 26 else None
 
 
 def is_active_operational_model(value: object) -> bool:
@@ -78,6 +79,8 @@ def is_active_operational_model(value: object) -> bool:
     if normalized.startswith("MODELO_24_XAU_RSI50_BASKET"):
         return True
     if normalized.startswith("MODELO_25_MULTI_ASSET_RSI50_BASKET"):
+        return True
+    if normalized.startswith("MODELO_26_XAU_M5_SMART_MONEY"):
         return True
     if normalized in ACTIVE_SCOPED_MODEL_IDS:
         return True
@@ -95,6 +98,8 @@ def is_retired_operational_model(value: object) -> bool:
     if normalized.startswith("MODELO_24_XAU_RSI50_BASKET"):
         return False
     if normalized.startswith("MODELO_25_MULTI_ASSET_RSI50_BASKET"):
+        return False
+    if normalized.startswith("MODELO_26_XAU_M5_SMART_MONEY"):
         return False
     if normalized in ACTIVE_SCOPED_MODEL_IDS:
         return False
