@@ -1,8 +1,8 @@
 # Next Mission
 
-`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
+`M24_CONTRACT=M24_SETUP_V19_20260823; SHA256=d918353322bc17fd17e1c7d0ba47272cf19431ef2c60d9cd1686829f2802c05f`
 
-`M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
+`M25_CONTRACT=M25_XAU_SOURCES_V6_20260820; FINGERPRINT=d0d758099058ffde`
 
 Proxima missao recomendada, ainda nao autorizada automaticamente:
 
@@ -30,10 +30,11 @@ O relatorio operacional tambem passou a expor o papel da entrada M24
 O contrato atual possui entrada inicial a mercado somente depois de novos
 cruzamentos do preco/SMA20 e RSI14/50 na mesma direcao. Eles podem ocorrer em
 M5 diferentes, mas ambos devem permanecer validos e a distancia atual deve ser
-`>= 0,25 ATR`; nao exige micro-pivo inicial. O cruzamento do preco continua
-como gatilho, mas o SL nasce no extremo do M5 fechado imediatamente anterior,
-afastado `0,01`, e o TP fica a `0,25` do preco executavel.
-Apos dois fechamentos favoraveis, o SL acompanha a SMA20 somente a favor. A
+somente informativa. O SL usa a vela que cruzou a SMA20: BUY nasce um pip
+abaixo da minima e SELL um pip acima da maxima. O TP e a projecao Fibonacci de
+100% da ultima perna estrutural completa anterior, sem fallback fixo; RSI70 BUY
+ou RSI30 SELL remove o TP e o retorno confirma Full Exit. Depois, o SL avanca
+somente apos rompimento estrutural e nunca recua. A
 reentrada e uma ordem Stop atualizada a cada M5, com SL e TP baseados no
 micro-pivo 1+1 mais recente.
 
@@ -42,11 +43,14 @@ SMA20/SMA50 e que `INITIAL`, `REENTRY` e `CONTINUATION` preservam as saidas
 RSI e de cesta. A primeira reentrada valida apos Full Exit RSI 70/30 nao e
 mais descartada.
 
-Tambem deve confirmar a nova `CONTINUATION`: somente depois do historico MT5
-confirmar que a `REENTRY` zerou pelo TP estrutural, entra a mercado com `0,40`
-lote se o preco continuar alem do alvo e o RSI permanecer extremo (`BUY > 70`,
-`SELL < 30`), usa TP fixo de `0,13`, SL um pip alem do extremo do M5 fechado
-anterior e faz Full Exit no retorno de 70/30.
+Tambem deve confirmar a `CONTINUATION`: somente depois do historico MT5
+confirmar que a `REENTRY` zerou pelo TP estrutural, entra a mercado com `0,10`
+lote no cruzamento do RSI extremo (`BUY > 70`, `SELL < 30`), sem TP, com SL no
+extremo do M5 anterior e trailing SMA20 somente a favor.
+
+Observar ainda a `LATERALIZATION`: quando uma REENTRY aberta falhar o TP
+Fibonacci e retornar ao range, SL/TP devem ser reposicionados juntos no mesmo
+ticket, com alvo no fechamento do microextremo e RR `3:1`, sem nova ordem.
 
 Pendencia registrada em 2026-07-13:
 

@@ -13,14 +13,16 @@ cesta financeira. Ele nao cria uma Alpha propria e nao altera o sinal de origem.
 O M23 captura entradas novas somente dos modelos operacionais ativos:
 
 ```text
-M1, M2, M5, M7, M8, M10, M16, M17, M18, M19, M20, M21 e M22
+M1, M2, M5, M7, M8, M10, M18 e M20
 ```
 
 Esse conjunto e o mesmo usado pelo modo `Todos`. Fora do M23, os modelos ativos
 podem ser marcados em qualquer combinacao e somente os marcados enviam suas
 proprias ordens. Dentro do M23, essas fontes sao avaliadas pelo agregador.
 
-M3, M4, M6, M9, M11, M12, M13, M14 e M15 nao sao fontes de novas entradas.
+M3, M4, M6, M9, M11, M12, M13, M14 e M15 permanecem aposentados. M16,
+M17, M19, M21 e M22 continuam operacionais de forma independente, mas nao sao
+fontes de novas entradas da cesta M23.
 
 O M23 pode operar sozinho ou junto com os modelos-fonte selecionados. No modo
 combinado, um sinal aprovado pode produzir duas ordens independentes: a ordem
@@ -100,10 +102,10 @@ do mesmo ciclo. Esse indice mantem somente identidade, candle, modelo, par,
 lado, entrada, SL/TP e tipo de ordem; indicadores e evidencias completas ficam
 apenas no JSONL, evitando que a auditoria operacional infle a RAM do app.
 
-O M23 aceita no maximo uma nova posicao por ciclo automatico. Isso nao cria
-prioridade permanente nem dependencia entre fontes: os demais sinais validos
-voltam a ser avaliados no ciclo seguinte. Uma fonte pode reentrar em outro ciclo
-quando houver novo sinal executavel; apenas o mesmo sinal/candle e deduplicado.
+O M23 envia no mesmo ciclo todos os sinais independentes que estiverem prontos.
+Cada aceite e sequencial e obriga uma nova avaliacao financeira da cesta antes
+da proxima exposicao. Uma fonte pode reentrar quando houver novo sinal
+executavel; apenas o mesmo sinal/candle e deduplicado.
 
 Durante uma volta pesada, a cesta tambem e reavaliada entre pares e candidatos.
 Assim, a defesa nao fica limitada ao inicio da proxima volta. Depois que um

@@ -1,8 +1,8 @@
 # Architecture
 
-`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
+`M24_CONTRACT=M24_SETUP_V19_20260823; SHA256=d918353322bc17fd17e1c7d0ba47272cf19431ef2c60d9cd1686829f2802c05f`
 
-`M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
+`M25_CONTRACT=M25_XAU_SOURCES_V6_20260820; FINGERPRINT=d0d758099058ffde`
 
 ## Modelo 23
 
@@ -540,30 +540,43 @@ ou fechar ordem, mover SL/TP, recalcular indicadores ou iniciar o Lab.
 O contrato completo e vigente do M24 esta em
 `docs/architecture/OPERATIONAL_MODEL_24_XAU_RSI50_BASKET.md`. O modelo reutiliza
 o cache compartilhado XAUUSD/M5, mas possui identidade, estado, comentario MT5,
-resultado financeiro e auditoria independentes do M23. O provider reancora o
-TP fixo da entrada inicial a `0,25` do preco executavel; a reentrada exige TP
-no fechamento do microtopo/microfundo 1+1 lucrativo mais recente. A cesta liquida de +US$1.000
+resultado financeiro e auditoria independentes do M23. A entrada inicial usa
+TP Fibonacci de 100% da perna estrutural anterior, congelado como preco
+absoluto; a reentrada exige TP no fechamento do microtopo/microfundo 1+1
+lucrativo mais recente. A cesta liquida de +US$1.000
 continua como alvo coletivo. A entrada inicial exige cruzamento do preco na
 SMA20 e cruzamento do RSI14 em 50 na mesma direcao. Os eventos podem ocorrer
-em M5 diferentes, mas ambos devem permanecer validos e a distancia atual
-`abs(SMA20-SMA50)/ATR14` deve ser pelo menos `0,25`.
-A `INITIAL` preserva esses cruzamentos como gatilho, mas calcula o SL pelo
-extremo do M5 fechado imediatamente anterior a entrada, com `0,01` de margem.
-A reentrada nao exige novo cruzamento: gera BUY_STOP/SELL_STOP na maxima/minima
-do ultimo M5 quando fechamento e RSI permanecem do lado permitido. O SL usa o
-micro pivo 1+1 confirmado mais recente, limitado aos ultimos cinco M5 fechados.
+em M5 diferentes, mas ambos devem permanecer validos. A distancia
+`abs(SMA20-SMA50)/ATR14` permanece somente como leitura informativa.
+A `INITIAL` preserva esses cruzamentos como gatilho e usa a propria vela que
+cruzou a SMA20 para o SL: BUY nasce um pip abaixo da minima dessa vela e SELL
+um pip acima da maxima. Depois, o SL somente avanca quando o M5 rompe o
+microtopo/microfundo anterior e confirma o novo fundo/topo de protecao; nunca
+recua. O Full Exit RSI50 da `INITIAL` espera duas velas M5 fechadas posteriores
+ao candle de entrada e fica liberado a partir da terceira.
+A reentrada nao exige novo cruzamento nem faixa de RSI: depois do retorno a
+SMA20, gera BUY_STOP/SELL_STOP na maxima/minima do ultimo M5. Se o preco vivo
+ja rompeu o gatilho, a entrada ocorre a mercado. O SL usa o micro pivo 1+1
+confirmado mais recente, limitado aos ultimos cinco M5 fechados, e o TP projeta
+Fibonacci 100% da perna estrutural anterior.
 M8, M10 e M18-M22 sao somente identidades historicas legadas: o M24 atual tem
-uma unica rota autonoma e nao herda ADX, inclinacao da SMA50 nem filtros. Seu
-unico filtro adicional e `abs(SMA20-SMA50)/ATR14 >= 0,25`.
+uma unica rota autonoma e nao herda ADX, inclinacao da SMA50 nem filtro de
+distancia entre medias.
 O roteamento da cesta cria esse plano M5 antes da barreira do plano heuristico
 H1; assim, `SEM_GATILHO_VALIDO` no plano-base nao impede a avaliacao do M24.
 O Position Manager aceita somente novos micro pivos que apertem o stop. Depois
 de Full Exit por retorno do RSI 70/30, a primeira reentrada valida do mesmo lado
 nao e mais descartada. A `CONTINUATION` e liberada somente quando o historico
-MT5 confirma que a `REENTRY` zerou pelo TP, o preco continua alem desse alvo e
-o RSI permanece extremo; entra a mercado com `0,40` lote, TP fixo a `0,13` e
-SL um pip alem do extremo do M5 fechado anterior. Nenhuma posicao M24 fecha por inversao SMA20/SMA50.
-`INITIAL`, `REENTRY` e `CONTINUATION` preservam as saidas RSI do contrato.
+MT5 confirma que a `REENTRY` zerou pelo TP e o RSI cruza o extremo; entra a
+mercado com `0,10` lote, sem TP individual e com SL exato no fundo/topo do M5
+fechado anterior. Depois, a SMA20 pode apertar esse SL somente a favor. Nenhuma
+posicao M24 fecha por inversao SMA20/SMA50.
+`INITIAL`, `REENTRY` e `CONTINUATION` preservam as saidas RSI do contrato. Na
+`INITIAL`, RSI70 BUY ou RSI30 SELL remove o TP; o retorno do extremo confirma o
+Full Exit.
+Se uma `REENTRY` aberta falhar o TP Fibonacci e retornar ao range, o Position
+Manager nao abre nova ordem: reposiciona TP no fechamento do microextremo
+favoravel anterior e SL em RR `3:1`, juntos e sem afrouxar o SL existente.
 
 ## Modelo 25
 
@@ -574,5 +587,19 @@ M18-M22. Ele nao recalcula setups: copia direcao, candle, tipo de ordem,
 entrada, SL e TP do plano executavel de cada fonte e conserva sua identidade.
 Cada fonte pode manter uma `INITIAL` e uma `REENTRY`; lados opostos nao
 coexistem. O Full Exit adicional de `+US$1.000` considera somente posicoes M25.
+Quando duas ou mais fontes ficam prontas no mesmo snapshot, o roteador percorre
+todas no mesmo ciclo e envia cada ordem sequencialmente ao provider. Nenhuma
+fonte ganha prioridade por encerrar antecipadamente a passagem do lote.
 O contrato V2 nao le o estado de entrada/reentrada do antigo M25 multiativo,
 mas preserva seus arquivos e logs como historico.
+O contrato V5 mantém a distância `abs(SMA20-SMA50)/ATR14` apenas como leitura
+informativa no último M5 fechado da janela compartilhada de 200 velas. A
+distância não bloqueia `INITIAL`, `REENTRY` ou plano-fonte.
+### Saida teorica: lado de posicoes e ordens pendentes
+
+A tabela `Saida Teorica MT5` pode manter visiveis posicoes `ABERTA` e ordens
+pendentes `ORDEM_ABERTA`. A coluna de lado preserva o tipo nativo: posicoes
+executadas aparecem como `COMPRAR`/`VENDER`, enquanto pendencias aparecem como
+`BUY STOP`, `SELL STOP`, `BUY LIMIT`, `SELL LIMIT` ou suas variantes Stop Limit.
+Codigos de `DEAL` nao podem reutilizar o mapa ampliado de ordens, evitando
+classificar deposito, ajuste ou saldo como negociacao.

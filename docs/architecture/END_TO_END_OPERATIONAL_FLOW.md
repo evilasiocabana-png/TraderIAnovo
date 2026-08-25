@@ -1,6 +1,6 @@
 # TraderIA Novo - Fluxo Operacional E Relacoes De Ponta A Ponta
 
-`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
+`M24_CONTRACT=M24_SETUP_V19_20260823; SHA256=d918353322bc17fd17e1c7d0ba47272cf19431ef2c60d9cd1686829f2802c05f`
 
 ## Rota autonoma M24
 
@@ -9,13 +9,18 @@ contrato executavel fica em `application/model24_setup_contract.py`; o plano,
 a interface e o estado persistido carregam a mesma versao/fingerprint. IDs de
 fontes antigas sao somente compatibilidade historica e nao multiplicam o setup.
 Apos o TP confirmado de uma `REENTRY`, o mesmo ciclo pode publicar uma
-`CONTINUATION` a mercado com `0,40` lote quando preco e RSI extremo confirmam a
+`CONTINUATION` a mercado com `0,10` lote quando preco e RSI extremo confirmam a
 continuidade. O watch e persistente, consumido no aceite e falha fechado sem a
 confirmacao read-only do historico MT5.
-O plano `INITIAL` usa TP fixo a `0,25` do tick executavel e SL no extremo do
-M5 fechado imediatamente anterior, afastado `0,01` no lado de protecao. A `CONTINUATION`
-usa TP fixo a `0,13` e SL na minima/maxima do M5 fechado anterior, com margem
-de um pip no lado de protecao.
+O plano `INITIAL` usa TP Fibonacci de 100% da ultima perna estrutural completa,
+projetada a partir da entrada, e SL um pip alem da extremidade da vela que
+cruzou a SMA20.
+Ao atingir RSI70 BUY ou RSI30 SELL, remove o TP e aguarda o retorno para Full
+Exit. O SL so avanca depois do rompimento do topo/fundo anterior e protege pelo
+novo fundo/topo criado. A `CONTINUATION` nao usa TP individual; nasce com SL
+na minima/maxima do M5 fechado anterior e depois acompanha a SMA20 somente a
+favor. Se uma `REENTRY` falhar o TP Fibonacci e retornar ao range, o Position
+Manager reposiciona SL/TP do ticket existente em RR `3:1`; nao abre nova ordem.
 
 ## Rota Combinavel M23
 
@@ -34,6 +39,9 @@ selecionados livremente em qualquer combinacao. A selecao e persistida e
 restaurada apos refresh, ciclo e reinicio. `Todos` marca somente esse conjunto;
 M23 pode ser marcado junto com esse conjunto. Nesse modo, a duplicacao direta +
 cesta e deliberada e precisa permanecer visivel na auditoria e no historico.
+
+O subconjunto interno do M23 e M1, M2, M5, M7, M8, M10, M18 e M20. M16, M17,
+M19, M21 e M22 permanecem selecionaveis diretamente, mas nao alimentam a cesta.
 
 O executor avalia somente o conjunto marcado. Desmarcar um modelo bloqueia
 apenas novas entradas dele e nao altera posicoes ja abertas.
@@ -346,6 +354,11 @@ O Position Manager deve continuar rodando mesmo se o seletor de novas entradas
 mudar. Ele nunca pode afastar o stop contra o trader e nunca pode depender da
 aba MT5 Forex estar aberta.
 
+No M24 `INITIAL`, o candle da entrada e congelado no snapshot. As duas primeiras
+velas M5 fechadas posteriores mantem o Full Exit RSI50 em carencia; ele fica
+liberado a partir da terceira. O SL inicial somente avanca apos rompimento do
+topo/fundo anterior e usa o microfundo/microtopo criado como nova protecao.
+
 ## Relatorio
 
 O Relatorio cruza registros da aplicacao com posicoes e historico MT5. Ele deve
@@ -450,9 +463,12 @@ Toda falha que atravesse mais de um componente deve entrar nesta secao e no
 | FLOW-021 | O grafico patrimonial mostrava `Patrimonio final` usando somente `profit` do MT5 | Comissao, swap/rollover e fee existem em campos separados nos deals MT5 | Historico MT5, auditoria, graficos por modelo e Relatorio | Cada painel mostra lucro bruto, custos MT5, lucro liquido e detalha comissao, swap/rollover e taxas; somente operacoes fechadas, encontradas no MT5 e dentro da mesma data-base entram na conta |
 | FLOW-022 | O app abria e depois deixava de responder, mesmo com RAM baixa | A interface possuia fallbacks que executavam leitura MT5 e ciclo completo do Robo Demo durante o rerender quando o thread de fundo ainda nao estava ativo; uma sessao reconectada podia bloquear o servidor inteiro | Streamlit, ciclo Forex, ciclo Robo Demo, snapshot compartilhado, MT5 e guardiao de RAM | A UI nunca executa ciclo operacional nem leitura MT5 automatica; threads de fundo sao os unicos donos dessas operacoes e a tela apenas consome o ultimo snapshot publicado |
 | FLOW-023 | M23 fez somente uma entrada e varias fontes ficaram uma hora inteira em `ROLLOVER_BLOQUEADO` | Quando a sonda do horario do servidor estava ocupada, o runtime reutilizava o horario do candle H1 fechado; a barra `21:00 UTC` mantinha o fallback de rollover ativo durante toda a formacao do candle | ForexTimeLayer, cache de horario MT5, ciclo Robo Demo, funil M23 e UI | No fluxo ao vivo, rollover usa exclusivamente o horario vivo ou extrapolado do servidor; sem esse relogio, o candle fechado nunca cria bloqueio estatico. A barreira historica permanece apenas em Lab/Replay, e o provider MT5 continua sendo a autoridade final para `Market closed` |
+| FLOW-028 | M23 enviava somente a primeira ordem pronta do ciclo | O fluxo retornava imediatamente depois do primeiro aceite M23, adiando sinais independentes para o ciclo seguinte | Ciclo Robo Demo, gestor financeiro M23 e auditoria | Todos os candidatos M23 prontos sao enviados sequencialmente no mesmo ciclo; a cesta e reavaliada depois de cada aceite e interrompe novos envios se o Full Exit de +US$1.000 for acionado. Duplicidade do mesmo sinal/candle continua bloqueada |
 | FLOW-024 | M23 encerrava ou bloqueava a cesta por stop global, trailing e orcamento agregado de SL | Regras financeiras transitorias competiam com os SL/TP herdados e impediam reentradas normais | Model23BasketManager, DashboardService, provider MT5, UI e testes | M23 preserva SL/TP das fontes, permite reentrada em novo sinal e possui uma unica zeragem coletiva: Full Exit a mercado em +US$1.000 liquidos. O mesmo sinal/candle continua deduplicado |
 | FLOW-025 | Position Manager ignorava todo ticket M23 | A cesta preservava SL/TP, mas descartava a saida dinamica do modelo-fonte; uma inversao SMA podia permanecer aberta ate o SL | DashboardService, PositionManagerService, M23, UI, documentacao e testes | Cada ticket M23 e reconstruido com o modelo e a politica de saida da fonte; SL/TP e saida dinamica continuam validos, com Full Exit coletivo adicional em +US$1.000 |
 | FLOW-026 | Sinal M5 aparecia na tela, mas a ordem Stop era rejeitada como candle expirado e a copia M23 competia com a fonte | A expiracao somava 5 minutos a abertura do ultimo candle fechado, exatamente o instante em que o plano nascia; alem disso, a deduplicacao tratava carteira direta e cesta M23 como uma unica execucao | Indicadores M5, Trade Plan, Robo Demo, provider MT5, M23, logs e testes | A pendencia vale ate o fim do candle corrente (`candle fechado + 10 minutos`) no relogio MT5. Modelo-fonte e M23 podem executar o mesmo sinal em carteiras independentes; repeticao dentro da mesma carteira e candle continua bloqueada |
+| FLOW-027 | M23 calculava a entrada e chegava ao provider, mas a Pepperstone devolvia `Invalid expiration` perto da virada do M5 | O timestamp do plano podia deixar menos de 90 segundos de validade quando comparado ao tick vivo do servidor; `ORDER_TIME_SPECIFIED` era recusado antes da substituicao do candle seguinte | Candle M5, relogio MT5, provider, ordem pendente M23 e auditoria | O tick vivo do MT5 e a autoridade. Perto da virada, a pendencia recebe uma janela minima ate o limite M5 seguinte e continua sendo substituida pelo novo candle; planos com mais de um candle de atraso permanecem bloqueados |
+| FLOW-027 | M1 enviou nova ordem enquanto somente M24 estava selecionado | A selecao era aplicada no DashboardService, mas o provider aceitava um plano antigo que ja havia atravessado o ciclo | Seletor persistido, DashboardService, provider MT5, lock de envio, auditoria e testes | O provider rele `.traderia/mt5_operational_model.json` antes do preflight e novamente dentro do mesmo lock de `order_send`; modelo nao marcado ou estado invalido falha fechado e nunca chega ao MT5 |
 
 ## Regra De Mudanca Interligada
 

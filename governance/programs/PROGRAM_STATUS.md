@@ -1,8 +1,8 @@
 # Program Status
 
-`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
+`M24_CONTRACT=M24_SETUP_V19_20260823; SHA256=d918353322bc17fd17e1c7d0ba47272cf19431ef2c60d9cd1686829f2802c05f`
 
-`M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
+`M25_CONTRACT=M25_XAU_SOURCES_V6_20260820; FINGERPRINT=d0d758099058ffde`
 
 | Programa | Status |
 | --- | --- |
@@ -12,5 +12,5 @@
 | C01 Reports | planned |
 | TIA Dynamic Exit Runtime Full Execution | accepted |
 | M7 Trend Momentum Dynamic Protect Only | completed |
-| M24 XAU RSI50 Basket | V5 canonical contract; INITIAL SL beyond previous closed M5 candle and TP distance 0.25; CONTINUATION TP distance 0.13 and SL beyond previous M5 candle; awaiting demo observation |
+| M24 XAU RSI50 Basket | V19 canonical contract; INITIAL/REENTRY com TP Fibonacci; INITIAL, REENTRY e CONTINUATION em 0,10 lote; CONTINUATION Stop no TP da INITIAL sem TP e trailing por candle; lateralizacao da REENTRY aberta reposiciona SL/TP em RR 3:1 sem nova ordem; awaiting demo observation |
 | M25 XAU Source Basket | contract V2 restricted to XAUUSD/M5; independently copies M8, M10 and M18-M22 entry/SL/TP; automated validation complete; awaiting demo observation |

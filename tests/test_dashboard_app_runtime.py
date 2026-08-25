@@ -595,7 +595,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             {row["Fonte"] for row in rows},
             {
                 f"M{number}"
-                for number in (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22)
+                for number in (1, 2, 5, 7, 8, 10, 18, 20)
             },
         )
 
@@ -607,7 +607,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 operational_model_number(model_id)
                 for model_id in dashboard_app.MT5_MODEL_23_SOURCE_MODEL_IDS
             ),
-            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22),
+            (1, 2, 5, 7, 8, 10, 18, 20),
         )
         for model_id in dashboard_app.MT5_MODEL_23_SOURCE_MODEL_IDS:
             self.assertTrue(
@@ -659,6 +659,10 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             "Full Exit a mercado em +US$1.000",
             dashboard_app._mt5_equity_model_setup_summary("MODELO 23"),
         )
+        model23_summary = dashboard_app._mt5_equity_model_setup_summary("MODELO 23")
+        self.assertIn("SL, TP e saidas herdados", model23_summary)
+        self.assertNotIn("US$300", model23_summary)
+        self.assertNotIn("trailing", model23_summary.lower())
 
     def test_grupo_m8_a_m22_e_valido_e_nao_habilita_m1_a_m7(self) -> None:
         group = dashboard_app.MT5_OPERATIONAL_MODEL_8_TO_17
@@ -1092,12 +1096,16 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 )
                 self.assertEqual(
                     dashboard_app._load_persisted_mt5_operational_models(),
-                    dashboard_app.MT5_MODEL_24_SOURCE_MODEL_IDS,
+                    (),
+                )
+                self.assertEqual(
+                    dashboard_app._load_persisted_mt5_operational_selections(),
+                    (dashboard_app.MT5_OPERATIONAL_MODEL_24,),
                 )
             finally:
                 dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
 
-    def test_formulario_seleciona_m25_como_cesta_exclusiva(self) -> None:
+    def test_formulario_permite_m25_junto_com_modelo_direto(self) -> None:
         original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
         model25 = dashboard_app.MT5_OPERATIONAL_MODEL_25
         session_state = {
@@ -1116,6 +1124,11 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             session_state[
                 dashboard_app._mt5_operational_model_checkbox_key(model)
             ] = False
+        session_state[
+            dashboard_app._mt5_operational_model_checkbox_key(
+                dashboard_app.MT5_OPERATIONAL_MODEL_1
+            )
+        ] = True
 
         with tempfile.TemporaryDirectory() as temp_dir:
             dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = (
@@ -1130,10 +1143,14 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                         dashboard_app._persist_mt5_operational_model_form_selection()
                     )
 
-                self.assertEqual(selected, model25)
+                self.assertEqual(selected, dashboard_app.MT5_OPERATIONAL_MODEL_CUSTOM)
                 self.assertEqual(
                     dashboard_app._load_persisted_mt5_operational_models(),
-                    dashboard_app.MT5_MODEL_25_SOURCE_MODEL_IDS,
+                    (dashboard_app.MT5_OPERATIONAL_MODEL_1,),
+                )
+                self.assertEqual(
+                    dashboard_app._load_persisted_mt5_operational_selections(),
+                    (dashboard_app.MT5_OPERATIONAL_MODEL_1, model25),
                 )
                 self.assertNotEqual(
                     dashboard_app._load_persisted_mt5_operational_model(),
@@ -1160,13 +1177,11 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 dashboard_app._apply_persisted_operational_model_to_service(service)
 
                 service.set_mt5_operational_models.assert_called_once_with(
-                    dashboard_app.MT5_MODEL_25_SOURCE_MODEL_IDS,
-                    basket_mode=False,
+                    (),
+                    basket_models=(model25,),
                     direct_models_enabled=False,
                 )
-                service.set_mt5_operational_model.assert_called_once_with(
-                    model25,
-                )
+                service.set_mt5_operational_model.assert_not_called()
             finally:
                 dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
 

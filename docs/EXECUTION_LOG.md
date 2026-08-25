@@ -1,5 +1,61 @@
 # Execution Log
 
+## 2026-08-24 - Fontes internas do M23 reduzidas
+
+- O M23 passa a receber novas entradas somente de M1, M2, M5, M7, M8, M10,
+  M18 e M20.
+- M16, M17, M19, M21 e M22 permanecem operacionais como modelos independentes,
+  mas deixam de gerar copias dentro da cesta M23.
+- Posicoes M23 abertas anteriormente continuam sob seus contratos gravados e
+  nao sao alteradas ou encerradas por esta mudanca.
+
+## 2026-08-20 - M25 restaurado como passagem direta das fontes
+
+- Removida a leitura de distancia criada no proprio M25, inclusive da tabela.
+- O M25 recebe a decisao executavel, entrada, ordem, SL e TP diretamente de M8,
+  M10 e M18-M22, sem acrescentar filtro de entrada.
+- Os criterios internos continuam sendo responsabilidade de cada modelo-fonte.
+- Contrato promovido para `M25_XAU_SOURCES_V6_20260820`.
+
+## 2026-08-20 - Remocao do filtro de distancia do M25
+
+- A distância SMA20/SMA50 normalizada pelo ATR14 permanece visível na Entrada
+  Teórica, mas deixou de bloquear entrada inicial e reentrada.
+- O M25 voltou a preservar integralmente a decisão executável das sete fontes.
+- Lotes `INITIAL` e `REENTRY` permanecem padronizados em `0,10`.
+- Contrato promovido para `M25_XAU_SOURCES_V5_20260820`.
+
+## 2026-08-20 - M25 com lote unico de 0,10
+
+- Padronizadas todas as novas entradas M25 em `0,10` lote.
+- A entrada inicial deixou de usar `0,20`; a reentrada permaneceu em `0,10`.
+- Posições abertas anteriormente não têm o volume alterado.
+- Contrato promovido para `M25_XAU_SOURCES_V4_20260820`.
+
+## 2026-08-20 - M25 com faixa operacional de distancia SMA20/SMA50
+
+- novas entradas `INITIAL` e `REENTRY` do M25 exigem
+  `0,25 <= abs(SMA20-SMA50)/ATR14 <= 0,50`;
+- o calculo usa somente o ultimo M5 fechado da janela compartilhada de 200
+  velas e fica em cache para as sete fontes do mesmo ciclo;
+- fora da faixa, o M25 nao publica nem renova a ordem; a pendencia anterior
+  expira pela validade do candle corrente;
+- posicoes abertas, SL, TP, Full Exit de `+US$1.000` e modelos-fonte diretos
+  permanecem inalterados.
+
+## 2026-08-19 - M25 envia todas as fontes prontas no mesmo snapshot
+
+- causa confirmada: o roteador encerrava a passagem com `return` logo apos o
+  primeiro aceite M25, deixando as demais fontes para o ciclo seguinte;
+- efeito observado: durante a espera, o preco podia atravessar o gatilho Stop e
+  as fontes seguintes eram rejeitadas como ordem pendente ja rompida;
+- o M25 agora percorre M8, M10 e M18-M22 no mesmo lote ja calculado, mantendo
+  envios independentes, sequenciais e sem converter ordem Stop em mercado;
+- deduplicacao, identidade da fonte, SL/TP herdados e defesa financeira da
+  cesta permanecem inalterados;
+- validacao: 8 testes M25 e 123 testes de execucao Demo/MT5, mais 2 subtestes,
+  aprovados sem conexao nem envio real ao MT5.
+
 ## 2026-08-19 - M24 SL da INITIAL no M5 fechado anterior
 
 - contrato promovido para `M24_SETUP_V5_20260819`;
@@ -2076,3 +2132,24 @@ Novas entradas devem registrar:
   posicao aberta ou ordem pendente no momento da auditoria;
 - estado legado foi normalizado e regravado com versao/fingerprint canonicos;
 - nenhuma ordem foi aberta, fechada, cancelada ou modificada na validacao.
+## 2026-08-19 - M24 INITIAL e CONTINUATION com alvo de 7,50 pontos
+
+- TP fixo da `INITIAL` alterado de `0,25` para `7,50` pontos e TP fixo da
+  `CONTINUATION` alterado de `0,13` para `7,50` pontos no preco do XAUUSD;
+- ambas usam `preco executavel + 7,50` no BUY e `preco executavel - 7,50` no SELL;
+- volume, SL, gatilho, saidas RSI e demais regras do M24 permanecem inalterados.
+## 2026-08-19 - M24 INITIAL com SL e trailing por micro-pivo
+
+- BUY `INITIAL` nasce um pip abaixo do microfundo 1+1 confirmado anterior;
+- SELL `INITIAL` nasce um pip acima do microtopo 1+1 confirmado anterior;
+- cada novo micro-pivo confirmado move o SL somente a favor ate o TP;
+- trailing SMA20 foi removido da `INITIAL`; TP de `7,50` pontos foi preservado.
+## 2026-08-20 - Lado das ordens pendentes na Saida Teorica
+
+- Corrigida na origem a traducao dos tipos MT5 `BUY/SELL LIMIT`, `BUY/SELL STOP`
+  e `BUY/SELL STOP LIMIT`.
+- As ordens pendentes permanecem visiveis e deixam de apresentar lado `N/D`;
+  a tela preserva os nomes operacionais `BUY STOP` e `SELL STOP`.
+- O mapeamento ampliado vale somente para ordens; negocios `DEAL` preservam o
+  contrato anterior para nao confundir eventos financeiros com trades.
+- Nenhuma regra de trading, envio ou cancelamento de ordem foi alterada.

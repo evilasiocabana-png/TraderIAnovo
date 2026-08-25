@@ -1,6 +1,6 @@
 # TraderIA Novo - Setup Index
 
-`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
+`M24_CONTRACT=M24_SETUP_V19_20260823; SHA256=d918353322bc17fd17e1c7d0ba47272cf19431ef2c60d9cd1686829f2802c05f`
 
 Indice dos setups/modelos operacionais pesquisados pelo Lab e consumidos pelo
 Forex MT5.
@@ -48,7 +48,7 @@ Alpha + modelo + par + timeframe + parametros de entrada
 | LIQUIDITY_SPREAD_FILTER | ALPHA015 | filtro de liquidez/spread | spread, spread medio, tick volume | Lab escolhe `stop_management` |
 | BETA002_REVERSAL_SIGNAL | ALPHA016 | reversao do fluxo anterior | EMAs, momentum, volatilidade, ATR | Pesquisa existente |
 | MULTI_CURRENCY_GRID_MEAN_REVERSION | ALPHA017 | reversao a media em extremo nao tendencial | Bollinger, Z-Score, RSI, `adx_max`, ATR | Somente Replay; sem grade operacional |
-| M24_XAU_RSI50_BASKET | ALPHA024 | novos cruzamentos preco/SMA20 e RSI14/50, assincronos e mantidos; CONTINUATION apos TP confirmado | distancia >=0,25 ATR; INITIAL SL no M5 anterior +/-0,01 e TP 0,25; REENTRY TP estrutural; CONTINUATION TP 0,13 e SL no M5 anterior | RSI50 e 70/30; sem inversao SMA; CONTINUATION 0,40 |
+| M24_XAU_RSI50_BASKET | ALPHA024 | novos cruzamentos preco/SMA20 e RSI14/50, assincronos e mantidos; CONTINUATION Stop associada ao TP da INITIAL | distancia SMA/ATR informativa; INITIAL e REENTRY com TP Fibonacci 100%; CONTINUATION sem TP; lateralizacao reposiciona SL/TP da REENTRY aberta em RR 3:1 | RSI50 INITIAL apos carencia de 2 M5; CONTINUATION encerra ao atingir RSI70/30; sem inversao SMA; todos os papeis em 0,10 lote e sem volume novo na lateralizacao |
 | M25_XAU_SOURCE_AGGREGATOR | ALPHA025 | copia plano executavel de M8, M10 ou M18-M22 | XAUUSD/M5, fonte, papel, ordem, entrada, SL e TP herdados | saida tecnica da fonte + Full Exit M25 em +US$1.000 |
 
 O setup M24 e definido em `application/model24_setup_contract.py`. Textos da

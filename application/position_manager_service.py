@@ -86,10 +86,12 @@ from application.model24_xau_basket import (
     MODEL_24_EXIT_POLICY,
     MODEL_24_PIP_SIZE,
     MODEL_24_SETUP,
+    evaluate_model24_lateralization,
     is_model24,
     mark_model24_extreme_full_exit,
+    model24_initial_structure_trailing_stop,
     model24_micro_pivot_stop,
-    model24_sma20_stop_after_two_closes,
+    model24_previous_candle_stop,
 )
 from application.model25_multi_asset_rsi50_basket import (
     MODEL_25_ALPHA_ID,
@@ -145,6 +147,62 @@ def _model25_source_operational_model(plan: "PositionTradePlan") -> str:
     return source if source in MODEL_25_SOURCE_MODEL_IDS else ""
 
 
+def _timestamp_value(value: object) -> float | None:
+    """Normaliza horarios MT5/ISO para comparar candles sem depender do fuso."""
+    if isinstance(value, datetime):
+        try:
+            return float(value.timestamp())
+        except (OSError, OverflowError, ValueError):
+            return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value or "").strip()
+    if not text or text.upper() == "N/D":
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    try:
+        return float(datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp())
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
+def _candle_timestamp(row: object) -> float | None:
+    if isinstance(row, dict):
+        value = row.get("time", row.get("datetime", row.get("timestamp", row.get("data"))))
+    else:
+        value = None
+        for field_name in ("time", "datetime", "timestamp", "data"):
+            try:
+                candidate = row[field_name]  # type: ignore[index]
+            except (KeyError, IndexError, TypeError, ValueError):
+                candidate = getattr(row, field_name, None)
+            if candidate not in (None, "") and not isinstance(candidate, memoryview):
+                value = candidate
+                break
+    return _timestamp_value(value)
+
+
+def _closed_candles_after_entry(
+    candles: tuple[object, ...],
+    entry_candle_time: object,
+) -> int | None:
+    """Conta M5 fechados posteriores ao candle congelado na entrada."""
+    entry_timestamp = _timestamp_value(entry_candle_time)
+    if entry_timestamp is None or len(candles) < 2:
+        return None
+    closed_timestamps = [
+        timestamp
+        for timestamp in (_candle_timestamp(row) for row in candles[:-1])
+        if timestamp is not None
+    ]
+    if not closed_timestamps:
+        return None
+    return sum(timestamp > entry_timestamp for timestamp in closed_timestamps)
+
+
 class PositionManagerProvider(Protocol):
     """Porta MT5 necessaria para gestao de posicao aberta."""
 
@@ -188,6 +246,15 @@ class PositionManagerProvider(Protocol):
         new_target: float,
     ) -> object:
         """Modifica ou remove somente o TP de uma posicao existente."""
+
+    def modify_position_sltp(
+        self,
+        symbol: str,
+        ticket: int,
+        new_stop: float,
+        new_target: float,
+    ) -> object:
+        """Modifica SL e TP juntos numa posicao existente."""
 
     def close_position(
         self,
@@ -759,6 +826,8 @@ class PositionManagerService:
             return self._execute_close_decision(plan, snapshot, decision)
         if decision.action == "REMOVE_TARGET":
             return self._execute_target_decision(plan, snapshot, decision)
+        if decision.action == "REPOSITION_RANGE":
+            return self._execute_range_decision(plan, snapshot, decision)
         if decision.action == "HOLD_POSITION":
             return self._record(
                 PositionManagerResult(
@@ -1507,6 +1576,23 @@ class PositionManagerService:
             active_entry_order_type in {"BUY_STOP", "SELL_STOP"}
             and not continuation_position
         )
+        m24_initial_position = bool(
+            m24_trade_plan and not continuation_position and not reentry_position
+        )
+        m24_entry_candle_time = (
+            parameters.get("m24_entry_signal_candle_time") or plan.candle_time
+        )
+        m24_closed_candles_after_entry = (
+            _closed_candles_after_entry(candles, m24_entry_candle_time)
+            if m24_initial_position
+            else None
+        )
+        m24_initial_rsi50_waiting = bool(
+            m24_initial_position
+            and m24_closed_candles_after_entry is not None
+            and m24_closed_candles_after_entry
+            <= MODEL_24_SETUP.initial_rsi50_exit_wait_closed_candles
+        )
         m24_rsi50_exit_enabled = bool(
             m24_trade_plan
             and (
@@ -1515,35 +1601,56 @@ class PositionManagerService:
                 else (
                     MODEL_24_SETUP.rsi50_exit_reentry
                     if reentry_position
-                    else MODEL_24_SETUP.rsi50_exit_initial
+                    else (
+                        MODEL_24_SETUP.rsi50_exit_initial
+                        and not m24_initial_rsi50_waiting
+                    )
                 )
             )
         )
-        decision = (
-            evaluate_forex_sma_rsi_exit(
-                candles, snapshot.side, reentry_position=reentry_position,
-            )
-            if operational_model in FOREX_SMA_RSI_MODEL_IDS
-            else evaluate_model8_exit(
+        if operational_model in FOREX_SMA_RSI_MODEL_IDS:
+            decision = evaluate_forex_sma_rsi_exit(
                 candles,
                 snapshot.side,
                 reentry_position=reentry_position,
-                sma_inversion_exit_enabled=(
+            )
+        else:
+            exit_kwargs = {
+                "reentry_position": reentry_position,
+                "sma_inversion_exit_enabled": (
                     MODEL_24_SETUP.sma20_sma50_exit
                     if m24_trade_plan
                     else not (m25_trade_plan and not m25_source_model)
                 ),
-                rsi50_inversion_exit_enabled=(
+                "rsi50_inversion_exit_enabled": (
                     m24_rsi50_exit_enabled
                     or (m25_trade_plan and not m25_source_model)
                 ),
-                **(
-                    {"extreme_return_exit_enabled": True}
-                    if continuation_position
-                    else {}
-                ),
+            }
+            if m24_trade_plan:
+                exit_kwargs["extreme_return_exit_enabled"] = False
+            decision = evaluate_model8_exit(
+                candles,
+                snapshot.side,
+                **exit_kwargs,
             )
-        )
+        if continuation_position and decision.rsi14 is not None:
+            reached_extreme = (
+                snapshot.side == "BUY" and float(decision.rsi14) >= 70.0
+            ) or (
+                snapshot.side == "SELL" and float(decision.rsi14) <= 30.0
+            )
+            if reached_extreme:
+                level = "70_BUY" if snapshot.side == "BUY" else "30_SELL"
+                decision = replace(
+                    decision,
+                    action="FULL_EXIT",
+                    status=f"M24_CONTINUATION_FULL_EXIT_RSI_{level}",
+                    reason=(
+                        f"CONTINUATION {snapshot.side}: RSI14 atingiu o extremo "
+                        f"operacional ({float(decision.rsi14):.2f}); encerrar."
+                    ),
+                )
         spec = (
             forex_sma_rsi_spec(operational_model)
             if operational_model in FOREX_SMA_RSI_MODEL_IDS
@@ -1591,6 +1698,51 @@ class PositionManagerService:
                 MODEL_25_BETA_VERSION if m25_trade_plan else MODEL_24_BETA_VERSION
             )
             target_is_active = snapshot.current_target is not None
+            original_target = float(
+                snapshot.current_target
+                or plan.target
+                or 0.0
+            )
+            lateralization = (
+                evaluate_model24_lateralization(
+                    candles,
+                    side=snapshot.side,
+                    entry_price=snapshot.entry_price,
+                    current_price=snapshot.current_price,
+                    current_stop=snapshot.current_stop,
+                    fibonacci_target=original_target,
+                )
+                if m24_trade_plan and reentry_position and not continuation_position
+                else None
+            )
+            if lateralization is not None and lateralization.ready:
+                return PositionManagerDecision(
+                    symbol=plan.symbol,
+                    ticket=snapshot.ticket,
+                    state=lateralization.status,
+                    action="REPOSITION_RANGE",
+                    reason=lateralization.reason,
+                    confidence=1.0,
+                    beta_id=MODEL_24_BETA_ID,
+                    beta_version=MODEL_24_BETA_VERSION,
+                    beta_mode="M24_LATERALIZATION_RANGE_RR3",
+                    allowed_to_execute=self.assisted_execution_enabled,
+                    execution_mode=(
+                        "AUTOMATIC_DEMO"
+                        if self.assisted_execution_enabled
+                        else "READ_ONLY"
+                    ),
+                    requested_stop=lateralization.stop_price,
+                    requested_target=lateralization.target_price,
+                    evidence=snapshot.evidence
+                    + (
+                        "M24_LATERALIZATION_NO_NEW_ORDER",
+                        "M24_LATERALIZATION_REUSES_REENTRY_VOLUME_0_20",
+                        f"M24_LATERALIZATION_PIVOT={lateralization.pivot_time}",
+                        "M24_LATERALIZATION_RR=3.0",
+                    ),
+                    beta_closed_candle_time=lateralization.pivot_time,
+                )
             rsi_extreme = (
                 snapshot.side == "BUY"
                 and decision.rsi14 is not None
@@ -1600,14 +1752,23 @@ class PositionManagerService:
                 and decision.rsi14 is not None
                 and float(decision.rsi14) <= 30.0
             )
-            if reentry_position and target_is_active and rsi_extreme:
+            remove_target_at_extreme = bool(
+                target_is_active
+                and rsi_extreme
+                and (
+                    reentry_position
+                    or (m24_trade_plan and m24_initial_position)
+                )
+            )
+            if remove_target_at_extreme:
+                target_role = "INITIAL" if m24_initial_position else "REENTRY"
                 return PositionManagerDecision(
                     symbol=plan.symbol,
                     ticket=snapshot.ticket,
-                    state=f"{basket_label}_REENTRY_RSI_EXTREMO_REMOVE_TP",
+                    state=f"{basket_label}_{target_role}_RSI_EXTREMO_REMOVE_TP",
                     action="REMOVE_TARGET",
                     reason=(
-                        f"{basket_label} reentrada atingiu RSI extremo: remover TP estrutural "
+                        f"{basket_label} {target_role} atingiu RSI extremo: remover TP "
                         "e aguardar o Full Exit confirmado no retorno do RSI."
                     ),
                     confidence=1.0,
@@ -1623,29 +1784,49 @@ class PositionManagerService:
                     requested_target=0.0,
                     evidence=snapshot.evidence
                     + (
-                        f"{basket_label}_REENTRY_TP_REMOVED_AT_RSI_EXTREME",
+                        f"{basket_label}_{target_role}_TP_REMOVED_AT_RSI_EXTREME",
                         f"{basket_label}_RSI14={decision.rsi14}",
                     ),
                     beta_closed_candle_time=decision.closed_candle_time,
                 )
-            initial_m24_sma20_trailing = m24_trade_plan and not reentry_position
-            if initial_m24_sma20_trailing:
-                candidate, trailing_candle = model24_sma20_stop_after_two_closes(
-                    candles,
-                    snapshot.side,
-                )
-            elif reentry_position:
+            initial_m24_structure_break_trailing = (
+                m24_trade_plan
+                and not reentry_position
+                and not continuation_position
+            )
+            continuation_m24_candle_trailing = bool(
+                m24_trade_plan and continuation_position
+            )
+            if (
+                initial_m24_structure_break_trailing
+                or reentry_position
+                or continuation_m24_candle_trailing
+            ):
                 maximum_age = int(
                     parameters.get("m25_micro_pivot_maximum_age")
                     or parameters.get("m24_micro_pivot_maximum_age")
                     or 5
                 )
-                candidate, trailing_candle = model24_micro_pivot_stop(
-                    candles,
-                    snapshot.side,
-                    maximum_age=maximum_age,
-                )
-                if candidate is not None:
+                if continuation_m24_candle_trailing:
+                    candidate, trailing_candle = model24_previous_candle_stop(
+                        candles,
+                        snapshot.side,
+                    )
+                elif initial_m24_structure_break_trailing:
+                    candidate, trailing_candle = (
+                        model24_initial_structure_trailing_stop(
+                            candles,
+                            snapshot.side,
+                            entry_candle_time=m24_entry_candle_time,
+                        )
+                    )
+                else:
+                    candidate, trailing_candle = model24_micro_pivot_stop(
+                        candles,
+                        snapshot.side,
+                        maximum_age=maximum_age,
+                    )
+                if candidate is not None and not continuation_m24_candle_trailing:
                     pip_size = (
                         model25_symbol_pip_size(plan.symbol)
                         if m25_trade_plan
@@ -1672,20 +1853,24 @@ class PositionManagerService:
                     symbol=plan.symbol,
                     ticket=snapshot.ticket,
                     state=(
-                        "M24_INITIAL_SMA20_TRAILING"
-                        if initial_m24_sma20_trailing
+                        "M24_INITIAL_STRUCTURE_BREAK_TRAILING"
+                        if initial_m24_structure_break_trailing
+                        else "M24_CONTINUATION_CANDLE_TRAILING"
+                        if continuation_m24_candle_trailing
                         else f"{basket_label}_REENTRY_MICRO_PIVOT_TRAILING"
                     ),
                     action="PROTECT_POSITION",
                     reason=(
                         f"{basket_label} "
-                        f"{'entrada inicial' if initial_m24_sma20_trailing else 'reentrada'}: "
+                        f"{'entrada inicial' if initial_m24_structure_break_trailing else 'CONTINUATION' if continuation_m24_candle_trailing else 'reentrada'}: "
                         + (
-                            "apos dois fechamentos M5 favoraveis, acompanhar o SL "
-                            "pela SMA20, somente em direcao mais protetiva."
-                            if initial_m24_sma20_trailing
-                            else "mover SL para o micro pivo 1+1 M5 confirmado mais "
-                            "recente, somente em direcao favoravel."
+                            "apos romper o topo/fundo anterior, mover o SL para um pip "
+                            "alem do microfundo/microtopo criado, somente a favor."
+                            if initial_m24_structure_break_trailing
+                            else "mover SL para o fundo/topo do ultimo M5 fechado, somente a favor."
+                            if continuation_m24_candle_trailing
+                            else "mover SL para um pip alem do micro pivo 1+1 M5 "
+                            "confirmado mais recente, somente em direcao favoravel."
                         )
                     ),
                     confidence=1.0,
@@ -1702,15 +1887,13 @@ class PositionManagerService:
                     evidence=snapshot.evidence
                     + (
                         (
-                            "M24_INITIAL_SMA20_TRAILING"
-                            if initial_m24_sma20_trailing
+                            "M24_INITIAL_STRUCTURE_BREAK_TRAILING"
+                            if initial_m24_structure_break_trailing
+                            else "M24_CONTINUATION_CANDLE_TRAILING"
+                            if continuation_m24_candle_trailing
                             else f"{basket_label}_MICRO_PIVOT_TRAILING"
                         ),
-                        (
-                            f"M24_SMA20_CONFIRMATION_CANDLE={trailing_candle}"
-                            if initial_m24_sma20_trailing
-                            else f"{basket_label}_MICRO_PIVOT_CANDLE={trailing_candle}"
-                        ),
+                        f"{basket_label}_MICRO_PIVOT_CANDLE={trailing_candle}",
                     ),
                     beta_closed_candle_time=trailing_candle,
                 )
@@ -1752,7 +1935,19 @@ class PositionManagerService:
                 ),
                 (
                     f"{'M25' if m25_trade_plan else 'M24'}_RSI50_INVERSION_EXIT="
-                    f"{basket_rsi_trade_plan}"
+                    f"{m24_rsi50_exit_enabled if m24_trade_plan else basket_rsi_trade_plan}"
+                ),
+                (
+                    "M24_INITIAL_RSI50_CLOSED_CANDLES_AFTER_ENTRY="
+                    f"{m24_closed_candles_after_entry}"
+                    if m24_initial_position
+                    else "M24_INITIAL_RSI50_CLOSED_CANDLES_AFTER_ENTRY=N/A"
+                ),
+                (
+                    "M24_INITIAL_RSI50_WAIT_CLOSED_CANDLES="
+                    f"{MODEL_24_SETUP.initial_rsi50_exit_wait_closed_candles}"
+                    if m24_initial_position
+                    else "M24_INITIAL_RSI50_WAIT_CLOSED_CANDLES=N/A"
                 ),
                 f"M8_STATUS={decision.status}",
             ),
@@ -1841,6 +2036,138 @@ class PositionManagerService:
                     f"{basket_label}_TARGET_REMOVED_AT_RSI_EXTREME"
                     if success
                     else f"{basket_label}_TARGET_REMOVE_REJECTED",
+                ),
+                provider_result=message,
+                submitted=True,
+                success=success,
+                **self._beta_result_fields(decision),
+            )
+        )
+
+    def _execute_range_decision(
+        self,
+        plan: PositionTradePlan,
+        snapshot: PositionStateSnapshot,
+        decision: PositionManagerDecision,
+    ) -> PositionManagerResult:
+        """Reposiciona SL/TP da REENTRY M24 sem abrir nem aumentar posicao."""
+        if not self.assisted_execution_enabled:
+            return self._record(
+                PositionManagerResult(
+                    symbol=plan.symbol,
+                    ticket=snapshot.ticket,
+                    status="EXECUTION_DISABLED",
+                    action="HOLD_POSITION",
+                    message=(
+                        "Lateralizacao calculada, mas a execucao assistida Demo "
+                        "esta desligada."
+                    ),
+                    policy=plan.stop_management,
+                    execution_status="BLOCKED_BY_CONFIG",
+                    side=snapshot.side,
+                    old_stop=snapshot.current_stop,
+                    new_stop=decision.requested_stop,
+                    old_target=snapshot.current_target,
+                    new_target=decision.requested_target,
+                    current_price=snapshot.current_price,
+                    entry=snapshot.entry_price,
+                    position_state=decision.state,
+                    confidence=decision.confidence,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=decision.beta_id,
+                    beta_version=decision.beta_version,
+                    beta_mode=decision.beta_mode,
+                    evidence=decision.evidence,
+                    candle_time=plan.candle_time,
+                    audit_tags=("M24_LATERALIZATION", "BLOCKED_BY_CONFIG"),
+                    **self._beta_result_fields(decision),
+                )
+            )
+        if decision.requested_stop is None or decision.requested_target is None:
+            return self._record(
+                PositionManagerResult(
+                    symbol=plan.symbol,
+                    ticket=snapshot.ticket,
+                    status="LATERALIZATION_INVALID_LEVELS",
+                    action="HOLD_POSITION",
+                    message="Lateralizacao sem SL/TP validos; posicao preservada.",
+                    policy=plan.stop_management,
+                    side=snapshot.side,
+                    old_stop=snapshot.current_stop,
+                    old_target=snapshot.current_target,
+                    current_price=snapshot.current_price,
+                    entry=snapshot.entry_price,
+                    position_state=decision.state,
+                    confidence=decision.confidence,
+                    alpha_id=plan.alpha_id,
+                    alpha_version=plan.alpha_version,
+                    beta_id=decision.beta_id,
+                    beta_version=decision.beta_version,
+                    beta_mode=decision.beta_mode,
+                    evidence=decision.evidence,
+                    candle_time=plan.candle_time,
+                    audit_tags=("M24_LATERALIZATION", "INVALID_LEVELS"),
+                    **self._beta_result_fields(decision),
+                )
+            )
+        response = self.provider.modify_position_sltp(
+            plan.symbol,
+            snapshot.ticket,
+            float(decision.requested_stop),
+            float(decision.requested_target),
+        )
+        success = bool(
+            getattr(response, "accepted", False)
+            or getattr(response, "success", False)
+        )
+        message = str(
+            getattr(response, "message", "")
+            or "SL/TP da lateralizacao atualizados no MT5 Demo."
+        )
+        return self._record(
+            PositionManagerResult(
+                symbol=plan.symbol,
+                ticket=snapshot.ticket,
+                status=(
+                    "LATERALIZATION_RANGE_APPLIED"
+                    if success
+                    else "LATERALIZATION_RANGE_REJECTED"
+                ),
+                action="REPOSITION_RANGE" if success else "HOLD_POSITION",
+                message=message,
+                policy=plan.stop_management,
+                execution_mode="AUTOMATIC_DEMO",
+                execution_status="EXECUTED" if success else "BLOCKED",
+                side=snapshot.side,
+                old_stop=snapshot.current_stop,
+                new_stop=(
+                    float(decision.requested_stop)
+                    if success
+                    else snapshot.current_stop
+                ),
+                old_target=snapshot.current_target,
+                new_target=(
+                    float(decision.requested_target)
+                    if success
+                    else snapshot.current_target
+                ),
+                current_price=snapshot.current_price,
+                entry=snapshot.entry_price,
+                position_state=decision.state,
+                confidence=decision.confidence,
+                alpha_id=plan.alpha_id,
+                alpha_version=plan.alpha_version,
+                beta_id=decision.beta_id,
+                beta_version=decision.beta_version,
+                beta_mode=decision.beta_mode,
+                evidence=decision.evidence,
+                candle_time=plan.candle_time,
+                audit_tags=(
+                    "M24_LATERALIZATION_NO_NEW_ORDER",
+                    "M24_LATERALIZATION_RANGE_APPLIED"
+                    if success
+                    else "M24_LATERALIZATION_RANGE_REJECTED",
                 ),
                 provider_result=message,
                 submitted=True,

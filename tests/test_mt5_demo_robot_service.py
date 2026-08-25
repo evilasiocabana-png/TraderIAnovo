@@ -124,9 +124,9 @@ class MT5DemoRobotServiceTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(service._execution_volume(signal, principal), 0.30)
-        self.assertEqual(service._execution_volume(signal, reentry), 0.20)
-        self.assertEqual(service._execution_volume(signal, continuation), 0.40)
+        self.assertEqual(service._execution_volume(signal, principal), 0.10)
+        self.assertEqual(service._execution_volume(signal, reentry), 0.10)
+        self.assertEqual(service._execution_volume(signal, continuation), 0.10)
 
     def test_m24_inicial_com_tp_fixo_e_plano_valido(self) -> None:
         provider = _AcceptingProvider()

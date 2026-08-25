@@ -21,11 +21,17 @@ from domain.contracts.execution_result import ExecutionResult
 from application.model15_xau_m5_breakout import MODEL_15_ID
 from application.model16_xau_m5_price_ema_breakout import MODEL_16_ID
 from application.model23_basket_accumulator import (
+    MODEL_23_ID,
     is_model23,
     model23_order_comment,
 )
-from application.model24_xau_basket import is_model24, model24_order_comment
+from application.model24_xau_basket import (
+    MODEL_24_ID,
+    is_model24,
+    model24_order_comment,
+)
 from application.model25_multi_asset_rsi50_basket import (
+    MODEL_25_ID,
     MODEL_25_SOURCE_MODEL_IDS,
     is_model25,
     model25_order_comment,
@@ -89,6 +95,7 @@ class MT5DemoExecutionProvider:
     management_log_path: Path = field(
         default_factory=lambda: Path(".traderia") / "mt5_stop_management.jsonl"
     )
+    operational_model_state_path: Path | None = None
     external_read_cache: dict[str, tuple[float, dict[str, Any]]] = field(
         default_factory=dict,
         repr=False,
@@ -617,6 +624,64 @@ mt5.shutdown()
         )
         return result
 
+    def modify_position_sltp(
+        self,
+        symbol: str,
+        ticket: int,
+        new_stop: float,
+        new_target: float,
+    ) -> ExecutionResult:
+        """Reposiciona SL e TP juntos em conta Demo numa unica requisicao MT5."""
+        normalized_symbol = str(symbol or "").upper()
+        initialize_check = self._initialize_check()
+        if initialize_check is not None:
+            return initialize_check
+        demo_check = self._demo_account_check()
+        if demo_check is not None:
+            return demo_check
+        symbol_check = self._ensure_symbol(normalized_symbol)
+        if symbol_check is not None:
+            return symbol_check
+        position = self._find_position(normalized_symbol, int(ticket or 0))
+        if position is None:
+            return ExecutionResult(
+                False,
+                "REJECTED",
+                "Posicao demo nao encontrada para reposicionar SL/TP.",
+            )
+        old_stop = float(getattr(position, "sl", 0.0) or 0.0)
+        old_target = float(getattr(position, "tp", 0.0) or 0.0)
+        requested_stop = max(0.0, float(new_stop or 0.0))
+        requested_target = max(0.0, float(new_target or 0.0))
+        request = {
+            "action": self.mt5.TRADE_ACTION_SLTP,
+            "position": int(ticket),
+            "symbol": normalized_symbol,
+            "sl": requested_stop,
+            "tp": requested_target,
+            "magic": self.magic,
+            "comment": "TraderIA M24 range",
+        }
+        response = self._order_send(request)
+        result = self._result_from_response(response)
+        self._write_management_log(
+            {
+                "timestamp": datetime.now().astimezone().isoformat(),
+                "type": "POSITION_MANAGER_RANGE_UPDATE",
+                "symbol": normalized_symbol,
+                "ticket": int(ticket),
+                "old_stop": old_stop,
+                "new_stop": requested_stop,
+                "old_target": old_target,
+                "new_target": requested_target,
+                "accepted": result.accepted,
+                "status": result.status,
+                "message": result.message,
+                "error_code": result.error_code,
+            }
+        )
+        return result
+
     def close_position(
         self,
         *,
@@ -840,6 +905,11 @@ mt5.shutdown()
 
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         """Converte ExecutionOrder em request MT5 e envia para conta demo."""
+        selection_check = self._operational_selection_preflight(order)
+        if selection_check is not None:
+            self._write_log(order, selection_check)
+            return selection_check
+
         retirement_check = self._retired_model_preflight(order)
         if retirement_check is not None:
             self._write_log(order, retirement_check)
@@ -889,6 +959,13 @@ mt5.shutdown()
             self._write_log(order, stop_target_rejection)
             return stop_target_rejection
         with _MT5_ORDER_SEND_LOCK:
+            # Rele a selecao dentro do mesmo lock do order_send. Isso fecha a
+            # janela em que um plano antigo poderia atravessar apos o usuario
+            # trocar as caixas no Dashboard.
+            selection_check = self._operational_selection_preflight(order)
+            if selection_check is not None:
+                self._write_log(order, selection_check)
+                return selection_check
             duplicate_rejection = self._duplicate_plan_preflight(order)
             if duplicate_rejection is not None:
                 self._write_log(order, duplicate_rejection)
@@ -944,6 +1021,56 @@ mt5.shutdown()
             result = self._result_from_response(response, order_check=order_check)
             self._write_log(order, result)
             return result
+
+    def _operational_selection_preflight(
+        self,
+        order: ExecutionOrder,
+    ) -> ExecutionResult | None:
+        """Bloqueia no provider qualquer modelo fora da selecao persistida."""
+        state_path = self.operational_model_state_path
+        if state_path is None:
+            return None
+        try:
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+            raw_selections = list(dict(payload).get("selections") or [])
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=(
+                    "Envio bloqueado: selecao operacional persistida ausente "
+                    "ou invalida. Aplique novamente os modelos no Dashboard."
+                ),
+            )
+
+        selected_keys = {
+            self._operational_selection_key(value)
+            for value in raw_selections
+            if str(value or "").strip()
+        }
+        order_model = str(getattr(order, "operational_model", "") or "").upper()
+        order_key = self._operational_selection_key(order_model)
+        if order_key and order_key in selected_keys:
+            return None
+        return ExecutionResult(
+            accepted=False,
+            status="REJECTED",
+            message=(
+                "Envio bloqueado pelo gate final de selecao: "
+                f"{order_key or order_model or 'MODELO_N/D'} nao esta marcado "
+                f"({', '.join(sorted(selected_keys)) or 'nenhum modelo'})."
+            ),
+        )
+
+    def _operational_selection_key(self, value: object) -> str:
+        normalized = str(value or "").upper()
+        if is_model23(normalized) or normalized == MODEL_23_ID:
+            return "M23"
+        if is_model24(normalized) or normalized == MODEL_24_ID:
+            return "M24"
+        if is_model25(normalized) or normalized == MODEL_25_ID:
+            return "M25"
+        return self._model_comment(normalized)
 
     def apply_stop_management_from_signals(
         self,
@@ -1531,7 +1658,10 @@ mt5.shutdown()
                     self.mt5.ORDER_FILLING_IOC,
                 ),
             }
-            expiration = self._pending_stop_expiration(order)
+            expiration = self._pending_stop_expiration(
+                order,
+                server_now=getattr(tick, "time", None),
+            )
             specified = getattr(self.mt5, "ORDER_TIME_SPECIFIED", None)
             if expiration is not None and specified is not None:
                 request["type_time"] = specified
@@ -1585,8 +1715,11 @@ mt5.shutdown()
         if self._is_pending_stop_order(order):
             model_label = self._order_comment(order)
             entry = self._positive_float(getattr(order, "entry_price", None))
-            expiration = self._pending_stop_expiration(order)
             server_now = self._positive_float(getattr(tick, "time", None))
+            expiration = self._pending_stop_expiration(
+                order,
+                server_now=server_now,
+            )
             comparison_time = int(server_now if server_now is not None else time.time())
             if expiration is not None and expiration <= comparison_time + 1:
                 return ExecutionResult(
@@ -1699,30 +1832,16 @@ mt5.shutdown()
         order: ExecutionOrder,
         execution_price: float,
     ) -> float | None:
-        """Reancora TP fixo do M24 no preco executavel da ordem a mercado."""
+        """Compatibilidade com snapshots antigos de TP fixo M24."""
         target = self._positive_float(getattr(order, "target", None))
         if (
             not is_model24(getattr(order, "operational_model", ""))
             or self._is_pending_stop_order(order)
         ):
             return target
-        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
-        parameters = dict(snapshot.get("stop_management_parameters") or {})
-        role = str(parameters.get("m24_entry_role") or "").upper()
-        distance = self._positive_float(parameters.get("m24_target_distance"))
-        if role not in {"INITIAL", "CONTINUATION"} or distance is None:
-            return target
-        side = str(order.side or "").upper()
-        if side not in {"BUY", "SELL"} or execution_price <= 0.0:
-            return target
-        info = self.mt5.symbol_info(order.symbol)
-        digits = int(getattr(info, "digits", 2) or 2)
-        return round(
-            float(execution_price) + distance
-            if side == "BUY"
-            else float(execution_price) - distance,
-            digits,
-        )
+        # O contrato V16 nao reancora INITIAL nem CONTINUATION: ambos carregam
+        # o preco absoluto do plano (a CONTINUATION atual nao possui TP).
+        return target
 
     def _is_no_target_model(self, order: ExecutionOrder) -> bool:
         snapshot = dict(getattr(order, "plan_snapshot", None) or {})
@@ -1786,6 +1905,16 @@ mt5.shutdown()
         return self._source_operational_model(order) or model
 
     def _is_pending_stop_order(self, order: ExecutionOrder) -> bool:
+        # O M24 autonomo usa ``M24_PROPRIO`` como fonte de auditoria. Essa
+        # identidade nao pertence a familia legada M8/M18-M22, mas o tipo de
+        # ordem continua sendo parte do contrato canonico do proprio M24.
+        # Resolva-o antes de trocar o modelo pela fonte para impedir que uma
+        # REENTRY BUY_STOP/SELL_STOP seja executada indevidamente a mercado.
+        if is_model24(getattr(order, "operational_model", "")):
+            return self._entry_order_type(order) in {
+                "BUY_STOP",
+                "SELL_STOP",
+            }
         model = self._effective_operational_model(order)
         if model in {MODEL_15_ID, MODEL_16_ID}:
             return True
@@ -1800,7 +1929,12 @@ mt5.shutdown()
             "SELL_STOP",
         }
 
-    def _pending_stop_expiration(self, order: ExecutionOrder) -> int | None:
+    def _pending_stop_expiration(
+        self,
+        order: ExecutionOrder,
+        *,
+        server_now: object | None = None,
+    ) -> int | None:
         # O terminal valida a expiracao no relogio do servidor da corretora.
         # O candle MT5 ja carrega esse relogio; usar o UTC da maquina produz
         # "Invalid expiration" quando o servidor opera com outro deslocamento.
@@ -1818,7 +1952,20 @@ mt5.shutdown()
         # apenas cinco minutos fazia a ordem nascer expirada no primeiro ciclo.
         # Se nao executar, o proximo plano remove a pendencia e publica o novo
         # extremo fechado com SL/TP recalculados.
-        return int((candle_time + timedelta(minutes=10)).timestamp())
+        expiration = int((candle_time + timedelta(minutes=10)).timestamp())
+        live_server_time = self._positive_float(server_now)
+        if live_server_time is None:
+            return expiration
+
+        remaining = expiration - int(live_server_time)
+        if -300 <= remaining <= 90:
+            # Perto da virada M5, alguns servidores recusam ORDER_TIME_SPECIFIED
+            # mesmo que ainda restem poucos segundos. O tick vivo e a autoridade:
+            # mantemos a pendencia ate o fim do proximo M5 e o ciclo seguinte a
+            # substitui pelo novo extremo fechado. Planos realmente antigos
+            # (mais de um candle atrasados) continuam expirados e bloqueados.
+            return ((int(live_server_time) // 300) + 2) * 300
+        return expiration
 
     def _replace_pending_stop_order_locked(
         self,
@@ -2158,8 +2305,8 @@ mt5.shutdown()
                     accepted=False,
                     status="REJECTED",
                     message=(
-                        "M24 CONTINUATION aguarda a remocao da reentrada pendente "
-                        "antes da entrada a mercado."
+                        "M24 CONTINUATION ja possui uma ordem Stop pendente ou "
+                        "aguarda a remocao da reentrada pendente atual."
                     ),
                 )
 

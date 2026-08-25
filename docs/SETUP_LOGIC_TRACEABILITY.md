@@ -1,6 +1,6 @@
 # TraderIA Novo - Rastreabilidade da Logica de Setup
 
-`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
+`M24_CONTRACT=M24_SETUP_V19_20260823; SHA256=d918353322bc17fd17e1c7d0ba47272cf19431ef2c60d9cd1686829f2802c05f`
 
 ## Contrato M24
 
@@ -11,12 +11,18 @@ consomem esse contrato. Trade Plans e estado persistem versao/fingerprint, e
 os testes comparam este marker em todos os documentos ativos.
 O estado de continuidade registra o TP da `REENTRY`, exige confirmacao read-only
 do fechamento no historico MT5 e identifica a ordem posterior pelo papel
-`CONTINUATION`, com volume canonico `0,40`.
-O plano `INITIAL` transporta distancia fixa de TP `0,25`; a `CONTINUATION`
-transporta TP `0,13` e SL no extremo do M5 fechado anterior mais um pip.
-O SL da `INITIAL` tambem usa o M5 fechado imediatamente anterior a entrada:
-minima menos `0,01` no BUY ou maxima mais `0,01` no SELL. O candle antigo do
-cruzamento preco/SMA20 continua identificando o gatilho, nao o stop.
+`CONTINUATION`, com volume canonico `0,10`.
+O plano `INITIAL` transporta o preco absoluto da projecao Fibonacci de 100% da
+ultima perna estrutural completa anterior, sem distancia fixa; RSI70 BUY ou
+RSI30 SELL remove esse TP e o retorno do extremo confirma Full Exit. A
+`CONTINUATION` nao transporta TP individual; seu SL nasce no extremo exato do
+M5 fechado anterior e depois acompanha a SMA20 somente a favor.
+Uma `REENTRY` que falha o TP Fibonacci e retorna ao range pode entrar no modo
+`LATERALIZATION`: o mesmo ticket recebe TP no fechamento do microextremo
+favoravel anterior e SL em RR `3:1`. Nao existe nova ordem nem lote adicional.
+O SL da `INITIAL` usa a vela que cruzou a SMA20: minima menos `0,01` no BUY
+ou maxima mais `0,01` no SELL. Depois da abertura, cada novo micro-pivo
+confirmado move o SL somente a favor ate o TP.
 
 Este documento mapeia entrada, saida, stop management e consumo operacional do
 setup calculado pelo Lab.

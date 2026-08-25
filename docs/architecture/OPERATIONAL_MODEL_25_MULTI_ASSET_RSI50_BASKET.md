@@ -3,8 +3,9 @@
 ## Contrato vigente
 
 - ID canonico preservado: `MODELO_25_MULTI_ASSET_RSI50_BASKET`.
-- Contrato: `M25_XAU_SOURCES_V2_20260819`.
-- Alpha: `ALPHA025_XAU_SOURCE_AGGREGATOR`, versao `M25_ENTRY_V2`.
+- Contrato: `M25_XAU_SOURCES_V6_20260820`.
+- O M25 nao calcula filtro adicional de distancia: recebe o sinal executavel da fonte sem alterar entrada, SL ou TP.
+- Alpha: `ALPHA025_XAU_SOURCE_AGGREGATOR`, versao `M25_ENTRY_V5`.
 - Beta: `BETA025_BASKET_FULL_EXIT_1000`, versao `M25_EXIT_V2`.
 - Universo: exclusivamente `XAUUSD`.
 - Timeframe: exclusivamente `M5`.
@@ -17,9 +18,20 @@ recalculo a direcao, o candle do sinal, o tipo de ordem, a entrada, o SL e o TP
 da fonte. A identidade da fonte acompanha a variante e o comentario MT5, por
 exemplo `..._SOURCE_M8` e `TraderIA M25 S8`.
 
+## Leitura informativa da distância das médias
+
+O M25 calcula uma vez, para auditoria visual,
+no ultimo M5 fechado da janela deslizante de 200 velas:
+
+`distance_atr = abs(SMA20 - SMA50) / ATR14`
+
+O valor aparece na coluna `Envio` e em `Distancia medias`, mas não funciona como
+filtro. Qualquer distância válida, baixa ou alta, preserva a decisão do
+plano-fonte e não bloqueia `INITIAL`, `REENTRY` ou renovação da pendência.
+
 ## Posicoes e lotes
 
-- entrada inicial: `0,20` lote;
+- entrada inicial: `0,10` lote;
 - reentrada: `0,10` lote;
 - no maximo uma `INITIAL` e uma `REENTRY` por fonte;
 - fontes distintas podem manter posicoes independentes do mesmo lado;
@@ -39,10 +51,10 @@ liquido agregado atingir `+US$1.000`.
 
 ## Estado, historico e auditoria
 
-- `.traderia/model25_basket_state.json`: estado financeiro da cesta V2;
+- `.traderia/model25_basket_state.json`: estado financeiro da cesta V3;
 - `.traderia/model25_basket_audit.jsonl`: auditoria dos Full Exits coletivos;
 - `.traderia/model25_runtime_state.json`: artefato legado V1, preservado apenas
-  como historico e nao lido pelo roteamento V2.
+  como historico e nao lido pelo roteamento V3.
 
 O contrato e a impressao digital ficam gravados nos parametros do plano e
 visiveis na Entrada Teorica. Logs e avaliacoes antigos nao sao apagados; eles

@@ -69,6 +69,23 @@ class ApplicationServicesTest(unittest.TestCase):
         self.assertGreater(data.research_data.similar_scenarios, 0)
         self.assertEqual(data.live_research_data.safety_status, "READ ONLY")
 
+    def test_dashboard_service_traduz_lado_de_ordens_pendentes_mt5(self) -> None:
+        service = DashboardService()
+
+        self.assertEqual(
+            service._mt5_side_from_type(4, source="ORDER_OPEN"), "BUY STOP"
+        )
+        self.assertEqual(
+            service._mt5_side_from_type(5, source="ORDER_OPEN"), "SELL STOP"
+        )
+        self.assertEqual(
+            service._mt5_side_from_type(6, source="ORDER"), "BUY STOP LIMIT"
+        )
+        self.assertEqual(
+            service._mt5_side_from_type(7, source="ORDER"), "SELL STOP LIMIT"
+        )
+        self.assertEqual(service._mt5_side_from_type(2, source="DEAL"), "N/D")
+
     def test_dashboard_service_expoe_estado_live_read_only(self) -> None:
         """Garante que o Dashboard consome estado live pela fachada."""
         live_service = LiveResearchService()

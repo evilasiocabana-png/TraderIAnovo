@@ -829,9 +829,35 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertTrue(service._mt5_direct_routing_enabled())
         self.assertTrue(service._mt5_model23_routing_enabled())
 
+    def test_chaveamento_combina_modelo_direto_com_cesta_m25(self) -> None:
+        from application.dashboard_service import (
+            MT5_MODEL_25_SOURCE_MODEL_IDS,
+            MT5_OPERATIONAL_MODEL_1,
+            MT5_OPERATIONAL_MODEL_25,
+        )
+
+        service = object.__new__(DashboardService)
+        service.set_mt5_operational_models(
+            [MT5_OPERATIONAL_MODEL_1],
+            basket_models=[MT5_OPERATIONAL_MODEL_25],
+            direct_models_enabled=True,
+        )
+
+        self.assertTrue(service._mt5_direct_routing_enabled())
+        self.assertTrue(service._mt5_model25_routing_enabled())
+        self.assertEqual(
+            service.mt5_selected_direct_operational_models,
+            (MT5_OPERATIONAL_MODEL_1,),
+        )
+        self.assertEqual(
+            service._mt5_operational_models_to_evaluate(),
+            (MT5_OPERATIONAL_MODEL_1, *MT5_MODEL_25_SOURCE_MODEL_IDS),
+        )
+
     def test_chaveamento_m23_avalia_somente_fontes_ativas(self) -> None:
         from application.dashboard_service import (
             MT5_ACTIVE_SOURCE_MODEL_IDS,
+            MT5_MODEL_23_EXCLUDED_SOURCE_MODEL_IDS,
             MT5_MODEL_23_SOURCE_MODEL_IDS,
             MT5_MODEL_23_RETIRED_SOURCE_MODEL_IDS,
             MT5_OPERATIONAL_MODEL_23,
@@ -855,8 +881,15 @@ class DashboardViewModelContractTest(unittest.TestCase):
             tuple(
                 model_id
                 for model_id in MT5_ACTIVE_SOURCE_MODEL_IDS
-                if model_id != MT5_OPERATIONAL_MODEL_25
+                if model_id not in MT5_MODEL_23_EXCLUDED_SOURCE_MODEL_IDS
             ),
+        )
+        self.assertEqual(
+            tuple(
+                operational_model_number(model_id)
+                for model_id in MT5_MODEL_23_EXCLUDED_SOURCE_MODEL_IDS
+            ),
+            (16, 17, 19, 21, 22),
         )
         self.assertEqual(
             tuple(

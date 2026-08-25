@@ -14,6 +14,7 @@ from application.model24_xau_basket import (
     MODEL_24_FULL_EXIT_USD,
     MODEL_24_INITIAL_VOLUME,
     MODEL_24_INITIAL_TARGET_DISTANCE,
+    MODEL_24_LATERALIZATION_VOLUME,
     MODEL_24_PIP_SIZE,
     MODEL_24_REENTRY_VOLUME,
     MODEL_24_RUNTIME_SOURCE,
@@ -41,12 +42,27 @@ def test_m24_exported_constants_come_from_canonical_contract() -> None:
     assert len(MODEL_24_SETUP_CONTRACT_FINGERPRINT) == 64
     assert MODEL_24_RUNTIME_SOURCE == MODEL_24_SETUP.runtime_source
     assert MODEL_24_DISTANCE_ATR_MIN == MODEL_24_SETUP.distance_atr_min
+    assert not MODEL_24_SETUP.distance_atr_filter_enabled
     assert MODEL_24_PIP_SIZE == MODEL_24_SETUP.pip_size
-    assert MODEL_24_INITIAL_VOLUME == MODEL_24_SETUP.initial_volume
-    assert MODEL_24_REENTRY_VOLUME == MODEL_24_SETUP.reentry_volume
-    assert MODEL_24_CONTINUATION_VOLUME == MODEL_24_SETUP.continuation_volume == 0.40
-    assert MODEL_24_INITIAL_TARGET_DISTANCE == 0.25
-    assert MODEL_24_CONTINUATION_TARGET_DISTANCE == 0.13
+    assert MODEL_24_INITIAL_VOLUME == MODEL_24_SETUP.initial_volume == 0.10
+    assert MODEL_24_REENTRY_VOLUME == MODEL_24_SETUP.reentry_volume == 0.10
+    assert MODEL_24_CONTINUATION_VOLUME == MODEL_24_SETUP.continuation_volume == 0.10
+    assert MODEL_24_LATERALIZATION_VOLUME == MODEL_24_SETUP.lateralization_volume == 0.10
+    assert MODEL_24_SETUP.lateralization_enabled
+    assert MODEL_24_SETUP.lateralization_risk_reward == 3.0
+    assert "FAILED_FIBONACCI_REENTRY" in MODEL_24_SETUP.lateralization_target_source
+    assert MODEL_24_INITIAL_TARGET_DISTANCE == 0.0
+    assert MODEL_24_SETUP.initial_target_fibonacci_projection == 1.0
+    assert "FIBONACCI_100" in MODEL_24_SETUP.initial_target_source
+    assert MODEL_24_CONTINUATION_TARGET_DISTANCE == 0.0
+    assert not MODEL_24_SETUP.continuation_individual_target
+    assert "PREVIOUS_CLOSED_CANDLE_EXTREME" in (
+        MODEL_24_SETUP.continuation_stop_source
+    )
+    assert "TRAILING_ONLY_FORWARD" in (
+        MODEL_24_SETUP.continuation_stop_source
+    )
+    assert "FIBONACCI_100" in MODEL_24_SETUP.reentry_target_source
     assert MODEL_24_FULL_EXIT_USD == MODEL_24_SETUP.basket_full_exit_usd
 
 
@@ -57,17 +73,28 @@ def test_m24_public_text_is_derived_from_current_rules() -> None:
     assert MODEL_24_SETUP.version in fields["Contrato"]
     assert MODEL_24_SETUP.initial_requires_rsi_cross
     assert MODEL_24_SETUP.initial_crosses_may_be_asynchronous
+    assert not MODEL_24_SETUP.initial_requires_micro_pivot
     assert "preco cruza sma20 e rsi14 cruza 50" in public_text
     assert "podem ocorrer em m5 diferentes" in public_text
-    assert "m5 fechado imediatamente anterior a entrada" in public_text
-    assert "dois fechamentos favoraveis" in public_text
+    assert "candle que cruzou a sma20" in public_text
+    assert "apenas informativo e nao bloqueia" in public_text
+    assert "so move o sl abaixo do novo microfundo" in public_text
+    assert "ao romper o fundo anterior" in public_text
     assert "micro-pivo 1+1" in public_text
-    assert "0,25" in fields["TP inicial"]
-    assert "continuation usa distancia fixa de 0,13" in public_text
-    assert "extremo do m5 fechado anterior" in public_text
-    assert "initial, reentry e continuation saem" in public_text
+    assert "fibonacci de 100%" in fields["TP inicial"].lower()
+    assert "sem alvo fixo de 7,50" in fields["TP inicial"].lower()
+    assert "continuation nao usa tp" in public_text
+    assert "sl no fundo/topo do ultimo" in public_text
+    assert "trailing pelo mesmo extremo a cada novo candle" in public_text
+    assert "se o preco vivo ja rompeu o gatilho" in public_text
+    assert "initial libera a inversao rsi50" in public_text
+    assert MODEL_24_SETUP.initial_rsi50_exit_wait_closed_candles == 2
+    assert "esperar 2 m5 fechados apos a entrada" in public_text
     assert "sem descarte da primeira reentrada" in public_text
-    assert "topo/fundo principal 2+2" not in public_text
+    assert "minima do candle que cruzou a sma20" in public_text
+    assert "nao abre nova ordem" in fields["Lateralizacao"].lower()
+    assert "rr 3:1" in fields["Lateralizacao"].lower()
+    assert "reaproveita a reentry 0,10 aberta" in fields["Volumes"].lower()
 
 
 def test_active_m24_documents_declare_exact_contract_fingerprint() -> None:

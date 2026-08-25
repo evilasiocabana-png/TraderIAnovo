@@ -2,30 +2,31 @@
 
 Status: pronto para fluxo de inbox.
 
-`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
+`M24_CONTRACT=M24_SETUP_V19_20260823; SHA256=d918353322bc17fd17e1c7d0ba47272cf19431ef2c60d9cd1686829f2802c05f`
 
-`M25_CONTRACT=M25_XAU_SOURCES_V2_20260819; FINGERPRINT=a12f39d9751994ea`
+`M25_CONTRACT=M25_XAU_SOURCES_V6_20260820; FINGERPRINT=d0d758099058ffde`
 
-## Contrato vigente M24 V5 - 2026-08-19
+## Contrato vigente M24 V18 - 2026-08-20
 
 - M24 atual e uma unica rota autonoma `M24_PROPRIO` em XAUUSD/M5;
 - entrada inicial: novo cruzamento do preco/SMA20 e novo cruzamento RSI14/50 na
   mesma direcao; podem ocorrer em M5 diferentes, mas ambos permanecem validos;
-- distancia atual `abs(SMA20-SMA50)/ATR14 >= 0,25` e obrigatoria; micro-pivo
-  inicial continua dispensado;
-- SL inicial: extremo do M5 fechado imediatamente anterior a entrada, afastado
-  `0,01` (minima no BUY, maxima no SELL); o candle do cruzamento permanece
-  apenas como gatilho; depois de dois fechamentos favoraveis, trailing pela
-  SMA20 somente a favor;
-- TP inicial: distancia fixa de `0,25` ancorada no preco executavel;
+- distancia atual `abs(SMA20-SMA50)/ATR14` e somente informativa e nao bloqueia;
+- SL inicial: extremidade da vela que cruzou a SMA20 afastada `0,01`; depois so avanca
+  quando houver rompimento do topo/fundo e novo fundo/topo de protecao;
+- TP inicial: Fibonacci 100% da ultima perna estrutural completa anterior,
+  projetado a partir da entrada e congelado como preco absoluto; RSI extremo
+  remove o TP e o retorno confirma Full Exit;
 - reentrada: ordem Stop, SL no micro-pivo 1+1 mais um pip e TP obrigatorio no
   fechamento do micro-pivo 1+1 lucrativo mais recente;
 - a primeira reentrada valida apos Full Exit RSI 70/30 nao e descartada;
-- `CONTINUATION`: somente apos TP confirmado da `REENTRY`, preco alem do alvo e
-  RSI extremo; mercado, `0,40` lote, TP fixo `0,13` e SL um pip alem do extremo
-  do M5 fechado anterior;
-- `INITIAL`, `REENTRY` e `CONTINUATION` saem pelas regras RSI do contrato;
-  nenhuma sai por inversao SMA20/SMA50;
+- `CONTINUATION`: ordem Stop um pip alem do TP da `INITIAL`, `0,10` lote, sem TP,
+  SL e trailing no extremo do ultimo M5 fechado; Full Exit ao atingir RSI70/30;
+- `LATERALIZATION`: uma REENTRY aberta que falha o TP Fibonacci e retorna ao
+  range reposiciona SL/TP do mesmo ticket em RR `3:1`; nao abre nova ordem,
+  nao aumenta o lote e nunca afrouxa o SL;
+- `INITIAL` espera duas velas M5 fechadas antes de liberar Full Exit RSI50;
+  as demais regras RSI permanecem e nenhuma posicao sai por inversao SMA20/SMA50;
 - interface, motor, Trade Plan, runtime e documentos ativos agora compartilham
   contrato versionado e fingerprint; teste impede drift documental;
 - corrigida a identidade temporal de registros MT5 para nunca persistir o
@@ -77,7 +78,7 @@ Status: pronto para fluxo de inbox.
 - M24 criado como cesta XAUUSD/M5 independente do M23.
 - Fontes fixas: M8, M10 e M18-M22.
 - As fontes identificam apenas a origem; M24 nao herda ADX, inclinacao ou filtros
-  proprios delas. O unico filtro adicional e distancia SMA20/SMA50 de `0,25 ATR`.
+  proprios delas. A distancia SMA20/SMA50 nao bloqueia o M24.
 - Entrada inicial: preco cruza e permanece alem da SMA20; RSI14 cruza e
   permanece alem de 50. Os dois cruzamentos podem ocorrer em M5 diferentes.
 - Reentrada unica e pendente: fechamento e RSI no lado permitido geram
@@ -95,6 +96,8 @@ Status: pronto para fluxo de inbox.
 - Relatorio `Em negociacao` identifica cada plano M24 como `PRINCIPAL` ou
   `REENTRADA` antes da coluna `Alvo`, usando o papel persistido no snapshot.
 - Fonte canonica: `docs/architecture/OPERATIONAL_MODEL_24_XAU_RSI50_BASKET.md`.
+- Contrato V9: INITIAL nasce no pivo estrutural 2+2, move o SL somente apos
+  rompimento estrutural e espera dois M5 fechados antes de liberar Full Exit RSI50.
 - Escrita atomica dos estados M24 possui repeticao curta contra bloqueios
   transitorios do Windows/OneDrive, sem alterar nem apagar o runtime local.
 - O ciclo Demo nao exige plano-base H1 valido antes de avaliar o plano proprio

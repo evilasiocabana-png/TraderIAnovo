@@ -1,5 +1,6 @@
 ﻿"""Testes do fluxo de execucao demo separado do dashboard visual."""
 
+import inspect
 import os
 import unittest
 from unittest.mock import patch
@@ -29,6 +30,18 @@ from research.mt5_research_trade_plan import MT5ResearchTradePlan
 
 class DemoExecutionServiceTest(unittest.TestCase):
     """Valida travas obrigatorias antes do provider demo."""
+
+    def test_m23_nao_interrompe_lote_apos_primeiro_aceite(self) -> None:
+        source = inspect.getsource(DashboardService.evaluate_armed_demo_robot_once)
+        accepted_block = source.split(
+            'if candidate_is_m23 and result.status == "EXECUTED":',
+            1,
+        )[1].split("if candidate_is_m24 and result.status", 1)[0]
+
+        self.assertIn("basket_after_entry", accepted_block)
+        self.assertIn("last_executed = status_view", accepted_block)
+        self.assertIn("continue", accepted_block)
+        self.assertNotIn("return status_view", accepted_block)
 
     def test_m23_percorre_todos_os_pares_em_uma_unica_passagem(self) -> None:
         service = DashboardService()
@@ -242,6 +255,7 @@ class DemoExecutionServiceTest(unittest.TestCase):
         self,
     ) -> None:
         service = DashboardService()
+        service.set_mt5_operational_model("MODELO_1_ALPHA_ATUAL")
         service.mt5_market_data_service.latest_forex_signal_dashboard = (
             self._forex_dashboard()
         )
@@ -340,6 +354,7 @@ class DemoExecutionServiceTest(unittest.TestCase):
         self,
     ) -> None:
         service = DashboardService()
+        service.set_mt5_operational_model("MODELO_1_ALPHA_ATUAL")
         dashboard = self._forex_dashboard(include_multiple_pairs=True)
         object.__setattr__(dashboard, "pairs", dashboard.pairs[:2])
         service.mt5_market_data_service.latest_forex_signal_dashboard = dashboard
@@ -528,6 +543,7 @@ class DemoExecutionServiceTest(unittest.TestCase):
         self,
     ) -> None:
         service = DashboardService()
+        service.set_mt5_operational_model("MODELO_1_ALPHA_ATUAL")
         service.mt5_market_data_service.latest_forex_signal_dashboard = (
             self._forex_dashboard(include_multiple_pairs=True)
         )
@@ -737,6 +753,7 @@ class DemoExecutionServiceTest(unittest.TestCase):
 
     def test_robo_online_atualiza_mt5_antes_de_avaliar(self) -> None:
         service = DashboardService()
+        service.set_mt5_operational_model("MODELO_1_ALPHA_ATUAL")
         service.mt5_market_data_service.latest_forex_signal_dashboard = (
             self._forex_dashboard()
         )
@@ -775,6 +792,7 @@ class DemoExecutionServiceTest(unittest.TestCase):
 
     def test_robo_online_todos_executa_todos_os_candidatos_prontos(self) -> None:
         service = DashboardService()
+        service.set_mt5_operational_model("MODELO_1_ALPHA_ATUAL")
         dashboard = self._forex_dashboard(include_multiple_pairs=True)
         object.__setattr__(dashboard, "pairs", dashboard.pairs[:2])
         service.mt5_market_data_service.latest_forex_signal_dashboard = dashboard
@@ -1550,7 +1568,7 @@ class DemoExecutionServiceTest(unittest.TestCase):
 
 
 class _AcceptingProvider:
-    def __init__(self) -> None:
+    def __init__(self, **_kwargs: object) -> None:
         self.orders: list[ExecutionOrder] = []
         self.close_requests: list[dict[str, object]] = []
 

@@ -1,6 +1,6 @@
 # TraderIA Novo - Matriz de Rastreabilidade
 
-`M24_CONTRACT=M24_SETUP_V5_20260819; SHA256=671f36c14a1762b47e401b937a1798e7eaee5f8028ebea19014e584d9895dbef`
+`M24_CONTRACT=M24_SETUP_V19_20260823; SHA256=d918353322bc17fd17e1c7d0ba47272cf19431ef2c60d9cd1686829f2802c05f`
 
 Matriz ponta a ponta para revisar melhorias no GitHub.
 
@@ -19,10 +19,11 @@ Matriz ponta a ponta para revisar melhorias no GitHub.
 | MT5 Indicador | MQL5 | visual entry/stop/target | `TraderIAVisualSignals.mq5` |
 | Relatorio | `DashboardMT5TradeAuditViewModel` | auditoria local x MT5 | `get_mt5_trade_audit_report()` |
 | Contrato M24 | `Model24SetupContract` | versao e fingerprint | `application/model24_setup_contract.py` |
-| Plano M24 | `stop_management_parameters` | versao/fingerprint; SL INITIAL no M5 anterior +/-0,01; TP INITIAL 0,25; TP CONTINUATION 0,13; SL CONTINUATION no M5 anterior | `DashboardService` |
+| Plano M24 | `stop_management_parameters` | versao/fingerprint; candle da entrada; SL INITIAL na extremidade da vela que cruzou a SMA20; trailing pelos micro-pivos posteriores ao rompimento; carencia RSI50 de 2 M5; TP INITIAL Fibonacci 100%; CONTINUATION sem TP | `DashboardService` |
 | Estado M24 | JSON local nao versionado | `setup_contract_version`, `setup_contract_fingerprint` | `model24_xau_basket.py` |
 | Tela M24 | tabela de setup | campos derivados do contrato | `model24_public_setup_fields()` |
-| CONTINUATION M24 | watch persistido + historico MT5 | TP da REENTRY, lado, RSI extremo, papel, volume 0,40, TP 0,13 e SL no M5 anterior | `model24_xau_basket.py` + `MT5DemoExecutionProvider` |
+| CONTINUATION M24 | watch persistido da INITIAL | TP da INITIAL, ordem Stop um pip alem do alvo, papel, volume 0,10, sem TP e SL movel no extremo do M5 anterior | `model24_xau_basket.py` + `MT5DemoExecutionProvider` |
+| LATERALIZATION M24 | microextremo M5 + posicao REENTRY | mesmo ticket, TP no fechamento do microextremo e SL RR 3:1; nenhuma nova ordem | `PositionManagerService` + `MT5DemoExecutionProvider.modify_position_sltp()` |
 | Contrato M25 | constantes + fingerprint | XAUUSD/M5, M8/M10/M18-M22, lotes e Full Exit | `model25_multi_asset_rsi50_basket.py` |
 | Plano M25 | `stop_management_parameters` | fonte, versao/fingerprint, papel, entrada, SL e TP copiados | `DashboardService` |
 | Ordem M25 | variante + comentario MT5 | `SOURCE_M<n>` e `TraderIA M25 S<n>` | `MT5DemoExecutionProvider` |
@@ -51,6 +52,7 @@ Matriz ponta a ponta para revisar melhorias no GitHub.
 | Runtime versionado | checar `.traderia`, logs e bancos fora do Git |
 | Regra M24 diverge entre motor, tela e docs | validar fingerprint e `tests/test_model24_setup_contract.py` |
 | M25 volta a operar outro simbolo ou setup proprio | validar fontes, copia literal e dupla rejeicao XAUUSD em `tests/test_model25_multi_asset_rsi50_basket.py` e provider |
+| Modelo desmarcado envia plano antigo | provider rele a selecao persistida dentro do lock de `order_send`; validar `test_gate_final_rejeita_m1_quando_somente_m24_esta_selecionado` |
 
 ## Documentos relacionados
 
