@@ -358,7 +358,6 @@ MT5_SELECTABLE_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_23,
     MT5_OPERATIONAL_MODEL_24,
     MT5_OPERATIONAL_MODEL_25,
-    MT5_OPERATIONAL_MODEL_26,
 )
 MT5_MODEL_23_EXCLUDED_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_16,
@@ -2719,7 +2718,7 @@ def _render_mt5_operational_model_selector() -> str:
         summary[0].metric("Modelo operacional", summary_label)
         summary[1].caption(
             "Os modelos ativos ficam visiveis e podem ser combinados livremente; "
-            "Todos executa o conjunto completo. M1-M25 podem ser marcados em "
+            "Todos executa o conjunto completo. M1-M26 podem ser marcados em "
             "qualquer combinacao; cada caixa controla apenas novas entradas."
         )
         st.caption("Modelo ativo para envio")

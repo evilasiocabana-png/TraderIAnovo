@@ -491,7 +491,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 operational_model_number(model_id)
                 for model_id in dashboard_app.MT5_SELECTABLE_OPERATIONAL_MODEL_IDS
             ),
-            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25),
+            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 26, 23, 24, 25),
         )
         for restored_source in (
             dashboard_app.MT5_OPERATIONAL_MODEL_3,
