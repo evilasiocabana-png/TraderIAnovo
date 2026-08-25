@@ -93,7 +93,7 @@ def test_model26_contract_is_independent_xauusd_m5() -> None:
     assert MODEL_26_SYMBOL == "XAUUSD"
     assert MODEL_26_TIMEFRAME == "M5"
     assert MODEL_26_CLOSED_CANDLES == 200
-    assert MODEL_26_VOLUME == 0.10
+    assert MODEL_26_VOLUME == 0.01
     assert len(MODEL_26_CONTRACT_FINGERPRINT) == 16
     assert operational_model_number(MODEL_26_ID) == 26
     assert is_active_operational_model(MODEL_26_ID)
@@ -166,7 +166,7 @@ def test_robot_uses_explicit_m26_volume() -> None:
     robot.volume = 0.99
     signal = SimpleNamespace(operational_model=MODEL_26_ID)
     plan = SimpleNamespace(operational_model=MODEL_26_ID)
-    assert robot._execution_volume(signal, plan) == 0.10
+    assert robot._execution_volume(signal, plan) == 0.01
 
 
 def test_shared_snapshot_reuses_m26_decision() -> None:
@@ -207,7 +207,7 @@ def test_provider_blocks_m26_outside_xauusd_m5() -> None:
 
 def test_m26_contract_is_registered_in_governance() -> None:
     marker = (
-        "M26_CONTRACT=M26_SMART_MONEY_V1_20260825; "
+        "M26_CONTRACT=M26_SMART_MONEY_V2_20260825; "
         f"FINGERPRINT={MODEL_26_CONTRACT_FINGERPRINT}"
     )
     for path in (

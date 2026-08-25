@@ -3,14 +3,14 @@
 ## Contrato vigente
 
 - ID: `MODELO_26_XAU_M5_SMART_MONEY`.
-- Contrato: `M26_SMART_MONEY_V1_20260825`.
-- Fingerprint: `1a5af96d8383950d`.
+- Contrato: `M26_SMART_MONEY_V2_20260825`.
+- Fingerprint: `dc41b273f4d671f9`.
 - Alpha: `ALPHA026_SMART_MONEY_CONFLUENCE`.
 - Beta: `BETA026_STRUCTURAL_LIQUIDITY_EXIT`.
 - Universo: exclusivamente `XAUUSD`.
 - Timeframe: exclusivamente `M5`.
 - Janela: 200 candles fechados mais o candle atual, que nao participa da decisao.
-- Volume Demo: `0,10`.
+- Volume Demo: `0,01`.
 - Conta autorizada: somente Demo.
 
 O M26 e independente do M25. Ele nao copia fontes, nao altera contratos

@@ -16,7 +16,7 @@ MODEL_26_SOURCE = "MODEL_26_SMART_MONEY_RULE"
 MODEL_26_STOP_MANAGEMENT = "FIXED_STOP"
 MODEL_26_SYMBOL = "XAUUSD"
 MODEL_26_TIMEFRAME = "M5"
-MODEL_26_VOLUME = 0.10
+MODEL_26_VOLUME = 0.01
 MODEL_26_CLOSED_CANDLES = 200
 MODEL_26_RAW_CANDLES = MODEL_26_CLOSED_CANDLES + 1
 MODEL_26_PIVOT_LEFT = 2
@@ -29,7 +29,7 @@ MODEL_26_ORDER_BLOCK_LOOKBACK = 5
 MODEL_26_ENTRY_EXPIRY_CANDLES = 12
 MODEL_26_MIN_RISK_REWARD = 2.0
 MODEL_26_PIP_SIZE = 0.01
-MODEL_26_CONTRACT_VERSION = "M26_SMART_MONEY_V1_20260825"
+MODEL_26_CONTRACT_VERSION = "M26_SMART_MONEY_V2_20260825"
 MODEL_26_CONTRACT_FINGERPRINT = hashlib.sha256(
     "|".join(
         (
@@ -43,6 +43,7 @@ MODEL_26_CONTRACT_FINGERPRINT = hashlib.sha256(
             "ORDER_BLOCK_LAST_OPPOSITE_5",
             "RETEST_EXPIRY_12",
             "MIN_RR_2",
+            "VOLUME_0.01",
         )
     ).encode("utf-8")
 ).hexdigest()[:16]
@@ -120,6 +121,7 @@ def model26_parameters() -> dict[str, object]:
         "order_block_lookback": MODEL_26_ORDER_BLOCK_LOOKBACK,
         "entry_expiry_candles": MODEL_26_ENTRY_EXPIRY_CANDLES,
         "minimum_risk_reward": MODEL_26_MIN_RISK_REWARD,
+        "volume": MODEL_26_VOLUME,
         "active_entry_order_type": "MARKET",
         "contract_version": MODEL_26_CONTRACT_VERSION,
         "contract_fingerprint": MODEL_26_CONTRACT_FINGERPRINT,
