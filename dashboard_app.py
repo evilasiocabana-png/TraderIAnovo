@@ -2455,7 +2455,7 @@ def _mt5_operational_model_labels() -> dict[str, str]:
         MT5_OPERATIONAL_MODEL_23: "Modelo 23 - acumulador financeiro",
         MT5_OPERATIONAL_MODEL_24: "Modelo 24 - XAU RSI50 com cesta financeira",
         MT5_OPERATIONAL_MODEL_25: "Modelo 25 - cesta das fontes XAU M8/M10/M18-M22",
-        MT5_OPERATIONAL_MODEL_26: "Modelo 26 - XAU M5 Smart Money",
+        MT5_OPERATIONAL_MODEL_26: "Modelo 26 - XAU M1 Smart Money",
     }
     for model_id in XAU_IMPROVED_REENTRY_MODEL_IDS:
         spec = trend_filter_spec(model_id)
@@ -4426,7 +4426,7 @@ def _mt5_equity_model_setup_summary(model_filter: str) -> str:
             "cesta M25 com Full Exit em +US$1.000"
         ),
         "MODELO 26": (
-            "XAUUSD/M5 | estrutura 2+2 + varredura + BOS/deslocamento + "
+            "XAUUSD/M1 | estrutura 2+2 + varredura + BOS/deslocamento + "
             "FVG + Order Block + reteste | SL estrutural | RR >= 2"
         ),
     }
@@ -6028,7 +6028,7 @@ def _exibir_entradas_teoricas_mt5(
         ),
         (
             MT5_OPERATIONAL_MODEL_26,
-            "Modelo 26 - XAUUSD M5 Smart Money",
+            "Modelo 26 - XAUUSD M1 Smart Money",
             "Estrutura 2+2, varredura de liquidez, BOS com deslocamento, FVG, order block e reteste.",
         ),
     ) + tuple(
@@ -6413,6 +6413,27 @@ def _mt5_theoretical_entry_source_rows(
             }
             for pair in FOREX_SMA_RSI_PAIRS
         ]
+    if source_model_id == MT5_OPERATIONAL_MODEL_26:
+        xau_rows = [
+            row
+            for row in source_rows
+            if str(row.get("Par", "") or "").upper() == MODEL_26_SYMBOL
+        ]
+        if not xau_rows:
+            xau_rows = [
+                {
+                    "Par": MODEL_26_SYMBOL,
+                    "Direcao": "WAIT",
+                    "Direcao Teorica": "WAIT",
+                    "Status": "AQUECENDO",
+                    "Mensagem": "Aguardando snapshot MT5 XAUUSD/M1.",
+                }
+            ]
+        selected = dict(xau_rows[0])
+        selected["TF"] = MODEL_26_TIMEFRAME
+        selected["Timeframe"] = MODEL_26_TIMEFRAME
+        selected["Periodo de tempo"] = MODEL_26_TIMEFRAME
+        return [selected]
     xau_m5_models = {
         MT5_OPERATIONAL_MODEL_3,
         MT5_OPERATIONAL_MODEL_8,
@@ -6420,7 +6441,6 @@ def _mt5_theoretical_entry_source_rows(
         MT5_OPERATIONAL_MODEL_10,
         MT5_OPERATIONAL_MODEL_11,
         MT5_OPERATIONAL_MODEL_12,
-        MT5_OPERATIONAL_MODEL_26,
         *XAU_IMPROVED_REENTRY_MODEL_IDS,
     }
     if source_model_id not in xau_m5_models:
@@ -6681,7 +6701,7 @@ def _model26_smart_money_entry_row(
             "Motivo Entrada": decision.reason,
             "Contrato": f"{MODEL_26_CONTRACT_VERSION}/{MODEL_26_CONTRACT_FINGERPRINT}",
             "Gatilho Esperado": decision.status,
-            "Proxima Tentativa": "Reavaliar no proximo candle M5 fechado.",
+            "Proxima Tentativa": "Reavaliar no proximo candle M1 fechado.",
         }
     )
     if not evaluate_live:

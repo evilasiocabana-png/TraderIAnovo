@@ -1,4 +1,4 @@
-"""Modelo 26: confluencia Smart Money deterministica em XAUUSD/M5."""
+"""Modelo 26: confluencia Smart Money deterministica em XAUUSD/M1."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ MODEL_26_BETA_VERSION = "M26_EXIT_V1"
 MODEL_26_SOURCE = "MODEL_26_SMART_MONEY_RULE"
 MODEL_26_STOP_MANAGEMENT = "FIXED_STOP"
 MODEL_26_SYMBOL = "XAUUSD"
-MODEL_26_TIMEFRAME = "M5"
+MODEL_26_TIMEFRAME = "M1"
 MODEL_26_VOLUME = 0.01
 MODEL_26_CLOSED_CANDLES = 200
 MODEL_26_RAW_CANDLES = MODEL_26_CLOSED_CANDLES + 1
@@ -29,7 +29,7 @@ MODEL_26_ORDER_BLOCK_LOOKBACK = 5
 MODEL_26_ENTRY_EXPIRY_CANDLES = 12
 MODEL_26_MIN_RISK_REWARD = 2.0
 MODEL_26_PIP_SIZE = 0.01
-MODEL_26_CONTRACT_VERSION = "M26_SMART_MONEY_V2_20260825"
+MODEL_26_CONTRACT_VERSION = "M26_SMART_MONEY_V3_20260825"
 MODEL_26_CONTRACT_FINGERPRINT = hashlib.sha256(
     "|".join(
         (
@@ -62,7 +62,7 @@ class _Bar:
 class Model26Decision:
     direction: str = "WAIT"
     status: str = "M26_AGUARDA_DADOS"
-    reason: str = "M26 aguarda snapshot XAUUSD/M5."
+    reason: str = "M26 aguarda snapshot XAUUSD/M1."
     current_candle_time: str = "N/D"
     closed_candle_time: str = "N/D"
     market_structure: str = "UNDEFINED"
@@ -141,7 +141,7 @@ def evaluate_model26_entry(candles: Iterable[object]) -> Model26Decision:
             status=f"M26_AQUECENDO_{max(0, len(raw) - 1)}_DE_{MODEL_26_CLOSED_CANDLES}",
             reason=(
                 f"M26 recebeu {max(0, len(raw) - 1)} de "
-                f"{MODEL_26_CLOSED_CANDLES} candles M5 fechados."
+                f"{MODEL_26_CLOSED_CANDLES} candles M1 fechados."
             ),
             current_candle_time=current_time,
         )
@@ -150,7 +150,7 @@ def evaluate_model26_entry(candles: Iterable[object]) -> Model26Decision:
     except (TypeError, ValueError):
         return Model26Decision(
             status="M26_DADOS_INVALIDOS",
-            reason="M26 recebeu candle M5 sem OHLC valido.",
+            reason="M26 recebeu candle M1 sem OHLC valido.",
             current_candle_time=current_time,
         )
     atr = _atr(bars, MODEL_26_ATR_PERIOD)

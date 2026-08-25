@@ -607,8 +607,8 @@ classificar deposito, ajuste ou saldo como negociacao.
 ## Modelo 26
 
 O contrato oficial esta em
-`docs/architecture/OPERATIONAL_MODEL_26_XAU_M5_SMART_MONEY.md`. O M26 e uma
-rota independente em `XAUUSD/M5`, sem substituir ou copiar o M25. Ele usa a
+`docs/architecture/OPERATIONAL_MODEL_26_XAU_M1_SMART_MONEY.md`. O M26 e uma
+rota independente em `XAUUSD/M1`, sem substituir ou copiar o M25. Ele usa a
 janela compartilhada de 200 candles fechados mais o candle atual e exige a
 confluencia completa: estrutura 2+2, varredura de liquidez, BOS com
 deslocamento, FVG, Order Block e reteste. Entrada, SL e TP sao materializados

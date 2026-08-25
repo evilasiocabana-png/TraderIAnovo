@@ -1,14 +1,14 @@
-# Modelo Operacional 26 - Smart Money XAUUSD/M5
+# Modelo Operacional 26 - Smart Money XAUUSD/M1
 
 ## Contrato vigente
 
 - ID: `MODELO_26_XAU_M5_SMART_MONEY`.
-- Contrato: `M26_SMART_MONEY_V2_20260825`.
-- Fingerprint: `dc41b273f4d671f9`.
+- Contrato: `M26_SMART_MONEY_V3_20260825`.
+- Fingerprint: `4df7d17616d6a82e`.
 - Alpha: `ALPHA026_SMART_MONEY_CONFLUENCE`.
 - Beta: `BETA026_STRUCTURAL_LIQUIDITY_EXIT`.
 - Universo: exclusivamente `XAUUSD`.
-- Timeframe: exclusivamente `M5`.
+- Timeframe: exclusivamente `M1`.
 - Janela: 200 candles fechados mais o candle atual, que nao participa da decisao.
 - Volume Demo: `0,01`.
 - Conta autorizada: somente Demo.
@@ -19,7 +19,7 @@ anteriores e nao e selecionado automaticamente.
 ## Pipeline de entrada
 
 Uma entrada so existe quando todos os gates abaixo forem confirmados em candles
-M5 fechados:
+M1 fechados:
 
 1. estrutura 2+2: dois topos e dois fundos confirmados;
 2. varredura de liquidez: rompe o ultimo extremo e fecha de volta;
@@ -46,7 +46,7 @@ positivo ou o RR ficar abaixo de 2.
 
 ## Runtime e seguranca
 
-- reutiliza o snapshot compartilhado XAUUSD/M5;
+- reutiliza o snapshot compartilhado XAUUSD/M1;
 - nao faz leitura MT5 adicional para renderizar a tabela;
 - nao executa Lab pesado ou backtest no ciclo leve;
 - recalcula a decisao somente com a janela entregue pelo ciclo;

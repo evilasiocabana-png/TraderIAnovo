@@ -1,5 +1,17 @@
 # Execution Log
 
+## 2026-08-25 - M26 migrado de M5 para M1
+
+- O contrato Smart Money do M26 passou a operar exclusivamente `XAUUSD/M1`.
+- A janela permanece deslizante com 200 candles fechados mais o candle atual,
+  que nao participa da decisao.
+- O ciclo solicita e reutiliza o snapshot compartilhado M1; o M26 deixou de
+  consumir ou ser aquecido pelo cache XAUUSD/M5.
+- Entrada, SL estrutural, TP RR2 e lote Demo `0,01` foram preservados.
+- O provider bloqueia qualquer ordem M26 fora de `XAUUSD/M1`.
+- Contrato promovido para `M26_SMART_MONEY_V3_20260825`, fingerprint
+  `4df7d17616d6a82e`.
+
 ## 2026-08-24 - Fontes internas do M23 reduzidas
 
 - O M23 passa a receber novas entradas somente de M1, M2, M5, M7, M8, M10,

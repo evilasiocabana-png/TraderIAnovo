@@ -6,14 +6,14 @@ Status: pronto para fluxo de inbox.
 
 `M25_CONTRACT=M25_XAU_SOURCES_V6_20260820; FINGERPRINT=d0d758099058ffde`
 
-`M26_CONTRACT=M26_SMART_MONEY_V2_20260825; FINGERPRINT=dc41b273f4d671f9`
+`M26_CONTRACT=M26_SMART_MONEY_V3_20260825; FINGERPRINT=4df7d17616d6a82e`
 
 ## Contrato vigente M26 - 2026-08-25
 
-- rota independente em `XAUUSD/M5`, sem substituir o M25;
+- rota independente em `XAUUSD/M1`, sem substituir o M25;
 - 200 candles fechados mais candle atual somente informativo;
 - confluencia obrigatoria de estrutura, sweep, BOS/deslocamento, FVG, OB e reteste;
-- entrada a mercado, SL estrutural, RR minimo 2 e lote Demo `0,10`;
+- entrada a mercado, SL estrutural, RR minimo 2 e lote Demo `0,01`;
 - integrado ao ciclo compartilhado e ainda nao ativado automaticamente.
 
 ## Contrato vigente M24 V18 - 2026-08-20

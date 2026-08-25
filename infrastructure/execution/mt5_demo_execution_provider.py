@@ -2178,7 +2178,8 @@ mt5.shutdown()
             accepted=False,
             status="REJECTED",
             message=(
-                "M26 opera exclusivamente XAUUSD/M5; simbolo ou timeframe "
+                f"M26 opera exclusivamente {MODEL_26_SYMBOL}/{MODEL_26_TIMEFRAME}; "
+                "simbolo ou timeframe "
                 "fora do contrato foi bloqueado no provider."
             ),
         )

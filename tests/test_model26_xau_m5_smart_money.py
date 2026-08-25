@@ -88,10 +88,10 @@ def _fallback_plan() -> MT5ResearchTradePlan:
     )
 
 
-def test_model26_contract_is_independent_xauusd_m5() -> None:
+def test_model26_contract_is_independent_xauusd_m1() -> None:
     assert MODEL_26_ID == MT5_OPERATIONAL_MODEL_26
     assert MODEL_26_SYMBOL == "XAUUSD"
-    assert MODEL_26_TIMEFRAME == "M5"
+    assert MODEL_26_TIMEFRAME == "M1"
     assert MODEL_26_CLOSED_CANDLES == 200
     assert MODEL_26_VOLUME == 0.01
     assert len(MODEL_26_CONTRACT_FINGERPRINT) == 16
@@ -140,10 +140,10 @@ def test_model26_materializes_the_same_plan_used_by_the_robot() -> None:
     object.__setattr__(
         service,
         "mt5_market_data_service",
-        SimpleNamespace(latest_forex_candles={("XAUUSD", "M5"): _bullish_fixture()}),
+        SimpleNamespace(latest_forex_candles={("XAUUSD", "M1"): _bullish_fixture()}),
     )
     object.__setattr__(service, "_supplemental_m5_is_seed_only", lambda _pair: False)
-    row = DashboardMT5ForexSignalRowViewModel(pair="XAUUSD", timeframe="M5")
+    row = DashboardMT5ForexSignalRowViewModel(pair="XAUUSD", timeframe="M1")
     materialized_row, plan = service._mt5_model26_smart_money_plan(
         row,
         _fallback_plan(),
@@ -174,7 +174,7 @@ def test_shared_snapshot_reuses_m26_decision() -> None:
     object.__setattr__(
         service,
         "mt5_market_data_service",
-        SimpleNamespace(latest_forex_candles={("XAUUSD", "M5"): _bullish_fixture()}),
+        SimpleNamespace(latest_forex_candles={("XAUUSD", "M1"): _bullish_fixture()}),
     )
     object.__setattr__(service, "_supplemental_m5_is_seed_only", lambda _pair: False)
     object.__setattr__(
@@ -184,17 +184,28 @@ def test_shared_snapshot_reuses_m26_decision() -> None:
     )
     snapshot = service.get_xau_m5_operational_decision_snapshot()
     assert snapshot[(MODEL_26_ID, "XAUUSD")].ready
-    assert snapshot[("__XAU_M5__", "CANDLE_COUNT")] == 201
+    assert snapshot[("__XAU_M1__", "CANDLE_COUNT")] == 201
 
 
-def test_provider_blocks_m26_outside_xauusd_m5() -> None:
+def test_model26_requests_xauusd_m1_from_shared_market_data_cycle() -> None:
+    service = object.__new__(DashboardService)
+    object.__setattr__(service, "get_mt5_operational_model", lambda: MODEL_26_ID)
+    assert service._mt5_lab_timeframes_by_pair() == {"XAUUSD": "M1"}
+
+
+def test_provider_blocks_m26_outside_xauusd_m1() -> None:
     provider = object.__new__(MT5DemoExecutionProvider)
     invalid = SimpleNamespace(
         operational_model=MODEL_26_ID,
         symbol="EURUSD",
-        plan_snapshot={"timeframe": "M5"},
+        plan_snapshot={"timeframe": "M1"},
     )
     valid = SimpleNamespace(
+        operational_model=MODEL_26_ID,
+        symbol="XAUUSD",
+        plan_snapshot={"timeframe": "M1"},
+    )
+    invalid_timeframe = SimpleNamespace(
         operational_model=MODEL_26_ID,
         symbol="XAUUSD",
         plan_snapshot={"timeframe": "M5"},
@@ -203,11 +214,14 @@ def test_provider_blocks_m26_outside_xauusd_m5() -> None:
     rejection = provider._model26_scope_preflight(invalid)
     assert rejection is not None
     assert not rejection.accepted
+    timeframe_rejection = provider._model26_scope_preflight(invalid_timeframe)
+    assert timeframe_rejection is not None
+    assert not timeframe_rejection.accepted
 
 
 def test_m26_contract_is_registered_in_governance() -> None:
     marker = (
-        "M26_CONTRACT=M26_SMART_MONEY_V2_20260825; "
+        "M26_CONTRACT=M26_SMART_MONEY_V3_20260825; "
         f"FINGERPRINT={MODEL_26_CONTRACT_FINGERPRINT}"
     )
     for path in (

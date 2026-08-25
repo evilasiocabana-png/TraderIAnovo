@@ -1919,10 +1919,14 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_11,
             MT5_OPERATIONAL_MODEL_12,
             MT5_OPERATIONAL_MODEL_24,
-            MT5_OPERATIONAL_MODEL_26,
         }.intersection(selected_models):
             self.mt5_market_data_service.refresh_supplemental_forex_candles(
                 {MODEL_8_SYMBOL: {MODEL_8_TIMEFRAME}},
+                full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
+            )
+        if MT5_OPERATIONAL_MODEL_26 in selected_models:
+            self.mt5_market_data_service.refresh_supplemental_forex_candles(
+                {MODEL_26_SYMBOL: {MODEL_26_TIMEFRAME}},
                 full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
             )
         if set(FOREX_SMA_RSI_MODEL_IDS).intersection(selected_models):
@@ -1982,7 +1986,6 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_11,
             MT5_OPERATIONAL_MODEL_12,
             MT5_OPERATIONAL_MODEL_24,
-            MT5_OPERATIONAL_MODEL_26,
         }.intersection(selected_models):
             requested.add(MODEL_8_SYMBOL)
         if set(FOREX_SMA_RSI_MODEL_IDS).intersection(selected_models):
@@ -2057,6 +2060,8 @@ class DashboardService:
             return {pair: MODEL_25_TIMEFRAME for pair in MODEL_25_SYMBOLS}
         if selected in FOREX_SMA_RSI_MODEL_IDS:
             return {pair: FOREX_SMA_RSI_TIMEFRAME for pair in FOREX_SMA_RSI_PAIRS}
+        if selected == MT5_OPERATIONAL_MODEL_26:
+            return {MODEL_26_SYMBOL: MODEL_26_TIMEFRAME}
         if selected in {
             MT5_OPERATIONAL_MODEL_3,
             MT5_OPERATIONAL_MODEL_8,
@@ -2064,7 +2069,6 @@ class DashboardService:
             MT5_OPERATIONAL_MODEL_10,
             MT5_OPERATIONAL_MODEL_11,
             MT5_OPERATIONAL_MODEL_12,
-            MT5_OPERATIONAL_MODEL_26,
         }:
             return {MODEL_8_SYMBOL: MODEL_8_TIMEFRAME}
         if selected in MT5_LAB_OPERATIONAL_MODELS:
@@ -9235,25 +9239,12 @@ class DashboardService:
         return decision
 
     def _get_model26_entry_decision(self) -> Model26Decision:
-        """Avalia M26 no snapshot compartilhado XAUUSD/M5, sem nova leitura MT5."""
+        """Avalia M26 no snapshot compartilhado XAUUSD/M1, sem nova leitura MT5."""
         candles = getattr(self.mt5_market_data_service, "latest_forex_candles", {})
         rows = list(candles.get((MODEL_26_SYMBOL, MODEL_26_TIMEFRAME), []) or [])[
             -OPERATIONAL_INDICATOR_RAW_CANDLES:
         ]
         decision = evaluate_model26_entry(rows)
-        if self._supplemental_m5_is_seed_only(MODEL_26_SYMBOL):
-            return replace(
-                decision,
-                direction="WAIT",
-                status="M26_AQUECIDO_200_FECHADOS_AGUARDA_ATUALIZACAO_MT5",
-                reason=(
-                    "M26 possui 200 velas M5 fechadas, mas aguarda candle atual "
-                    "confirmado pelo MT5 antes de operar."
-                ),
-                entry_price=None,
-                initial_stop=None,
-                target=None,
-            )
         return decision
 
     def get_model8_entry_decision(self) -> Model8EntryDecision:
@@ -9420,6 +9411,11 @@ class DashboardService:
         decisions[("__XAU_M5__", "CANDLE_COUNT")] = len(
             list(getattr(self.mt5_market_data_service, "latest_forex_candles", {}).get(
                 (MODEL_8_SYMBOL, MODEL_8_TIMEFRAME), [],
+            ) or [])[-OPERATIONAL_INDICATOR_RAW_CANDLES:]
+        )
+        decisions[("__XAU_M1__", "CANDLE_COUNT")] = len(
+            list(getattr(self.mt5_market_data_service, "latest_forex_candles", {}).get(
+                (MODEL_26_SYMBOL, MODEL_26_TIMEFRAME), [],
             ) or [])[-OPERATIONAL_INDICATOR_RAW_CANDLES:]
         )
         if MT5_OPERATIONAL_MODEL_3 in active:
@@ -9670,7 +9666,7 @@ class DashboardService:
         row: DashboardMT5ForexSignalRowViewModel,
         fallback_plan: MT5ResearchTradePlan,
     ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
-        """Materializa o contrato Smart Money do M26 em XAUUSD/M5."""
+        """Materializa o contrato Smart Money do M26 em XAUUSD/M1."""
         pair = str(row.pair or "").upper()
         if pair != MODEL_26_SYMBOL:
             reason = f"M26 opera exclusivamente {MODEL_26_SYMBOL}/{MODEL_26_TIMEFRAME}."
