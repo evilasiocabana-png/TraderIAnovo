@@ -856,6 +856,14 @@ def _demo_robot_background_cycle_active() -> bool:
 
 def _demo_robot_background_cycle() -> None:
     service = DashboardService()
+    object.__setattr__(
+        service,
+        "_mt5_primary_snapshot_publisher",
+        lambda _data: publish_background_snapshot(
+            MT5_FOREX_SHARED_SNAPSHOT_KEY,
+            service.get_mt5_forex_runtime_view_model(),
+        ),
+    )
     while True:
         schedule = weekly_robot_schedule_decision()
         if _weekly_robot_schedule_enabled() and not schedule.operating:

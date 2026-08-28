@@ -740,6 +740,20 @@ class MT5MarketDataServiceTest(unittest.TestCase):
         self.assertIn("EURUSD", requested_symbols)
         self.assertIn("USDCAD", requested_symbols)
 
+    def test_forex_timeframe_unico_tambem_usa_um_lote(self) -> None:
+        provider = BatchForexProvider()
+        service = MT5MarketDataService(provider=provider, event_bus=EventBus())
+
+        data = service.load_forex_signal_dashboard("M1")
+
+        self.assertEqual(data.connection_status, "CONNECTED")
+        self.assertEqual(len(provider.batch_requests), 1)
+        self.assertEqual(provider.requests, [])
+        requested_symbols, requested_count = provider.batch_requests[0]
+        self.assertEqual(set(requested_symbols), set(SUPPORTED_MT5_SYMBOLS))
+        self.assertTrue(all(value == "M1" for value in requested_symbols.values()))
+        self.assertEqual(requested_count, OPERATIONAL_INDICATOR_RAW_CANDLES)
+
     def test_falha_do_batch_externo_nao_dispara_oito_subprocessos(self) -> None:
         provider = EmptyExternalBatchProvider()
         service = MT5MarketDataService(provider=provider, event_bus=EventBus())

@@ -652,6 +652,62 @@ class DashboardViewModelContractTest(unittest.TestCase):
             finally:
                 os.chdir(previous_directory)
 
+    def test_log_demo_jsonl_reverso_le_do_mais_recente_e_ignora_linha_invalida(
+        self,
+    ) -> None:
+        previous_directory = Path.cwd()
+        with tempfile.TemporaryDirectory() as directory:
+            try:
+                os.chdir(directory)
+                runtime = Path(".traderia")
+                runtime.mkdir()
+                log_path = runtime / "mt5_demo_execution.jsonl"
+                log_path.write_bytes(
+                    json.dumps({"ticket": 101, "accepted": True}).encode("utf-8")
+                    + b"\n{linha-invalida}\n"
+                    + json.dumps({"ticket": 202, "accepted": True}).encode("utf-8")
+                    + b"\n"
+                )
+
+                records = list(
+                    DashboardService()._iter_mt5_demo_execution_jsonl_reverse()
+                )
+
+                self.assertEqual(
+                    [record["ticket"] for record in records],
+                    [202, 101],
+                )
+            finally:
+                os.chdir(previous_directory)
+
+    def test_position_manager_para_de_ler_log_quando_encontra_tickets_abertos(
+        self,
+    ) -> None:
+        class StopAwareDashboardService(DashboardService):
+            def _iter_mt5_demo_execution_jsonl_reverse(self):
+                yield {
+                    "accepted": True,
+                    "ticket": 202,
+                    "symbol": "EURUSD",
+                    "side": "BUY",
+                    "entry_price": 1.10,
+                    "stop": 1.09,
+                    "target": 1.12,
+                }
+                raise AssertionError("O historico antigo nao deveria ser percorrido.")
+
+        execution_service = SimpleNamespace(
+            list_open_positions=lambda: [SimpleNamespace(ticket=202)]
+        )
+        service = StopAwareDashboardService(
+            demo_robot_execution_service=execution_service
+        )
+
+        plans = service._position_manager_plans_from_open_execution_records()
+
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0].ticket, 202)
+
     def test_modelo2_legado_migra_e_exige_sinal_canonico_proprio(self) -> None:
         service = DashboardService()
         service.set_mt5_operational_model("MODELO_2_ESPELHO_BETA2_RR1")
@@ -4145,6 +4201,34 @@ class DashboardViewModelContractTest(unittest.TestCase):
 
         self.assertEqual(payload["schema_version"], "traderia.mt5.visual_signals.v1")
         self.assertEqual(payload["order_execution"], "NOT_ALLOWED_BY_INDICATOR")
+
+    def test_dashboard_service_publica_snapshot_primario_antes_do_export(self) -> None:
+        service = DashboardService()
+        calls: list[tuple[str, object]] = []
+        object.__setattr__(
+            service,
+            "mt5_market_data_service",
+            SimpleNamespace(
+                load_forex_signal_dashboard=lambda timeframe: f"loaded:{timeframe}"
+            ),
+        )
+        object.__setattr__(
+            service,
+            "_mt5_primary_snapshot_publisher",
+            lambda data: calls.append(("snapshot", data)),
+        )
+        object.__setattr__(
+            service,
+            "_auto_export_mt5_visual_signals",
+            lambda: calls.append(("export", None)),
+        )
+
+        service.load_mt5_forex_signals("M1")
+
+        self.assertEqual(
+            calls,
+            [("snapshot", "loaded:M1"), ("export", None)],
+        )
 
     def test_dashboard_service_exporta_visual_mt5_automaticamente_ao_atualizar(
         self,

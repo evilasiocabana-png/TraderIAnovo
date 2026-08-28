@@ -14,7 +14,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any
+from typing import Any, Iterator
 import warnings
 
 
@@ -1899,62 +1899,6 @@ class DashboardService:
             # in-process a sessao precisa estar inicializada para symbol_info
             # e copy_rates_from_pos responderem nesse primeiro passo.
             ensure_connection()
-        if MT5_OPERATIONAL_MODEL_3 in selected_models:
-            # Aquece M5 antes do lote principal para nao perder o gate externo
-            # entre a leitura H1 e a leitura suplementar.
-            self.mt5_market_data_service.refresh_supplemental_forex_candles(
-                {MODEL_8_SYMBOL: {MODEL_8_TIMEFRAME}},
-                full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
-            )
-        if {
-            MT5_OPERATIONAL_MODEL_8,
-            MT5_OPERATIONAL_MODEL_9,
-            MT5_OPERATIONAL_MODEL_10,
-            MT5_OPERATIONAL_MODEL_11,
-            MT5_OPERATIONAL_MODEL_12,
-            MT5_OPERATIONAL_MODEL_24,
-        }.intersection(selected_models):
-            self.mt5_market_data_service.refresh_supplemental_forex_candles(
-                {MODEL_8_SYMBOL: {MODEL_8_TIMEFRAME}},
-                full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
-            )
-        supplemental_refresh = getattr(
-            self.mt5_market_data_service,
-            "refresh_supplemental_forex_candles",
-            None,
-        )
-        if callable(supplemental_refresh) and (
-            {
-                MT5_OPERATIONAL_MODEL_26,
-                MT5_OPERATIONAL_MODEL_27,
-            }.intersection(selected_models)
-        ):
-            supplemental_refresh(
-                {MODEL_26_SYMBOL: {MODEL_26_TIMEFRAME}},
-                full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
-            )
-        if (
-            callable(supplemental_refresh)
-            and MT5_OPERATIONAL_MODEL_28 in selected_models
-            and self.model28_shadow_runtime.has_active_specs()
-        ):
-            supplemental_refresh(
-                {
-                    symbol: {timeframe}
-                    for symbol, timeframe in self.model28_shadow_runtime.active_markets()
-                },
-                full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
-            )
-        if set(FOREX_SMA_RSI_MODEL_IDS).intersection(selected_models):
-            self.mt5_market_data_service.refresh_supplemental_forex_candles(
-                {pair: {FOREX_SMA_RSI_TIMEFRAME} for pair in FOREX_SMA_RSI_PAIRS},
-                full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
-            )
-        if MT5_OPERATIONAL_MODEL_25 in selected_models:
-            self.mt5_market_data_service.refresh_supplemental_forex_candles(
-                {pair: {MODEL_25_TIMEFRAME} for pair in MODEL_25_SYMBOLS},
-                full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
-            )
         timeframes_by_pair = self._mt5_lab_timeframes_by_pair()
         if timeframes_by_pair and hasattr(
             self.mt5_market_data_service,
@@ -1968,6 +1912,64 @@ class DashboardService:
             data = self.mt5_market_data_service.load_forex_signal_dashboard(
                 timeframe=timeframe,
             )
+        primary_snapshot_publisher = getattr(
+            self,
+            "_mt5_primary_snapshot_publisher",
+            None,
+        )
+        if callable(primary_snapshot_publisher):
+            try:
+                primary_snapshot_publisher(data)
+            except (OSError, RuntimeError, TypeError, ValueError):
+                # A publicacao visual nunca interrompe o ciclo operacional.
+                pass
+
+        # A leitura principal acima publica primeiro o estado online. Todos os
+        # candles suplementares sao reunidos em um unico lote para que modelos
+        # ativos nao abram consultas MT5 repetidas no mesmo ciclo.
+        supplemental_required: dict[str, set[str]] = {}
+
+        def require_supplemental(pair: str, timeframe_label: str) -> None:
+            supplemental_required.setdefault(str(pair).upper(), set()).add(
+                str(timeframe_label).upper()
+            )
+
+        if MT5_OPERATIONAL_MODEL_3 in selected_models:
+            require_supplemental(MODEL_8_SYMBOL, MODEL_8_TIMEFRAME)
+        if {
+            MT5_OPERATIONAL_MODEL_8,
+            MT5_OPERATIONAL_MODEL_9,
+            MT5_OPERATIONAL_MODEL_10,
+            MT5_OPERATIONAL_MODEL_11,
+            MT5_OPERATIONAL_MODEL_12,
+            MT5_OPERATIONAL_MODEL_24,
+        }.intersection(selected_models):
+            require_supplemental(MODEL_8_SYMBOL, MODEL_8_TIMEFRAME)
+        supplemental_refresh = getattr(
+            self.mt5_market_data_service,
+            "refresh_supplemental_forex_candles",
+            None,
+        )
+        if callable(supplemental_refresh) and (
+            {
+                MT5_OPERATIONAL_MODEL_26,
+                MT5_OPERATIONAL_MODEL_27,
+            }.intersection(selected_models)
+        ):
+            require_supplemental(MODEL_26_SYMBOL, MODEL_26_TIMEFRAME)
+        if (
+            callable(supplemental_refresh)
+            and MT5_OPERATIONAL_MODEL_28 in selected_models
+            and self.model28_shadow_runtime.has_active_specs()
+        ):
+            for symbol, timeframe_label in self.model28_shadow_runtime.active_markets():
+                require_supplemental(symbol, timeframe_label)
+        if set(FOREX_SMA_RSI_MODEL_IDS).intersection(selected_models):
+            for pair in FOREX_SMA_RSI_PAIRS:
+                require_supplemental(pair, FOREX_SMA_RSI_TIMEFRAME)
+        if MT5_OPERATIONAL_MODEL_25 in selected_models:
+            for pair in MODEL_25_SYMBOLS:
+                require_supplemental(pair, MODEL_25_TIMEFRAME)
         researched_models = tuple(
             model
             for model in selected_models
@@ -1980,9 +1982,12 @@ class DashboardService:
             if researched_models
             else {}
         )
-        if required:
-            self.mt5_market_data_service.refresh_supplemental_forex_candles(
-                required,
+        for pair, timeframe_labels in required.items():
+            for timeframe_label in timeframe_labels:
+                require_supplemental(pair, timeframe_label)
+        if callable(supplemental_refresh) and supplemental_required:
+            supplemental_refresh(
+                supplemental_required,
                 full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
             )
         if {
@@ -4812,7 +4817,7 @@ class DashboardService:
             return []
         plans: list[PositionTradePlan] = []
         seen: set[int] = set()
-        for record in reversed(self._read_mt5_demo_execution_jsonl()):
+        for record in self._iter_mt5_demo_execution_jsonl_reverse():
             if not bool(record.get("accepted")):
                 continue
             ticket = self._int_or_none(record.get("ticket"))
@@ -4824,6 +4829,8 @@ class DashboardService:
             if plan is not None:
                 plans.append(plan)
                 seen.add(ticket)
+                if seen == open_tickets:
+                    break
         return plans
 
     def _position_manager_signal_from_execution_record(
@@ -5688,6 +5695,46 @@ class DashboardService:
                 offset,
             )
             return list(records)
+
+    def _iter_mt5_demo_execution_jsonl_reverse(
+        self,
+    ) -> Iterator[dict[str, Any]]:
+        """Le o log do fim e evita materializar todo o historico no ciclo leve."""
+        path = Path(".traderia") / "mt5_demo_execution.jsonl"
+        if not path.exists():
+            return
+
+        block_size = 64 * 1024
+        with path.open("rb") as source:
+            position = source.seek(0, os.SEEK_END)
+            pending = b""
+            while position > 0:
+                read_size = min(block_size, position)
+                position -= read_size
+                source.seek(position)
+                pending = source.read(read_size) + pending
+                lines = pending.split(b"\n")
+                pending = lines[0]
+                for raw_line in reversed(lines[1:]):
+                    payload = self._decode_mt5_demo_execution_log_line(raw_line)
+                    if payload is not None:
+                        yield payload
+
+            payload = self._decode_mt5_demo_execution_log_line(pending)
+            if payload is not None:
+                yield payload
+
+    @staticmethod
+    def _decode_mt5_demo_execution_log_line(
+        raw_line: bytes,
+    ) -> dict[str, Any] | None:
+        if not raw_line.strip():
+            return None
+        try:
+            payload = json.loads(raw_line.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        return payload if isinstance(payload, dict) else None
 
     def _load_mt5_trade_history(self) -> tuple[dict[int, dict[str, Any]], str, str]:
         try:

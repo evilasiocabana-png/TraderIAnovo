@@ -1,6 +1,6 @@
 param(
     [int]$Port = 8532,
-    [int]$MemoryLimitMB = 900,
+    [int]$MemoryLimitMB = 1600,
     [int]$CheckIntervalSeconds = 60,
     [int]$HealthyLogIntervalSeconds = 600,
     [int]$HealthFailureThreshold = 5,

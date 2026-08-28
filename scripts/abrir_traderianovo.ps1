@@ -146,7 +146,7 @@ function Start-TraderIARamGuard {
             "-Port",
             "$port",
             "-MemoryLimitMB",
-            "900"
+            "1600"
         ) `
         -WorkingDirectory $projectRoot `
         -WindowStyle Hidden

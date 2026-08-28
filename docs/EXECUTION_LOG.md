@@ -2470,3 +2470,22 @@ Novas entradas devem registrar:
   runtime somente atualiza os mercados quando M28 estiver selecionado.
 - Duplicidades antigas do registro XAU foram desativadas; validacao final:
   19 mercados ativos e 19 testes focados aprovados.
+
+## 2026-08-28 - Correcao de falso MT5 offline e reinicio por RAM
+
+- a sonda direta confirmou terminal Pepperstone Demo conectado, negociacao
+  permitida e candles disponiveis enquanto a tela mostrava `MT5 OFFLINE`;
+- a leitura de 19 pares no mesmo timeframe passou de sondas externas por par
+  para um unico lote, reduzindo a leitura principal de aproximadamente 39,2
+  segundos para cerca de 1,17 segundo;
+- o snapshot primario online passou a ser publicado antes do aquecimento dos
+  timeframes suplementares;
+- o Position Manager deixou de materializar todo o arquivo
+  `.traderia/mt5_demo_execution.jsonl` de aproximadamente 52 MB a cada ciclo;
+  agora percorre o log do fim para o inicio e interrompe assim que encontra os
+  tickets atualmente abertos;
+- launcher e guardiao foram alinhados ao limite arquitetural de 1600 MB. O
+  valor antigo de 900 MB reiniciava o processo durante o aquecimento normal de
+  varias sessoes Streamlit e produzia a alternancia visual online/offline;
+- validacao automatizada: `145 passed, 14 subtests passed` na suite de mercado
+  MT5 e contrato do dashboard.

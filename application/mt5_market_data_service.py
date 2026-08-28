@@ -446,6 +446,22 @@ class MT5MarketDataService:
             OPERATIONAL_INDICATOR_RAW_CANDLES,
             configuration.slow_ma_period + 1,
         )
+        batch_reader = getattr(self.provider, "get_forex_batch", None)
+        if (
+            callable(batch_reader)
+            and os.getenv("TRADERIA_MT5_BATCH_ENABLED", "1").strip() == "1"
+        ):
+            # A leitura homogenea precisa usar o mesmo lote unico da leitura
+            # por timeframe. No provider MT5 externo, o caminho legado abria
+            # subprocessos por simbolo e podia ultrapassar o ciclo de 10 s.
+            return MT5MarketDataService.load_forex_signal_dashboard_for_timeframes(
+                self,
+                {
+                    pair: normalized_timeframe
+                    for pair in SUPPORTED_MT5_SYMBOLS
+                },
+                fallback_timeframe=normalized_timeframe,
+            )
         timeframe_value = self._timeframe_value(normalized_timeframe)
         refresh_time = self._current_update_time()
 
