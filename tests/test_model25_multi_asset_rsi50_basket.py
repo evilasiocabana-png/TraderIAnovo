@@ -76,13 +76,13 @@ def test_active_governance_pins_model25_contract_fingerprint() -> None:
         assert marker in Path(relative_path).read_text(encoding="utf-8")
 
 
-def test_model25_is_selectable_aggregator_not_a_direct_signal_source() -> None:
+def test_model25_is_historical_aggregator_not_a_direct_signal_source() -> None:
     assert operational_model_number(MODEL_25_ID) == 25
-    assert is_active_operational_model(MODEL_25_ID)
+    assert not is_active_operational_model(MODEL_25_ID)
     assert is_model25(MODEL_25_ID)
     assert MT5_OPERATIONAL_MODEL_25 == MODEL_25_ID
     assert MODEL_25_ID not in MT5_ACTIVE_SOURCE_MODEL_IDS
-    assert MODEL_25_ID in MT5_CUSTOM_OPERATIONAL_MODELS
+    assert MODEL_25_ID not in MT5_CUSTOM_OPERATIONAL_MODELS
 
 
 def test_model25_variant_and_comment_keep_source_identity() -> None:

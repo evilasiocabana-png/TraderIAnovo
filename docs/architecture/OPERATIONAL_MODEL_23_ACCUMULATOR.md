@@ -24,13 +24,18 @@ M3, M4, M6, M9, M11, M12, M13, M14 e M15 permanecem aposentados. M16,
 M17, M19, M21 e M22 continuam operacionais de forma independente, mas nao sao
 fontes de novas entradas da cesta M23.
 
+O M26 tambem e independente e nunca se torna fonte do M23 apenas por estar
+marcado ao lado dele. A selecao conjunta executa duas rotas separadas: M26
+direto e M23 usando exclusivamente o conjunto canonico acima.
+
 O M23 pode operar sozinho ou junto com os modelos-fonte selecionados. No modo
 combinado, um sinal aprovado pode produzir duas ordens independentes: a ordem
 direta do modelo-fonte e a copia identificada como M23. Essa duplicacao e
 intencional, fica separada na auditoria e aumenta a exposicao daquele sinal.
 
 Na Entrada Teorica, o M23 expoe uma copia para cada fonte ativa. O identificador
-permanece `S<n>` no comentario da ordem e na auditoria.
+do comentario MT5 usa `TraderIA M23 S<n> Txxxxxxxx`: `S<n>` identifica o
+modelo-fonte e `Txxxxxxxx` e um token estavel do tipo real de entrada.
 
 ## Contrato De Entrada
 
@@ -44,7 +49,13 @@ permanece `S<n>` no comentario da ordem e na auditoria.
   atingido encerra a posicao individual ou toda a cesta;
 - permite reentradas normais da fonte quando existir um novo sinal/candle;
 - a mesma identidade no mesmo candle continua bloqueada contra duplicacao do ciclo;
-- identifica a origem no comentario `TraderIA M23 S<n>`;
+- identifica origem e tipo no comentario `TraderIA M23 S<n> Txxxxxxxx`;
+- grava no Trade Plan o tipo real herdado (`INITIAL`, `REENTRY`,
+  `CONTINUATION`, `LATERALIZATION`, `EXHAUSTION` ou o nome do setup da fonte);
+- a coluna `Tipo entrada` exibe esse valor real e nunca o rotulo generico
+  `COPIADA`;
+- a unicidade simultanea e definida por `modelo-fonte + tipo de entrada`:
+  a mesma fonte pode manter tipos diferentes, mas nao pode repetir o mesmo tipo;
 - um sinal da rodada encerrada nao pode iniciar a rodada seguinte.
 
 ## Gestao Da Cesta
@@ -105,7 +116,13 @@ apenas no JSONL, evitando que a auditoria operacional infle a RAM do app.
 O M23 envia no mesmo ciclo todos os sinais independentes que estiverem prontos.
 Cada aceite e sequencial e obriga uma nova avaliacao financeira da cesta antes
 da proxima exposicao. Uma fonte pode reentrar quando houver novo sinal
-executavel; apenas o mesmo sinal/candle e deduplicado.
+executavel; apenas o mesmo sinal/candle e deduplicado. Alem dessa deduplicacao
+temporal, posicao ou ordem pendente M23 ja existente bloqueia somente outra
+exposicao da mesma combinacao `modelo-fonte + tipo de entrada`. Por exemplo,
+`M8/INITIAL` e `M8/REENTRY` podem coexistir; duas `M8/REENTRY` simultaneas nao.
+Para tickets antigos sem token no comentario, o provider consulta uma vez o
+registro de execucao persistido e falha fechado se nao conseguir reconstruir o
+tipo, evitando que legado ambiguo abra exposicao duplicada.
 
 Durante uma volta pesada, a cesta tambem e reavaliada entre pares e candidatos.
 Assim, a defesa nao fica limitada ao inicio da proxima volta. Depois que um
@@ -148,6 +165,11 @@ Uma cesta que desapareca por zeragem manual tambem grava `accept_signals_after`.
 Assim, o M23 exige um candle posterior ao encerramento manual e nao reabre a
 rodada usando sinais antigos.
 
+O gate aceita tanto timestamps tecnicos ISO/UTC quanto o formato exibido pelo
+Dashboard (`DD/MM/AAAA HH:MM`, horario de Brasilia). A comparacao sempre e
+normalizada para UTC. Isso evita bloquear um sinal novo apenas porque o
+ViewModel formatou o candle para exibicao antes de entrega-lo ao roteador M23.
+
 ## Guardrails De Runtime
 
 - o gestor financeiro roda no inicio e entre etapas do ciclo, antes de novas entradas;
@@ -182,6 +204,14 @@ alterar o modelo-fonte:
 O ticket pode encerrar pelo TP estrutural ou pelas saidas nativas herdadas da
 fonte. A regra adicional da cesta permanece: ao atingir +US$1.000 liquidos, o
 M23 fecha a mercado todos os tickets M23 ainda abertos.
+
+### Sem filtro adicional de exaustao
+
+O M23 nao aplica filtro proprio de RSI ou exaustao sobre as entradas copiadas.
+Quando uma fonte habilitada entrega um sinal executavel, a cesta preserva a
+direcao, o tipo de entrada, o SL, o TP e as saidas nativas dessa fonte. Continuam
+valendo os guardrails gerais de selecao, horario, duplicidade, conta Demo,
+validade do plano e protecao financeira da cesta.
 
 As sondas externas usadas para ler candles e posicoes possuem timeout obrigatorio.
 No Windows, o timeout encerra a arvore do processo e aguarda sua finalizacao; uma

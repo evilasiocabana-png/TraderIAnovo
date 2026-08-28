@@ -3,6 +3,7 @@
 import csv
 from dataclasses import replace
 from datetime import date, datetime, time as datetime_time, timezone
+import importlib
 import io
 import inspect
 import json
@@ -22,6 +23,7 @@ from domain.market_universe import (
     MODEL_1_FOREX_PAIRS,
     MODEL_6_FOREX_EXPANSION_PAIRS,
     MODEL_7_ALTERNATIVE_MARKETS,
+    MT5_RESEARCH_MARKETS,
 )
 from domain.operational_model_policy import operational_model_number
 
@@ -29,6 +31,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from application.dashboard_service import DashboardService, DashboardServiceError
+import application.xau_pattern_miner_service as xau_pattern_miner_module
+from application.xau_pattern_miner_service import XauPatternMinerService
 from application.lab_operational_model_service import (
     MODEL_IDS as LAB_OPERATIONAL_MODEL_IDS_BY_LABEL,
     OFFICIAL_ALPHA_MODEL_IDS,
@@ -98,6 +102,7 @@ from application.model8_xau_m5_sma_rsi_reentry import (
 )
 from application.model23_basket_accumulator import (
     MODEL_23_ID as MT5_OPERATIONAL_MODEL_23,
+    model23_entry_type,
 )
 from application.model24_xau_basket import (
     MODEL_24_ID as MT5_OPERATIONAL_MODEL_24,
@@ -122,6 +127,20 @@ from application.model26_xau_m5_smart_money import (
     MODEL_26_SYMBOL,
     MODEL_26_TIMEFRAME,
     model26_parameters,
+)
+from application.model27_mirror_m26 import (
+    MODEL_27_ALPHA_ID,
+    MODEL_27_BETA_ID,
+    MODEL_27_ID as MT5_OPERATIONAL_MODEL_27,
+    MODEL_27_SOURCE,
+    MODEL_27_STOP_MANAGEMENT,
+    MODEL_27_VOLUME,
+    mirror_model26_geometry,
+    mirror_model26_order_type,
+    model27_parameters,
+)
+from replay.pattern_miner.operational import (
+    MODEL_28_ID as MT5_OPERATIONAL_MODEL_28,
 )
 from application.xau_m5_sma_rsi_model_family import (
     MODEL_9_ID as MT5_OPERATIONAL_MODEL_9,
@@ -202,6 +221,13 @@ from core.weekly_robot_schedule import (
 REPLAY_PENDING_ACTION_KEY = "replay_pending_action"
 REPLAY_PENDING_DATASET_KEY = "replay_pending_dataset_id"
 REPLAY_PENDING_MESSAGE_KEY = "replay_pending_message"
+XAU_PATTERN_MINER_SERVICE_KEY = "xau_pattern_miner_service"
+XAU_PATTERN_CACHE_AUTO_RESTORE_KEY = "xau_pattern_cache_auto_restore_attempted"
+PATTERN_MINER_SELECTED_SYMBOL_KEY = "pattern_miner_selected_symbol"
+PATTERN_REPLAY_MARKETS = (
+    "XAUUSD",
+    *(symbol for symbol in MT5_RESEARCH_MARKETS if symbol != "XAUUSD"),
+)
 MT5_DEMO_ROBOT_ONLINE_KEY = "mt5_demo_robot_online_enabled"
 MT5_DEMO_ROBOT_LAST_CYCLE_KEY = "mt5_demo_robot_last_cycle_at"
 MT5_DEMO_ROBOT_LAST_CYCLE_MONOTONIC_KEY = "mt5_demo_robot_last_cycle_monotonic"
@@ -332,6 +358,8 @@ MT5_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_24,
     MT5_OPERATIONAL_MODEL_25,
     MT5_OPERATIONAL_MODEL_26,
+    MT5_OPERATIONAL_MODEL_27,
+    MT5_OPERATIONAL_MODEL_28,
 )
 MT5_ACTIVE_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_1,
@@ -348,16 +376,12 @@ MT5_ACTIVE_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_21,
     MT5_OPERATIONAL_MODEL_22,
     MT5_OPERATIONAL_MODEL_26,
+    MT5_OPERATIONAL_MODEL_27,
+    MT5_OPERATIONAL_MODEL_28,
 )
 MT5_SELECTABLE_OPERATIONAL_MODEL_IDS = (
-    *(
-        model
-        for model in MT5_ACTIVE_SOURCE_MODEL_IDS
-        if model != MT5_OPERATIONAL_MODEL_25
-    ),
+    *MT5_ACTIVE_SOURCE_MODEL_IDS,
     MT5_OPERATIONAL_MODEL_23,
-    MT5_OPERATIONAL_MODEL_24,
-    MT5_OPERATIONAL_MODEL_25,
 )
 MT5_MODEL_23_EXCLUDED_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_16,
@@ -365,6 +389,9 @@ MT5_MODEL_23_EXCLUDED_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_19,
     MT5_OPERATIONAL_MODEL_21,
     MT5_OPERATIONAL_MODEL_22,
+    MT5_OPERATIONAL_MODEL_26,
+    MT5_OPERATIONAL_MODEL_27,
+    MT5_OPERATIONAL_MODEL_28,
 )
 MT5_MODEL_23_SOURCE_MODEL_IDS = tuple(
     model
@@ -396,6 +423,8 @@ MT5_RETIRED_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_13,
     MT5_OPERATIONAL_MODEL_14,
     MT5_OPERATIONAL_MODEL_15,
+    MT5_OPERATIONAL_MODEL_24,
+    MT5_OPERATIONAL_MODEL_25,
     MT5_HISTORICAL_MODEL_3,
     MT5_HISTORICAL_ALL_FOREX_MODEL_3,
     MT5_HISTORICAL_MODEL_8,
@@ -436,7 +465,7 @@ MT5_MODEL23_BASKET_STATE_PATH = Path(".traderia") / "model23_basket_state.json"
 MT5_MODEL24_BASKET_STATE_PATH = Path(".traderia") / "model24_basket_state.json"
 MT5_MODEL25_BASKET_STATE_PATH = Path(".traderia") / "model25_basket_state.json"
 MT5_ACTIVE_REPORT_MODEL_NUMBERS = (
-    1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+    1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 26, 27, 28,
 )
 MT5_DEMO_ROBOT_ONLINE_STATE_PATH = (
     Path(".traderia") / "mt5_demo_robot_online_state.json"
@@ -948,8 +977,6 @@ def _apply_persisted_operational_model_to_service(service: DashboardService) -> 
         for item in selections
         if item in {
             MT5_OPERATIONAL_MODEL_23,
-            MT5_OPERATIONAL_MODEL_24,
-            MT5_OPERATIONAL_MODEL_25,
         }
     )
     multi_setter = getattr(service, "set_mt5_operational_models", None)
@@ -2373,7 +2400,7 @@ def exibir_mt5_forex_dashboard(
     ]
     _render_stable_forex_table(display_rows)
     _render_mt5_entry_filter_mode_selector()
-    operational_model = _render_mt5_operational_model_selector()
+    operational_model = _render_mt5_operational_model_selector(service)
     _sync_mt5_operational_model_with_service(service)
     data = _exibir_robo_demo_mt5(service, data, forex, display_rows)
     position_report = st.session_state.get(MT5_REPORT_AUDIT_CACHE_KEY)
@@ -2455,7 +2482,9 @@ def _mt5_operational_model_labels() -> dict[str, str]:
         MT5_OPERATIONAL_MODEL_23: "Modelo 23 - acumulador financeiro",
         MT5_OPERATIONAL_MODEL_24: "Modelo 24 - XAU RSI50 com cesta financeira",
         MT5_OPERATIONAL_MODEL_25: "Modelo 25 - cesta das fontes XAU M8/M10/M18-M22",
-        MT5_OPERATIONAL_MODEL_26: "Modelo 26 - XAU M1 Smart Money",
+        MT5_OPERATIONAL_MODEL_26: "Modelo 26 - XAU M5 continuidade e lateralizacao",
+        MT5_OPERATIONAL_MODEL_27: "Modelo 27 - espelho independente do M26 RR 1:1",
+        MT5_OPERATIONAL_MODEL_28: "Modelo 28 - Pattern Miner adaptativo multiativo M5",
     }
     for model_id in XAU_IMPROVED_REENTRY_MODEL_IDS:
         spec = trend_filter_spec(model_id)
@@ -2494,110 +2523,6 @@ def _persist_mt5_operational_model_checkbox_selection(model: str) -> None:
             _mt5_operational_model_checkbox_key(candidate), False
         )
     _persist_mt5_operational_model_form_selection()
-    return
-
-    # Fluxo legado mantido abaixo apenas durante a migracao do estado Streamlit.
-    _mark_ui_critical_interaction()
-    changed = _valid_mt5_operational_model(model)
-    sources = MT5_ACTIVE_SOURCE_MODEL_IDS
-    for source in sources:
-        st.session_state.setdefault(
-            _mt5_operational_model_checkbox_key(source),
-            False,
-        )
-    st.session_state.setdefault(
-        _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_23),
-        False,
-    )
-    st.session_state.setdefault(
-        _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_24),
-        False,
-    )
-    st.session_state.setdefault(
-        _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_25),
-        False,
-    )
-    if changed == MT5_OPERATIONAL_MODEL_ALL:
-        checked = bool(
-            st.session_state.get(
-                _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_ALL),
-                False,
-            )
-        )
-        for source in sources:
-            st.session_state[_mt5_operational_model_checkbox_key(source)] = checked
-
-    selected_models = tuple(
-        source
-        for source in sources
-        if bool(
-            st.session_state.get(_mt5_operational_model_checkbox_key(source), False)
-        )
-    )
-    basket_checked = bool(
-        st.session_state.get(
-            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_23),
-            False,
-        )
-    )
-    basket24_checked = bool(
-        st.session_state.get(
-            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_24),
-            False,
-        )
-    )
-    basket25_checked = bool(
-        st.session_state.get(
-            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_25),
-            False,
-        )
-    )
-    if basket25_checked:
-        basket_checked = False
-        basket24_checked = False
-        selected_models = ()
-        st.session_state[
-            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_23)
-        ] = False
-        st.session_state[
-            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_24)
-        ] = False
-        for source in sources:
-            st.session_state[_mt5_operational_model_checkbox_key(source)] = False
-    elif basket24_checked:
-        basket_checked = False
-        st.session_state[
-            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_23)
-        ] = False
-    if not selected_models and not basket_checked and not basket24_checked and not basket25_checked:
-        selected_models = (MT5_OPERATIONAL_MODEL_1,)
-        st.session_state[
-            _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_1)
-        ] = True
-    all_selected = len(selected_models) == len(sources)
-    st.session_state[
-        _mt5_operational_model_checkbox_key(MT5_OPERATIONAL_MODEL_ALL)
-    ] = all_selected
-    if basket25_checked:
-        selected = MT5_OPERATIONAL_MODEL_25
-    elif basket24_checked and selected_models:
-        selected = MT5_OPERATIONAL_MODEL_WITH_24
-    elif basket24_checked:
-        selected = MT5_OPERATIONAL_MODEL_24
-    elif basket_checked and selected_models:
-        selected = MT5_OPERATIONAL_MODEL_WITH_23
-    elif basket_checked:
-        selected = MT5_OPERATIONAL_MODEL_23
-    elif all_selected:
-        selected = MT5_OPERATIONAL_MODEL_ALL
-    elif len(selected_models) == 1:
-        selected = selected_models[0]
-    else:
-        selected = MT5_OPERATIONAL_MODEL_CUSTOM
-    persisted_models = MT5_MODEL_25_SOURCE_MODEL_IDS if basket25_checked else selected_models or sources
-    _persist_mt5_operational_model(selected, models=persisted_models)
-    st.session_state[MT5_OPERATIONAL_MODEL_KEY] = selected
-    st.session_state[MT5_OPERATIONAL_MODEL_SYNC_KEY] = selected
 
 
 def _persist_mt5_operational_model_form_selection() -> str:
@@ -2644,16 +2569,12 @@ def _persist_mt5_operational_model_form_selection() -> str:
         for model in selections
         if model in {
             MT5_OPERATIONAL_MODEL_23,
-            MT5_OPERATIONAL_MODEL_24,
-            MT5_OPERATIONAL_MODEL_25,
         }
     )
     if len(selections) == 1:
         selected = selections[0]
     elif selected_baskets == (MT5_OPERATIONAL_MODEL_23,) and selected_models:
         selected = MT5_OPERATIONAL_MODEL_WITH_23
-    elif selected_baskets == (MT5_OPERATIONAL_MODEL_24,) and selected_models:
-        selected = MT5_OPERATIONAL_MODEL_WITH_24
     elif len(selected_models) == len(sources) and not selected_baskets:
         selected = MT5_OPERATIONAL_MODEL_ALL
     else:
@@ -2679,7 +2600,9 @@ def _mt5_operational_model_state_revision() -> str:
     return str(payload.get("updated_at") or payload.get("model") or "SEM_ESTADO")
 
 
-def _render_mt5_operational_model_selector() -> str:
+def _render_mt5_operational_model_selector(
+    service: DashboardService | None = None,
+) -> str:
     labels = _mt5_operational_model_labels()
     current = _load_persisted_mt5_operational_model()
     persisted_selections = _load_persisted_mt5_operational_selections()
@@ -2688,8 +2611,6 @@ def _render_mt5_operational_model_selector() -> str:
     )
     options = (MT5_OPERATIONAL_MODEL_ALL, *MT5_SELECTABLE_OPERATIONAL_MODEL_IDS)
     basket_mode = MT5_OPERATIONAL_MODEL_23 in persisted_selections
-    basket24_mode = MT5_OPERATIONAL_MODEL_24 in persisted_selections
-    basket25_mode = MT5_OPERATIONAL_MODEL_25 in persisted_selections
     direct_mode = bool(persisted_models)
     persisted_revision = _mt5_operational_model_state_revision()
     refresh_widgets = (
@@ -2718,7 +2639,7 @@ def _render_mt5_operational_model_selector() -> str:
         summary[0].metric("Modelo operacional", summary_label)
         summary[1].caption(
             "Os modelos ativos ficam visiveis e podem ser combinados livremente; "
-            "Todos executa o conjunto completo. M1-M26 podem ser marcados em "
+            "Todos executa o conjunto completo. Os modelos ativos podem ser marcados em "
             "qualquer combinacao; cada caixa controla apenas novas entradas."
         )
         st.caption("Modelo ativo para envio")
@@ -2740,6 +2661,22 @@ def _render_mt5_operational_model_selector() -> str:
                 "Aplicar modelos",
                 on_click=_persist_mt5_operational_model_form_selection,
             )
+        if MT5_OPERATIONAL_MODEL_28 in persisted_selections:
+            selection_getter = getattr(service, "get_model28_live_selection", None)
+            live_selection = selection_getter() if callable(selection_getter) else None
+            if live_selection is None:
+                st.info(
+                    "M28 selecionado: aguardando um padrao validado concluir a "
+                    "sequencia causal no candle M5 fechado de um dos 19 ativos."
+                )
+            else:
+                st.success(
+                    "M28 pronto para envio Demo: "
+                    f"{live_selection.direction} | {live_selection.pattern_id} | "
+                    f"entrada {live_selection.entry_reference:.2f} | "
+                    f"SL {live_selection.stop_reference:.2f} | "
+                    f"TP {live_selection.target_reference:.2f}."
+                )
         selected = current
     st.session_state[MT5_OPERATIONAL_MODEL_KEY] = selected
     st.session_state[MT5_OPERATIONAL_MODEL_SYNC_KEY] = selected
@@ -2776,35 +2713,6 @@ def _render_mt5_operational_model_selector() -> str:
         basket_columns = st.columns(4)
         basket_columns[0].metric("Estado M23", str(basket.get("status", "AGUARDANDO")))
         basket_columns[1].metric("Posicoes M23", int(basket.get("positions", 0) or 0))
-        basket_columns[2].metric(
-            "Resultado cesta",
-            f"US$ {float(basket.get('net_result_usd', 0.0) or 0.0):.2f}",
-        )
-        basket_columns[3].metric("Full Exit", "+US$ 1.000,00")
-    if basket24_mode:
-        st.warning(
-            "M24 ativo e autonomo em XAUUSD/M5. Uma unica leitura calcula o "
-            "setup, sem fontes duplicadas; a cesta faz Full Exit em "
-            "+US$1.000 liquidos."
-        )
-        basket = _load_mt5_model24_basket_state()
-        basket_columns = st.columns(4)
-        basket_columns[0].metric("Estado M24", str(basket.get("status", "AGUARDANDO")))
-        basket_columns[1].metric("Posicoes M24", int(basket.get("positions", 0) or 0))
-        basket_columns[2].metric(
-            "Resultado cesta",
-            f"US$ {float(basket.get('net_result_usd', 0.0) or 0.0):.2f}",
-        )
-        basket_columns[3].metric("Full Exit", "+US$ 1.000,00")
-    if basket25_mode:
-        st.warning(
-            "M25 ativo somente em XAUUSD/M5: copia independentemente entrada, "
-            "SL e TP de M8, M10 e M18-M22 para sua cesta exclusiva."
-        )
-        basket = _load_mt5_model25_basket_state()
-        basket_columns = st.columns(4)
-        basket_columns[0].metric("Estado M25", str(basket.get("status", "AGUARDANDO")))
-        basket_columns[1].metric("Posicoes M25", int(basket.get("positions", 0) or 0))
         basket_columns[2].metric(
             "Resultado cesta",
             f"US$ {float(basket.get('net_result_usd', 0.0) or 0.0):.2f}",
@@ -2908,7 +2816,6 @@ def _valid_mt5_operational_model(model: object) -> str:
         MT5_OPERATIONAL_MODEL_ALL,
         MT5_OPERATIONAL_MODEL_CUSTOM,
         MT5_OPERATIONAL_MODEL_WITH_23,
-        MT5_OPERATIONAL_MODEL_WITH_24,
         MT5_OPERATIONAL_MODEL_8_TO_17,
     }:
         return normalized
@@ -2960,8 +2867,6 @@ def _load_persisted_mt5_operational_models() -> tuple[str, ...]:
         return MT5_ACTIVE_SOURCE_MODEL_IDS
     if mode in {MT5_OPERATIONAL_MODEL_23, MT5_OPERATIONAL_MODEL_WITH_23}:
         return MT5_MODEL_23_SOURCE_MODEL_IDS
-    if mode in {MT5_OPERATIONAL_MODEL_24, MT5_OPERATIONAL_MODEL_WITH_24}:
-        return MT5_MODEL_24_SOURCE_MODEL_IDS
     if mode == MT5_OPERATIONAL_MODEL_8_TO_17:
         return MT5_OPERATIONAL_MODEL_8_TO_17_IDS
     if mode in MT5_ACTIVE_SOURCE_MODEL_IDS:
@@ -2970,7 +2875,7 @@ def _load_persisted_mt5_operational_models() -> tuple[str, ...]:
 
 
 def _load_persisted_mt5_operational_selections() -> tuple[str, ...]:
-    """Retorna exatamente as caixas salvas, incluindo cestas M23-M25."""
+    """Retorna exatamente as caixas ativas salvas, incluindo a cesta M23."""
     try:
         data = json.loads(MT5_OPERATIONAL_MODEL_STATE_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -2997,12 +2902,6 @@ def _load_persisted_mt5_operational_selections() -> tuple[str, ...]:
         if mode == MT5_OPERATIONAL_MODEL_23:
             direct = []
         direct.append(MT5_OPERATIONAL_MODEL_23)
-    if mode in {MT5_OPERATIONAL_MODEL_24, MT5_OPERATIONAL_MODEL_WITH_24}:
-        if mode == MT5_OPERATIONAL_MODEL_24:
-            direct = []
-        direct.append(MT5_OPERATIONAL_MODEL_24)
-    if mode == MT5_OPERATIONAL_MODEL_25:
-        direct = [MT5_OPERATIONAL_MODEL_25]
     migrated = [item for item in direct if item in selectable]
     return tuple(dict.fromkeys(migrated)) or (MT5_OPERATIONAL_MODEL_1,)
 
@@ -3023,9 +2922,7 @@ def _persist_mt5_operational_model(
         if candidate in MT5_ACTIVE_SOURCE_MODEL_IDS and candidate not in selected:
             selected.append(candidate)
     if not selected and models is None:
-        if normalized in {MT5_OPERATIONAL_MODEL_24, MT5_OPERATIONAL_MODEL_WITH_24}:
-            selected = list(MT5_MODEL_24_SOURCE_MODEL_IDS)
-        elif normalized == MT5_OPERATIONAL_MODEL_ALL:
+        if normalized == MT5_OPERATIONAL_MODEL_ALL:
             selected = list(MT5_ACTIVE_SOURCE_MODEL_IDS)
         elif normalized in {
             MT5_OPERATIONAL_MODEL_23,
@@ -3059,17 +2956,6 @@ def _persist_mt5_operational_model(
                 if normalized == MT5_OPERATIONAL_MODEL_23
                 else [*selected, MT5_OPERATIONAL_MODEL_23]
             )
-        if normalized in {
-            MT5_OPERATIONAL_MODEL_24,
-            MT5_OPERATIONAL_MODEL_WITH_24,
-        }:
-            persisted_selections = (
-                [MT5_OPERATIONAL_MODEL_24]
-                if normalized == MT5_OPERATIONAL_MODEL_24
-                else [*selected, MT5_OPERATIONAL_MODEL_24]
-            )
-        if normalized == MT5_OPERATIONAL_MODEL_25:
-            persisted_selections = [MT5_OPERATIONAL_MODEL_25]
         if normalized == MT5_OPERATIONAL_MODEL_ALL:
             persisted_selections = list(MT5_SELECTABLE_OPERATIONAL_MODEL_IDS)
     persisted_selections = list(dict.fromkeys(persisted_selections))
@@ -3119,8 +3005,6 @@ def _sync_mt5_operational_model_with_service(service: DashboardService) -> str:
         for item in selections
         if item in {
             MT5_OPERATIONAL_MODEL_23,
-            MT5_OPERATIONAL_MODEL_24,
-            MT5_OPERATIONAL_MODEL_25,
         }
     )
     multi_setter = getattr(service, "set_mt5_operational_models", None)
@@ -3143,8 +3027,6 @@ def _mt5_operational_model_short_label(model: str) -> str:
         return "SELECIONADOS"
     if normalized == MT5_OPERATIONAL_MODEL_WITH_23:
         return "SELECIONADOS + M23"
-    if normalized == MT5_OPERATIONAL_MODEL_WITH_24:
-        return "SELECIONADOS + M24"
     dynamic_spec = dynamic_exit_model_spec(normalized)
     if dynamic_spec is not None:
         return dynamic_spec.short_name
@@ -3185,6 +3067,10 @@ def _mt5_operational_model_short_label(model: str) -> str:
         return f"M{spec.number}" if spec is not None else "XAU+"
     if normalized == MT5_OPERATIONAL_MODEL_23:
         return "M23"
+    if normalized == MT5_OPERATIONAL_MODEL_26:
+        return "M26"
+    if normalized == MT5_OPERATIONAL_MODEL_27:
+        return "M27"
     if normalized == MT5_OPERATIONAL_MODEL_24:
         return "M24"
     if normalized == MT5_OPERATIONAL_MODEL_25:
@@ -3210,17 +3096,12 @@ def _mt5_operational_model_enabled(selected: str, model: str) -> bool:
             normalized in {
                 MT5_OPERATIONAL_MODEL_CUSTOM,
                 MT5_OPERATIONAL_MODEL_WITH_23,
-                MT5_OPERATIONAL_MODEL_WITH_24,
             }
             and model in _load_persisted_mt5_operational_models()
         )
         or (
             normalized == MT5_OPERATIONAL_MODEL_23
             and model in MT5_MODEL_23_SOURCE_MODEL_IDS
-        )
-        or (
-            normalized == MT5_OPERATIONAL_MODEL_24
-            and model in MT5_MODEL_24_SOURCE_MODEL_IDS
         )
         or (
             normalized == MT5_OPERATIONAL_MODEL_8_TO_17
@@ -3942,12 +3823,35 @@ def _mt5_trade_entry_type_label(row: object) -> str:
     if not isinstance(parameters, dict):
         parameters = {}
 
+    operational_model = str(
+        getattr(row, "operational_model", "")
+        or snapshot.get("operational_model")
+        or ""
+    ).upper()
+    pattern_id = str(
+        parameters.get("pattern_id")
+        or snapshot.get("pattern_id")
+        or ""
+    ).strip().upper()
+    active_signal_kind = str(
+        parameters.get("active_signal_kind") or ""
+    ).strip().upper()
+    if pattern_id and (
+        operational_model.startswith(MT5_OPERATIONAL_MODEL_28)
+        or active_signal_kind == "ADAPTIVE_PATTERN"
+    ):
+        return f"PADRAO {pattern_id}"
+
     candidates = (
         getattr(row, "entry_role", None),
         snapshot.get("entry_role"),
+        parameters.get("m23_entry_type"),
         parameters.get("m24_entry_role"),
         parameters.get("m25_entry_role"),
+        parameters.get("source_entry_role"),
         parameters.get("entry_role"),
+        parameters.get("active_signal_kind"),
+        parameters.get("source_signal_kind"),
         parameters.get("signal_kind"),
     )
     for candidate in candidates:
@@ -3963,12 +3867,11 @@ def _mt5_trade_entry_type_label(row: object) -> str:
             return "REENTRADA"
         if normalized in {"INITIAL", "INITIAL_ENTRY", "ENTRADA_INICIAL"}:
             return "PRINCIPAL"
+        if normalized in {"LATERALIZATION", "LATERALIZACAO", "LATERALIZAÇÃO"}:
+            return "LATERALIZAÇÃO"
+        if normalized in {"EXHAUSTION", "EXAUSTAO", "EXAUSTÃO"}:
+            return "EXAUSTÃO"
 
-    operational_model = str(
-        getattr(row, "operational_model", "")
-        or snapshot.get("operational_model")
-        or ""
-    ).upper()
     source_model = str(parameters.get("source_operational_model") or "").upper()
     active_order_type = str(parameters.get("active_entry_order_type") or "").upper()
     basket_xau_source = (
@@ -4001,6 +3904,46 @@ def _mt5_trade_entry_type_label(row: object) -> str:
         return "REENTRADA"
     if "INITIAL" in entry_setup or "ENTRADA_INICIAL" in entry_setup:
         return "PRINCIPAL"
+    comment = str(
+        getattr(row, "mt5_comment", "")
+        or snapshot.get("mt5_comment")
+        or snapshot.get("comment")
+        or ""
+    ).upper()
+    if "M26 CONT" in comment:
+        return "CONTINUAÇÃO"
+    if "M26 LAT" in comment:
+        return "LATERALIZAÇÃO"
+    if "M26 EXH" in comment or "M26 EXA" in comment:
+        return "EXAUSTÃO"
+    if "M27 CONT" in comment:
+        return "CONTINUAÇÃO ESPELHO"
+    if "M27 LAT" in comment:
+        return "LATERALIZAÇÃO ESPELHO"
+    if "M27 EXH" in comment or "M27 EXA" in comment:
+        return "EXAUSTÃO ESPELHO"
+    if operational_model.startswith(MT5_OPERATIONAL_MODEL_23) and (
+        source_model or "M23 <-" in entry_setup
+    ):
+        resolved = model23_entry_type(
+            parameters,
+            entry_setup=(
+                snapshot.get("entry_setup")
+                or getattr(row, "entry_setup", "")
+            ),
+            alpha_id=(
+                getattr(row, "alpha_id", "")
+                or snapshot.get("alpha_id")
+            ),
+        )
+        labels = {
+            "INITIAL": "PRINCIPAL",
+            "REENTRY": "REENTRADA",
+            "CONTINUATION": "CONTINUAÇÃO",
+            "LATERALIZATION": "LATERALIZAÇÃO",
+            "EXHAUSTION": "EXAUSTÃO",
+        }
+        return labels.get(resolved, resolved or "TIPO NÃO IDENTIFICADO")
     return "N/D"
 
 
@@ -4214,7 +4157,7 @@ def _mt5_rows_for_equity_model_selection(
         ]
     selected_keys = {
         part for part in normalized.split("+")
-        if re.fullmatch(r"(?:M|MODELO)(?:[1-9]|1\d|2[0-3])", part)
+        if re.fullmatch(r"(?:M|MODELO)(?:[1-9]|1\d|2[0-8])", part)
     }
     model_keys = {
         alias: f"MODELO{index}"
@@ -4426,8 +4369,16 @@ def _mt5_equity_model_setup_summary(model_filter: str) -> str:
             "cesta M25 com Full Exit em +US$1.000"
         ),
         "MODELO 26": (
-            "XAUUSD/M1 | estrutura 2+2 + varredura + BOS/deslocamento + "
-            "FVG + Order Block + reteste | SL estrutural | RR >= 2"
+            "XAUUSD/M5 | continuidade 2+1+1 com 0,01 | lateralizacao por "
+            "tres marcacoes 2+2 com 0,02"
+        ),
+        "MODELO 27": (
+            "Espelho independente do M26 | direcao e geometria invertidas | "
+            "SL/TP fixos em RR 1:1"
+        ),
+        "MODELO 28": (
+            "Pattern Miner adaptativo multiativo M5 | padrao causal escolhido "
+            "ao vivo | lote 0,04 | SL/TP da geometria validada"
         ),
     }
     if normalized in summaries:
@@ -4644,48 +4595,15 @@ def _mt5_equity_row_model_key(row: object) -> str:
     match = re.search(r"(?:MODELO[_ ]?|\bM)(\d{1,2})(?:_|\b)", model)
     if match is not None:
         number = int(match.group(1))
-        if 1 <= number <= 25:
+        if number == 28:
+            identities = _mt5_equity_row_model_identities(row)
+            if not any(
+                MT5_OPERATIONAL_MODEL_28 in identity
+                for identity in identities
+            ):
+                return "MODELO0"
+        if 1 <= number <= max(MT5_ACTIVE_REPORT_MODEL_NUMBERS):
             return f"MODELO{number}"
-    if "MODELO_10" in model or "MODELO 10" in model or model == "M10":
-        return "MODELO10"
-    if "MODELO_9" in model or "MODELO 9" in model or model == "M9":
-        return "MODELO9"
-    if "MODELO_8" in model or "MODELO 8" in model or model == "M8":
-        return "MODELO8"
-    if "MODELO_2" in model or "MODELO 2" in model or model == "M2":
-        return "MODELO2"
-    if "MODELO_3" in model or "MODELO 3" in model or model == "M3":
-        return "MODELO3"
-    if "MODELO_4" in model or "MODELO 4" in model or model == "M4":
-        return "MODELO4"
-    if "MODELO_5" in model or "MODELO 5" in model or model == "M5":
-        return "MODELO5"
-    if "MODELO_6" in model or "MODELO 6" in model or model == "M6":
-        return "MODELO6"
-    if "MODELO_7" in model or "MODELO 7" in model or model == "M7":
-        return "MODELO7"
-    if "MODELO_1" in model or "MODELO 1" in model or model == "M1":
-        return "MODELO1"
-    if "MODELO2" in model:
-        return "MODELO2"
-    if "MODELO3" in model:
-        return "MODELO3"
-    if "MODELO4" in model:
-        return "MODELO4"
-    if "MODELO5" in model:
-        return "MODELO5"
-    if "MODELO6" in model:
-        return "MODELO6"
-    if "MODELO7" in model:
-        return "MODELO7"
-    if "MODELO10" in model:
-        return "MODELO10"
-    if "MODELO9" in model:
-        return "MODELO9"
-    if "MODELO8" in model:
-        return "MODELO8"
-    if "MODELO1" in model:
-        return "MODELO1"
     return "MODELO0"
 
 
@@ -6028,8 +5946,13 @@ def _exibir_entradas_teoricas_mt5(
         ),
         (
             MT5_OPERATIONAL_MODEL_26,
-            "Modelo 26 - XAUUSD M1 Smart Money",
-            "Estrutura 2+2, varredura de liquidez, BOS com deslocamento, FVG, order block e reteste.",
+            "Modelo 26 - XAUUSD M5 continuidade e lateralizacao",
+            "Continuidade usa ordem Stop e SL movel; range usa ordem Limit entre topo e fundo.",
+        ),
+        (
+            MT5_OPERATIONAL_MODEL_27,
+            "Modelo 27 - espelho independente do M26",
+            "Inverte cada rota M26; TP no SL da fonte, SL simetrico RR 1:1 e lote 0,03.",
         ),
     ) + tuple(
         (
@@ -6123,6 +6046,13 @@ def _exibir_entradas_teoricas_mt5(
                 evaluate_live=execution_enabled,
                 decision_snapshot=shared_decisions,
             )
+        elif source_model_id == MT5_OPERATIONAL_MODEL_27:
+            row_builder = lambda source_row: _model27_mirror_entry_row(
+                service,
+                source_row,
+                evaluate_live=execution_enabled,
+                decision_snapshot=shared_decisions,
+            )
         elif source_model_id == MT5_HISTORICAL_XAU_MODEL_15:
             row_builder = lambda source_row: _model15_xau_m5_entry_row(
                 service,
@@ -6195,6 +6125,38 @@ def _exibir_entradas_teoricas_mt5(
             rows,
             source_model_id=source_model_id,
         )
+        if source_model_id in {
+            MT5_OPERATIONAL_MODEL_26,
+            MT5_OPERATIONAL_MODEL_27,
+        } and source_rows:
+            cached = shared_decisions.get(
+                (MT5_OPERATIONAL_MODEL_26, MODEL_26_SYMBOL)
+            )
+            decisions = (
+                tuple(cached)
+                if isinstance(cached, (tuple, list)) and cached
+                else service._get_model26_entry_decisions()
+            )
+            builder = (
+                _model27_mirror_entry_row
+                if source_model_id == MT5_OPERATIONAL_MODEL_27
+                else _model26_smart_money_entry_row
+            )
+            researched_rows_by_model[model_id] = [
+                _with_mt5_open_position_context(
+                    builder(
+                        service,
+                        source_rows[0],
+                        evaluate_live=execution_enabled,
+                        decision_snapshot=shared_decisions,
+                        decision=decision,
+                    ),
+                    model_id=model_id,
+                    position_context=open_position_context,
+                )
+                for decision in decisions
+            ]
+            continue
         researched_rows_by_model[model_id] = [
             _with_mt5_open_position_context(
                 row_builder(row),
@@ -6300,39 +6262,6 @@ def _exibir_entradas_teoricas_mt5(
             "As tabelas individuais M1-M22 continuam abaixo para conferencia; "
             "todas reutilizam este mesmo ciclo e nao fazem nova leitura do MT5."
         )
-    if operational_model in {
-        MT5_OPERATIONAL_MODEL_24,
-        MT5_OPERATIONAL_MODEL_WITH_24,
-    }:
-        st.subheader("Entrada Teorica MT5 - Modelo 24")
-        st.caption(
-            "Contrato autonomo M24. O executor reutiliza o cache deslizante "
-            "XAUUSD/M5 e nao realiza leitura adicional do MT5."
-        )
-        _render_stable_readonly_table(
-            _model24_setup_rows(),
-            model_column="Fonte",
-            color_status_cells=True,
-            color_model_rows=True,
-        )
-    if _mt5_operational_model_enabled(operational_model, MT5_OPERATIONAL_MODEL_25):
-        st.subheader("Entrada Teorica MT5 - Modelo 25 - fontes XAUUSD")
-        st.caption(
-            "Copia rastreavel de M8, M10 e M18-M22. Entrada, ordem, SL e TP "
-            "permanecem exatamente os do plano-fonte em XAUUSD/M5. "
-            f"Contrato {MODEL_25_CONTRACT_VERSION}/"
-            f"{MODEL_25_CONTRACT_FINGERPRINT}; "
-            f"{len(MODEL_25_SOURCE_MODEL_IDS)} fontes."
-        )
-        _render_stable_readonly_table(
-            _model25_theoretical_entry_rows_from_background(service),
-            model_column="Fonte",
-            decision_column="Direcao",
-            color_status_cells=True,
-            color_model_rows=True,
-            empty_columns=["Fonte", "Par", "Timeframe", "Envio", "Direcao", "Motivo"],
-            empty_message="M25 aguardando o primeiro snapshot XAUUSD/M5 das sete fontes.",
-        )
     st.subheader("Monitor de Indicadores MT5 - modelos ativos")
     st.caption(
         "Cada linha acompanha um indicador usado pelo modelo no ultimo candle "
@@ -6413,7 +6342,10 @@ def _mt5_theoretical_entry_source_rows(
             }
             for pair in FOREX_SMA_RSI_PAIRS
         ]
-    if source_model_id == MT5_OPERATIONAL_MODEL_26:
+    if source_model_id in {
+        MT5_OPERATIONAL_MODEL_26,
+        MT5_OPERATIONAL_MODEL_27,
+    }:
         xau_rows = [
             row
             for row in source_rows
@@ -6426,7 +6358,7 @@ def _mt5_theoretical_entry_source_rows(
                     "Direcao": "WAIT",
                     "Direcao Teorica": "WAIT",
                     "Status": "AQUECENDO",
-                    "Mensagem": "Aguardando snapshot MT5 XAUUSD/M1.",
+                    "Mensagem": "Aguardando snapshot MT5 XAUUSD/M5.",
                 }
             ]
         selected = dict(xau_rows[0])
@@ -6645,13 +6577,30 @@ def _model26_smart_money_entry_row(
     *,
     evaluate_live: bool,
     decision_snapshot: dict[tuple[str, str], object] | None = None,
+    decision: object | None = None,
 ) -> dict[str, object]:
-    """Mostra os seis gates do M26 usando a mesma decisao do executor."""
+    """Mostra continuidade/range do M26 usando a decisao do executor."""
     cloned = dict(row)
     shared = dict(decision_snapshot or {})
-    decision = shared.get((MT5_OPERATIONAL_MODEL_26, MODEL_26_SYMBOL))
+    if decision is None:
+        cached = shared.get((MT5_OPERATIONAL_MODEL_26, MODEL_26_SYMBOL))
+        if isinstance(cached, (tuple, list)):
+            decision = cached[0] if cached else None
+        else:
+            decision = cached
     if decision is None:
         decision = service._get_model26_entry_decision()
+    candle_count = int(shared.get(("__XAU_M5__", "CANDLE_COUNT"), 0) or 0)
+    if candle_count <= 0:
+        candle_count = len(
+            list(
+                getattr(service.mt5_market_data_service, "latest_forex_candles", {}).get(
+                    (MODEL_26_SYMBOL, MODEL_26_TIMEFRAME),
+                    [],
+                )
+                or []
+            )[-OPERATIONAL_INDICATOR_RAW_CANDLES:]
+        )
     ready = bool(decision.ready)
     direction = str(decision.direction if ready else "WAIT").upper()
     parameters = model26_parameters()
@@ -6659,17 +6608,17 @@ def _model26_smart_money_entry_row(
         {
             "_Modelo Base Raw": row.get("Modelo Ativo", ""),
             "_Parametros Lab Raw": parameters,
-            "Modelo Ativo": "M26_SMART_MONEY_CONFLUENCE",
+            "Modelo Ativo": "M26_CANDLE_CONTINUATION_OR_RANGE",
             "Modelo Saida": MODEL_26_BETA_ID,
             "Alpha Lab": MODEL_26_ALPHA_ID,
             "Beta Lab": MODEL_26_BETA_ID,
-            "Gestao Stop": "FIXED_STOP",
+            "Gestao Stop": "M26_FULL_EXIT",
             "Par": MODEL_26_SYMBOL,
             "TF": MODEL_26_TIMEFRAME,
             "Timeframe": MODEL_26_TIMEFRAME,
             "Periodo de tempo": MODEL_26_TIMEFRAME,
-            "Fonte Lab": "MODEL_26_SMART_MONEY_RULE",
-            "Familia Lab": "SMART_MONEY_CONFLUENCE",
+            "Fonte Lab": "MODEL_26_CANDLE_SEQUENCE_RULE",
+            "Familia Lab": "CANDLE_CONTINUATION_RANGE",
             "Paridade Demo": "APROVADA",
             "Parametros Lab": " | ".join(f"{key}={value}" for key, value in parameters.items()),
             "Candle Gatilho": decision.closed_candle_time,
@@ -6677,31 +6626,38 @@ def _model26_smart_money_entry_row(
             "Candle atual modelo": decision.current_candle_time,
             "Horario": decision.current_candle_time,
             "Status indicadores": decision.status,
-            "Estrutura": "OK" if decision.structure_ok else "AGUARDA",
-            "Regime estrutura": decision.market_structure,
-            "Varredura": "OK" if decision.liquidity_sweep_ok else "AGUARDA",
-            "BOS/Deslocamento": "OK" if decision.bos_displacement_ok else "AGUARDA",
-            "FVG": "OK" if decision.fvg_ok else "AGUARDA",
-            "Order Block": "OK" if decision.order_block_ok else "AGUARDA",
-            "Reteste": "OK" if decision.retest_ok else "AGUARDA",
-            "Zona POI": (
-                f"{decision.poi_low:.2f} - {decision.poi_high:.2f}"
-                if decision.poi_low is not None and decision.poi_high is not None
-                else "N/D"
+            "Leitura indicadores": (
+                f"ROTA={decision.signal_kind} | SEQUENCIA={decision.structure_sequence} | "
+                f"RANGE={decision.range_low or 'N/D'}..{decision.range_high or 'N/D'}"
             ),
-            "ATR14": decision.atr14,
+            "Candles recebidos": candle_count,
+            "Tipo entrada": decision.signal_kind,
+            "Rota saida": (
+                "TP_NA_BORDA_OPOSTA"
+                if decision.signal_kind == "LATERALIZATION"
+                else "SL_MOVEL_E_FULL_EXIT_DUAS_CONTRARIAS"
+                if decision.signal_kind == "CONTINUATION"
+                else "AGUARDANDO_ROTA"
+            ),
+            "Tipo ordem": decision.entry_order_type,
+            "Candles recuo": decision.pullback_candles,
+            "Candles a favor": decision.trend_candles_before_pullback,
+            "Marca SL": decision.last_swing_price,
+            "Fundo range": decision.range_low,
+            "Topo range": decision.range_high,
+            "Sequencia estrutural": decision.structure_sequence,
             "Entrada": decision.entry_price,
             "Preco Teorico": decision.entry_price,
             "Stop": decision.initial_stop,
             "Stop Research": decision.initial_stop,
             "Alvo Research": decision.target,
             "RR Research": decision.risk_reward,
-            "RR Minimo": 2.0,
+            "RR Minimo": 0.0,
             "Motivo": decision.reason,
             "Motivo Entrada": decision.reason,
             "Contrato": f"{MODEL_26_CONTRACT_VERSION}/{MODEL_26_CONTRACT_FINGERPRINT}",
             "Gatilho Esperado": decision.status,
-            "Proxima Tentativa": "Reavaliar no proximo candle M1 fechado.",
+            "Proxima Tentativa": "Reavaliar no proximo candle M5 fechado.",
         }
     )
     if not evaluate_live:
@@ -6717,7 +6673,9 @@ def _model26_smart_money_entry_row(
     elif ready:
         cloned.update(
             {
-                "Entrada Teorica": "SINAL_TEORICO",
+                "Entrada Teorica": (
+                    "ORDEM_PENDENTE_TEORICA"
+                ),
                 "Direcao Teorica": direction,
                 "Direcao": "COMPRAR" if direction == "BUY" else "VENDER",
                 "Plano Research": "PLANO_VALIDO",
@@ -6734,6 +6692,92 @@ def _model26_smart_money_entry_row(
                 "Codigo Rejeicao": decision.status,
             }
         )
+    return cloned
+
+
+def _model27_mirror_entry_row(
+    service: DashboardService,
+    row: dict[str, object],
+    *,
+    evaluate_live: bool,
+    decision_snapshot: dict[tuple[str, str], object] | None = None,
+    decision: object | None = None,
+) -> dict[str, object]:
+    """Exibe o espelho M27 usando exatamente a decisao calculada pelo M26."""
+    cloned = _model26_smart_money_entry_row(
+        service,
+        row,
+        evaluate_live=evaluate_live,
+        decision_snapshot=decision_snapshot,
+        decision=decision,
+    )
+    source_direction = str(getattr(decision, "direction", "") or "").upper()
+    entry = getattr(decision, "entry_price", None)
+    source_stop = getattr(decision, "initial_stop", None)
+    source_order_type = str(
+        getattr(decision, "entry_order_type", "MARKET") or "MARKET"
+    ).upper()
+    mirrored_order_type = (
+        mirror_model26_order_type(source_order_type)
+        if source_order_type in {
+            "MARKET",
+            "BUY_STOP",
+            "SELL_STOP",
+            "BUY_LIMIT",
+            "SELL_LIMIT",
+        }
+        else "NONE"
+    )
+    parameters = model27_parameters()
+    parameters.update(
+        {
+            "active_signal_kind": str(
+                getattr(decision, "signal_kind", "") or ""
+            ).upper(),
+            "active_entry_order_type": mirrored_order_type,
+            "execution_volume": MODEL_27_VOLUME,
+        }
+    )
+    cloned.update(
+        {
+            "Modelo Ativo": "M27_MIRROR_M26",
+            "Modelo Saida": MODEL_27_BETA_ID,
+            "Alpha Lab": MODEL_27_ALPHA_ID,
+            "Beta Lab": MODEL_27_BETA_ID,
+            "Gestao Stop": MODEL_27_STOP_MANAGEMENT,
+            "Fonte Lab": MODEL_27_SOURCE,
+            "Familia Lab": "M26_MIRROR_RR1",
+            "Parametros Lab": " | ".join(
+                f"{key}={value}" for key, value in parameters.items()
+            ),
+            "Tipo ordem": parameters["active_entry_order_type"],
+            "Contrato": "M27_MIRROR_M26_V1",
+        }
+    )
+    if (
+        evaluate_live
+        and bool(getattr(decision, "ready", False))
+        and source_direction in {"BUY", "SELL"}
+        and entry is not None
+        and source_stop is not None
+    ):
+        geometry = mirror_model26_geometry(source_direction, entry, source_stop)
+        cloned.update(
+            {
+                "Direcao Teorica": geometry.direction,
+                "Direcao": "COMPRAR" if geometry.direction == "BUY" else "VENDER",
+                "Entrada": geometry.entry_price,
+                "Preco Teorico": geometry.entry_price,
+                "Stop": geometry.stop,
+                "Stop Research": geometry.stop,
+                "Alvo Research": geometry.target,
+                "RR Research": 1.0,
+                "Motivo": "M27 espelha a rota pronta do M26 com RR 1:1.",
+                "Motivo Entrada": "Direcao, ordem e geometria invertidas do M26.",
+            }
+        )
+    elif not evaluate_live:
+        cloned["Codigo Rejeicao"] = "SELECIONE_M27"
     return cloned
 
 
@@ -8609,6 +8653,7 @@ def _mt5_theoretical_exit_has_recorded_model(row: object) -> bool:
         or model.startswith(MT5_OPERATIONAL_MODEL_24)
         or model.startswith(MT5_OPERATIONAL_MODEL_25)
         or model.startswith(MT5_OPERATIONAL_MODEL_26)
+        or model.startswith(MT5_OPERATIONAL_MODEL_27)
     )
 
 
@@ -8625,6 +8670,8 @@ def _mt5_theoretical_exit_effective_model(
     if row_model.startswith(MT5_OPERATIONAL_MODEL_25):
         return row_model
     if row_model.startswith(MT5_OPERATIONAL_MODEL_26):
+        return row_model
+    if row_model.startswith(MT5_OPERATIONAL_MODEL_27):
         return row_model
     if row_model in LEGACY_MT5_OPERATIONAL_MODELS:
         return row_model
@@ -9521,6 +9568,8 @@ def _mt5_open_position_context_by_model(
         },
         "MODELO11": MT5_OPERATIONAL_MODEL_11,
         "MODELO12": MT5_OPERATIONAL_MODEL_12,
+        "MODELO26": MT5_OPERATIONAL_MODEL_26,
+        "MODELO27": MT5_OPERATIONAL_MODEL_27,
     }
     index: dict[tuple[str, str], dict[str, object]] = {}
     for position in list(getattr(report, "rows", []) or []):
@@ -9626,6 +9675,8 @@ def _entry_is_manual_rule_model(operational_model: str) -> bool:
         MT5_OPERATIONAL_MODEL_10,
         MT5_OPERATIONAL_MODEL_11,
         MT5_OPERATIONAL_MODEL_12,
+        MT5_OPERATIONAL_MODEL_26,
+        MT5_OPERATIONAL_MODEL_27,
         *FOREX_SMA_RSI_MODEL_IDS,
     }
 
@@ -9862,7 +9913,7 @@ def _entry_window_gate(
 
 def _entry_signal_gate(row: dict[str, object]) -> str:
     status = str(row.get("Entrada Teorica", "") or "").upper()
-    if status == "SINAL_TEORICO":
+    if status in {"SINAL_TEORICO", "ORDEM_STOP_TEORICA"}:
         return "OK"
     reason = str(row.get("Codigo Rejeicao", "") or "").strip()
     normalized_reason = reason.upper()
@@ -10007,9 +10058,15 @@ def _entry_price_gate(
         ).strip()
         return f"AGUARDA: {status}"
     if _entry_is_manual_rule_model(operational_model):
-        reference_price = last_price if last_price is not None else entry_price
+        reference_price = entry_price if entry_price is not None else last_price
         if reference_price is None or stop is None:
             return "AGUARDA: preco/SL ausente"
+        if target is not None and target > 0:
+            if direction == "BUY" and stop < reference_price < target:
+                return "OK: SL e TP estruturais validos"
+            if direction == "SELL" and target < reference_price < stop:
+                return "OK: SL e TP estruturais validos"
+            return f"BLOQ: SL/TP invalidos para {direction}"
         if direction == "BUY" and stop < reference_price:
             return "OK: sem TP fixo; Full Exit pelo setup"
         if direction == "SELL" and reference_price < stop:
@@ -12502,9 +12559,664 @@ def exibir_configuracoes_forex_readonly(data: object) -> None:
 
 
 def exibir_replay_dashboard(service: DashboardService, data: object) -> None:
-    """Exibe repeticao Forex par-a-par dentro da navegacao principal."""
+    """Exibe 19 pesquisas causais independentes e um detalhe por vez."""
+
+    del data
+    st.title("Replay Pattern Miner - 19 ativos")
+    st.caption(
+        "Cada ativo possui dataset, cache, ranking e validacao independentes. "
+        "O modo Maximum em lote processa um mercado por vez para preservar a RAM."
+    )
+    _render_multi_market_pattern_replay()
+    selected_symbol = st.selectbox(
+        "Abrir analise detalhada",
+        PATTERN_REPLAY_MARKETS,
+        key=PATTERN_MINER_SELECTED_SYMBOL_KEY,
+    )
+    miner_service = _get_xau_pattern_miner_service(selected_symbol)
+    state = miner_service.ensure_loaded()
+    cache_key = f"{XAU_PATTERN_CACHE_AUTO_RESTORE_KEY}_{selected_symbol}"
+    if (
+        not os.getenv("PYTEST_CURRENT_TEST")
+        and getattr(getattr(state, "status", None), "value", "") == "READY"
+        and not bool(st.session_state.get(cache_key, False))
+    ):
+        st.session_state[cache_key] = True
+        cached_state = miner_service.restore_cache()
+        if (
+            getattr(getattr(cached_state, "status", None), "value", "") == "FINISHED"
+            and bool(getattr(cached_state, "cache_restored", False))
+        ):
+            state = cached_state
+
+    st.header(f"Analise detalhada - {selected_symbol}")
+    st.caption(
+        "Pesquisa causal em candles fechados. Este modulo nao envia ordens, "
+        "nao altera posicoes e produz somente candidatos de padrao."
+    )
+    _render_pattern_dataset_block(miner_service, state)
+    state = _render_pattern_replay_controls(miner_service, state)
+    _render_pattern_replay_progress(state)
+    _render_pattern_current_state(state)
+    _render_pattern_events(state)
+    _render_pattern_miner_summary(state)
+    _render_pattern_ranking(miner_service, state, service)
+    _render_model28_live_selection(service)
+    _render_pattern_logs(state)
+
+    if state.status.value == "RUNNING" and state.speed.value in {"Visual", "Fast"}:
+        time.sleep(0.05 if state.speed.value == "Fast" else 0.35)
+        miner_service.process_batch()
+        st.rerun()
+
+
+def _get_xau_pattern_miner_service(
+    symbol: str = "XAUUSD",
+) -> XauPatternMinerService:
+    """Keep only the selected market's heavy engine in the session."""
+
+    service_class = _pattern_miner_service_class()
+    instance = st.session_state.get(XAU_PATTERN_MINER_SERVICE_KEY)
+    if (
+        not isinstance(instance, service_class)
+        or instance.symbol != symbol.upper()
+    ):
+        instance = _pattern_miner_service_for_symbol(symbol)
+        st.session_state[XAU_PATTERN_MINER_SERVICE_KEY] = instance
+    return instance
+
+
+def _pattern_miner_service_class() -> type[XauPatternMinerService]:
+    """Recover safely when Streamlit cached the pre-multi-market service class."""
+
+    global XauPatternMinerService, xau_pattern_miner_module
+    service_class = getattr(
+        xau_pattern_miner_module,
+        "XauPatternMinerService",
+        XauPatternMinerService,
+    )
+    required_fields = {"dataset_path", "symbol", "timeframe", "dataset_name"}
+    available_fields = set(getattr(service_class, "__dataclass_fields__", {}))
+    if not required_fields.issubset(available_fields):
+        importlib.invalidate_caches()
+        source_path = Path(str(xau_pattern_miner_module.__file__)).resolve()
+        source = source_path.read_text(encoding="utf-8")
+        exec(compile(source, str(source_path), "exec"), xau_pattern_miner_module.__dict__)
+        service_class = xau_pattern_miner_module.XauPatternMinerService
+    XauPatternMinerService = service_class
+    return service_class
+
+
+def _pattern_miner_service_for_symbol(symbol: str) -> XauPatternMinerService:
+    """Create one isolated miner without relying on a cached classmethod."""
+
+    normalized = str(symbol or "").strip().upper()
+    if not normalized:
+        raise ValueError("Ativo obrigatorio para o Pattern Miner.")
+    service_class = _pattern_miner_service_class()
+    return service_class(
+        dataset_path=xau_pattern_miner_module.pattern_miner_dataset_path(normalized),
+        operational_store_path=(
+            xau_pattern_miner_module.DEFAULT_OPERATIONAL_PATTERN_STORE_PATH
+        ),
+        shadow_journal_path=(
+            xau_pattern_miner_module.DEFAULT_SHADOW_SIGNAL_JOURNAL_PATH
+        ),
+        symbol=normalized,
+        timeframe="M5",
+        dataset_name=(
+            "historicoXAU" if normalized == "XAUUSD" else f"historico{normalized}"
+        ),
+    )
+
+
+def _render_multi_market_pattern_replay() -> None:
+    """Render independent lightweight summaries and sequential actions."""
+
+    completed = 0
+    summaries: dict[str, dict[str, object] | None] = {}
+    for symbol in PATTERN_REPLAY_MARKETS:
+        summary = _pattern_miner_service_for_symbol(symbol).load_summary()
+        summaries[symbol] = summary
+        completed += int(summary is not None)
+    columns = st.columns(3)
+    columns[0].metric("Ativos", len(PATTERN_REPLAY_MARKETS))
+    columns[1].metric("Maximum concluidos", completed)
+    columns[2].metric("Pendentes", len(PATTERN_REPLAY_MARKETS) - completed)
+    if st.button(
+        "Executar Maximum sequencial nos 19 ativos",
+        key="pattern_miner_run_all_markets",
+        use_container_width=True,
+    ):
+        progress = st.progress(0.0, text="Preparando processamento sequencial...")
+        status = st.empty()
+        failures: list[str] = []
+        for index, symbol in enumerate(PATTERN_REPLAY_MARKETS, start=1):
+            status.caption(f"{index}/19 - {symbol}: carregando e minerando...")
+            current = _pattern_miner_service_for_symbol(symbol)
+            try:
+                state = current.calculate_maximum()
+                if getattr(getattr(state, "status", None), "value", "") != "FINISHED":
+                    failures.append(symbol)
+                else:
+                    current.prepare_adaptive_shadow()
+            except (OSError, TypeError, ValueError, RuntimeError):
+                failures.append(symbol)
+            finally:
+                current.release()
+            progress.progress(index / len(PATTERN_REPLAY_MARKETS), text=f"{symbol} concluido")
+        if failures:
+            st.error("Falha no Maximum de: " + ", ".join(failures))
+        else:
+            st.success("19 replays concluidos e padroes validados preparados para o M28 Demo.")
+        st.rerun()
+
+    st.subheader("Analises independentes por ativo")
+    for position, symbol in enumerate(PATTERN_REPLAY_MARKETS, start=1):
+        summary = summaries[symbol]
+        label = f"{position:02d}. {symbol} / M5"
+        if summary is None:
+            with st.expander(f"{label} - aguardando Maximum", expanded=False):
+                st.info("Historico presente; calculo independente ainda nao concluido.")
+            continue
+        rankings = list(summary.get("rankings", []) or [])
+        best = rankings[0] if rankings else {}
+        with st.expander(f"{label} - concluido", expanded=False):
+            cols = st.columns(5)
+            cols[0].metric("Candles", f"{int(summary.get('total_candles', 0)):,}")
+            cols[1].metric("Padroes", int(summary.get("discovered_patterns", 0)))
+            cols[2].metric("Candidatos", int(summary.get("candidate_patterns", 0)))
+            cols[3].metric("Melhor score", f"{float(best.get('score', 0.0)):.4f}")
+            cols[4].metric("OOS", f"{float(best.get('oos', 0.0)):.4f}")
+            st.caption(
+                f"Causalidade: {'OK' if summary.get('causality_passed') else 'FALHOU'} | "
+                f"Gerado em: {summary.get('generated_at', 'N/D')}"
+            )
+            if rankings:
+                st.dataframe(rankings[:5], use_container_width=True, hide_index=True)
+
+
+def _render_pattern_dataset_block(
+    miner_service: XauPatternMinerService,
+    state: object,
+) -> None:
+    """Render the immutable historicoXAU source metadata."""
+
     with st.container(border=True):
-        exibir_replay_forex_pair_dashboard(service, data)
+        st.subheader("Dataset")
+        columns = st.columns(5)
+        columns[0].metric("Ativo", getattr(state, "symbol", "XAUUSD"))
+        columns[1].metric("Timeframe", getattr(state, "timeframe", "M5"))
+        columns[2].metric("Candles fechados", f"{getattr(state, 'total_candles', 0):,}")
+        engine = miner_service.engine
+        info = engine.dataset_info
+        columns[3].metric(
+            "Inicio UTC",
+            info.first_timestamp.strftime("%d/%m/%Y %H:%M")
+            if info and info.first_timestamp
+            else "N/D",
+        )
+        columns[4].metric(
+            "Fim UTC",
+            info.last_timestamp.strftime("%d/%m/%Y %H:%M")
+            if info and info.last_timestamp
+            else "N/D",
+        )
+        if getattr(state, "error", ""):
+            st.error(getattr(state, "error"))
+        elif getattr(state, "dataset_loaded", False):
+            st.success(
+                f"{miner_service.dataset_name} carregado; somente is_closed=True sera processado."
+            )
+        else:
+            st.error(f"{miner_service.dataset_name} nao foi carregado.")
+
+
+def _render_pattern_replay_controls(
+    miner_service: XauPatternMinerService,
+    state: object,
+) -> object:
+    """Render Start/Pause/Resume/Reset and the three speed modes."""
+
+    with st.container(border=True):
+        st.subheader("Replay")
+        speed = st.radio(
+            "Velocidade",
+            ["Visual", "Fast", "Maximum"],
+            index=["Visual", "Fast", "Maximum"].index(
+                getattr(getattr(state, "speed", None), "value", "Maximum")
+            ),
+            horizontal=True,
+            key="xau_pattern_miner_speed",
+        )
+        buttons = st.columns(5)
+        if buttons[0].button("Start", key="xau_pattern_start", use_container_width=True):
+            if speed == "Maximum":
+                cached_state = miner_service.restore_cache()
+                if (
+                    getattr(getattr(cached_state, "status", None), "value", "") == "FINISHED"
+                    and bool(getattr(cached_state, "cache_restored", False))
+                ):
+                    state = cached_state
+                    st.success(
+                        "Replay Maximum restaurado do cache validado do historicoXAU."
+                    )
+                else:
+                    state = miner_service.start(speed)
+                    live_progress = st.progress(
+                        float(getattr(state, "progress", 0.0) or 0.0),
+                        text="Preparando Replay Maximum...",
+                    )
+                    live_status = st.empty()
+                    while getattr(getattr(state, "status", None), "value", "") == "RUNNING":
+                        remaining = max(
+                            int(getattr(state, "total_candles", 0) or 0)
+                            - int(getattr(state, "processed_candles", 0) or 0),
+                            0,
+                        )
+                        if remaining <= 5000:
+                            live_status.caption(
+                                "Ultimo lote: minerando, validando OOS e auditando causalidade..."
+                            )
+                        else:
+                            live_status.caption(
+                                f"Processando candles fechados: "
+                                f"{int(getattr(state, 'processed_candles', 0) or 0):,} / "
+                                f"{int(getattr(state, 'total_candles', 0) or 0):,}"
+                            )
+                        state = miner_service.process_batch(5000)
+                        live_progress.progress(
+                            float(getattr(state, "progress", 0.0) or 0.0),
+                            text=(
+                                f"Replay Maximum: "
+                                f"{float(getattr(state, 'progress', 0.0) or 0.0):.1%}"
+                            ),
+                        )
+                    live_status.caption("Replay Maximum concluido.")
+            else:
+                state = miner_service.start(speed)
+                state = miner_service.process_batch()
+        if buttons[1].button("Pause", key="xau_pattern_pause", use_container_width=True):
+            state = miner_service.pause()
+        if buttons[2].button("Resume", key="xau_pattern_resume", use_container_width=True):
+            state = miner_service.resume()
+            if getattr(state.status, "value", "") == "RUNNING":
+                state = miner_service.process_batch()
+        if buttons[3].button("Reset", key="xau_pattern_reset", use_container_width=True):
+            state = miner_service.reset()
+        if buttons[4].button("Usar cache", key="xau_pattern_cache", use_container_width=True):
+            state = miner_service.restore_cache()
+        return state
+
+
+def _render_pattern_replay_progress(state: object) -> None:
+    """Render deterministic candle progress."""
+
+    processed = int(getattr(state, "processed_candles", 0) or 0)
+    total = int(getattr(state, "total_candles", 0) or 0)
+    progress = float(getattr(state, "progress", 0.0) or 0.0)
+    st.progress(progress)
+    columns = st.columns(3)
+    columns[0].metric("Replay", f"{processed:,} / {total:,}")
+    columns[1].metric("Processado", f"{progress * 100.0:.2f}%")
+    columns[2].metric("Status", getattr(getattr(state, "status", None), "value", "EMPTY"))
+
+
+def _render_pattern_current_state(state: object) -> None:
+    """Render the last processed causal record."""
+
+    record = getattr(state, "current_record", None)
+    with st.container(border=True):
+        st.subheader("Estado atual")
+        if record is None:
+            st.info("Inicie o Replay para produzir o primeiro snapshot causal.")
+            return
+        candle_columns = st.columns(6)
+        candle_columns[0].metric("Datetime UTC", record.timestamp.strftime("%d/%m/%Y %H:%M"))
+        candle_columns[1].metric("Open", f"{record.open:.2f}")
+        candle_columns[2].metric("High", f"{record.high:.2f}")
+        candle_columns[3].metric("Low", f"{record.low:.2f}")
+        candle_columns[4].metric("Close", f"{record.close:.2f}")
+        candle_columns[5].metric("Volume / Spread", f"{record.volume:.0f} / {record.spread:.0f}")
+        indicator_columns = st.columns(5)
+        for column, label, value in zip(
+            indicator_columns,
+            ["EMA9", "EMA20", "EMA50", "EMA200", "RSI14"],
+            [record.ema9, record.ema20, record.ema50, record.ema200, record.rsi14],
+        ):
+            column.metric(label, _pattern_number(value))
+        indicator_columns = st.columns(5)
+        for column, label, value in zip(
+            indicator_columns,
+            ["ATR14", "ADX14", "+DI14", "-DI14", "Volume relativo"],
+            [record.atr14, record.adx14, record.plus_di14, record.minus_di14, record.volume_relative],
+        ):
+            column.metric(label, _pattern_number(value))
+        st.caption(
+            f"Tendencia: {record.trend_state} | Estrutura: {record.structure_state} | "
+            f"Sessao: {record.session} | Warm-up: {'concluido' if record.warmup_complete else 'em andamento'}"
+        )
+
+
+def _render_pattern_events(state: object) -> None:
+    """Render event totals and recent quantitative details."""
+
+    counts = dict(getattr(state, "event_counts", {}) or {})
+    with st.container(border=True):
+        st.subheader("Eventos")
+        groups = {
+            "Swings": ("SWING_HIGH", "SWING_LOW"),
+            "BOS": ("BOS_UP", "BOS_DOWN"),
+            "CHoCH": ("CHOCH_UP", "CHOCH_DOWN"),
+            "Sweeps": ("SWEEP_HIGH", "SWEEP_LOW"),
+            "FVGs": ("FVG_UP", "FVG_DOWN"),
+            "Displacements": ("DISPLACEMENT_UP", "DISPLACEMENT_DOWN"),
+            "Order Blocks": ("ORDER_BLOCK_UP", "ORDER_BLOCK_DOWN"),
+        }
+        columns = st.columns(len(groups))
+        for column, (label, event_types) in zip(columns, groups.items()):
+            column.metric(label, sum(int(counts.get(event_type, 0)) for event_type in event_types))
+        recent = list(getattr(state, "recent_events", ()) or ())[-15:]
+        if recent:
+            st.dataframe(
+                [
+                    {
+                        "Candle": event.index,
+                        "Origem": event.origin_index,
+                        "Evento": event.event_type,
+                        "Direcao": "UP" if event.direction > 0 else "DOWN" if event.direction < 0 else "NEUTRAL",
+                        "Nivel": event.level,
+                        "Intensidade": event.intensity,
+                        "Caracteristicas": ", ".join(f"{key}={value}" for key, value in event.features[:6]),
+                    }
+                    for event in reversed(recent)
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("Nenhum evento detectado ate o candle atual.")
+
+
+def _render_pattern_miner_summary(state: object) -> None:
+    """Render Pattern Tracker and mining counters."""
+
+    result = getattr(state, "result", None)
+    with st.container(border=True):
+        st.subheader("Pattern Miner")
+        columns = st.columns(4)
+        columns[0].metric("Padroes encontrados", getattr(result, "discovered_patterns", 0) if result else 0)
+        columns[1].metric("Ocorrencias", getattr(result, "total_occurrences", 0) if result else getattr(state, "completed_pattern_occurrences", 0))
+        columns[2].metric("Padroes ativos", getattr(state, "active_patterns", 0))
+        columns[3].metric("Padroes candidatos", getattr(result, "candidate_patterns", 0) if result else 0)
+        if getattr(state, "cache_restored", False):
+            st.caption("Resultado restaurado de Event Store com dataset e parametros compativeis.")
+        audit = getattr(result, "causality_audit", None) if result else None
+        if audit is not None and audit.passed:
+            audited = ", ".join(str(item.index) for item in audit.checks)
+            st.success(f"Lookahead auditado: eventos imutaveis nos candles {audited}.")
+        elif audit is not None:
+            failures = "; ".join(
+                f"N={item.index}: {', '.join(item.mismatches)}"
+                for item in audit.checks
+                if not item.passed
+            )
+            st.error(f"Lookahead detectado ou auditoria inconsistente: {failures}")
+
+
+def _render_pattern_ranking(
+    miner_service: XauPatternMinerService,
+    state: object,
+    service: DashboardService | None = None,
+) -> None:
+    """Render ranking plus the manual, versioned Model 28 promotion bridge."""
+
+    result = getattr(state, "result", None)
+    with st.container(border=True):
+        st.subheader("Ranking - Top Patterns")
+        rankings = list(getattr(result, "rankings", ()) or ()) if result else []
+        if not rankings:
+            st.info("O ranking sera produzido quando o Replay completo terminar.")
+            return
+        specs = tuple(
+            item
+            for item in miner_service.operational_specs()
+            if item.symbol == miner_service.symbol
+            and item.timeframe == miner_service.timeframe
+        )
+        latest_by_pattern = {
+            pattern_id: max(
+                (item for item in specs if item.pattern_id == pattern_id),
+                key=lambda item: item.version,
+            )
+            for pattern_id in {item.pattern_id for item in specs}
+        }
+        st.dataframe(
+            [
+                {
+                    "Pattern": item.pattern_id,
+                    "Events": item.display_sequence,
+                    "Direction": item.direction_label,
+                    "Occurrences": item.occurrences,
+                    "MFE medio ATR": item.mfe_mean_atr,
+                    "MAE medio ATR": item.mae_mean_atr,
+                    "+1ATR": item.first_passage_1_atr,
+                    "+2ATR": item.first_passage_2_atr,
+                    "Discovery": item.discovery_performance,
+                    "Validation": item.validation_performance,
+                    "OOS": item.oos_performance,
+                    "Score": item.score,
+                    "Status": getattr(
+                        getattr(latest_by_pattern.get(item.pattern_id), "status", None),
+                        "value",
+                        "DISCOVERED",
+                    ),
+                    "Versao": getattr(latest_by_pattern.get(item.pattern_id), "version", "-"),
+                    "Shadow": getattr(
+                        getattr(latest_by_pattern.get(item.pattern_id), "shadow_status", None),
+                        "value",
+                        "OFF",
+                    ),
+                }
+                for item in rankings
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.divider()
+        st.markdown("#### Modelo 28 - promoção operacional controlada")
+        st.caption(
+            "A promoção cria uma especificação versionada e inicialmente incapaz de "
+            "enviar ordens. O SHADOW apenas acompanha candles e gera SignalCandidate."
+        )
+        pattern_options = [item.pattern_id for item in rankings]
+        live_selection = (
+            service.get_model28_live_selection(miner_service.symbol)
+            if service is not None
+            else None
+        )
+        current_pattern_id = str(
+            getattr(live_selection, "pattern_id", "") or ""
+        )
+        if current_pattern_id:
+            st.success(
+                f"Padrão atual ao vivo em {miner_service.symbol}: "
+                f"{current_pattern_id}"
+            )
+        else:
+            st.info(
+                f"{miner_service.symbol}: nenhum padrão concluiu a sequência causal "
+                "no último candle M5 fechado."
+            )
+        selected_pattern_id = st.selectbox(
+            "Padrão para inspeção manual e promoção",
+            pattern_options,
+            key="xau_pattern_operational_candidate",
+            format_func=lambda pattern_id: (
+                f"{pattern_id} (ATUAL AO VIVO)"
+                if pattern_id == current_pattern_id
+                else pattern_id
+            ),
+        )
+        selected_ranking = next(
+            item for item in rankings if item.pattern_id == selected_pattern_id
+        )
+        selected_spec = latest_by_pattern.get(selected_pattern_id)
+        _render_operational_pattern_details(selected_ranking, selected_spec)
+        action_columns = st.columns(3)
+        if action_columns[0].button(
+            "Promover para modelo operacional",
+            key="xau_pattern_promote_model28",
+            use_container_width=True,
+        ):
+            try:
+                promoted = miner_service.promote_pattern(selected_pattern_id)
+                st.success(
+                    f"{promoted.versioned_id} criado como OPERATIONAL_CANDIDATE."
+                )
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
+        if selected_spec is not None:
+            shadow_running = getattr(
+                getattr(selected_spec, "shadow_status", None), "value", "OFF"
+            ) == "RUNNING"
+            shadow_label = "Desativar SHADOW" if shadow_running else "Ativar SHADOW"
+            if action_columns[1].button(
+                shadow_label,
+                key="xau_pattern_toggle_shadow_model28",
+                use_container_width=True,
+            ):
+                miner_service.set_shadow(selected_spec.versioned_id, not shadow_running)
+                st.rerun()
+        shadow_rows = [
+            item
+            for item in miner_service.shadow_results()
+            if selected_spec is None or item.setup_id == selected_spec.setup_id
+        ]
+        closed_shadow = [item for item in shadow_rows if item.status != "OPEN"]
+        shadow_targets = sum(item.status == "TARGET" for item in closed_shadow)
+        average_shadow_r = (
+            sum(float(item.result_r or 0.0) for item in closed_shadow) / len(closed_shadow)
+            if closed_shadow
+            else 0.0
+        )
+        shadow_columns = st.columns(4)
+        shadow_columns[0].metric("Sinais Shadow", len(shadow_rows))
+        shadow_columns[1].metric("Shadow encerrados", len(closed_shadow))
+        shadow_columns[2].metric(
+            "Acerto Shadow",
+            f"{(shadow_targets / len(closed_shadow) * 100.0):.1f}%"
+            if closed_shadow
+            else "N/D",
+        )
+        shadow_columns[3].metric("R médio Shadow", f"{average_shadow_r:.3f}")
+
+
+def _render_model28_live_selection(service: DashboardService) -> None:
+    """Show the setup selected causally from the live multi-market M5 stream."""
+
+    selection_lister = getattr(service, "list_model28_live_selections", None)
+    selections = tuple(selection_lister()) if callable(selection_lister) else ()
+    runtime = getattr(service, "model28_shadow_runtime", None)
+    active_markets = (
+        tuple(runtime.active_markets())
+        if runtime is not None and hasattr(runtime, "active_markets")
+        else ()
+    )
+    with st.container(border=True):
+        st.subheader("M28 - reconhecimento adaptativo ao vivo")
+        st.caption(
+            "Usa somente candles M5 fechados e os mesmos detectores causais do Replay. "
+            "Quando o M28 esta selecionado, o padrao validado pode gerar ordem Demo "
+            "com lote fixo de 0,04; conta Real permanece bloqueada."
+        )
+        metrics = st.columns(3)
+        metrics[0].metric("Mercados monitorados", len(active_markets))
+        metrics[1].metric("Padrões atuais", len(selections))
+        metrics[2].metric("Lote Demo", "0,04")
+        if not selections:
+            st.info(
+                "Nenhuma sequência causal foi concluída no último candle M5 fechado. "
+                "Os contratos promovidos continuam sendo monitorados; nenhuma ordem "
+                "M28 é liberada enquanto não existir um padrão atual."
+            )
+            return
+        st.dataframe(
+            [
+                {
+                    "Ativo": item.symbol,
+                    "TF": item.timeframe,
+                    "Padrão atual": item.pattern_id,
+                    "Contrato": item.versioned_id,
+                    "Direção": item.direction,
+                    "Confiança": item.confidence,
+                    "Validação": item.validation_performance,
+                    "OOS": item.oos_performance,
+                    "Selecionado em": item.selected_at,
+                }
+                for item in selections
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+def _render_operational_pattern_details(ranking: object, spec: object | None) -> None:
+    """Show research evidence and the exact promoted operational contract."""
+
+    with st.expander("Detalhes do padrão e contrato operacional", expanded=False):
+        st.write(f"**Sequência:** {getattr(ranking, 'display_sequence', 'N/D')}")
+        st.write(
+            f"**Direção:** {getattr(ranking, 'direction_label', 'N/D')} | "
+            f"**Ocorrências:** {getattr(ranking, 'occurrences', 0)} | "
+            f"**Score:** {getattr(ranking, 'score', 0.0):.6f}"
+        )
+        st.write(
+            f"**Discovery:** {getattr(ranking, 'discovery_performance', 0.0):.6f} | "
+            f"**Validation:** {getattr(ranking, 'validation_performance', 0.0):.6f} | "
+            f"**OOS:** {getattr(ranking, 'oos_performance', 0.0):.6f}"
+        )
+        st.write(
+            f"**MFE/MAE médios:** {getattr(ranking, 'mfe_mean_atr', 0.0):.3f} ATR / "
+            f"{getattr(ranking, 'mae_mean_atr', 0.0):.3f} ATR | "
+            f"**Expectancy:** {getattr(ranking, 'expectancy', 0.0):.6f}"
+        )
+        if spec is None:
+            st.info(
+                "Ainda não promovido. Entrada, stop e target somente serão "
+                "materializados manualmente a partir das métricas deste Replay."
+            )
+            return
+        st.write(
+            f"**Status operacional:** {spec.status.value} | "
+            f"**Shadow:** {spec.shadow_status.value} | **Versão:** {spec.versioned_id}"
+        )
+        st.write(f"**Entrada:** {spec.entry_rule}")
+        st.write(f"**Stop:** {spec.stop_rule}")
+        st.write(f"**Target:** {spec.target_rule}")
+        st.write(f"**Expiração:** {spec.expiration_rule}")
+        st.write(
+            "**Contexto:** warm-up completo; indicadores, estrutura, sessão e "
+            "eventos produzidos pelo mesmo Event Engine causal do Replay."
+        )
+
+
+def _render_pattern_logs(state: object) -> None:
+    """Render bounded progress logs without logging each candle."""
+
+    with st.expander("Logs do Pattern Miner", expanded=False):
+        logs = list(getattr(state, "logs", ()) or ())
+        st.code("\n".join(logs[-30:]) if logs else "Nenhum log.", language="text")
+
+
+def _pattern_number(value: object) -> str:
+    """Format optional numeric indicator values."""
+
+    try:
+        return "N/D" if value is None else f"{float(value):.4f}"
+    except (TypeError, ValueError):
+        return "N/D"
 
 
 def exibir_replay_forex_pair_dashboard(

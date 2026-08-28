@@ -18,7 +18,10 @@ from application.forex_m5_sma_rsi_model_family import (
 from application.dynamic_exit_model_family import MODEL_8_ID as DYNAMIC_MODEL_8_ID
 from application.model15_xau_m5_breakout import MODEL_15_ID
 from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
-from application.model23_basket_accumulator import model23_variant_id
+from application.model23_basket_accumulator import (
+    model23_entry_type_token,
+    model23_variant_id,
+)
 from application.model24_xau_basket import MODEL_24_ID, model24_variant_id
 from application.model25_multi_asset_rsi50_basket import model25_variant_id
 from application.xau_m5_sma_rsi_model_family import MODEL_10_ID, MODEL_12_ID
@@ -108,6 +111,37 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertFalse(result.accepted)
         self.assertIn("aposentado", result.message)
         self.assertIsNone(mt5.last_request)
+
+    def test_m24_m25_aposentados_nao_enviam_novas_ordens(self) -> None:
+        for model_id in (
+            "MODELO_24_XAU_RSI50_BASKET",
+            "MODELO_25_MULTI_ASSET_RSI50_BASKET",
+        ):
+            with self.subTest(model_id=model_id):
+                mt5 = _FakeMT5()
+                mt5.tick = SimpleNamespace(ask=3500.02, bid=3500.00)
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    provider = MT5DemoExecutionProvider(
+                        mt5=mt5,
+                        log_path=Path(temp_dir) / "orders.jsonl",
+                    )
+                    result = provider.submit_order(
+                        ExecutionOrder(
+                            symbol="XAUUSD",
+                            side="BUY",
+                            quantity=0.01,
+                            entry_price=3500.0,
+                            stop=3490.0,
+                            target=3510.0,
+                            operational_model=model_id,
+                            plan_snapshot={
+                                "candle_time": "2026-08-27T10:00:00+00:00"
+                            },
+                        )
+                    )
+                self.assertFalse(result.accepted)
+                self.assertIn("aposentado", result.message)
+                self.assertIsNone(mt5.last_request)
 
     def test_reentrada_m8_envia_buy_stop_no_topo_anterior(self) -> None:
         mt5 = _FakeMT5()
@@ -1003,6 +1037,17 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertEqual(provider._model_comment("MODELO_20_ALPHA016_REVERSAL"), "M20")
         self.assertEqual(provider._model_comment("MODELO_21_ESPELHO_M19"), "M21")
         self.assertEqual(provider._model_comment("MODELO_22_ESPELHO_M9"), "M22")
+        self.assertEqual(
+            provider._model_comment("MODELO_28_PATTERN_MINER_SHADOW"),
+            "M28",
+        )
+        order = self._order()
+        object.__setattr__(
+            order,
+            "operational_model",
+            "MODELO_28_PATTERN_MINER_SHADOW",
+        )
+        self.assertEqual(provider._order_comment(order), "TraderIA M28")
 
     def test_m23_envia_entrada_a_mercado_com_sl_tp_da_fonte(self) -> None:
         mt5 = _FakeMT5()
@@ -1026,7 +1071,10 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertEqual(mt5.last_request["action"], mt5.TRADE_ACTION_DEAL)
         self.assertEqual(mt5.last_request["sl"], order.stop)
         self.assertEqual(mt5.last_request["tp"], order.target)
-        self.assertEqual(mt5.last_request["comment"], "TraderIA M23 S1")
+        self.assertEqual(
+            mt5.last_request["comment"],
+            f"TraderIA M23 S1 {model23_entry_type_token('ALPHA001')}",
+        )
 
     def test_m23_preserva_ordem_pendente_e_sem_tp_da_fonte_m8(self) -> None:
         mt5 = _FakeMT5()
@@ -1058,9 +1106,179 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertEqual(mt5.last_request["type"], mt5.ORDER_TYPE_BUY_STOP)
         self.assertEqual(mt5.last_request["sl"], 110.0)
         self.assertEqual(mt5.last_request["tp"], 0.0)
-        self.assertEqual(mt5.last_request["comment"], "TraderIA M23 S8")
+        self.assertEqual(
+            mt5.last_request["comment"],
+            f"TraderIA M23 S8 {model23_entry_type_token('REENTRY')}",
+        )
 
-    def test_m24_reentrada_estrutural_envia_tp_individual(self) -> None:
+    def test_m23_bloqueia_segunda_posicao_global_da_mesma_fonte(self) -> None:
+        open_position = SimpleNamespace(
+            ticket=23007,
+            symbol="XAUUSD",
+            comment=(
+                "TraderIA M23 S7 "
+                f"{model23_entry_type_token('TEST_SETUP')}"
+            ),
+        )
+        provider = self._provider(_FakeMT5(open_positions=[open_position]))
+        order = self._order()
+        object.__setattr__(order, "symbol", "BTCUSD")
+        object.__setattr__(
+            order,
+            "operational_model",
+            model23_variant_id("MODELO_7_TREND_MOMENTUM_DYNAMIC"),
+        )
+
+        rejection = provider._open_position_model_limit_preflight(order)
+
+        self.assertIsNotNone(rejection)
+        self.assertIn("M7 + TEST_SETUP", rejection.message)
+        self.assertIn("tipos de entrada diferentes", rejection.message)
+
+    def test_m23_permite_mesma_fonte_com_tipo_de_entrada_diferente(self) -> None:
+        open_position = SimpleNamespace(
+            ticket=23010,
+            symbol="XAUUSD",
+            comment=(
+                "TraderIA M23 S7 "
+                f"{model23_entry_type_token('TREND_MOMENTUM')}"
+            ),
+        )
+        provider = self._provider(_FakeMT5(open_positions=[open_position]))
+        order = self._order()
+        object.__setattr__(order, "symbol", "BTCUSD")
+        object.__setattr__(
+            order,
+            "operational_model",
+            model23_variant_id("MODELO_7_TREND_MOMENTUM_DYNAMIC"),
+        )
+        object.__setattr__(
+            order,
+            "plan_snapshot",
+            {"entry_setup": "BREAKOUT_STRUCTURE"},
+        )
+
+        rejection = provider._open_position_model_limit_preflight(order)
+
+        self.assertIsNone(rejection)
+
+    def test_m23_permite_fonte_diferente_da_posicao_existente(self) -> None:
+        open_position = SimpleNamespace(
+            ticket=23007,
+            symbol="XAUUSD",
+            comment="TraderIA M23 S7",
+        )
+        provider = self._provider(_FakeMT5(open_positions=[open_position]))
+        order = self._order()
+        object.__setattr__(order, "symbol", "EURUSD")
+        object.__setattr__(
+            order,
+            "operational_model",
+            model23_variant_id("MODELO_1_ALPHA_ATUAL"),
+        )
+
+        rejection = provider._open_position_model_limit_preflight(order)
+
+        self.assertIsNone(rejection)
+
+    def test_m23_bloqueia_pendencia_da_mesma_fonte_em_outro_par(self) -> None:
+        pending = SimpleNamespace(
+            ticket=23008,
+            symbol="XAUUSD",
+            comment=(
+                "TraderIA M23 S8 "
+                f"{model23_entry_type_token('REENTRY')}"
+            ),
+        )
+        mt5 = _FakeMT5()
+        mt5.pending_orders = [pending]
+        provider = self._provider(mt5)
+        order = ExecutionOrder(
+            symbol="BTCUSD",
+            side="BUY",
+            quantity=0.01,
+            entry_price=120.50,
+            stop=110.0,
+            target=0.0,
+            operational_model=model23_variant_id(MODEL_8_ID),
+            plan_snapshot={
+                "stop_management_parameters": {
+                    "source_operational_model": MODEL_8_ID,
+                    "active_entry_order_type": "BUY_STOP",
+                },
+            },
+        )
+
+        rejection = provider._model23_pending_source_preflight_locked(order)
+
+        self.assertIsNotNone(rejection)
+        self.assertIn("M8 + REENTRY", rejection.message)
+
+    def test_m23_permite_pendencia_da_mesma_fonte_com_tipo_diferente(self) -> None:
+        pending = SimpleNamespace(
+            ticket=23011,
+            symbol="XAUUSD",
+            comment=(
+                "TraderIA M23 S8 "
+                f"{model23_entry_type_token('INITIAL')}"
+            ),
+        )
+        mt5 = _FakeMT5()
+        mt5.pending_orders = [pending]
+        provider = self._provider(mt5)
+        order = ExecutionOrder(
+            symbol="BTCUSD",
+            side="BUY",
+            quantity=0.01,
+            entry_price=120.50,
+            stop=110.0,
+            target=0.0,
+            operational_model=model23_variant_id(MODEL_8_ID),
+            plan_snapshot={
+                "stop_management_parameters": {
+                    "source_operational_model": MODEL_8_ID,
+                    "active_entry_order_type": "BUY_STOP",
+                },
+            },
+        )
+
+        rejection = provider._model23_pending_source_preflight_locked(order)
+
+        self.assertIsNone(rejection)
+
+    def test_m23_permite_reposicionar_pendencia_da_fonte_no_mesmo_par(self) -> None:
+        pending = SimpleNamespace(
+            ticket=23009,
+            symbol="XAUUSD",
+            comment=(
+                "TraderIA M23 S8 "
+                f"{model23_entry_type_token('REENTRY')}"
+            ),
+        )
+        mt5 = _FakeMT5()
+        mt5.pending_orders = [pending]
+        provider = self._provider(mt5)
+        order = ExecutionOrder(
+            symbol="XAUUSD",
+            side="BUY",
+            quantity=0.01,
+            entry_price=120.50,
+            stop=110.0,
+            target=0.0,
+            operational_model=model23_variant_id(MODEL_8_ID),
+            plan_snapshot={
+                "stop_management_parameters": {
+                    "source_operational_model": MODEL_8_ID,
+                    "active_entry_order_type": "BUY_STOP",
+                },
+            },
+        )
+
+        rejection = provider._model23_pending_source_preflight_locked(order)
+
+        self.assertIsNone(rejection)
+
+    def test_m24_reentrada_estrutural_aposentada_nao_envia(self) -> None:
         mt5 = _FakeMT5()
         mt5.tick = SimpleNamespace(ask=120.02, bid=120.00)
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1096,15 +1314,11 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
                     },
                 )
             )
-        self.assertTrue(result.accepted)
-        self.assertEqual(mt5.last_request["action"], mt5.TRADE_ACTION_PENDING)
-        self.assertEqual(mt5.last_request["tp"], 130.0)
-        self.assertEqual(
-            mt5.last_request["comment"],
-            "TraderIA M24 REENTRY",
-        )
+        self.assertFalse(result.accepted)
+        self.assertIn("aposentado", result.message)
+        self.assertIsNone(mt5.last_request)
 
-    def test_m24_autonomo_reentrada_envia_ordem_pendente(self) -> None:
+    def test_m24_autonomo_aposentado_nao_envia_ordem_pendente(self) -> None:
         mt5 = _FakeMT5()
         mt5.tick = SimpleNamespace(ask=120.02, bid=120.00)
         provider = self._provider(mt5)
@@ -1131,14 +1345,11 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
 
         result = provider.submit_order(order)
 
-        self.assertTrue(result.accepted)
-        self.assertEqual(mt5.last_request["action"], mt5.TRADE_ACTION_PENDING)
-        self.assertEqual(mt5.last_request["type"], mt5.ORDER_TYPE_BUY_STOP)
-        self.assertEqual(mt5.last_request["price"], 120.50)
-        self.assertEqual(mt5.last_request["sl"], 119.00)
-        self.assertEqual(mt5.last_request["tp"], 121.00)
+        self.assertFalse(result.accepted)
+        self.assertIn("aposentado", result.message)
+        self.assertIsNone(mt5.last_request)
 
-    def test_m24_reentrada_sell_envia_tp_no_fundo_estrutural(self) -> None:
+    def test_m24_reentrada_sell_aposentada_nao_envia(self) -> None:
         mt5 = _FakeMT5()
         mt5.tick = SimpleNamespace(ask=120.02, bid=120.00)
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1168,12 +1379,11 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
                     },
                 )
             )
-        self.assertTrue(result.accepted)
-        self.assertEqual(mt5.last_request["action"], mt5.TRADE_ACTION_PENDING)
-        self.assertEqual(mt5.last_request["type"], mt5.ORDER_TYPE_SELL_STOP)
-        self.assertEqual(mt5.last_request["tp"], 110.0)
+        self.assertFalse(result.accepted)
+        self.assertIn("aposentado", result.message)
+        self.assertIsNone(mt5.last_request)
 
-    def test_m24_initial_preserva_tp_fibonacci_congelado_no_plano(self) -> None:
+    def test_m24_initial_aposentada_nao_envia_plano_congelado(self) -> None:
         mt5 = _FakeMT5()
         mt5.tick = SimpleNamespace(ask=120.02, bid=120.00)
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1208,21 +1418,20 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
                     },
                 )
             )
-        self.assertTrue(result.accepted)
-        self.assertEqual(mt5.last_request["action"], mt5.TRADE_ACTION_DEAL)
-        self.assertEqual(mt5.last_request["tp"], 130.0)
+        self.assertFalse(result.accepted)
+        self.assertIn("aposentado", result.message)
+        self.assertIsNone(mt5.last_request)
 
-    def test_m24_continuation_envia_mercado_sem_tp_e_com_papel_no_comentario(self) -> None:
+    def test_m24_continuation_aposentada_nao_envia_mercado(self) -> None:
         mt5 = _FakeMT5()
         mt5.tick = SimpleNamespace(ask=120.02, bid=120.00)
         provider = self._provider(mt5)
 
         result = provider.submit_order(self._m24_order("CONTINUATION"))
 
-        self.assertTrue(result.accepted)
-        self.assertEqual(mt5.last_request["action"], mt5.TRADE_ACTION_DEAL)
-        self.assertEqual(mt5.last_request["tp"], 0.0)
-        self.assertEqual(mt5.last_request["comment"], "TraderIA M24 CONTINUATION")
+        self.assertFalse(result.accepted)
+        self.assertIn("aposentado", result.message)
+        self.assertIsNone(mt5.last_request)
 
     def test_gate_final_rejeita_m1_quando_somente_m24_esta_selecionado(self) -> None:
         mt5 = _FakeMT5()
@@ -1621,13 +1830,13 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
         self.assertTrue(result.accepted)
         self.assertIsNotNone(mt5.last_request)
 
-    def test_m23_permite_reentrada_da_mesma_fonte_em_novo_sinal(self) -> None:
+    def test_m23_bloqueia_reentrada_da_mesma_fonte_enquanto_aberta(self) -> None:
         mt5 = _FakeMT5(
             open_positions=[SimpleNamespace(comment="TraderIA M23 S1")]
         )
         provider = self._provider(mt5)
 
-        self.assertFalse(
+        self.assertTrue(
             provider.has_open_position_for_model(
                 "WDO",
                 model23_variant_id("MODELO_1_ALPHA_ATUAL"),
@@ -1658,8 +1867,9 @@ class MT5DemoExecutionProviderTest(unittest.TestCase):
 
         result = provider.submit_order(order)
 
-        self.assertTrue(result.accepted)
-        self.assertEqual(mt5.last_request["comment"], "TraderIA M23 S1")
+        self.assertFalse(result.accepted)
+        self.assertIn("fonte M1", result.message)
+        self.assertIsNone(mt5.last_request)
 
     def test_submit_order_bloqueia_vigesima_terceira_posicao_no_par(self) -> None:
         mt5 = _FakeMT5(

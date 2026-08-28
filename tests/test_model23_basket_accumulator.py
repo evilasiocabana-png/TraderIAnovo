@@ -71,6 +71,12 @@ class Model23BasketAccumulatorTest(unittest.TestCase):
         self.assertTrue(variant.endswith("SOURCE_M10"))
         self.assertEqual(model23_order_comment(variant), "TraderIA M23 S10")
 
+    def test_identidade_aceita_m26_como_fonte_adicional(self) -> None:
+        variant = model23_variant_id("MODELO_26_XAU_M5_SMART_MONEY")
+
+        self.assertTrue(variant.endswith("SOURCE_M26"))
+        self.assertEqual(model23_order_comment(variant), "TraderIA M23 S26")
+
     def test_resultado_abaixo_dos_gates_apenas_acumula(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             manager, service = self._manager(directory, [_position(1, 250.0)])
@@ -272,6 +278,29 @@ class Model23BasketAccumulatorTest(unittest.TestCase):
             self.assertTrue(cleared.accept_signals_after)
             self.assertFalse(allowed)
             self.assertEqual(reason, "M23_SINAL_ANTIGO_DA_RODADA_ANTERIOR")
+
+    def test_gate_aceita_timestamp_do_dashboard_em_horario_de_brasilia(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            state_path.write_text(
+                '{"status":"ACCUMULATING",'
+                '"accept_signals_after":"2026-08-26T03:30:00+00:00"}',
+                encoding="utf-8",
+            )
+
+            old_allowed, old_reason = model23_entry_gate(
+                "26/08/2026 00:00",
+                state_path,
+            )
+            new_allowed, new_reason = model23_entry_gate(
+                "26/08/2026 01:00",
+                state_path,
+            )
+
+            self.assertFalse(old_allowed)
+            self.assertEqual(old_reason, "M23_SINAL_ANTIGO_DA_RODADA_ANTERIOR")
+            self.assertTrue(new_allowed)
+            self.assertEqual(new_reason, "M23_NOVO_SINAL_LIBERADO")
 
 
 if __name__ == "__main__":

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 from pathlib import Path
 import re
 import threading
+import time
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -21,6 +23,7 @@ MODEL_23_EXIT_POLICY = "M23_FULL_EXIT_1000_ONLY"
 MODEL_23_FULL_EXIT_USD = 1000.0
 MODEL_23_CLOSE_CONFIRMATION_SECONDS = 15.0
 MODEL_23_STATE_PATH = Path(".traderia") / "model23_basket_state.json"
+MODEL_23_ADDITIONAL_SOURCE_NUMBERS = (26,)
 
 _MODEL23_LOCK = threading.Lock()
 
@@ -57,8 +60,10 @@ def model23_source_model_id(value: object) -> str:
 
 def model23_variant_id(source_operational_model: object) -> str:
     number = operational_model_number(source_operational_model)
-    if number is None or number >= 23:
-        raise ValueError("M23 exige um modelo-fonte ativo entre M1 e M22.")
+    if number is None or (
+        number >= 23 and number not in MODEL_23_ADDITIONAL_SOURCE_NUMBERS
+    ):
+        raise ValueError("M23 exige uma fonte operacional autorizada.")
     return f"{MODEL_23_ID}_SOURCE_M{number}"
 
 
@@ -76,6 +81,81 @@ def model23_position_source(position: object) -> str:
     comment = str(getattr(position, "comment", "") or "").upper()
     match = re.search(r"\bS(\d{1,2})\b", comment)
     return f"M{int(match.group(1))}" if match is not None else "N/D"
+
+
+def model23_entry_type(
+    parameters: dict[str, Any] | None = None,
+    *,
+    entry_setup: object = "",
+    alpha_id: object = "",
+) -> str:
+    """Resolve o tipo operacional real herdado pela copia M23."""
+    payload = dict(parameters or {})
+    candidates = (
+        payload.get("m23_entry_type"),
+        payload.get("m24_entry_role"),
+        payload.get("m25_entry_role"),
+        payload.get("source_entry_role"),
+        payload.get("entry_role"),
+        payload.get("active_signal_kind"),
+        payload.get("source_signal_kind"),
+        payload.get("signal_kind"),
+    )
+    aliases = {
+        "INITIAL": "INITIAL",
+        "INITIAL_ENTRY": "INITIAL",
+        "ENTRADA_INICIAL": "INITIAL",
+        "REENTRY": "REENTRY",
+        "STRUCTURAL_REENTRY": "REENTRY",
+        "REENTRADA": "REENTRY",
+        "REENTRY_AFTER_RSI_EXTREME_EXIT": "REENTRY",
+        "CONTINUATION": "CONTINUATION",
+        "CONTINUACAO": "CONTINUATION",
+        "LATERALIZATION": "LATERALIZATION",
+        "LATERALIZACAO": "LATERALIZATION",
+        "EXHAUSTION": "EXHAUSTION",
+        "EXAUSTAO": "EXHAUSTION",
+    }
+    for candidate in candidates:
+        normalized = str(candidate or "").strip().upper()
+        if normalized in aliases:
+            return aliases[normalized]
+
+    order_type = str(payload.get("active_entry_order_type") or "").upper()
+    if order_type in {"BUY_STOP", "SELL_STOP", "BUY_LIMIT", "SELL_LIMIT"}:
+        return "REENTRY"
+
+    setup = str(
+        payload.get("source_entry_setup")
+        or payload.get("entry_setup")
+        or entry_setup
+        or ""
+    ).strip().upper()
+    if setup:
+        parts = [part.strip() for part in setup.split("|") if part.strip()]
+        for part in reversed(parts):
+            if part not in {"N/D", "NONE", "WAIT"} and not part.startswith("M23 <-"):
+                return re.sub(r"[^A-Z0-9_]+", "_", part).strip("_")
+
+    alpha = str(payload.get("source_alpha_id") or alpha_id or "").strip().upper()
+    if alpha and alpha not in {"N/D", "NONE"}:
+        return re.sub(r"[^A-Z0-9_]+", "_", alpha).strip("_")
+    return ""
+
+
+def model23_entry_type_token(entry_type: object) -> str:
+    """Gera token curto e estavel para persistir a chave no comentario MT5."""
+    normalized = str(entry_type or "").strip().upper()
+    if not normalized:
+        return ""
+    digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:8].upper()
+    return f"T{digest}"
+
+
+def model23_position_entry_type_token(position: object) -> str:
+    comment = str(getattr(position, "comment", "") or "").upper()
+    match = re.search(r"\bT[0-9A-F]{8}\b", comment)
+    return match.group(0) if match is not None else ""
 
 
 def model23_position_net(position: object) -> float:
@@ -116,7 +196,14 @@ def _parse_utc(value: object) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
     except ValueError:
-        return None
+        try:
+            # The dashboard exposes theoretical candle timestamps in Brasilia
+            # time. M23 must accept that same contract when checking a new round.
+            parsed = datetime.strptime(normalized, "%d/%m/%Y %H:%M").replace(
+                tzinfo=timezone(timedelta(hours=-3), name="BRT")
+            )
+        except ValueError:
+            return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
@@ -324,12 +411,26 @@ class Model23BasketManager:
     def _write_state(self, snapshot: Model23BasketSnapshot) -> None:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.state_path.with_suffix(f".{uuid4().hex}.tmp")
+        payload = json.dumps(asdict(snapshot), ensure_ascii=True, indent=2)
         try:
-            temporary.write_text(
-                json.dumps(asdict(snapshot), ensure_ascii=True, indent=2),
-                encoding="utf-8",
-            )
-            temporary.replace(self.state_path)
+            temporary.write_text(payload, encoding="utf-8")
+            for attempt in range(5):
+                try:
+                    temporary.replace(self.state_path)
+                    return
+                except PermissionError:
+                    if attempt < 4:
+                        time.sleep(0.05 * (attempt + 1))
+            # O OneDrive pode bloquear momentaneamente a troca atomica. A
+            # gravacao direta preserva o ciclo; a proxima avaliacao reconcilia
+            # o estado com as posicoes reais do MT5.
+            for attempt in range(3):
+                try:
+                    self.state_path.write_text(payload, encoding="utf-8")
+                    return
+                except PermissionError:
+                    if attempt < 2:
+                        time.sleep(0.1 * (attempt + 1))
         finally:
             temporary.unlink(missing_ok=True)
 

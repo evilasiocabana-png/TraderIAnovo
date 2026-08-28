@@ -79,6 +79,14 @@ from application.model16_xau_m5_price_ema_breakout import (
     MODEL_16_TIMEFRAME,
     model16_previous_candle_stop,
 )
+from application.model26_xau_m5_smart_money import (
+    MODEL_26_BETA_ID,
+    MODEL_26_BETA_VERSION,
+    MODEL_26_ID,
+    MODEL_26_STOP_MANAGEMENT,
+    MODEL_26_TIMEFRAME,
+    evaluate_model26_exit,
+)
 from application.model24_xau_basket import (
     MODEL_24_ALPHA_ID,
     MODEL_24_BETA_ID,
@@ -1108,6 +1116,11 @@ class PositionManagerService:
         ):
             return self._decide_model3_rsi50_flip(plan, snapshot)
         if (
+            str(plan.operational_model or "").upper() == MODEL_26_ID
+            or policy == MODEL_26_STOP_MANAGEMENT
+        ):
+            return self._decide_model26_full_exit(plan, snapshot)
+        if (
             str(plan.operational_model or "").upper()
             in {
                 MODEL_8_ID,
@@ -1174,6 +1187,7 @@ class PositionManagerService:
                 beta_mode=plan.beta_mode,
                 evidence=snapshot.evidence + ("RESEARCH_FIXED_SL_TP",),
             )
+
         if self._is_m7_dynamic_plan(plan):
             return self._decide_model7_dynamic(plan, snapshot)
         if _normalize_beta_id(plan.beta_id) == BETA002_ID:
@@ -1301,6 +1315,68 @@ class PositionManagerService:
             beta_version=plan.beta_version,
             beta_mode=plan.beta_mode,
             evidence=snapshot.evidence,
+        )
+
+    def _decide_model26_full_exit(
+        self,
+        plan: PositionTradePlan,
+        snapshot: PositionStateSnapshot,
+    ) -> PositionManagerDecision:
+        """M26 acompanha M5 e aplica a gestao especifica de cada rota."""
+        candles = tuple(
+            self.provider.get_recent_candles(
+                plan.symbol,
+                MODEL_26_TIMEFRAME,
+                OPERATIONAL_INDICATOR_RAW_CANDLES,
+            )
+            or ()
+        )
+        parameters = dict(plan.stop_management_parameters or {})
+        order_type = str(parameters.get("active_entry_order_type") or "").upper()
+        signal_kind = str(parameters.get("active_signal_kind") or "").upper()
+        decision = evaluate_model26_exit(
+            candles,
+            snapshot.side,
+            reentry_position=order_type in {"BUY_STOP", "SELL_STOP"},
+            reentry_route=signal_kind,
+            entry_candle_time=plan.candle_time,
+        )
+        allowed = decision.action in {"FULL_EXIT", "PROTECT_POSITION"} and self.assisted_execution_enabled
+        return PositionManagerDecision(
+            symbol=plan.symbol,
+            ticket=snapshot.ticket,
+            state=decision.status,
+            action=decision.action,
+            reason=decision.reason,
+            confidence=(
+                0.0
+                if decision.status in {"M26_EXIT_CANDLES_INSUFICIENTES", "M26_EXIT_DADOS_INVALIDOS"}
+                else 1.0
+            ),
+            beta_id=MODEL_26_BETA_ID,
+            beta_version=MODEL_26_BETA_VERSION,
+            beta_mode="CANDLE_ROUTE_TP_OR_FULL_EXIT",
+            allowed_to_execute=allowed,
+            execution_mode="AUTOMATIC_DEMO" if allowed else "READ_ONLY",
+            requested_stop=decision.candidate_stop,
+            requested_close_volume=(
+                snapshot.volume if decision.action == "FULL_EXIT" else None
+            ),
+            final_exit_reason=(
+                decision.reason if decision.action == "FULL_EXIT" else "N/D"
+            ),
+            evidence=snapshot.evidence
+            + (
+                f"M26_ENTRY_ROUTE={signal_kind or 'N/D'}",
+                f"M26_STRUCTURE={decision.structure_sequence}",
+                f"M26_STATUS={decision.status}",
+            ),
+            beta_closed_candle_time=decision.closed_candle_time,
+            missing_data=(
+                ("closed_m5_candles",)
+                if decision.status == "M26_EXIT_CANDLES_INSUFICIENTES"
+                else ()
+            ),
         )
 
     def _decide_model7_dynamic(

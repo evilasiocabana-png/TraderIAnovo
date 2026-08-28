@@ -74,6 +74,37 @@ function Get-TraderIAStreamlitProcess {
     }
 }
 
+function Remove-DuplicateTraderIAListeners {
+    param(
+        [int]$KeepProcessId
+    )
+    $listeningOwners = @(
+        netstat -ano -p tcp |
+            Select-String -Pattern ":$Port\s+.*LISTENING\s+(\d+)\s*$" |
+            ForEach-Object { [int]$_.Matches[0].Groups[1].Value } |
+            Select-Object -Unique
+    )
+    foreach ($processId in $listeningOwners) {
+        if ($processId -eq $KeepProcessId) {
+            continue
+        }
+        $process = Get-CimInstance Win32_Process `
+            -Filter "ProcessId = $processId" `
+            -ErrorAction SilentlyContinue
+        $commandLine = [string]$process.CommandLine
+        if ($commandLine -notmatch "streamlit" -or $commandLine -notmatch "dashboard_app\.py") {
+            continue
+        }
+        Write-GuardLog -Event "duplicate_listener_stopped" -Payload @{
+            port = $Port
+            kept_process_id = $KeepProcessId
+            stopped_process_id = $processId
+            command_line = $commandLine
+        }
+        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Start-TraderIAStreamlit {
     $python = (Get-Command python -ErrorAction SilentlyContinue).Source
     if (-not $python) {
@@ -130,6 +161,7 @@ function Invoke-GuardCycle {
         Start-TraderIAStreamlit
         return
     }
+    Remove-DuplicateTraderIAListeners -KeepProcessId $processes[0].ProcessId
     if (-not (Test-TraderIAStreamlitHealth)) {
         $script:ConsecutiveHealthFailures += 1
         Write-GuardLog -Event "health_check_pending" -Payload @{

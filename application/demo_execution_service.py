@@ -11,6 +11,8 @@ from application.model15_xau_m5_breakout import MODEL_15_ID
 from application.model16_xau_m5_price_ema_breakout import MODEL_16_ID
 from application.model23_basket_accumulator import is_model23
 from application.model24_xau_basket import is_model24
+from application.model26_xau_m5_smart_money import is_model26
+from application.model27_mirror_m26 import is_model27
 from application.model3_xau_m5_rsi50_flip import MODEL_3_ID
 from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID
 from application.xau_m5_sma_rsi_model_family import (
@@ -490,6 +492,25 @@ class DemoExecutionService:
                 "MODELO_1_ALPHA_ATUAL",
             )
         )
+        if is_model23(operational_model):
+            typed_checker = getattr(
+                self.provider,
+                "has_open_position_for_model_entry_type",
+                None,
+            )
+            if callable(typed_checker):
+                return bool(typed_checker(order))
+            # O provider final permanece a autoridade atomica. Um adaptador
+            # antigo sem o contrato tipado nao pode aplicar o gate amplo por
+            # fonte, pois isso bloquearia tipos diferentes do mesmo modelo.
+            return False
+        if is_model26(operational_model) or is_model27(operational_model):
+            # O M26 possui rotas independentes (CONT, LAT e EXH). A sonda
+            # externa de leitura pode falhar transitoriamente enquanto o MT5
+            # esta ocupado e nao pode converter essa indisponibilidade em uma
+            # falsa duplicidade. O preflight atomico do provider, imediatamente
+            # antes do order_send, continua sendo a autoridade final.
+            return False
         model_checker = getattr(self.provider, "has_open_position_for_model", None)
         if callable(model_checker):
             return bool(model_checker(order.symbol, operational_model))
@@ -498,6 +519,7 @@ class DemoExecutionService:
     def _has_required_stop_and_target(self, order: ExecutionOrder) -> bool:
         model = str(getattr(order, "operational_model", "") or "").upper()
         original_is_model24 = is_model24(model)
+        original_is_model26 = is_model26(model)
         parameters = dict(
             dict(getattr(order, "plan_snapshot", None) or {}).get(
                 "stop_management_parameters"
@@ -514,6 +536,36 @@ class DemoExecutionService:
             and bool(parameters.get("m24_individual_target_enabled"))
             and float(getattr(order, "target", 0.0) or 0.0) > 0.0
         )
+        if original_is_model26:
+            order_type = str(parameters.get("active_entry_order_type") or "").upper()
+            if order.side == "BUY":
+                return (
+                    order.stop < order.entry_price < order.target
+                    if order_type == "BUY_LIMIT"
+                    else order.stop < order.entry_price
+                )
+            if order.side == "SELL":
+                return (
+                    order.target < order.entry_price < order.stop
+                    if order_type == "SELL_LIMIT"
+                    else order.entry_price < order.stop
+                )
+            return False
+        if is_model26(model):
+            order_type = str(parameters.get("active_entry_order_type") or "").upper()
+            if order.side == "BUY":
+                return (
+                    order.stop < order.entry_price < order.target
+                    if order_type == "BUY_LIMIT"
+                    else order.stop < order.entry_price
+                )
+            if order.side == "SELL":
+                return (
+                    order.target < order.entry_price < order.stop
+                    if order_type == "SELL_LIMIT"
+                    else order.entry_price < order.stop
+                )
+            return False
         requires_target = (not original_is_model24) and xau_model_requires_target(
             model,
             parameters.get("active_entry_order_type"),

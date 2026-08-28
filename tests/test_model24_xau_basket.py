@@ -45,6 +45,7 @@ from application.dashboard_service import (
     DashboardService,
     MT5_MODEL_24_SOURCE_MODEL_IDS,
     MT5_MODEL_25_SOURCE_MODEL_IDS,
+    MT5_OPERATIONAL_MODEL_1,
     MT5_OPERATIONAL_MODEL_8,
     MT5_OPERATIONAL_MODEL_24,
     MT5_OPERATIONAL_MODEL_25,
@@ -1090,31 +1091,33 @@ def test_basket_state_write_retries_short_windows_lock(tmp_path: Path) -> None:
     assert state_path.exists()
 
 
-def test_identity_and_comment_are_standalone_for_new_m24_orders() -> None:
+def test_identity_and_comment_are_preserved_only_for_historical_m24_orders() -> None:
     variant = model24_variant_id("MODELO_20_XAU_M5_SMA_RSI_MA_DISTANCE_ATR_REENTRY_TP75")
     assert variant == MODEL_24_ID
     assert model24_order_comment(variant) == "TraderIA M24"
     assert model24_order_comment(f"{MODEL_24_ID}_SOURCE_M20") == "TraderIA M24 S20"
     assert operational_model_number(MODEL_24_ID) == 24
-    assert is_active_operational_model(variant)
-    assert not is_retired_operational_model(variant)
+    assert not is_active_operational_model(variant)
+    assert is_retired_operational_model(variant)
 
 
-def test_service_selects_only_the_standalone_m24_route() -> None:
+def test_service_rejects_stale_m24_selection() -> None:
     service = object.__new__(DashboardService)
     service.set_mt5_operational_model(MT5_OPERATIONAL_MODEL_24)
 
-    assert service._mt5_operational_models_to_evaluate() == MT5_MODEL_24_SOURCE_MODEL_IDS
+    assert service._mt5_operational_models_to_evaluate() == (
+        MT5_OPERATIONAL_MODEL_1,
+    )
     assert MT5_MODEL_24_SOURCE_MODEL_IDS == (MODEL_24_ID,)
-    assert service._mt5_model24_routing_enabled()
-    assert not service._mt5_direct_routing_enabled()
+    assert not service._mt5_model24_routing_enabled()
+    assert service._mt5_direct_routing_enabled()
 
     service.set_mt5_operational_models(
         list(MT5_MODEL_24_SOURCE_MODEL_IDS),
         direct_models_enabled=True,
     )
     service.set_mt5_operational_model(MT5_OPERATIONAL_MODEL_WITH_24)
-    assert service.get_mt5_operational_model() == MT5_OPERATIONAL_MODEL_WITH_24
+    assert service.get_mt5_operational_model() == MT5_OPERATIONAL_MODEL_1
     assert service._mt5_direct_routing_enabled()
 
 
@@ -1141,14 +1144,16 @@ def test_m24_waiting_diagnostic_has_priority_over_generic_batch_wait() -> None:
     assert selected.result_status == "M24_DISTANCE_ATR_BLOQUEADO"
 
 
-def test_model25_is_exclusive_and_expands_to_its_xau_sources() -> None:
+def test_service_rejects_stale_model25_selection() -> None:
     service = object.__new__(DashboardService)
     service.set_mt5_operational_model(MT5_OPERATIONAL_MODEL_25)
 
-    assert service._mt5_operational_models_to_evaluate() == MT5_MODEL_25_SOURCE_MODEL_IDS
+    assert service._mt5_operational_models_to_evaluate() == (
+        MT5_OPERATIONAL_MODEL_1,
+    )
     assert not service._mt5_model24_routing_enabled()
-    assert service._mt5_model25_routing_enabled()
-    assert not service._mt5_direct_routing_enabled()
+    assert not service._mt5_model25_routing_enabled()
+    assert service._mt5_direct_routing_enabled()
 
 
 def test_m24_does_not_require_valid_h1_research_plan_before_its_own_route() -> None:

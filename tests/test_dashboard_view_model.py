@@ -806,6 +806,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
 
     def test_chaveamento_combinado_habilita_ordens_diretas_e_copias_m23(self) -> None:
         from application.dashboard_service import (
+            MT5_MODEL_23_SOURCE_MODEL_IDS,
             MT5_OPERATIONAL_MODEL_1,
             MT5_OPERATIONAL_MODEL_8,
             MT5_OPERATIONAL_MODEL_WITH_23,
@@ -824,14 +825,22 @@ class DashboardViewModelContractTest(unittest.TestCase):
         )
         self.assertEqual(
             service._mt5_operational_models_to_evaluate(),
-            (MT5_OPERATIONAL_MODEL_1, MT5_OPERATIONAL_MODEL_8),
+            (
+                MT5_OPERATIONAL_MODEL_1,
+                MT5_OPERATIONAL_MODEL_8,
+                *(
+                    model_id
+                    for model_id in MT5_MODEL_23_SOURCE_MODEL_IDS
+                    if model_id
+                    not in {MT5_OPERATIONAL_MODEL_1, MT5_OPERATIONAL_MODEL_8}
+                ),
+            ),
         )
         self.assertTrue(service._mt5_direct_routing_enabled())
         self.assertTrue(service._mt5_model23_routing_enabled())
 
-    def test_chaveamento_combina_modelo_direto_com_cesta_m25(self) -> None:
+    def test_chaveamento_descarta_cesta_m25_apos_aposentadoria(self) -> None:
         from application.dashboard_service import (
-            MT5_MODEL_25_SOURCE_MODEL_IDS,
             MT5_OPERATIONAL_MODEL_1,
             MT5_OPERATIONAL_MODEL_25,
         )
@@ -844,14 +853,14 @@ class DashboardViewModelContractTest(unittest.TestCase):
         )
 
         self.assertTrue(service._mt5_direct_routing_enabled())
-        self.assertTrue(service._mt5_model25_routing_enabled())
+        self.assertFalse(service._mt5_model25_routing_enabled())
         self.assertEqual(
             service.mt5_selected_direct_operational_models,
             (MT5_OPERATIONAL_MODEL_1,),
         )
         self.assertEqual(
             service._mt5_operational_models_to_evaluate(),
-            (MT5_OPERATIONAL_MODEL_1, *MT5_MODEL_25_SOURCE_MODEL_IDS),
+            (MT5_OPERATIONAL_MODEL_1,),
         )
 
     def test_chaveamento_m23_avalia_somente_fontes_ativas(self) -> None:
@@ -889,7 +898,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
                 operational_model_number(model_id)
                 for model_id in MT5_MODEL_23_EXCLUDED_SOURCE_MODEL_IDS
             ),
-            (16, 17, 19, 21, 22),
+            (16, 17, 19, 21, 22, 26, 27, 28),
         )
         self.assertEqual(
             tuple(
@@ -913,6 +922,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
             decision="BUY",
             theoretical_entry_direction="BUY",
             theoretical_entry_price=1.10,
+            active_model="TREND_MOMENTUM",
         )
         plan = MT5ResearchTradePlan(
             symbol="EURUSD",
@@ -954,6 +964,14 @@ class DashboardViewModelContractTest(unittest.TestCase):
         self.assertEqual(
             basket_plan.stop_management_parameters["source_beta_id"],
             "BETA_SOURCE",
+        )
+        self.assertEqual(
+            basket_plan.stop_management_parameters["source_entry_setup"],
+            "TREND_MOMENTUM",
+        )
+        self.assertEqual(
+            basket_plan.stop_management_parameters["m23_entry_type"],
+            "TREND_MOMENTUM",
         )
         self.assertEqual(
             basket_plan.stop_management_parameters["full_exit_usd"],
@@ -1018,6 +1036,60 @@ class DashboardViewModelContractTest(unittest.TestCase):
             ]
         )
         self.assertIn("ultimo topo/fundo M5", basket_plan.target_reason)
+
+    def test_m23_preserva_reentrada_buy_mesmo_apos_rsi_acima_de_70(self) -> None:
+        service = DashboardService()
+        # Alta longa arma a janela RSI>70; o ultimo item e a vela em formacao.
+        service.mt5_market_data_service.latest_forex_candles = {
+            ("XAUUSD", "M5"): [
+                {"close": 4300.0 + index}
+                for index in range(40)
+            ]
+            + [{"close": 4339.2}, {"close": 4339.0}],
+        }
+        row = DashboardMT5ForexSignalRowViewModel(
+            pair="XAUUSD",
+            status="OK",
+            timeframe="M5",
+            decision="BUY",
+            theoretical_entry_direction="BUY",
+            theoretical_entry_price=4339.2,
+        )
+        plan = MT5ResearchTradePlan(
+            symbol="XAUUSD",
+            timeframe="M5",
+            direction="BUY",
+            entry_price=4339.2,
+            stop=4329.0,
+            target=0.0,
+            risk_reward=0.0,
+            stop_multiplier=0.0,
+            exit_model="M8_EXIT",
+            exit_score=0.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            stop_management_parameters={
+                "active_entry_order_type": "BUY_STOP",
+                "structural_target_price": 4360.0,
+            },
+            stop_management="M8_SMA_RSI_FULL_EXIT",
+        )
+
+        basket_row, basket_plan = service._mt5_model23_variant_from_source(
+            row,
+            plan,
+            source_operational_model=(
+                dashboard_service_module.MT5_OPERATIONAL_MODEL_8
+            ),
+        )
+
+        self.assertEqual(basket_row.decision, "BUY")
+        self.assertEqual(basket_plan.direction, "BUY")
+        self.assertEqual(basket_plan.status, "PLANO_VALIDO")
+        self.assertNotIn(
+            "m23_buy_reentry_exhaustion_gate",
+            basket_plan.stop_management_parameters,
+        )
 
     def test_m23_reconstroi_position_manager_com_politica_da_fonte(self) -> None:
         service = DashboardService()

@@ -11,6 +11,22 @@ o modelo inteiro como `sem TP`: a decisao depende de `active_entry_order_type`.
 M18-M22 sao a referencia implementada desse padrao. Consulte
 `OPERATIONAL_MODELS_M18_M22_XAU_REENTRY_TP75.md`.
 
+## Extensao: padrao promovido do Replay em Shadow
+
+Quando um modelo nasce de mineracao de padroes, como o M28, o protocolo exige:
+
+1. promocao manual a partir do ranking validado;
+2. `OperationalPatternSpec` imutavel e versionada;
+3. persistencia da origem, metricas Discovery/Validation/OOS e cache de pesquisa;
+4. reutilizacao do mesmo IndicatorEngine e Event Engine no Replay e no live;
+5. maquina de estados com sequencia e intervalo causal entre eventos;
+6. producao exclusiva de `SignalCandidate` em Shadow;
+7. ausencia de imports ou chamadas ao provider e executor;
+8. ativacao operacional somente em missao futura depois de avaliacao Shadow.
+
+O M28 e a referencia implementada desse contrato. Consulte
+`OPERATIONAL_MODEL_28_PATTERN_MINER_SHADOW.md`.
+
 Data: 2026-07-16
 Projeto: TraderIA Novo
 Status: protocolo operacional e retrospectiva de aprendizado

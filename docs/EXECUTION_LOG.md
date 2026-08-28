@@ -1,5 +1,127 @@
 # Execution Log
 
+## 2026-08-27 - Modelo 28 Pattern Miner Operational Shadow
+
+- criada ponte manual entre ranking do Replay e `OperationalPatternSpec`;
+- especificacoes sao versionadas, persistidas atomicamente e iniciam como
+  `OPERATIONAL_CANDIDATE`;
+- M28 reutiliza os mesmos indicadores e detectores causais no live;
+- `LivePatternTracker` acompanha multiplas maquinas de estado e gera somente
+  `SignalCandidate` hipotetico;
+- entrada, stop e target Shadow sao derivados das metricas First Passage;
+- M28 permanece fora do provider, do robo e do Position Manager, com volume zero
+  e envio de ordens bloqueado por contrato.
+
+## 2026-08-27 - Aposentadoria operacional dos modelos 24 e 25
+
+- removidos M24 e M25 do seletor, ciclo operacional e graficos ativos;
+- selecoes persistidas antigas sao sanitizadas e nao reativam esses modelos;
+- provider e politica de dominio classificam ambos como aposentados e bloqueiam
+  novas ordens;
+- identificacao e contratos foram preservados somente para historico e rollback;
+- M23, M26 e M27 nao tiveram seus contratos operacionais alterados.
+
+## 2026-08-27 - Modelo 27 espelho independente do M26
+
+- criado o M27 em `XAUUSD/M5`, sem alterar o M26;
+- cada BUY/SELL e tipo de ordem do M26 e invertido preservando o preco-gatilho;
+- `TP_M27` usa o `SL_M26` e o novo SL e simetrico para RR `1:1`;
+- lote fixo `0,03` para continuidade, lateralizacao e exaustao;
+- selecao, comentarios MT5, provider Demo, auditoria visual e testes foram
+  integrados; conta Real permanece bloqueada.
+
+## 2026-08-26 - Lateralizacao M26 arma na segunda vela contraria
+
+- removida a exigencia de uma terceira vela de retomada para criar a ordem;
+- BUY lateral usa duas ou mais vermelhas, `50 < RSI14 <= 70`, `BUY_STOP` na
+  maxima da ultima vermelha, SL `0,01` abaixo do fundo criado e TP no topo
+  estrutural anterior;
+- SELL lateral usa duas ou mais verdes, `30 <= RSI14 < 50`, `SELL_STOP` na
+  minima da ultima verde, SL `0,01` acima do topo criado e TP no fundo
+  estrutural anterior;
+- sequencias maiores continuam reposicionando somente a pendencia da rota
+  lateral, sem duplicar `modelo + tipo`;
+- contrato promovido para `M26_CANDLE_SEQUENCE_V22_20260826` e validado por
+  138 testes automatizados.
+
+## 2026-08-26 - Alerta SELL de exaustao M26 deixa de ser bloqueado por BUY antigo
+
+- identificado alerta BUY persistente como causa do sinal SELL perdido;
+- RSI14 chegou a `74,49` no XAUUSD/M5 e duas velas vermelhas ocorreram depois,
+  mas a trava mutua anterior nao permitiu armar a venda;
+- o extremo oposto mais recente agora substitui o alerta obsoleto;
+- a migracao para `M26_CANDLE_SEQUENCE_V18_20260826` reconcilia a janela de
+  candles fechados e preserva o alerta ate aceite real do MT5;
+- colecoes NumPy do `copy_rates_from_pos()` agora atravessam a avaliacao M26
+  sem erro de valor booleano ambiguo;
+- nenhuma ordem retroativa foi enviada e as demais rotas M26 foram mantidas.
+
+## 2026-08-26 - SL lateral do M26 usa o topo/fundo real do padrao
+
+- SELL lateral continua armando na minima da vermelha confirmadora, mas o SL
+  passa a ficar `0,01` acima da maior maxima entre as duas verdes e a vermelha.
+- BUY aplica o espelho: entrada na maxima da verde confirmadora e SL `0,01`
+  abaixo da menor minima entre as duas vermelhas e a verde.
+- Entrada, TP, RSI, continuidade e exaustao permanecem inalterados.
+- Contrato promovido para `M26_CANDLE_SEQUENCE_V17_20260826`.
+
+## 2026-08-26 - M23 tipa entradas e bloqueia duplicidade pela chave correta
+
+- A coluna `Tipo entrada` deixou de mostrar `COPIADA` e agora exibe o tipo real
+  herdado da fonte, como `PRINCIPAL`, `REENTRADA`, `CONTINUACAO`,
+  `LATERALIZACAO`, `EXAUSTAO` ou o setup operacional correspondente.
+- O Trade Plan M23 passou a persistir fonte, Alpha, setup e tipo da entrada.
+- Posicoes e pendencias sao unicas por `modelo-fonte + tipo de entrada`.
+  Tipos diferentes do mesmo modelo podem coexistir; o mesmo tipo nao pode ser
+  repetido simultaneamente.
+- Novas ordens M23 carregam no comentario MT5 o modelo-fonte e um token estavel
+  do tipo. Tickets legados sao reconciliados pelo log de execucao e, quando
+  ambiguos, falham fechados.
+- Testes cobrem posicao, pendencia, reposicionamento, compatibilidade legada e
+  exibicao do tipo real no Dashboard.
+
+## 2026-08-25 - Continuidade M26 executada diretamente a mercado
+
+- O fechamento confirmador do padrao `2+1+1` agora gera ordem `MARKET`.
+- SELL preserva o SL `0,01` acima do microtopo anterior; BUY usa o espelho,
+  `0,01` abaixo do microfundo anterior.
+- A lateralizacao permanece independente, com ordens Limit e SL estrutural.
+
+## 2026-08-25 - M26 separa entrada Limit do stop estrutural
+
+- BUY LIMIT da lateralizacao passa a usar a maxima da vela vermelha que formou
+  o fundo; o SL permanece `0,01` abaixo da minima estrutural.
+- SELL LIMIT usa a minima da vela verde que formou o topo; o SL permanece
+  `0,01` acima da maxima estrutural.
+- Continuidade e lateralizacao continuam independentes e simultaneas.
+
+## 2026-08-25 - M26 permite continuidade e lateralizacao simultaneas
+
+- O avaliador M26 passou a publicar as duas rotas prontas no mesmo snapshot.
+- O ciclo materializa um Trade Plan por rota, inclusive quando M23 copia M26.
+- Comentarios MT5 usam `CONT` e `LAT`; substituicao, duplicidade e limite de
+  posicao passaram a atuar por rota, sem uma cancelar ou bloquear a outra.
+- Continua valendo o maximo de uma pendencia/posicao por rota e por simbolo.
+
+## 2026-08-25 - M26 refeito por continuidade e lateralizacao M5
+
+- O M26 opera `XAUUSD/M5` com janela deslizante de 200 candles fechados.
+- SMA20, SMA50 e RSI14 foram removidos do contrato operacional do modelo.
+- Continuidade usa sequencia `2+1+1`, ordem Stop, lote `0,01`, SL protetivo e
+  Full Exit apos dois candles contrarios.
+- Lateralizacao nao decide uma nova saida: tres marcacoes alternadas de topo e
+  fundo `2+2` apenas escolhem a ordem Limit e os alvos estruturais ja definidos.
+- A rota lateral usa lote `0,02`; as duas rotas podem coexistir.
+- Entrada Teorica, Trade Plan, executor Demo, provider MT5, Position Manager,
+  Relatorio e testes foram atualizados para o mesmo contrato.
+- Corrigido o gate legado do M23 que aceitava somente fontes numeradas ate M22;
+  o acumulador agora reconhece explicitamente a fonte M26 selecionada.
+- A continuidade M26 passa a executar a mercado quando o candle de confirmacao
+  ja atravessou o gatilho Stop; isso evita rejeicao de pendencia atras do preco.
+- A persistencia da cesta M23 agora repete a troca atomica e usa gravacao direta
+  como fallback quando o OneDrive bloqueia temporariamente o arquivo de estado;
+  uma falha de sincronizacao nao interrompe mais o ciclo operacional.
+
 ## 2026-08-25 - M26 migrado de M5 para M1
 
 - O contrato Smart Money do M26 passou a operar exclusivamente `XAUUSD/M1`.
@@ -2180,3 +2302,171 @@ Novas entradas devem registrar:
 - o gate critico encontrou o snapshot da API do seletor desatualizado desde a
   inclusao anterior de `basket_models`; o teste foi sincronizado com a
   assinatura publica ja vigente, sem alterar comportamento.
+## 2026-08-25 - M26 com reentradas independentes e saida por rota
+
+- M26 voltou a operar `XAUUSD/M5` com SMA20/SMA50 e RSI14.
+- Reentradas nao dependem de entrada inicial anterior.
+- Uma vela de recuo usa ordem Stop sem TP e Full Exit por duas velas contrarias.
+- Duas velas de recuo usam ordem Stop e TP no topo/fundo estrutural confirmado.
+- A rota e gravada no Trade Plan e consumida pelo Position Manager.
+- M8 permaneceu inalterado; lote M26 segue em `0,01` e conta Real bloqueada.
+
+## 2026-08-26 - Gate de exaustao BUY nas reentradas M23
+
+- auditadas 314 reentradas XAU/M5 M23 encerradas, agrupadas tambem em 73 sinais
+  unicos para evitar inflacao por copias simultaneas;
+- reentradas BUY entre o cruzamento do RSI14 acima de 70 e o retorno abaixo de
+  50 somaram `-US$536,90`, enquanto as SELL equivalentes permaneceram positivas;
+- novas reentradas BUY M23 passam a falhar fechadas nessa janela;
+- SELL, modelos-fonte, posicoes abertas, SL/TP e Full Exit da cesta permanecem
+  inalterados;
+- o gate reutiliza o cache M5 do ciclo e nao acrescenta consulta ao MT5.
+
+## 2026-08-26 - M26 exaustao nao pode ser bloqueada por falha da sonda
+
+- confirmado SELL de exaustao XAUUSD/M5 pronto e robô online;
+- identificada rejeicao anterior ao provider causada por falha transitoria da
+  leitura externa, apresentada incorretamente como posicao duplicada;
+- M26 agora deixa o provider atomico decidir ocupacao e duplicidade;
+- comentarios `M26 CONT`, `M26 LAT` e `M26 EXH` passaram a distinguir as tres
+  rotas no gate de posicoes;
+- SL de exaustao validado na extremidade da ultima vela fechada anterior a
+  entrada a mercado;
+- validacao: 140 testes do M26, DemoExecutionService e provider aprovados.
+## 2026-08-26 - M26 exaustao por retorno do RSI e SL estrutural
+
+- BUY de exaustao passa a entrar a mercado no cruzamento do RSI14 de baixo para
+  cima de 30; SELL usa o espelho no cruzamento de cima para baixo de 70.
+- O SL inicial usa a minima/maxima do candle fechado do sinal.
+- Ate o Full Exit, o Position Manager acompanha cada microfundo do BUY ou
+  microtopo do SELL confirmado e move o SL somente para um nivel mais protetivo.
+- Full Exit ocorre no retorno de 50 apos sua conquista ou no retorno de 70/30
+  apos o extremo correspondente ter sido atingido.
+- O provider permanece como autoridade atomica de duplicidade por rota; falha
+  transitoria da sonda externa nao bloqueia EXHAUSTION como falsa duplicidade.
+- Testes de regressao cobrem entrada BUY/SELL, os dois Full Exits e trailing
+  estrutural espelhado.
+
+## 2026-08-26 - M26 continuidade com retorno do RSI e trailing por pausa
+
+- Mantido o Full Exit por dois candles M5 consecutivos contra a posicao.
+- BUY tambem encerra quando o RSI14 supera 70 e retorna abaixo de 70; SELL usa
+  o espelho ao perder 30 e retornar acima de 30.
+- O trailing deixa de observar somente os dois ultimos candles e passa a usar
+  a pausa de continuidade confirmada mais recente desde a entrada.
+- Cada novo fundo do BUY ou topo do SELL gera candidato de SL; a protecao
+  monotona do Position Manager impede qualquer afastamento do stop.
+- Contrato promovido para `M26_CANDLE_SEQUENCE_V20_20260826`.
+
+## 2026-08-26 - Refatoracao da identidade das rotas M26
+
+- auditado um `BUY_STOP` de continuidade pronto no fechamento M5, cujo preco
+  foi rompido no candle seguinte, sem tentativa registrada no provider;
+- causa-raiz: o Robot Service deduplicava pelo modelo inteiro e permitia que
+  outra rota M26 consumisse o mesmo candle antes da continuidade;
+- `CONTINUATION`, `LATERALIZATION` e `EXHAUSTION` agora transportam identidade
+  propria do Trade Plan ao robô e usam controle de candle independente;
+- adicionada validacao central de entrada, SL, tipo de ordem e TP estrutural
+  antes da materializacao do plano;
+- nenhuma regra de mercado ou conta Real foi habilitada;
+- contrato promovido para `M26_CANDLE_SEQUENCE_V21_20260826`.
+
+## 2026-08-27 - M26: sinal visivel sem envio e instancia Streamlit duplicada
+
+- reproduzido `SELL CONTINUATION` em `XAUUSD/M5`, com gatilho `4624,62`, SL
+  `4627,51` e RSI14 `44,86`; o candle seguinte rompeu o gatilho, mas nao houve
+  tentativa correspondente no log do provider;
+- causa-raiz: dois processos Streamlit escutavam simultaneamente a porta
+  `8532`, dividindo snapshot, deduplicacao e ciclo operacional em memorias
+  diferentes;
+- o guardiao de RAM agora identifica os proprietarios da porta, preserva a
+  instancia oficial e encerra listeners adicionais do mesmo app;
+- a rota de continuidade M26 permanece valida por um ciclo depois do rompimento
+  confirmado; nesse caso o provider converte a ordem Stop ja atravessada em
+  execucao a mercado, mantendo preflight atomico e bloqueio de duplicidade;
+- o sinal historico perdido nao foi reenviado manualmente nem houve alteracao
+  de posicao; validacao focada do M26: `41 passed`.
+
+## 2026-08-27 - M26 deixa de sofrer bloqueio duplicado de regime
+
+- Apos eliminar a instancia Streamlit duplicada, foi reproduzido outro caminho
+  em que a continuidade M26 estava pronta, mas nenhuma tentativa chegava ao
+  provider.
+- Causa-raiz: o Robot Service reaplicava o regime legado depois de o adaptador
+  canonico M26 ja ter validado sua propria sequencia de candles e RSI.
+- M26 agora ignora somente essa segunda validacao de regime. Selecao
+  operacional, horario, Trade Plan, duplicidade, posicao, SL/TP e provider MT5
+  permanecem ativos.
+- Validacao automatizada: `177 passed, 2 subtests passed` no conjunto do M26,
+  Robot Service, DemoExecutionService e provider.
+- Prova operacional Demo: no primeiro sinal valido apos o reinicio, o MT5
+  aceitou `SELL STOP 4616,09`, SL `4620,41`, lote `0,01`, ticket `367179500`,
+  comentario `TraderIA M26 CONT`. O gatilho nao foi rompido e a pendencia
+  expirou no candle seguinte sem entrada a mercado, conforme o contrato.
+- No sinal valido seguinte, o MT5 aceitou `SELL STOP 4618,42`, SL `4621,68`,
+  lote `0,01`, ticket `367184020`; o rompimento ocorreu as `02:23:13` BRT e a
+  pendencia virou posicao SELL com o mesmo ticket e comentario
+  `TraderIA M26 CONT`.
+
+## 2026-08-27 - Remocao do filtro adicional de exaustao do M23
+
+- removido o gate exclusivo que bloqueava reentradas BUY XAU da cesta entre o
+  cruzamento do RSI14 acima de 70 e o retorno abaixo de 50;
+- o M23 volta a preservar integralmente a decisao de entrada de cada fonte;
+- SL, TP, saidas nativas, deduplicacao, selecao operacional e Full Exit de
+  +US$1.000 da cesta permanecem inalterados;
+- o runtime deixa de recalcular RSI apenas para esse bloqueio adicional.
+
+## 2026-08-27 - Replay/M28 protegido contra reruns concorrentes
+
+- corrigido `RuntimeError: deque mutated during iteration` durante o Replay
+  Maximum do Pattern Miner;
+- causa-raiz: reset/processamento de lote podiam sobrepor a mutacao do estado
+  causal em reruns ou sessoes Streamlit concorrentes;
+- carga, start/pause/resume, reset, lote, Replay completo, cache e leitura de
+  estado agora usam uma trava reentrante; a contagem usa snapshot imutavel dos
+  tokens;
+- teste de regressao concorrente adicionado;
+- validacao real concluida com `99.999` candles, `300` candidatos e status
+  `FINISHED`; bateria focada: `27 passed`.
+- `Start` em velocidade Maximum agora restaura automaticamente cache validado
+  pelo hash; quando precisa recalcular, avanca em lotes de 5.000 candles com
+  progresso visivel e indicacao separada da etapa de mineracao/auditoria.
+
+## 2026-08-28 - M28 reconhece e seleciona setup no mercado ao vivo
+
+- a aba Replay restaura automaticamente o cache validado uma vez por sessao;
+- 12 contratos passaram os gates e foram autorizados em Shadow: 9 BUY e os 3
+  SELL disponiveis com ocorrencias, score, Validation e OOS positivos;
+- o runtime M28 reutiliza o cache compartilhado XAUUSD/M5 e processa somente
+  candles fechados novos, sem segunda leitura do MT5;
+- maquinas de estado acompanham os contratos simultaneamente e o seletor
+  escolhe a conclusao mais forte por score, Validation, OOS e amostra;
+- setup vivo, direcao, confianca, horario e motivo da troca aparecem no Replay;
+- Pattern Miner e M28 continuam sem dependencia de provider/executor e nao
+  enviam ordens; a saida continua sendo SignalCandidate auditavel em Shadow;
+- regressao focada cobre prioridade adaptativa e deduplicacao do mesmo candle.
+# 2026-08-28 - M28 adaptativo operacional em MT5 Demo
+
+- M28 promovido de monitor Shadow para modelo selecionavel no chaveamento.
+- A ocorrencia causal escolhida ao vivo agora materializa entrada, SL e TP em
+  Trade Plan rastreavel e segue o `MT5DemoRobotService`.
+- Volume contratual fixado em `0.04` lote.
+- Idempotencia baseada em `pattern_occurrence_id`, candle e versao do plano.
+- Removida a reaplicacao do regime legado sobre o padrao ja validado.
+- M28 permanece fora da cesta M23 e conta Real continua bloqueada.
+
+## 2026-08-28 - Replay multiativo e M28 em 19 mercados
+
+- Replay passou a exibir 19 analises independentes, uma por ativo, com dataset,
+  cache, resumo, ranking, validacao e OOS isolados.
+- Foram executados sequencialmente 19 replays Maximum de 99.999 candles cada,
+  totalizando 1.899.981 candles fechados, sem paralelismo.
+- Cada ativo produziu 100 itens no ranking; 12 contratos passaram os gates por
+  mercado, exceto BTCUSD com 11, totalizando 227 contratos M28 Demo ativos.
+- O runtime M28 deixou de ser fixo em XAUUSD e agora possui uma maquina leve por
+  ativo/M5; candle, selecao e SignalCandidate nao atravessam mercados.
+- O volume permanece fixo em 0,04 lote, a conta Real continua bloqueada e o
+  runtime somente atualiza os mercados quando M28 estiver selecionado.
+- Duplicidades antigas do registro XAU foram desativadas; validacao final:
+  19 mercados ativos e 19 testes focados aprovados.

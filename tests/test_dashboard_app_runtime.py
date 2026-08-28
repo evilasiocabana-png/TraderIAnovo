@@ -1,4 +1,5 @@
 import inspect
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -491,7 +492,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 operational_model_number(model_id)
                 for model_id in dashboard_app.MT5_SELECTABLE_OPERATIONAL_MODEL_IDS
             ),
-            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 26, 23, 24, 25),
+            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 26, 27, 28, 23),
         )
         for restored_source in (
             dashboard_app.MT5_OPERATIONAL_MODEL_3,
@@ -537,7 +538,8 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             keys[0],
             "mt5_operational_model_checkbox_todos",
         )
-        self.assertIn(
+        self.assertIn("mt5_operational_model_checkbox_m27", keys)
+        self.assertNotIn(
             "mt5_operational_model_checkbox_modelo_24_xau_rsi50_basket",
             keys,
         )
@@ -663,6 +665,32 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertIn("SL, TP e saidas herdados", model23_summary)
         self.assertNotIn("US$300", model23_summary)
         self.assertNotIn("trailing", model23_summary.lower())
+
+    def test_modelo_26_nao_e_confundido_com_modelo_2_no_relatorio(self) -> None:
+        row = SimpleNamespace(
+            operational_model="MODELO_26_XAU_M5_CANDLE_STRUCTURE",
+            plan_snapshot={},
+        )
+
+        self.assertEqual(
+            dashboard_app._mt5_equity_row_model_key(row),
+            "MODELO26",
+        )
+        self.assertEqual(
+            dashboard_app._mt5_sender_model_label(row),
+            "MODELO 26",
+        )
+
+    def test_modelo_futuro_nao_cai_em_prefixo_de_modelo_existente(self) -> None:
+        row = SimpleNamespace(
+            operational_model="MODELO_28_EXPERIMENTAL",
+            plan_snapshot={},
+        )
+
+        self.assertEqual(
+            dashboard_app._mt5_equity_row_model_key(row),
+            "MODELO0",
+        )
 
     def test_grupo_m8_a_m22_e_valido_e_nao_habilita_m1_a_m7(self) -> None:
         group = dashboard_app.MT5_OPERATIONAL_MODEL_8_TO_17
@@ -858,6 +886,40 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(entry_row["Regime"], "OK: direcao definida pelo proprio setup")
         self.assertEqual(entry_row["Zona"], "OK: nao aplicavel; regra incorporada ao setup")
         self.assertEqual(entry_row["Preco no plano"], "OK: sem TP fixo; Full Exit pelo setup")
+        self.assertEqual(entry_row["Envio"], "PRONTO")
+
+    def test_m26_ordem_stop_com_tp_estrutural_fica_pronta_na_auditoria(self) -> None:
+        row = {
+            "Par": "XAUUSD",
+            "Periodo de tempo": "M5",
+            "Paridade Demo": "APROVADA",
+            "Candles recebidos": 201,
+            "Candle atual modelo": "2026-08-25T12:10:00+00:00",
+            "Candle do Sinal": "2026-08-25T12:05:00+00:00",
+            "Status indicadores": "M26_REENTRY_TWO_CANDLES_BUY_STOP_PRONTA",
+            "Leitura indicadores": "SMA20=4662.69 | SMA50=4651.69 | RSI14=54.20",
+            "Entrada Teorica": "ORDEM_STOP_TEORICA",
+            "Direcao Teorica": "BUY",
+            "Plano Research": "PLANO_VALIDO",
+            "Codigo Rejeicao": "N/D",
+            "Preco Teorico": "4664.28",
+            "Stop Research": "4657.82",
+            "Alvo Research": "4669.06",
+            "Ultimo preco": "4661.00",
+        }
+
+        entry_row = dashboard_app._forex_theoretical_entry_row(
+            row,
+            robot_online=True,
+            mt5_online=True,
+            operational_model=dashboard_app.MT5_OPERATIONAL_MODEL_26,
+            execution_records=[],
+        )
+
+        self.assertEqual(entry_row["Indicadores"], "OK: parametros do setup avaliados")
+        self.assertEqual(entry_row["Sinal"], "OK")
+        self.assertEqual(entry_row["Janela"], "OK")
+        self.assertEqual(entry_row["Preco no plano"], "OK: SL e TP estruturais validos")
         self.assertEqual(entry_row["Envio"], "PRONTO")
 
     def test_m15_forex_nao_e_confundido_com_antigo_m15_xau(self) -> None:
@@ -1057,131 +1119,34 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             finally:
                 dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
 
-    def test_formulario_troca_m23_por_m24_e_persiste_antes_do_rerender(self) -> None:
+    def test_estado_antigo_m24_m25_e_descartado_do_fluxo_ativo(self) -> None:
         original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
-        session_state = {
-            dashboard_app._mt5_operational_model_checkbox_key(
-                dashboard_app.MT5_OPERATIONAL_MODEL_ALL
-            ): False,
-            dashboard_app._mt5_operational_model_checkbox_key(
-                dashboard_app.MT5_OPERATIONAL_MODEL_23
-            ): False,
-            dashboard_app._mt5_operational_model_checkbox_key(
-                dashboard_app.MT5_OPERATIONAL_MODEL_24
-            ): True,
-        }
-        for model in dashboard_app.MT5_ACTIVE_SOURCE_MODEL_IDS:
-            session_state[
-                dashboard_app._mt5_operational_model_checkbox_key(model)
-            ] = False
-
         with tempfile.TemporaryDirectory() as temp_dir:
             dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = (
                 Path(temp_dir) / "mt5_operational_model.json"
             )
             try:
-                dashboard_app._persist_mt5_operational_model(
-                    dashboard_app.MT5_OPERATIONAL_MODEL_WITH_23,
-                    models=dashboard_app.MT5_ACTIVE_SOURCE_MODEL_IDS,
+                dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH.write_text(
+                    json.dumps(
+                        {
+                            "model": dashboard_app.MT5_OPERATIONAL_MODEL_25,
+                            "models": [dashboard_app.MT5_OPERATIONAL_MODEL_24],
+                            "selections": [
+                                dashboard_app.MT5_OPERATIONAL_MODEL_24,
+                                dashboard_app.MT5_OPERATIONAL_MODEL_25,
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
                 )
-                with patch.object(dashboard_app.st, "session_state", session_state):
-                    selected = (
-                        dashboard_app._persist_mt5_operational_model_form_selection()
-                    )
-
-                self.assertEqual(selected, dashboard_app.MT5_OPERATIONAL_MODEL_24)
                 self.assertEqual(
                     dashboard_app._load_persisted_mt5_operational_model(),
-                    dashboard_app.MT5_OPERATIONAL_MODEL_24,
-                )
-                self.assertEqual(
-                    dashboard_app._load_persisted_mt5_operational_models(),
-                    (),
+                    dashboard_app.MT5_OPERATIONAL_MODEL_1,
                 )
                 self.assertEqual(
                     dashboard_app._load_persisted_mt5_operational_selections(),
-                    (dashboard_app.MT5_OPERATIONAL_MODEL_24,),
-                )
-            finally:
-                dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
-
-    def test_formulario_permite_m25_junto_com_modelo_direto(self) -> None:
-        original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
-        model25 = dashboard_app.MT5_OPERATIONAL_MODEL_25
-        session_state = {
-            dashboard_app._mt5_operational_model_checkbox_key(
-                dashboard_app.MT5_OPERATIONAL_MODEL_ALL
-            ): False,
-            dashboard_app._mt5_operational_model_checkbox_key(
-                dashboard_app.MT5_OPERATIONAL_MODEL_23
-            ): False,
-            dashboard_app._mt5_operational_model_checkbox_key(
-                dashboard_app.MT5_OPERATIONAL_MODEL_24
-            ): False,
-            dashboard_app._mt5_operational_model_checkbox_key(model25): True,
-        }
-        for model in dashboard_app.MT5_ACTIVE_SOURCE_MODEL_IDS:
-            session_state[
-                dashboard_app._mt5_operational_model_checkbox_key(model)
-            ] = False
-        session_state[
-            dashboard_app._mt5_operational_model_checkbox_key(
-                dashboard_app.MT5_OPERATIONAL_MODEL_1
-            )
-        ] = True
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = (
-                Path(temp_dir) / "mt5_operational_model.json"
-            )
-            try:
-                dashboard_app._persist_mt5_operational_model(
-                    dashboard_app.MT5_OPERATIONAL_MODEL_23,
-                )
-                with patch.object(dashboard_app.st, "session_state", session_state):
-                    selected = (
-                        dashboard_app._persist_mt5_operational_model_form_selection()
-                    )
-
-                self.assertEqual(selected, dashboard_app.MT5_OPERATIONAL_MODEL_CUSTOM)
-                self.assertEqual(
-                    dashboard_app._load_persisted_mt5_operational_models(),
                     (dashboard_app.MT5_OPERATIONAL_MODEL_1,),
                 )
-                self.assertEqual(
-                    dashboard_app._load_persisted_mt5_operational_selections(),
-                    (dashboard_app.MT5_OPERATIONAL_MODEL_1, model25),
-                )
-                self.assertNotEqual(
-                    dashboard_app._load_persisted_mt5_operational_model(),
-                    dashboard_app.MT5_OPERATIONAL_MODEL_ALL,
-                )
-            finally:
-                dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
-
-    def test_ciclo_background_aplica_m25_persistido_com_fontes_xau(self) -> None:
-        original_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
-        model25 = dashboard_app.MT5_OPERATIONAL_MODEL_25
-        service = Mock()
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = (
-                Path(temp_dir) / "mt5_operational_model.json"
-            )
-            try:
-                dashboard_app._persist_mt5_operational_model(
-                    model25,
-                    models=dashboard_app.MT5_MODEL_25_SOURCE_MODEL_IDS,
-                )
-
-                dashboard_app._apply_persisted_operational_model_to_service(service)
-
-                service.set_mt5_operational_models.assert_called_once_with(
-                    (),
-                    basket_models=(model25,),
-                    direct_models_enabled=False,
-                )
-                service.set_mt5_operational_model.assert_not_called()
             finally:
                 dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH = original_path
 
@@ -1305,13 +1270,13 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             checkbox.label: bool(checkbox.value)
             for checkbox in app.checkbox
             if checkbox.label == "Todos"
-            or re.fullmatch(r"M(?:[1-9]|1\d|2[0-4])", checkbox.label)
+            or re.fullmatch(r"M(?:[1-9]|1\d|2[0-7])", checkbox.label)
         }
         self.assertEqual(
             set(model_boxes),
             {
                 "Todos",
-                *(f"M{number}" for number in (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24)),
+                *(f"M{number}" for number in (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 26, 27)),
             },
         )
         self.assertEqual(
@@ -1319,7 +1284,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             ["M23"],
         )
 
-    def test_clique_aplicar_atualiza_de_m23_para_m24_na_mesma_tela(self) -> None:
+    def test_clique_aplicar_atualiza_de_m23_para_m27_na_mesma_tela(self) -> None:
         state_path = dashboard_app.MT5_OPERATIONAL_MODEL_STATE_PATH
         previous_state = state_path.read_bytes() if state_path.exists() else None
         try:
@@ -1331,7 +1296,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             for checkbox in app.checkbox:
                 if checkbox.label == "M23":
                     checkbox.set_value(False)
-                elif checkbox.label == "M24":
+                elif checkbox.label == "M27":
                     checkbox.set_value(True)
             self._button(app, "Aplicar modelos").click()
             app.run(timeout=30)
@@ -1339,14 +1304,11 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertEqual(
                 dashboard_app._load_persisted_mt5_operational_model(),
-                dashboard_app.MT5_OPERATIONAL_MODEL_24,
+                dashboard_app.MT5_OPERATIONAL_MODEL_27,
             )
             self.assertEqual(
                 self._metrics(app).get("Modelo operacional"),
-                "M24",
-            )
-            self.assertTrue(
-                any("M24 ativo" in warning for warning in self._warnings(app))
+                "M27",
             )
             self.assertFalse(
                 any("M23 ativo" in warning for warning in self._warnings(app))
@@ -1383,7 +1345,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
             checkbox.label: bool(checkbox.value)
             for checkbox in app.checkbox
             if checkbox.label == "Todos"
-            or re.fullmatch(r"M(?:[1-9]|1\d|2[0-3])", checkbox.label)
+            or re.fullmatch(r"M(?:[1-9]|1\d|2[0-7])", checkbox.label)
         }
         self.assertEqual(
             [label for label, checked in model_boxes.items() if checked],
@@ -1427,17 +1389,18 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertIn("Replay", self._navigation_labels(app))
 
     def test_workbench_replay_disponivel_na_navegacao_principal(self) -> None:
-        """Replay deve estar disponivel para analise Forex par-a-par."""
+        """Replay deve expor exclusivamente o Pattern Miner causal do XAUUSD."""
         app = self._run_app("Replay")
 
         self.assertFalse(app.exception)
         self.assertIn("Replay", self._navigation_labels(app))
-        self.assertIn("Replay Forex", self._subheaders(app))
-        self.assertIn("Par Forex do Replay", self._selectboxes(app))
-        self.assertIn("Timeframe Forex do Replay", self._selectboxes(app))
-        self.assertIn("Carregar par Forex", self._buttons(app))
-        self.assertIn("Executar Pesquisa do Par", self._buttons(app))
-        self.assertIn("Gerar prova visual", self._buttons(app))
+        self.assertIn("Dataset", self._subheaders(app))
+        self.assertIn("Pattern Miner", self._subheaders(app))
+        self.assertIn("Start", self._buttons(app))
+        self.assertIn("Pause", self._buttons(app))
+        self.assertIn("Resume", self._buttons(app))
+        self.assertIn("Reset", self._buttons(app))
+        self.assertNotIn("Par Forex do Replay", self._selectboxes(app))
 
     def test_sistema_forex_nao_exibe_dataset_legado(self) -> None:
         """Sistema principal deve focar Forex e ocultar PETR4/WDO/Replay."""
@@ -2701,9 +2664,37 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertEqual(
             dashboard_app.MT5_ACTIVE_REPORT_MODEL_NUMBERS,
-            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25),
+            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 26, 27, 28),
         )
         self.assertIn("MT5_ACTIVE_REPORT_MODEL_NUMBERS", source)
+
+    def test_relatorio_inclui_curva_do_modelo_28_adaptativo(self) -> None:
+        m28_row = SimpleNamespace(
+            operational_model=dashboard_app.MT5_OPERATIONAL_MODEL_28,
+            symbol="AUDCAD",
+        )
+        m27_row = SimpleNamespace(
+            operational_model=dashboard_app.MT5_OPERATIONAL_MODEL_27,
+            symbol="XAUUSD",
+        )
+
+        filtered = dashboard_app._mt5_rows_for_equity_model_filter(
+            [m27_row, m28_row],
+            "MODELO 28",
+        )
+
+        self.assertEqual(filtered, [m28_row])
+        self.assertEqual(
+            dashboard_app._mt5_rows_for_equity_model_selection(
+                [m27_row, m28_row],
+                "M27 + M28",
+            ),
+            [m27_row, m28_row],
+        )
+        self.assertIn(
+            "Pattern Miner adaptativo",
+            dashboard_app._mt5_equity_model_setup_summary("MODELO 28"),
+        )
 
     def test_relatorio_exibe_m16_m17_e_omite_m13_m15(self) -> None:
         active_rows = [
@@ -2874,6 +2865,72 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertEqual(
             columns.index("Tipo de entrada") + 1,
             columns.index("Alvo"),
+        )
+
+    def test_tipo_de_entrada_reconhece_rotas_m26_e_fonte_m23(self) -> None:
+        for signal_kind, expected in (
+            ("CONTINUATION", "CONTINUAÇÃO"),
+            ("LATERALIZATION", "LATERALIZAÇÃO"),
+            ("EXHAUSTION", "EXAUSTÃO"),
+        ):
+            with self.subTest(signal_kind=signal_kind):
+                row = SimpleNamespace(
+                    operational_model="MODELO_26_XAU_M5_SMART_MONEY",
+                    plan_snapshot={
+                        "stop_management_parameters": {
+                            "active_signal_kind": signal_kind,
+                        }
+                    },
+                    entry_setup="N/D",
+                )
+                self.assertEqual(
+                    dashboard_app._mt5_trade_entry_type_label(row),
+                    expected,
+                )
+
+        copied = SimpleNamespace(
+            operational_model="MODELO_23_BASKET_ACCUMULATOR_SOURCE_M1",
+            plan_snapshot={
+                "entry_setup": "M23 <- M1 | TREND_MOMENTUM",
+                "stop_management_parameters": {
+                    "source_operational_model": "MODELO_1_LAB_WINNER",
+                },
+            },
+            entry_setup="N/D",
+        )
+        self.assertEqual(
+            dashboard_app._mt5_trade_entry_type_label(copied),
+            "TREND_MOMENTUM",
+        )
+
+    def test_tipo_de_entrada_m26_antigo_usa_comentario_mt5(self) -> None:
+        row = SimpleNamespace(
+            operational_model="MODELO_26_XAU_M5_SMART_MONEY",
+            plan_snapshot={},
+            entry_setup="N/D",
+            mt5_comment="TraderIA M26 CONT",
+        )
+
+        self.assertEqual(
+            dashboard_app._mt5_trade_entry_type_label(row),
+            "CONTINUAÇÃO",
+        )
+
+    def test_tipo_de_entrada_m28_mostra_id_do_padrao(self) -> None:
+        row = SimpleNamespace(
+            operational_model="MODELO_28_PATTERN_MINER_SHADOW",
+            plan_snapshot={
+                "stop_management_parameters": {
+                    "active_signal_kind": "ADAPTIVE_PATTERN",
+                    "pattern_id": "PAT-A40EC2BF15D0",
+                }
+            },
+            entry_setup="N/D",
+        )
+
+        self.assertEqual(
+            dashboard_app._mt5_trade_entry_type_label(row),
+            "PADRAO PAT-A40EC2BF15D0",
         )
 
     def test_tipo_de_entrada_sem_contrato_explicito_fica_nd(self) -> None:
@@ -4933,13 +4990,16 @@ class DashboardAppRuntimeTest(unittest.TestCase):
         self.assertIn("Candles recebidos", metrics)
         self.assertNotEqual(metrics.get("Candles online por par"), "5000")
 
-    def test_replay_foca_pares_forex_sem_dataset_legado(self) -> None:
-        """Replay usa pares Forex, sem seletor de dataset legado."""
+    def test_replay_foca_historico_xau_sem_interface_legada(self) -> None:
+        """Replay usa historicoXAU fechado e remove os controles antigos."""
         app = self._run_app("Replay")
 
         self.assertFalse(app.exception)
         self.assertIn("Replay", self._navigation_labels(app))
-        self.assertIn("Par Forex do Replay", "\n".join(self._selectboxes(app)))
+        self.assertEqual(self._metrics(app).get("Ativo"), "XAUUSD")
+        self.assertEqual(self._metrics(app).get("Timeframe"), "M5")
+        self.assertEqual(self._metrics(app).get("Candles fechados"), "99,999")
+        self.assertNotIn("Par Forex do Replay", "\n".join(self._selectboxes(app)))
         self.assertNotIn("Carregar Dataset Selecionado", self._buttons(app))
 
     def test_lab_sugestoes_exibem_parametros_compactos(self) -> None:

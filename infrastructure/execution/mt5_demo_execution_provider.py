@@ -23,7 +23,13 @@ from application.model16_xau_m5_price_ema_breakout import MODEL_16_ID
 from application.model23_basket_accumulator import (
     MODEL_23_ID,
     is_model23,
+    model23_entry_type,
+    model23_entry_type_token,
     model23_order_comment,
+    model23_position_entry_type_token,
+    model23_position_matches,
+    model23_position_source,
+    model23_source_model_id,
 )
 from application.model24_xau_basket import (
     MODEL_24_ID,
@@ -42,7 +48,14 @@ from application.model26_xau_m5_smart_money import (
     MODEL_26_ID,
     MODEL_26_SYMBOL,
     MODEL_26_TIMEFRAME,
+    consume_model26_exhaustion_alert,
     is_model26,
+)
+from application.model27_mirror_m26 import (
+    MODEL_27_ID,
+    MODEL_27_SYMBOL,
+    MODEL_27_TIMEFRAME,
+    is_model27,
 )
 from application.model3_xau_m5_rsi50_flip import MODEL_3_ID
 from application.model8_xau_m5_sma_rsi_reentry import MODEL_8_ID, MODEL_8_SYMBOL
@@ -69,7 +82,7 @@ from core.mt5_process_probe import resolve_mt5_terminal_path, terminate_process_
 _MT5_ORDER_SEND_LOCK = threading.Lock()
 MAX_OPERATIONAL_MODELS_PER_SYMBOL = 22
 MAX_MODEL23_POSITIONS_PER_SYMBOL = 64
-KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 27))
+KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 28))
 INDEPENDENT_SMA_RSI_MODEL_IDS = frozenset(
     {
         MODEL_8_ID,
@@ -116,6 +129,11 @@ class MT5DemoExecutionProvider:
         init=False,
         repr=False,
     )
+    model23_legacy_entry_type_cache: dict[int, str] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         if self.mt5 is None:
@@ -139,8 +157,10 @@ class MT5DemoExecutionProvider:
         operational_model: str,
     ) -> bool:
         """Consulta posicao aberta do mesmo simbolo e modelo operacional."""
+        global_model23_source = is_model23(operational_model)
+        query_symbol = "" if global_model23_source else symbol
         if self._external_reads_enabled():
-            payload = self._external_mt5_read("positions", symbol=symbol)
+            payload = self._external_mt5_read("positions", symbol=query_symbol)
             if not bool(payload.get("ok")):
                 return True
             positions = [
@@ -150,7 +170,22 @@ class MT5DemoExecutionProvider:
             initialize_check = self._initialize_check()
             if initialize_check is not None:
                 return True
-            positions = list(self.mt5.positions_get(symbol=symbol) or [])
+            positions = list(
+                self.mt5.positions_get()
+                if global_model23_source
+                else self.mt5.positions_get(symbol=symbol)
+                or []
+            )
+        if global_model23_source:
+            source_model = model23_source_model_id(operational_model)
+            if source_model == "N/D":
+                return True
+            for position in positions:
+                if not model23_position_matches(position):
+                    continue
+                if model23_position_source(position) == source_model:
+                    return True
+            return False
         if _is_basket_model(operational_model):
             if len(positions) >= MAX_MODEL23_POSITIONS_PER_SYMBOL:
                 return True
@@ -174,6 +209,18 @@ class MT5DemoExecutionProvider:
             if not model_tokens:
                 return True
         return False
+
+    def has_open_position_for_model_entry_type(
+        self,
+        order: ExecutionOrder,
+    ) -> bool:
+        """Gate antecipado M23 com a mesma chave atomica do envio final."""
+        if not is_model23(getattr(order, "operational_model", "")):
+            return self.has_open_position_for_model(
+                order.symbol,
+                getattr(order, "operational_model", ""),
+            )
+        return self._model23_source_position_preflight(order) is not None
 
     def get_open_position(self, symbol: str) -> object | None:
         """Retorna a primeira posicao aberta do simbolo em conta demo."""
@@ -921,10 +968,10 @@ mt5.shutdown()
             self._write_log(order, retirement_check)
             return retirement_check
 
-        model26_scope_check = self._model26_scope_preflight(order)
-        if model26_scope_check is not None:
-            self._write_log(order, model26_scope_check)
-            return model26_scope_check
+        xau_route_scope_check = self._xau_route_scope_preflight(order)
+        if xau_route_scope_check is not None:
+            self._write_log(order, xau_route_scope_check)
+            return xau_route_scope_check
 
         native_indicator_check = self._native_indicator_source_preflight(order)
         if native_indicator_check is not None:
@@ -999,6 +1046,12 @@ mt5.shutdown()
                 self._write_log(order, stop_target_rejection)
                 return stop_target_rejection
             pending_transition_rejection = (
+                self._model23_pending_source_preflight_locked(order)
+            )
+            if pending_transition_rejection is not None:
+                self._write_log(order, pending_transition_rejection)
+                return pending_transition_rejection
+            pending_transition_rejection = (
                 self._model24_pending_transition_preflight_locked(order)
             )
             if pending_transition_rejection is not None:
@@ -1031,6 +1084,12 @@ mt5.shutdown()
                 response = _ExecutionSendException(exc)
             result = self._result_from_response(response, order_check=order_check)
             self._write_log(order, result)
+            if (
+                result.accepted
+                and is_model26(getattr(order, "operational_model", ""))
+                and self._model26_order_route(order) == "EXH"
+            ):
+                consume_model26_exhaustion_alert(order.side)
             return result
 
     def _operational_selection_preflight(
@@ -1645,9 +1704,16 @@ mt5.shutdown()
 
     def _request(self, order: ExecutionOrder, tick: object) -> dict[str, object]:
         side = order.side.upper()
-        if self._is_pending_stop_order(order):
+        if self._is_pending_order(order) and not self._model26_stop_already_crossed(
+            order, tick
+        ):
+            is_limit = self._is_pending_limit_order(order)
             order_type = (
-                self.mt5.ORDER_TYPE_BUY_STOP
+                getattr(self.mt5, "ORDER_TYPE_BUY_LIMIT")
+                if is_limit and side == "BUY"
+                else getattr(self.mt5, "ORDER_TYPE_SELL_LIMIT")
+                if is_limit
+                else self.mt5.ORDER_TYPE_BUY_STOP
                 if side == "BUY"
                 else self.mt5.ORDER_TYPE_SELL_STOP
             )
@@ -1723,8 +1789,11 @@ mt5.shutdown()
                 status="REJECTED",
                 message="Stop Loss e Take Profit invalidos para envio MT5 Demo.",
             )
-        if self._is_pending_stop_order(order):
+        if self._is_pending_order(order) and not self._model26_stop_already_crossed(
+            order, tick
+        ):
             model_label = self._order_comment(order)
+            is_limit = self._is_pending_limit_order(order)
             entry = self._positive_float(getattr(order, "entry_price", None))
             server_now = self._positive_float(getattr(tick, "time", None))
             expiration = self._pending_stop_expiration(
@@ -1745,30 +1814,55 @@ mt5.shutdown()
                     message=f"{model_label}: preco de gatilho indisponivel para ordem pendente.",
                 )
             minimum_distance = self._minimum_stop_distance(order.symbol)
-            if side == "BUY" and not (
-                entry > ask and stop < entry and (entry - ask) >= minimum_distance
-            ):
+            valid_buy = (
+                entry < ask and stop < entry and (ask - entry) >= minimum_distance
+                if is_limit
+                else entry > ask and stop < entry and (entry - ask) >= minimum_distance
+            )
+            if side == "BUY" and not valid_buy:
+                order_label = "BUY LIMIT" if is_limit else "BUY STOP"
+                location = "abaixo" if is_limit else "acima"
                 return ExecutionResult(
                     accepted=False,
                     status="REJECTED",
                     message=(
-                        f"{model_label} BUY STOP invalida ou ja rompida: gatilho deve estar "
-                        "acima do ask e o SL abaixo da entrada."
+                        f"{model_label} {order_label} invalida: gatilho deve estar "
+                        f"{location} do ask e o SL abaixo da entrada."
                     ),
                     executed_price=ask,
                 )
-            if side == "SELL" and not (
-                entry < bid and entry < stop and (bid - entry) >= minimum_distance
-            ):
+            valid_sell = (
+                entry > bid and entry < stop and (entry - bid) >= minimum_distance
+                if is_limit
+                else entry < bid and entry < stop and (bid - entry) >= minimum_distance
+            )
+            if side == "SELL" and not valid_sell:
+                order_label = "SELL LIMIT" if is_limit else "SELL STOP"
+                location = "acima" if is_limit else "abaixo"
                 return ExecutionResult(
                     accepted=False,
                     status="REJECTED",
                     message=(
-                        f"{model_label} SELL STOP invalida ou ja rompida: gatilho deve estar "
-                        "abaixo do bid e o SL acima da entrada."
+                        f"{model_label} {order_label} invalida: gatilho deve estar "
+                        f"{location} do bid e o SL acima da entrada."
                     ),
                     executed_price=bid,
                 )
+            if is_limit and not no_target:
+                target_is_valid = (
+                    float(target) > entry
+                    if side == "BUY"
+                    else float(target) < entry
+                )
+                if not target_is_valid:
+                    return ExecutionResult(
+                        accepted=False,
+                        status="REJECTED",
+                        message=(
+                            f"{model_label}: TP estrutural esta do lado invalido "
+                            f"para {side} LIMIT."
+                        ),
+                    )
             if side not in {"BUY", "SELL"}:
                 return ExecutionResult(
                     accepted=False,
@@ -1847,7 +1941,7 @@ mt5.shutdown()
         target = self._positive_float(getattr(order, "target", None))
         if (
             not is_model24(getattr(order, "operational_model", ""))
-            or self._is_pending_stop_order(order)
+            or self._is_pending_order(order)
         ):
             return target
         # O contrato V16 nao reancora INITIAL nem CONTINUATION: ambos carregam
@@ -1881,11 +1975,15 @@ mt5.shutdown()
             and self._positive_float(getattr(order, "target", None)) is not None
         ):
             return False
+        if is_model26(getattr(order, "operational_model", "")):
+            return str(parameters.get("active_signal_kind") or "").upper() != "LATERALIZATION"
         model = self._effective_operational_model(order)
         return self._model_uses_no_target(model, self._entry_order_type(order))
 
     @staticmethod
     def _model_uses_no_target(model: str, entry_order_type: object) -> bool:
+        if is_model26(model):
+            return str(entry_order_type or "").upper() == "MARKET"
         if model in XAU_IMPROVED_REENTRY_MODEL_IDS:
             return not xau_model_requires_target(model, entry_order_type)
         return model in {
@@ -1927,6 +2025,10 @@ mt5.shutdown()
                 "SELL_STOP",
             }
         model = self._effective_operational_model(order)
+        if is_model26(model):
+            return self._entry_order_type(order) in {"BUY_STOP", "SELL_STOP"}
+        if is_model27(model):
+            return self._entry_order_type(order) in {"BUY_STOP", "SELL_STOP"}
         if model in {MODEL_15_ID, MODEL_16_ID}:
             return True
         if model not in {
@@ -1939,6 +2041,36 @@ mt5.shutdown()
             "BUY_STOP",
             "SELL_STOP",
         }
+
+    def _is_pending_limit_order(self, order: ExecutionOrder) -> bool:
+        model = self._effective_operational_model(order)
+        return (is_model26(model) or is_model27(model)) and self._entry_order_type(order) in {
+            "BUY_LIMIT",
+            "SELL_LIMIT",
+        }
+
+    def _is_pending_order(self, order: ExecutionOrder) -> bool:
+        return self._is_pending_stop_order(order) or self._is_pending_limit_order(order)
+
+    def _model26_stop_already_crossed(
+        self,
+        order: ExecutionOrder,
+        tick: object,
+    ) -> bool:
+        """Executa a mercado quando a confirmacao M26 ja rompeu seu gatilho Stop."""
+        if not is_model26(self._effective_operational_model(order)):
+            return False
+        order_type = self._entry_order_type(order)
+        entry = self._positive_float(getattr(order, "entry_price", None))
+        if entry is None:
+            return False
+        if order_type == "BUY_STOP":
+            ask = self._positive_float(getattr(tick, "ask", None))
+            return ask is not None and ask >= entry
+        if order_type == "SELL_STOP":
+            bid = self._positive_float(getattr(tick, "bid", None))
+            return bid is not None and bid <= entry
+        return False
 
     def _pending_stop_expiration(
         self,
@@ -1983,7 +2115,7 @@ mt5.shutdown()
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
         """Substitui apenas a pendencia anterior do mesmo modelo operacional."""
-        if not self._is_pending_stop_order(order):
+        if not self._is_pending_order(order):
             return None
         orders_get = getattr(self.mt5, "orders_get", None)
         if not callable(orders_get):
@@ -1997,16 +2129,49 @@ mt5.shutdown()
                 message=f"{self._order_comment(order)} nao conseguiu auditar ordens pendentes: {exc}",
             )
         expected_comment = self._order_comment(order).upper()
+        expected_route = self._model26_order_route(order)
+        legacy_comment = (
+            expected_comment.rsplit(" ", 1)[0]
+            if expected_route and expected_comment.endswith(f" {expected_route}")
+            else ""
+        )
         pending_types = {
             value
             for value in (
                 getattr(self.mt5, "ORDER_TYPE_BUY_STOP", None),
                 getattr(self.mt5, "ORDER_TYPE_SELL_STOP", None),
+                getattr(self.mt5, "ORDER_TYPE_BUY_LIMIT", None),
+                getattr(self.mt5, "ORDER_TYPE_SELL_LIMIT", None),
             )
             if value is not None
         }
         for pending in pending_orders:
-            if str(getattr(pending, "comment", "") or "").upper() != expected_comment:
+            pending_comment = str(
+                getattr(pending, "comment", "") or ""
+            ).upper()
+            same_route = pending_comment == expected_comment
+            if (
+                not same_route
+                and is_model23(getattr(order, "operational_model", ""))
+                and model23_position_matches(pending)
+                and model23_position_source(pending)
+                == model23_source_model_id(getattr(order, "operational_model", ""))
+            ):
+                same_route = (
+                    self._model23_position_type_token(pending)
+                    == model23_entry_type_token(
+                        self._model23_order_entry_type(order)
+                    )
+                )
+            if (
+                not same_route
+                and legacy_comment
+                and pending_comment == legacy_comment
+            ):
+                same_route = (
+                    self._legacy_model26_ticket_route(pending) == expected_route
+                )
+            if not same_route:
                 continue
             if getattr(pending, "type", None) not in pending_types:
                 continue
@@ -2033,6 +2198,23 @@ mt5.shutdown()
                     error_code=result.error_code,
                 )
         return None
+
+    def _legacy_model26_ticket_route(self, pending: object) -> str:
+        """Recupera CONT/LAT para pendencias criadas antes do contrato V7."""
+        ticket = int(getattr(pending, "ticket", 0) or 0)
+        if ticket <= 0:
+            return ""
+        for record in reversed(self._read_execution_log_records()):
+            if int(record.get("ticket") or 0) != ticket:
+                continue
+            snapshot = dict(record.get("plan_snapshot") or {})
+            parameters = dict(snapshot.get("stop_management_parameters") or {})
+            route = str(parameters.get("active_signal_kind") or "").upper()
+            if route == "CONTINUATION":
+                return "CONT"
+            if route == "LATERALIZATION":
+                return "LAT"
+        return ""
 
     def _minimum_stop_distance(self, symbol: str) -> float:
         """Distancia minima exigida pelo broker para SL/TP no preco atual."""
@@ -2126,7 +2308,7 @@ mt5.shutdown()
                 and record_candle
                 and current_candle == record_candle
             )
-            if self._is_pending_stop_order(order) and not same_executable_candle:
+            if self._is_pending_order(order) and not same_executable_candle:
                 # A identidade estrategica permanece igual durante a correcao,
                 # mas cada candle fechado atualiza o gatilho da ordem pendente.
                 same_identity = False
@@ -2161,24 +2343,34 @@ mt5.shutdown()
         )
 
     @staticmethod
-    def _model26_scope_preflight(
+    def _xau_route_scope_preflight(
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
         model = getattr(order, "operational_model", "")
-        if not (is_model26(model) or str(model or "").upper() == MODEL_26_ID):
+        normalized = str(model or "").upper()
+        if not (
+            is_model26(model)
+            or is_model27(model)
+            or normalized in {MODEL_26_ID, MODEL_27_ID}
+        ):
             return None
         snapshot = dict(getattr(order, "plan_snapshot", None) or {})
         timeframe = str(snapshot.get("timeframe") or "").upper()
+        expected_symbol = MODEL_27_SYMBOL if is_model27(model) else MODEL_26_SYMBOL
+        expected_timeframe = (
+            MODEL_27_TIMEFRAME if is_model27(model) else MODEL_26_TIMEFRAME
+        )
         if (
-            str(getattr(order, "symbol", "") or "").upper() == MODEL_26_SYMBOL
-            and timeframe == MODEL_26_TIMEFRAME
+            str(getattr(order, "symbol", "") or "").upper() == expected_symbol
+            and timeframe == expected_timeframe
         ):
             return None
         return ExecutionResult(
             accepted=False,
             status="REJECTED",
             message=(
-                f"M26 opera exclusivamente {MODEL_26_SYMBOL}/{MODEL_26_TIMEFRAME}; "
+                f"{('M27' if is_model27(model) else 'M26')} opera exclusivamente "
+                f"{expected_symbol}/{expected_timeframe}; "
                 "simbolo ou timeframe "
                 "fora do contrato foi bloqueado no provider."
             ),
@@ -2189,8 +2381,12 @@ mt5.shutdown()
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
         """Aplica somente o teto tecnico de posicoes e bloqueia origem desconhecida."""
-        positions = list(self.mt5.positions_get(symbol=order.symbol) or [])
         operational_model = getattr(order, "operational_model", "")
+        if is_model23(operational_model):
+            source_rejection = self._model23_source_position_preflight(order)
+            if source_rejection is not None:
+                return source_rejection
+        positions = list(self.mt5.positions_get(symbol=order.symbol) or [])
         is_basket = _is_basket_model(operational_model)
         if is_model24(operational_model):
             role_rejection = self._model24_position_role_preflight(order, positions)
@@ -2232,14 +2428,32 @@ mt5.shutdown()
                     )
             return None
         expected = self._model_comment(getattr(order, "operational_model", ""))
+        expected_m26_route = self._model26_order_route(order)
         for position in positions:
             comment = str(getattr(position, "comment", "") or "").upper()
             if expected in comment.split():
+                if is_model26(operational_model) or is_model27(operational_model):
+                    position_route = next(
+                        (
+                            token
+                            for token in comment.split()
+                            if token in {"CONT", "LAT", "EXH"}
+                        ),
+                        "",
+                    )
+                    if position_route and position_route != expected_m26_route:
+                        # Uma posicao por rota: CONT, LAT e EXH podem coexistir.
+                        continue
                 return ExecutionResult(
                     accepted=False,
                     status="REJECTED",
                     message=(
-                        "Ja existe uma posicao aberta para este simbolo neste modelo."
+                        "Ja existe uma posicao aberta para este simbolo neste "
+                        + (
+                            f"modelo e rota {expected_m26_route}."
+                            if expected_m26_route
+                            else "modelo."
+                        )
                     ),
                 )
             if "TRADERIA" in comment and not (
@@ -2254,6 +2468,201 @@ mt5.shutdown()
                     ),
                 )
         return None
+
+    def _model23_source_position_preflight(
+        self,
+        order: ExecutionOrder,
+    ) -> ExecutionResult | None:
+        """Permite uma exposicao global por modelo-fonte e tipo de entrada."""
+        operational_model = getattr(order, "operational_model", "")
+        if not is_model23(operational_model):
+            return None
+        source_model = model23_source_model_id(operational_model)
+        if source_model == "N/D":
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message="M23 sem modelo-fonte identificado foi bloqueado.",
+            )
+        entry_type = self._model23_order_entry_type(order)
+        entry_type_token = model23_entry_type_token(entry_type)
+        if not entry_type_token:
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=(
+                    f"M23 fonte {source_model} sem tipo de entrada identificavel "
+                    "foi bloqueada antes do envio."
+                ),
+            )
+        try:
+            positions = list(self.mt5.positions_get() or [])
+        except Exception as exc:  # noqa: BLE001 - ponte externa MT5
+            return ExecutionResult(
+                accepted=False,
+                status="ERROR",
+                message=f"M23 nao conseguiu auditar posicoes globais: {exc}",
+            )
+        for position in positions:
+            if not model23_position_matches(position):
+                continue
+            if model23_position_source(position) != source_model:
+                continue
+            position_type_token = self._model23_position_type_token(position)
+            if position_type_token and position_type_token != entry_type_token:
+                continue
+            if not position_type_token:
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=(
+                        f"M23 encontrou posicao legada da fonte {source_model} sem "
+                        "tipo auditavel; nova exposicao foi bloqueada por seguranca."
+                    ),
+                )
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=(
+                    f"M23 ja possui uma posicao aberta para {source_model} + "
+                    f"{entry_type}; o mesmo modelo pode coexistir apenas com "
+                    "tipos de entrada diferentes."
+                ),
+            )
+        return None
+
+    def _model23_pending_source_preflight_locked(
+        self,
+        order: ExecutionOrder,
+    ) -> ExecutionResult | None:
+        """Bloqueia pendencia repetida da mesma fonte e tipo sem impedir reposicao."""
+        operational_model = getattr(order, "operational_model", "")
+        if not is_model23(operational_model):
+            return None
+        source_model = model23_source_model_id(operational_model)
+        if source_model == "N/D":
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message="M23 sem modelo-fonte identificado foi bloqueado.",
+            )
+        entry_type = self._model23_order_entry_type(order)
+        entry_type_token = model23_entry_type_token(entry_type)
+        if not entry_type_token:
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=f"M23 fonte {source_model} sem tipo de entrada identificavel.",
+            )
+        orders_get = getattr(self.mt5, "orders_get", None)
+        if not callable(orders_get):
+            return None
+        try:
+            pending_orders = list(orders_get() or [])
+        except Exception as exc:  # noqa: BLE001 - ponte externa MT5
+            return ExecutionResult(
+                accepted=False,
+                status="ERROR",
+                message=f"M23 nao conseguiu auditar pendencias globais: {exc}",
+            )
+        candidate_is_pending = self._is_pending_order(order)
+        candidate_symbol = str(getattr(order, "symbol", "") or "").upper()
+        for pending in pending_orders:
+            if not model23_position_matches(pending):
+                continue
+            if model23_position_source(pending) != source_model:
+                continue
+            pending_type_token = self._model23_position_type_token(pending)
+            if pending_type_token and pending_type_token != entry_type_token:
+                continue
+            if not pending_type_token:
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=(
+                        f"M23 encontrou pendencia legada da fonte {source_model} "
+                        "sem tipo auditavel."
+                    ),
+                )
+            pending_symbol = str(getattr(pending, "symbol", "") or "").upper()
+            if candidate_is_pending and pending_symbol == candidate_symbol:
+                # O fluxo de reposicao remove a pendencia antiga deste mesmo
+                # simbolo antes de publicar o extremo do candle mais recente.
+                continue
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=(
+                    f"M23 ja possui uma ordem pendente para {source_model} + "
+                    f"{entry_type}; tipos diferentes continuam autorizados."
+                ),
+            )
+        return None
+
+    @staticmethod
+    def _model23_order_entry_type(order: ExecutionOrder) -> str:
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        return model23_entry_type(
+            parameters,
+            entry_setup=(
+                snapshot.get("entry_setup")
+                or getattr(order, "entry_setup", "")
+            ),
+            alpha_id=(snapshot.get("alpha_id") or getattr(order, "alpha_id", "")),
+        )
+
+    def _model23_position_type_token(self, position: object) -> str:
+        token = model23_position_entry_type_token(position)
+        if token:
+            return token
+        ticket = int(getattr(position, "ticket", 0) or 0)
+        if ticket <= 0:
+            return ""
+        return self._model23_legacy_entry_types().get(ticket, "")
+
+    def _model23_legacy_entry_types(self) -> dict[int, str]:
+        """Indexa uma vez tickets M23 antigos cujo comentario nao gravava o tipo."""
+        if self.model23_legacy_entry_type_cache is not None:
+            return self.model23_legacy_entry_type_cache
+        index: dict[int, str] = {}
+        if self.log_path.exists():
+            try:
+                with self.log_path.open("r", encoding="utf-8", errors="replace") as file:
+                    for line in file:
+                        if "MODELO_23_BASKET_ACCUMULATOR" not in line:
+                            continue
+                        try:
+                            record = json.loads(line)
+                        except (json.JSONDecodeError, TypeError):
+                            continue
+                        if not bool(record.get("accepted", False)):
+                            continue
+                        ticket = int(record.get("ticket") or 0)
+                        if ticket <= 0:
+                            continue
+                        snapshot = dict(record.get("plan_snapshot") or {})
+                        parameters = dict(
+                            snapshot.get("stop_management_parameters") or {}
+                        )
+                        entry_type = model23_entry_type(
+                            parameters,
+                            entry_setup=(
+                                snapshot.get("entry_setup")
+                                or record.get("entry_setup")
+                            ),
+                            alpha_id=(
+                                snapshot.get("alpha_id")
+                                or record.get("alpha_id")
+                            ),
+                        )
+                        token = model23_entry_type_token(entry_type)
+                        if token:
+                            index[ticket] = token
+            except OSError:
+                index = {}
+        self.model23_legacy_entry_type_cache = index
+        return index
 
     def _model24_position_role_preflight(
         self,
@@ -2587,9 +2996,12 @@ mt5.shutdown()
             "entry_price": record.get("entry_price"),
             "stop": record.get("stop"),
             "target": record.get("target"),
+            "entry_setup": record.get("entry_setup"),
             "plan_snapshot": {
                 "candle_time": snapshot.get("candle_time"),
                 "operational_model": snapshot.get("operational_model"),
+                "entry_setup": snapshot.get("entry_setup"),
+                "alpha_id": snapshot.get("alpha_id"),
                 "stop_management_parameters": {
                     "active_entry_order_type": parameters.get(
                         "active_entry_order_type"
@@ -2599,6 +3011,10 @@ mt5.shutdown()
                     ),
                     "m24_entry_role": parameters.get("m24_entry_role"),
                     "m25_entry_role": parameters.get("m25_entry_role"),
+                    "active_signal_kind": parameters.get("active_signal_kind"),
+                    "source_entry_setup": parameters.get("source_entry_setup"),
+                    "source_alpha_id": parameters.get("source_alpha_id"),
+                    "m23_entry_type": parameters.get("m23_entry_type"),
                 },
             },
         }
@@ -2637,7 +3053,7 @@ mt5.shutdown()
     def _execution_plan_key(
         self,
         order: ExecutionOrder,
-    ) -> tuple[str, str, float, float, float] | None:
+    ) -> tuple[str, str, float, float, float, str] | None:
         entry = self._positive_float(getattr(order, "entry_price", None))
         stop = self._positive_float(getattr(order, "stop", None))
         target = (
@@ -2653,12 +3069,13 @@ mt5.shutdown()
             round(float(entry), 6),
             round(float(stop), 6),
             round(float(target), 6),
+            self._model26_order_route(order),
         )
 
     def _record_plan_key(
         self,
         record: dict[str, Any],
-    ) -> tuple[str, str, float, float, float] | None:
+    ) -> tuple[str, str, float, float, float, str] | None:
         entry = self._positive_float(record.get("entry_price"))
         stop = self._positive_float(record.get("stop"))
         record_model = str(record.get("operational_model") or "").upper()
@@ -2688,6 +3105,11 @@ mt5.shutdown()
             round(float(entry), 6),
             round(float(stop), 6),
             round(float(target), 6),
+            (
+                str(record_parameters.get("active_signal_kind") or "").upper()
+                if is_model26(effective_model) or is_model27(effective_model)
+                else ""
+            ),
         )
 
     def _order_send(self, request: dict[str, object]) -> object | None:
@@ -2946,15 +3368,43 @@ mt5.shutdown()
                 else base
             )
         if is_model23(getattr(order, "operational_model", "")):
-            return model23_order_comment(getattr(order, "operational_model", ""))
+            base = model23_order_comment(getattr(order, "operational_model", ""))
+            entry_type_token = model23_entry_type_token(
+                self._model23_order_entry_type(order)
+            )
+            return f"{base} {entry_type_token}" if entry_type_token else base
+        if is_model26(getattr(order, "operational_model", "")) or is_model27(
+            getattr(order, "operational_model", "")
+        ):
+            route = self._model26_order_route(order)
+            base = f"TraderIA {self._model_comment(getattr(order, 'operational_model', ''))}"
+            return f"{base} {route}" if route else base
         return f"TraderIA {self._model_comment(getattr(order, 'operational_model', ''))}"
+
+    def _model26_order_route(self, order: ExecutionOrder) -> str:
+        """Retorna token curto e estavel para separar as duas rotas M26."""
+        if not (
+            is_model26(self._effective_operational_model(order))
+            or is_model27(self._effective_operational_model(order))
+        ):
+            return ""
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        route = str(parameters.get("active_signal_kind") or "").upper()
+        if route == "CONTINUATION":
+            return "CONT"
+        if route == "LATERALIZATION":
+            return "LAT"
+        if route == "EXHAUSTION":
+            return "EXH"
+        return ""
 
     def _model_comment(self, operational_model: object) -> str:
         model = str(operational_model or "").upper()
         match = re.search(r"(?:MODELO[_ ]?|^M)(\d{1,2})(?:_|\b)", model)
         if match is not None:
             number = int(match.group(1))
-            if 1 <= number <= 26:
+            if 1 <= number <= 28:
                 return f"M{number}"
         if model in {
             "MODELO_2_ESPELHO_BETA2_RR1",

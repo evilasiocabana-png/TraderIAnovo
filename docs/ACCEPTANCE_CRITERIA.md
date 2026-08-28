@@ -1,5 +1,13 @@
 # Acceptance Criteria
 
+## Modelos aposentados M24/M25
+
+- M24 e M25 nao podem aparecer entre os modelos selecionaveis;
+- estado persistido antigo com M24/M25 deve ser descartado com fallback seguro;
+- o provider deve rejeitar qualquer nova ordem atribuida a M24/M25;
+- operacoes antigas continuam identificadas corretamente no historico;
+- graficos ativos nao exibem M24/M25 como modelos operacionais.
+
 `M24_CONTRACT=M24_SETUP_V19_20260823; SHA256=d918353322bc17fd17e1c7d0ba47272cf19431ef2c60d9cd1686829f2802c05f`
 
 `M25_CONTRACT=M25_XAU_SOURCES_V6_20260820; FINGERPRINT=d0d758099058ffde`
@@ -158,20 +166,33 @@ Aceito quando:
 - preserva o historico V1 sem ler seu estado no roteamento V2;
 - preserva bloqueio de conta real e testes nao enviam ordens ao MT5.
 
-## Modelo 26 - Smart Money XAUUSD/M1
+## Modelo 26 - continuidade e lateralizacao por candles XAUUSD/M5
 
 Aceito quando:
 
 - M25 permanece inalterado;
-- opera exclusivamente `XAUUSD/M1` e somente em conta Demo;
+- opera exclusivamente `XAUUSD/M5` e somente em conta Demo;
 - usa 200 candles fechados e ignora o candle atual na decisao;
-- exige estrutura 2+2, varredura, BOS/deslocamento, FVG, Order Block e reteste;
-- BUY e SELL sao espelhos direcionais;
-- cria SL estrutural e TP com RR minimo de 2;
-- usa lote explicito de `0,01`;
+- nao usa SMA; usa RSI14 somente nas faixas de cada rota;
+- continuidade comprada usa movimento verde e pausa vermelha, com ordem Stop
+  na extremidade da pausa; a venda usa a sequencia espelhada;
+- continuidade arma Stop no extremo do candle contrario, usa lote `0,01`,
+  move o SL apenas para proteger e faz Full Exit com dois candles contrarios;
+- topo e fundo laterais sao marcados diretamente por `2 verdes + 2 vermelhos`
+  e `2 vermelhos + 2 verdes`, respectivamente;
+- lateralizacao BUY exige duas ou mais velas vermelhas e `50 < RSI14 <= 70`;
+- lateralizacao SELL exige duas ou mais velas verdes e `30 <= RSI14 < 50`;
+- BUY arma `BUY_STOP` na maxima da ultima vermelha, com SL `0,01` abaixo do
+  fundo criado pela sequencia e TP no topo estrutural anterior;
+- SELL arma `SELL_STOP` na minima da ultima verde, com SL `0,01` acima do topo
+  criado pela sequencia e TP no fundo estrutural anterior;
+- a rota lateral usa lote `0,02` e preserva o SL/TP estrutural;
+- continuidade e lateralizacao podem gerar ordens simultaneas no mesmo ciclo;
+- existe no maximo uma pendencia/posicao por rota, e a atualizacao de uma rota
+  nunca substitui nem bloqueia a ordem da outra;
 - Entrada Teorica e executor usam a mesma decisao do snapshot compartilhado;
 - o comentario MT5 preserva `M26` e a saida teorica reconhece o modelo gravado;
 - o modelo aparece no seletor, mas nao e marcado automaticamente;
 - nao executa Lab pesado, nao faz leitura MT5 adicional e nao envia ordem em teste;
-- testes de contrato, direcao, candle fechado, materializacao, volume e provider
-  permanecem aprovados.
+- testes de contrato, coexistencia das duas rotas, direcao, materializacao,
+  volumes, Full Exit, SL movel e provider permanecem aprovados.

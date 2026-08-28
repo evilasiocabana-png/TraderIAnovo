@@ -1,5 +1,13 @@
 # Architecture
 
+## Estado operacional M24/M25
+
+Desde 2026-08-27, M24 e M25 estao aposentados. Eles nao aparecem no seletor,
+nao participam do ciclo de avaliacao e nao podem originar novas ordens. Seus
+IDs, contratos e leitores permanecem apenas para compatibilidade com negocios,
+auditorias e relatorios historicos. A politica de dominio e o provider devem
+falhar fechado caso um estado antigo tente reativa-los.
+
 `M24_CONTRACT=M24_SETUP_V19_20260823; SHA256=d918353322bc17fd17e1c7d0ba47272cf19431ef2c60d9cd1686829f2802c05f`
 
 `M25_CONTRACT=M25_XAU_SOURCES_V6_20260820; FINGERPRINT=d0d758099058ffde`
@@ -607,10 +615,23 @@ classificar deposito, ajuste ou saldo como negociacao.
 ## Modelo 26
 
 O contrato oficial esta em
-`docs/architecture/OPERATIONAL_MODEL_26_XAU_M1_SMART_MONEY.md`. O M26 e uma
-rota independente em `XAUUSD/M1`, sem substituir ou copiar o M25. Ele usa a
-janela compartilhada de 200 candles fechados mais o candle atual e exige a
-confluencia completa: estrutura 2+2, varredura de liquidez, BOS com
-deslocamento, FVG, Order Block e reteste. Entrada, SL e TP sao materializados
-em um unico Trade Plan; o SL e estrutural e o RR minimo e 2. O modelo opera
-somente em Demo, nao recalcula Lab pesado e nao e ativado automaticamente.
+`docs/architecture/OPERATIONAL_MODEL_26_XAU_M5_CANDLE_STRUCTURE.md`. O M26 e uma rota
+independente em `XAUUSD/M5`, sem substituir o M8. Ele reutiliza a janela
+compartilhada de 200 candles fechados mais o candle atual. Nao usa SMA; usa
+RSI14 para enquadrar continuidade/lateralizacao e confirmar exaustao.
+A rota de continuidade reconhece movimento, uma vela contraria de pausa e
+arma ordem Stop na extremidade da pausa para executar somente na retomada.
+O SL nasce alem do microfundo/microtopo formado pelo candle de recuo. A lateralizacao apenas
+seleciona entrada e alvos: tres marcacoes alternadas formadas diretamente por
+sequencias `2+2` armam ordem Limit entre as bordas confirmadas. As duas rotas
+sao independentes e podem manter ordens simultaneas; cada Trade Plan grava
+`CONT`, `LAT` ou `EXH`, de modo que provider e Position Manager nao misturem suas
+pendencias, posicoes ou saidas. O modelo opera somente em Demo e nao recalcula
+Lab pesado. Desde o contrato V21, a identidade da rota atravessa decisao,
+Trade Plan, Robot Service e provider; a idempotencia do candle e isolada por
+rota para uma avaliacao nao bloquear outra entrada valida.
+
+Nos relatorios e monitores, a identidade do modelo deve ser reconhecida pelo
+token numerico completo. Prefixos parciais sao proibidos: `M26` corresponde
+somente ao `MODELO26` e nunca pode ser classificado como `M2`. O mesmo contrato
+vale para os proximos modelos adicionados ao catalogo operacional.

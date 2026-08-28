@@ -52,9 +52,21 @@ from application.model25_multi_asset_rsi50_basket import (
     is_model25,
 )
 from application.model26_xau_m5_smart_money import (
-    MODEL_26_VOLUME,
+    MODEL_26_CONTINUATION_VOLUME,
+    MODEL_26_LATERALIZATION_VOLUME,
+    MODEL_26_SOURCE,
     is_model26,
 )
+from application.model27_mirror_m26 import (
+    MODEL_27_SOURCE,
+    MODEL_27_VOLUME,
+    is_model27,
+)
+from application.model28_pattern_miner_shadow import (
+    MODEL_28_SOURCE,
+    MODEL_28_VOLUME,
+)
+from replay.pattern_miner.operational import MODEL_28_ID
 from application.model6_original_trend_momentum import (
     MODEL_6_ID as HISTORICAL_MODEL_6_ID,
 )
@@ -103,6 +115,8 @@ class MT5DemoRobotSignal:
     confidence: float
     active_model: str
     reason: str
+    entry_route: str = "DEFAULT"
+    setup_id: str = ""
     alpha_id: str = DEFAULT_ALPHA_ID
     alpha_version: str = DEFAULT_ALPHA_VERSION
     lab_configuration_version: str = LAB_CONFIGURATION_VERSION
@@ -206,8 +220,8 @@ class MT5DemoRobotService:
     )
     enabled: bool = False
     volume: float = 0.1
-    last_candle_by_market: dict[tuple[str, str, str], str] = field(default_factory=dict)
-    last_decision_by_market: dict[tuple[str, str, str], str] = field(default_factory=dict)
+    last_candle_by_market: dict[tuple[str, str, str, str], str] = field(default_factory=dict)
+    last_decision_by_market: dict[tuple[str, str, str, str], str] = field(default_factory=dict)
 
     def evaluate_once(
         self,
@@ -233,7 +247,10 @@ class MT5DemoRobotService:
         if self.last_candle_by_market.get(key) == signal.candle_time:
             return self._result(
                 "NO_NEW_CANDLE",
-                "Candle ja avaliado pelo robo temporal.",
+                (
+                    "Candle ja avaliado pelo robo temporal para a rota "
+                    f"{self._entry_route(signal)}."
+                ),
                 signal,
                 trade_plan,
             )
@@ -389,6 +406,8 @@ class MT5DemoRobotService:
             "entry_filter_reason": signal.entry_filter_reason,
             "risk_reward": trade_plan.risk_reward,
             "candle_time": signal.candle_time,
+            "entry_route": self._entry_route(signal),
+            "setup_id": signal.setup_id,
             "mt5_position": "OPEN" if current_decision in {"BUY", "SELL"} else "N/D",
             "forex_session": signal.forex_session,
             "forex_session_open": signal.forex_session_open,
@@ -438,9 +457,18 @@ class MT5DemoRobotService:
     ) -> MT5DemoRobotSignal | None:
         """Nao sobrepoe regime legado aos modelos com Alpha canonica completa."""
         model = str(getattr(signal, "operational_model", "") or "").upper()
-        if is_model23(model) or is_model24(model) or is_model25(model):
+        if (
+            is_model23(model)
+            or is_model24(model)
+            or is_model25(model)
+            or is_model26(model)
+            or is_model27(model)
+            or model == MODEL_28_ID
+        ):
             # O M23 recebe somente sinais que ja venceram todos os gates do
-            # modelo-fonte. Reaplicar o regime legado aqui distorceria a fonte.
+            # modelo-fonte. M24-M26 tambem calculam o proprio regime no
+            # adaptador canonico. Reaplicar o regime legado aqui distorceria
+            # a fonte e poderia bloquear uma ordem ja liberada pelo modelo.
             return None
         dynamic_source = dynamic_exit_source_model(model)
         if dynamic_source is not None:
@@ -521,6 +549,9 @@ class MT5DemoRobotService:
             MODEL_23_ENTRY_SOURCE,
             MODEL_24_ENTRY_SOURCE,
             MODEL_25_ENTRY_SOURCE,
+            MODEL_26_SOURCE,
+            MODEL_27_SOURCE,
+            MODEL_28_SOURCE,
         }:
             return "Plano de trade nao veio de fonte operacional autorizada."
         if trade_plan.status != "PLANO_VALIDO":
@@ -551,20 +582,29 @@ class MT5DemoRobotService:
             ).upper()
             if not validation_model:
                 return "Plano de cesta sem modelo-fonte para validar SL/TP."
-        requires_target = (not validation_is_model24) and (
-            not validation_is_model25 or validation_is_model25_source
-        ) and xau_model_requires_target(
-            validation_model,
-            parameters.get("active_entry_order_type"),
-        )
-        no_target_model = validation_model in {
+        entry_order_type = str(parameters.get("active_entry_order_type") or "").upper()
+        if is_model27(validation_model):
+            requires_target = True
+        elif is_model26(validation_model):
+            requires_target = entry_order_type in {"BUY_LIMIT", "SELL_LIMIT"}
+        else:
+            requires_target = (not validation_is_model24) and (
+                not validation_is_model25 or validation_is_model25_source
+            ) and xau_model_requires_target(
+                validation_model,
+                entry_order_type,
+            )
+        no_target_model = (
+            is_model26(validation_model)
+            or validation_model in {
             MODEL_3_ID,
             MODEL_8_ID,
             MODEL_15_ID,
             MODEL_16_ID,
             *XAU_TREND_FILTER_MODEL_IDS,
             *FOREX_SMA_RSI_MODEL_IDS,
-        } and not requires_target
+            }
+        ) and not requires_target
         if validation_is_model24:
             no_target_model = not (
                 bool(parameters.get("m24_individual_target_enabled"))
@@ -602,6 +642,8 @@ class MT5DemoRobotService:
             trade_plan.timeframe,
             signal.candle_time,
             signal.active_model,
+            self._entry_route(signal),
+            signal.setup_id,
             trade_plan.trade_plan_version,
             trade_plan.source,
             trade_plan.status,
@@ -624,6 +666,8 @@ class MT5DemoRobotService:
             "symbol": trade_plan.symbol,
             "timeframe": trade_plan.timeframe,
             "candle_time": signal.candle_time,
+            "entry_route": self._entry_route(signal),
+            "setup_id": signal.setup_id,
             "direction": direction,
             "entry_price": float(trade_plan.entry_price),
             "initial_stop": float(trade_plan.stop),
@@ -698,8 +742,16 @@ class MT5DemoRobotService:
         operational_model = (
             signal.operational_model or trade_plan.operational_model or ""
         )
+        parameters = dict(trade_plan.stop_management_parameters or {})
+        if is_model23(operational_model):
+            routed_volume = parameters.get("execution_volume")
+            try:
+                value = float(routed_volume)
+            except (TypeError, ValueError):
+                value = 0.0
+            if value > 0.0:
+                return value
         if is_model25(operational_model):
-            parameters = dict(trade_plan.stop_management_parameters or {})
             role = str(parameters.get("m25_entry_role") or "").upper()
             return (
                 MODEL_25_REENTRY_VOLUME
@@ -707,7 +759,16 @@ class MT5DemoRobotService:
                 else MODEL_25_INITIAL_VOLUME
             )
         if is_model26(operational_model):
-            return MODEL_26_VOLUME
+            route = str(parameters.get("active_signal_kind") or "").upper()
+            return (
+                MODEL_26_LATERALIZATION_VOLUME
+                if route == "LATERALIZATION"
+                else MODEL_26_CONTINUATION_VOLUME
+            )
+        if is_model27(operational_model):
+            return MODEL_27_VOLUME
+        if str(operational_model or "").upper() == MODEL_28_ID:
+            return MODEL_28_VOLUME
         if not is_model24(operational_model):
             return float(self.volume)
         parameters = dict(trade_plan.stop_management_parameters or {})
@@ -738,16 +799,25 @@ class MT5DemoRobotService:
     def _market_key(self, symbol: str, timeframe: str) -> tuple[str, str]:
         return (str(symbol).upper(), str(timeframe).upper())
 
-    def _execution_key(self, signal: MT5DemoRobotSignal) -> tuple[str, str, str]:
+    def _execution_key(
+        self,
+        signal: MT5DemoRobotSignal,
+    ) -> tuple[str, str, str, str]:
         return (
             str(signal.symbol).upper(),
             str(signal.timeframe).upper(),
             str(signal.operational_model or DEFAULT_OPERATIONAL_MODEL).upper(),
+            self._entry_route(signal),
         )
+
+    @staticmethod
+    def _entry_route(signal: MT5DemoRobotSignal) -> str:
+        route = str(signal.entry_route or "").strip().upper()
+        return route if route and route != "NONE" else "DEFAULT"
 
     def _mark_candle_evaluated(
         self,
-        key: tuple[str, str, str],
+        key: tuple[str, str, str, str],
         candle_time: str,
         decision: str,
     ) -> None:

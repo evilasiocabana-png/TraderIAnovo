@@ -2,6 +2,9 @@
 
 Este é o índice oficial de governança arquitetural do TraderIA_WDO.
 
+- [Modelo 27 - Espelho Independente do M26](architecture/OPERATIONAL_MODEL_27_MIRROR_M26.md)
+- [Modelo 28 - Pattern Miner Operational Shadow](architecture/OPERATIONAL_MODEL_28_PATTERN_MINER_SHADOW.md)
+
 O objetivo deste documento é servir como ponto central de navegação para a
 documentação, scripts, manifestos, baseline, ADRs e testes arquiteturais do
 projeto. Ele não substitui a Architecture Bible, não controla comportamento da
