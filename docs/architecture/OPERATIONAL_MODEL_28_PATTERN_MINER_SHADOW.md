@@ -10,7 +10,7 @@
 - Beta: `BETA028_REPLAY_DERIVED_FIXED_RISK`
 - Execucao: `DEMO_ADAPTIVE`
 - Ativos e timeframe: os `19` mercados canonicos, todos em `M5`
-- Volume: `0.04`
+- Volume: `0.11`
 
 O sufixo `SHADOW` permanece no identificador apenas para compatibilidade com os
 registros locais criados na fase de validacao. O M28 agora e um modelo
@@ -35,7 +35,7 @@ historicoATIVO (19 bases independentes)
   -> LivePatternTracker
   -> SignalCandidate
   -> seletor adaptativo
-  -> Trade Plan M28 com entrada, SL, TP e lote 0.04
+  -> Trade Plan M28 com entrada, SL, TP e lote 0.11
   -> MT5DemoRobotService
   -> DemoExecutionService
   -> provider MT5 Demo
@@ -51,7 +51,7 @@ bloqueada pelo provider.
 - Stop: referencia adversa congelada pela geometria causal do Replay.
 - Target: referencia favoravel de `1 ATR` ou `2 ATR`, definida na promocao.
 - Ordem: mercado, somente apos candle M5 fechado.
-- Volume: `0.04` lote.
+- Volume: `0.11` lote.
 - Escopo: 19 ativos; nenhum contrato de um ativo pode consumir candle de outro.
 - Expiracao: a selecao vence ao ultrapassar a janela causal do contrato.
 - Ausencia de padrao: `WAIT`, sem inventar direcao ou geometria.

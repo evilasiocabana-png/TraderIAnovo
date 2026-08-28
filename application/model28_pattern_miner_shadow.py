@@ -26,7 +26,7 @@ from replay.pattern_miner.operational import (
 MODEL_28_ALPHA_ID = "ALPHA028_PATTERN_MINER_PROMOTED"
 MODEL_28_BETA_ID = "BETA028_REPLAY_DERIVED_FIXED_RISK"
 MODEL_28_COMMENT = "TraderIA M28 ADAPTIVE"
-MODEL_28_VOLUME = 0.04
+MODEL_28_VOLUME = 0.11
 MODEL_28_STOP_MANAGEMENT = "M28_FIXED_PATTERN_GEOMETRY"
 MODEL_28_SYMBOL = "XAUUSD"
 MODEL_28_TIMEFRAME = "M5"
@@ -78,6 +78,7 @@ class Model28ShadowRuntime:
         self.config = config or PatternMinerConfig()
         self._engines: dict[tuple[str, str], LivePatternEngine] = {}
         self._selections: dict[tuple[str, str], Model28LiveSelection] = {}
+        self._latest_records: dict[tuple[str, str], EventRecord] = {}
         for key in {
             (str(item.symbol).upper(), str(item.timeframe).upper())
             for item in specs
@@ -130,6 +131,25 @@ class Model28ShadowRuntime:
             return None
         return max(self._selections.values(), key=lambda item: item.selected_at)
 
+    def latest_record(
+        self,
+        symbol: str,
+        timeframe: str = MODEL_28_TIMEFRAME,
+    ) -> EventRecord | None:
+        """Return the latest causal record already computed by the shared M5 pass."""
+
+        return self._latest_records.get((symbol.upper(), timeframe.upper()))
+
+    def record_history(
+        self,
+        symbol: str,
+        timeframe: str = MODEL_28_TIMEFRAME,
+    ) -> tuple[EventRecord, ...]:
+        """Expose the bounded live record history without another MT5 read."""
+
+        engine = self._engines.get((symbol.upper(), timeframe.upper()))
+        return tuple(engine.records) if engine is not None else ()
+
     def synchronize_mt5_closed_candles(
         self,
         rows: Sequence[object],
@@ -172,6 +192,7 @@ class Model28ShadowRuntime:
                 record, signals = engine.consume_closed_candle(candle)
                 if signals:
                     self.journal.record(signals)
+            self._latest_records[key] = record
             self._update_selection(record, signals, key=key)
             bootstrap = False
         return self._selections.get(key)
@@ -184,6 +205,7 @@ class Model28ShadowRuntime:
         record, signals = self.engine.consume_closed_candle(candle)
         if signals:
             self.journal.record(signals)
+        self._latest_records[(MODEL_28_SYMBOL, MODEL_28_TIMEFRAME)] = record
         self._update_selection(record, signals)
         return record, signals
 

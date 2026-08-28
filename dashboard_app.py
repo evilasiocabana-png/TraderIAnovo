@@ -31,6 +31,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from application.dashboard_service import DashboardService, DashboardServiceError
+from application.model23_pattern_filter import M23PatternFilterService
 import application.xau_pattern_miner_service as xau_pattern_miner_module
 from application.xau_pattern_miner_service import XauPatternMinerService
 from application.lab_operational_model_service import (
@@ -4378,7 +4379,7 @@ def _mt5_equity_model_setup_summary(model_filter: str) -> str:
         ),
         "MODELO 28": (
             "Pattern Miner adaptativo multiativo M5 | padrao causal escolhido "
-            "ao vivo | lote 0,04 | SL/TP da geometria validada"
+            "ao vivo | lote 0,11 | SL/TP da geometria validada"
         ),
     }
     if normalized in summaries:
@@ -12568,6 +12569,7 @@ def exibir_replay_dashboard(service: DashboardService, data: object) -> None:
         "O modo Maximum em lote processa um mercado por vez para preservar a RAM."
     )
     _render_multi_market_pattern_replay()
+    _render_m23_signal_replay(service)
     selected_symbol = st.selectbox(
         "Abrir analise detalhada",
         PATTERN_REPLAY_MARKETS,
@@ -12608,6 +12610,153 @@ def exibir_replay_dashboard(service: DashboardService, data: object) -> None:
         time.sleep(0.05 if state.speed.value == "Fast" else 0.35)
         miner_service.process_batch()
         st.rerun()
+
+
+def _render_m23_signal_replay(service: DashboardService) -> None:
+    """Render the supervised replay that learns from actual M23 source trades."""
+
+    filter_service = M23PatternFilterService()
+    report = filter_service.load()
+    with st.container(border=True):
+        st.header("Replay dos Sinais M23")
+        st.caption(
+            "Cruza cada negocio encerrado do M23 com o ultimo contexto causal M5 "
+            "disponivel antes da entrada. Fontes, setups e tipos permanecem "
+            "separados; contratos antigos nao sao misturados aos atuais."
+        )
+        if st.button(
+            "Calcular filtro M23",
+            key="m23_pattern_filter_calculate",
+            use_container_width=True,
+        ):
+            progress = st.progress(0.05, text="Lendo historico auditado do M23...")
+            try:
+                rows = _m23_pattern_filter_audit_rows(service)
+                progress.progress(0.15, text="Ligando sinais aos contextos causais...")
+                report = filter_service.analyze(
+                    rows,
+                    allowed_source_models=MT5_MODEL_23_SOURCE_MODEL_IDS,
+                )
+                progress.progress(1.0, text="Filtro M23 operacional calculado.")
+                st.success(
+                    "Analise concluida. Regras BLOCK confirmadas passam a impedir "
+                    "somente a nova entrada correspondente do M23."
+                )
+            except (OSError, TypeError, ValueError, RuntimeError) as exc:
+                st.error(f"Falha ao calcular o Replay M23: {exc}")
+        if report is None:
+            st.info(
+                "O filtro ainda nao foi calculado. Os sinais do M23 continuam "
+                "operando sem esta camada de classificacao."
+            )
+            return
+
+        metrics = st.columns(6)
+        metrics[0].metric("Negocios elegiveis", report.eligible_rows)
+        metrics[1].metric("Com contexto", report.contextualized_rows)
+        metrics[2].metric("Regras", len(report.rules))
+        metrics[3].metric("Aprovar", report.approve_rules)
+        metrics[4].metric("Bloquear", report.block_rules)
+        metrics[5].metric("Modo", report.mode)
+        st.info(
+            "ACTIVE_BLOCK_ONLY: somente regras BLOCK confirmadas em descoberta, "
+            "validacao e OOS impedem a entrada. Ausencia ou conflito de evidencia "
+            "preserva o sinal original."
+        )
+
+        source_rows: dict[tuple[str, str], dict[str, object]] = {}
+        for sample in report.samples:
+            key = (sample.source_model, sample.entry_type)
+            row = source_rows.setdefault(
+                key,
+                {
+                    "Fonte": f"M{operational_model_number(sample.source_model) or '?'}",
+                    "Modelo fonte": sample.source_model,
+                    "Tipo entrada": sample.entry_type,
+                    "Negocios": 0,
+                    "Vitorias": 0,
+                    "Resultado liquido": 0.0,
+                },
+            )
+            row["Negocios"] = int(row["Negocios"]) + 1
+            row["Vitorias"] = int(row["Vitorias"]) + int(sample.net_result > 0.0)
+            row["Resultado liquido"] = float(row["Resultado liquido"]) + sample.net_result
+        for row in source_rows.values():
+            row["Acerto"] = (
+                float(row["Vitorias"]) / int(row["Negocios"])
+                if int(row["Negocios"])
+                else 0.0
+            )
+        st.subheader("Resultado por fonte e tipo de entrada")
+        st.dataframe(
+            sorted(source_rows.values(), key=lambda item: (str(item["Fonte"]), str(item["Tipo entrada"]))),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.subheader("Padroes encontrados nos sinais")
+        st.dataframe(
+            [
+                {
+                    "Regra": rule.rule_id,
+                    "Fonte": (
+                        "TODAS"
+                        if rule.source_model == "ALL_SOURCES"
+                        else f"M{operational_model_number(rule.source_model) or '?'}"
+                    ),
+                    "Direcao": rule.direction,
+                    "Familia": rule.pattern_scope,
+                    "Condicao": rule.pattern_value,
+                    "Padrao": rule.pattern_id,
+                    "Decisao filtro": rule.decision,
+                    "Amostra": rule.samples,
+                    "Acerto": rule.win_rate,
+                    "Resultado": rule.net_result,
+                    "Expectancy": rule.expectancy,
+                    "Validacao": rule.validation_expectancy,
+                    "OOS": rule.oos_expectancy,
+                    "Contexto causal": rule.signature,
+                }
+                for rule in report.rules
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        gross_curve = [0.0]
+        shadow_curve = [0.0]
+        for sample in sorted(report.samples, key=lambda item: item.timestamp):
+            gross_curve.append(gross_curve[-1] + sample.net_result)
+            decision = filter_service.classify_sample(sample, report)
+            shadow_curve.append(
+                shadow_curve[-1]
+                + (0.0 if decision == "BLOCK" else sample.net_result)
+            )
+        st.subheader("Comparacao historica")
+        st.line_chart(
+            {
+                "M23 realizado": gross_curve,
+                "M23 com filtro ativo": shadow_curve,
+            }
+        )
+        st.caption(
+            f"Gerado em {report.generated_at}. A curva filtrada e contrafactual; "
+            "novas entradas passam a aplicar as regras BLOCK persistidas."
+        )
+
+
+def _m23_pattern_filter_audit_rows(service: DashboardService) -> list[object]:
+    """Prefer the local audit snapshot so Replay never probes MT5 unnecessarily."""
+
+    snapshot_path = Path(".traderia") / "runtime" / "mt5_trade_audit_report.json"
+    try:
+        payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        rows = payload.get("rows") if isinstance(payload, dict) else None
+        if isinstance(rows, list) and rows:
+            return rows
+    except (OSError, ValueError, TypeError):
+        pass
+    return list(service.get_mt5_trade_audit_report().rows)
 
 
 def _get_xau_pattern_miner_service(
@@ -13129,12 +13278,12 @@ def _render_model28_live_selection(service: DashboardService) -> None:
         st.caption(
             "Usa somente candles M5 fechados e os mesmos detectores causais do Replay. "
             "Quando o M28 esta selecionado, o padrao validado pode gerar ordem Demo "
-            "com lote fixo de 0,04; conta Real permanece bloqueada."
+            "com lote fixo de 0,11; conta Real permanece bloqueada."
         )
         metrics = st.columns(3)
         metrics[0].metric("Mercados monitorados", len(active_markets))
         metrics[1].metric("Padrões atuais", len(selections))
-        metrics[2].metric("Lote Demo", "0,04")
+        metrics[2].metric("Lote Demo", "0,11")
         if not selections:
             st.info(
                 "Nenhuma sequência causal foi concluída no último candle M5 fechado. "

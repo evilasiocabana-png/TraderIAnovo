@@ -650,6 +650,7 @@ def test_model26_materializes_lateralization_plan() -> None:
     assert plan.target == 110.0
     assert plan.stop_management_parameters["active_entry_order_type"] == "BUY_STOP"
     assert plan.stop_management_parameters["execution_volume"] == 0.02
+    assert "m23_pattern_filter_mode" not in plan.stop_management_parameters
 
 
 def test_service_materializes_both_model26_routes_in_same_cycle() -> None:

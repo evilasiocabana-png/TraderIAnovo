@@ -232,7 +232,7 @@ def test_model28_is_demo_adaptive_and_active_for_execution() -> None:
     parameters = model28_parameters()
     assert parameters["model_id"] == MODEL_28_ID
     assert parameters["execution_mode"] == "DEMO_ADAPTIVE"
-    assert parameters["execution_volume"] == 0.04
+    assert parameters["execution_volume"] == 0.11
     assert parameters["can_send_orders"] is True
     assert parameters["real_account_allowed"] is False
     assert operational_model_number(MODEL_28_ID) == 28
@@ -318,7 +318,7 @@ def test_model28_uses_contract_volume_and_bypasses_legacy_regime() -> None:
     )
 
     assert service._regime_validation_signal(signal) is None
-    assert service._execution_volume(signal, plan) == 0.04
+    assert service._execution_volume(signal, plan) == 0.11
 
 
 def test_model28_reaches_demo_execution_with_frozen_geometry() -> None:
@@ -371,7 +371,7 @@ def test_model28_reaches_demo_execution_with_frozen_geometry() -> None:
     assert result.status == "EXECUTED"
     assert len(provider.orders) == 1
     order = provider.orders[0]
-    assert order.quantity == 0.04
+    assert order.quantity == 0.11
     assert order.side == "SELL"
     assert order.entry_price == 3400.0
     assert order.stop == 3405.0

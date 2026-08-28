@@ -21,6 +21,16 @@ cesta atingir +US$1.000 liquidos; nao usa stop ou trailing financeiro global.
 Contrato completo em
 `docs/architecture/OPERATIONAL_MODEL_23_ACCUMULATOR.md`.
 
+O Replay tambem possui uma camada de classificacao para os sinais copiados pelo
+M23. Ela cruza apenas negocios encerrados do contrato atual com o ultimo
+contexto M5 fechado antes da entrada, separa descoberta, validacao e OOS e grava
+o resultado em `.traderia/research/m23_pattern_filter/report.json`. O runtime
+somente consulta esse artefato leve. Em `ACTIVE_BLOCK_ONLY`, somente uma regra
+`BLOCK` confirmada impede a nova entrada antes do provider. Sinais permitidos
+preservam lote, entrada, SL, TP e saida da fonte. O
+contrato completo esta em
+`docs/architecture/MODEL_23_PATTERN_FILTER.md`.
+
 ## Implantacao local com watcher desligado
 
 O Streamlit operacional usa `server.fileWatcherType=none` para reduzir consumo de

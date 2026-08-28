@@ -977,6 +977,15 @@ class DashboardViewModelContractTest(unittest.TestCase):
             basket_plan.stop_management_parameters["full_exit_usd"],
             1000.0,
         )
+        self.assertEqual(
+            basket_plan.stop_management_parameters["m23_pattern_filter_mode"],
+            "ACTIVE_BLOCK_ONLY",
+        )
+        self.assertFalse(
+            basket_plan.stop_management_parameters[
+                "m23_pattern_filter_blocks_execution"
+            ]
+        )
         self.assertNotIn(
             "global_stop_usd",
             basket_plan.stop_management_parameters,
@@ -1036,6 +1045,71 @@ class DashboardViewModelContractTest(unittest.TestCase):
             ]
         )
         self.assertIn("ultimo topo/fundo M5", basket_plan.target_reason)
+
+    def test_m23_pattern_filter_block_impede_plano_antes_do_provider(self) -> None:
+        service = DashboardService()
+        row = DashboardMT5ForexSignalRowViewModel(
+            pair="EURUSD",
+            status="OK",
+            timeframe="H1",
+            decision="SELL",
+            theoretical_entry_direction="SELL",
+            theoretical_entry_price=1.10,
+            active_model="TEST_SETUP",
+        )
+        plan = MT5ResearchTradePlan(
+            symbol="EURUSD",
+            timeframe="H1",
+            direction="SELL",
+            entry_price=1.10,
+            stop=1.11,
+            target=1.07,
+            risk_reward=3.0,
+            stop_multiplier=1.5,
+            exit_model="FIXED",
+            exit_score=1.0,
+            exit_candidates=1,
+            status="PLANO_VALIDO",
+            stop_management_parameters={"active_entry_order_type": "MARKET"},
+        )
+        blocked = SimpleNamespace(
+            decision="BLOCK",
+            rule_id="RULE-BLOCK",
+            pattern_id="PAT-BLOCK",
+            reason="Filtro M23 BLOCK validado.",
+            samples=41,
+            validation_expectancy=-1.0,
+            oos_expectancy=-1.0,
+        )
+
+        with patch.object(
+            dashboard_service_module._MODEL23_PATTERN_FILTER_SERVICE,
+            "evaluate",
+            return_value=blocked,
+        ):
+            blocked_row, blocked_plan = service._mt5_model23_variant_from_source(
+                row,
+                plan,
+                source_operational_model=(
+                    dashboard_service_module.MT5_OPERATIONAL_MODEL_10
+                ),
+            )
+
+        self.assertEqual(blocked_row.decision, "WAIT")
+        self.assertEqual(
+            blocked_row.theoretical_entry_status,
+            "M23_PATTERN_FILTER_BLOCKED",
+        )
+        self.assertEqual(blocked_plan.direction, "WAIT")
+        self.assertIsNone(blocked_plan.entry_price)
+        self.assertIsNone(blocked_plan.stop)
+        self.assertIsNone(blocked_plan.target)
+        self.assertEqual(blocked_plan.invalid_fields, ("m23_pattern_filter",))
+        self.assertTrue(
+            blocked_plan.stop_management_parameters[
+                "m23_pattern_filter_blocks_execution"
+            ]
+        )
 
     def test_m23_preserva_reentrada_buy_mesmo_apos_rsi_acima_de_70(self) -> None:
         service = DashboardService()

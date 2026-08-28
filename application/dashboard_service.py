@@ -129,6 +129,11 @@ from application.model23_basket_accumulator import (
     model23_variant_id,
     model23_entry_type,
 )
+from application.model23_pattern_filter import (
+    MODEL_23_PATTERN_FILTER_MODE,
+    M23PatternFilterService,
+)
+_MODEL23_PATTERN_FILTER_SERVICE = M23PatternFilterService()
 from application.model24_xau_basket import (
     MODEL_24_ALPHA_ID,
     MODEL_24_ALPHA_VERSION,
@@ -1980,7 +1985,10 @@ class DashboardService:
                 required,
                 full_count=OPERATIONAL_INDICATOR_RAW_CANDLES,
             )
-        if MT5_OPERATIONAL_MODEL_28 in selected_models:
+        if {
+            MT5_OPERATIONAL_MODEL_23,
+            MT5_OPERATIONAL_MODEL_28,
+        }.intersection(selected_models):
             self._refresh_model28_live_shadow()
         self._auto_export_mt5_visual_signals()
         return data
@@ -8199,6 +8207,76 @@ class DashboardService:
                 ),
             }
         )
+        runtime = getattr(self, "model28_shadow_runtime", None)
+        latest_record = (
+            runtime.latest_record(str(row.pair), "M5")
+            if runtime is not None and hasattr(runtime, "latest_record")
+            else None
+        )
+        record_history = (
+            runtime.record_history(str(row.pair), "M5")
+            if runtime is not None and hasattr(runtime, "record_history")
+            else ()
+        )
+        pattern_filter = _MODEL23_PATTERN_FILTER_SERVICE.evaluate(
+            source_model=normalized_source,
+            symbol=str(row.pair),
+            entry_type=source_entry_type,
+            direction=str(plan.direction or row.decision or "WAIT"),
+            record=latest_record,
+            history=record_history,
+        )
+        pattern_filter_blocks = pattern_filter.decision == "BLOCK"
+        parameters.update(
+            {
+                "m23_pattern_filter_mode": MODEL_23_PATTERN_FILTER_MODE,
+                "m23_pattern_filter_decision": pattern_filter.decision,
+                "m23_pattern_filter_rule_id": pattern_filter.rule_id,
+                "m23_pattern_filter_pattern_id": pattern_filter.pattern_id,
+                "m23_pattern_filter_reason": pattern_filter.reason,
+                "m23_pattern_filter_samples": pattern_filter.samples,
+                "m23_pattern_filter_validation_expectancy": (
+                    pattern_filter.validation_expectancy
+                ),
+                "m23_pattern_filter_oos_expectancy": (
+                    pattern_filter.oos_expectancy
+                ),
+                "m23_pattern_filter_blocks_execution": pattern_filter_blocks,
+                "m23_pattern_filter_original_direction": str(
+                    plan.direction or row.decision or "WAIT"
+                ).upper(),
+            }
+        )
+        if pattern_filter_blocks:
+            status = "M23_PATTERN_FILTER_BLOCKED"
+            reason = pattern_filter.reason
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status=status,
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=reason,
+                    research_plan_status=status,
+                    research_plan_entry_price=None,
+                    research_plan_stop=None,
+                    research_plan_target=None,
+                    research_plan_reason=reason,
+                ),
+                replace(
+                    plan,
+                    direction="WAIT",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    status=status,
+                    reason=reason,
+                    invalid_reason=status,
+                    invalid_fields=("m23_pattern_filter",),
+                    stop_management_parameters=parameters,
+                ),
+            )
         if is_xau_reentry and not structural_target_valid:
             status = "M23_XAU_AGUARDA_ALVO_ESTRUTURAL_CONFIRMADO"
             reason = (
