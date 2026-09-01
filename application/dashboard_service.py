@@ -232,6 +232,9 @@ from application.model28_pattern_miner_shadow import (
     Model28ShadowRuntime,
     model28_parameters,
 )
+from application.model28_forward_validation_service import (
+    Model28ForwardValidationService,
+)
 from replay.pattern_miner.operational import (
     MODEL_28_CONTRACT_VERSION,
     MODEL_28_ID as MT5_OPERATIONAL_MODEL_28,
@@ -2020,6 +2023,11 @@ class DashboardService:
             )
         )
 
+    def has_model28_operational_contracts(self) -> bool:
+        """Report whether any 100k-ranked M28 Demo contract can create entries."""
+
+        return self.model28_shadow_runtime.has_active_specs()
+
     def _refresh_model28_live_shadow(self) -> Model28LiveSelection | None:
         """Feed every promoted M28 market from the shared M5 cache."""
 
@@ -3123,6 +3131,31 @@ class DashboardService:
     def get_mt5_research_history_database_path(self) -> str:
         """Retorna o caminho absoluto do banco local do historico MT5."""
         return str(self.mt5_research_history_database_path().resolve())
+
+    def get_model28_forward_validation_report(self) -> dict[str, Any]:
+        """Le a ultima validacao forward sem consultar MT5 nem recalcular Replay."""
+        return self._model28_forward_validation_service().load_report()
+
+    def update_model28_forward_validation_data(
+        self,
+        progress_callback: Any = None,
+    ) -> dict[str, Any]:
+        """Atualiza sob demanda somente candles M5 fechados posteriores ao corte."""
+        return self._model28_forward_validation_service().update(
+            progress_callback=progress_callback,
+        )
+
+    def _model28_forward_validation_service(
+        self,
+    ) -> Model28ForwardValidationService:
+        markets = (
+            "XAUUSD",
+            *(symbol for symbol in MT5_RESEARCH_MARKETS if symbol != "XAUUSD"),
+        )
+        return Model28ForwardValidationService(
+            self.mt5_market_data_service.provider,
+            markets=markets,
+        )
 
     def get_model_exit_research(self) -> dict[str, Any]:
         """Load the precomputed M8-M10 stop/target study for Replay only."""
@@ -9934,7 +9967,7 @@ class DashboardService:
             else {(MODEL_28_SYMBOL, MODEL_28_TIMEFRAME)}
         )
         if (pair, MODEL_28_TIMEFRAME) not in active_markets:
-            reason = f"M28 ainda nao possui contrato validado para {pair}/{MODEL_28_TIMEFRAME}."
+            reason = f"M28 ainda nao possui contrato adaptativo para {pair}/{MODEL_28_TIMEFRAME}."
             return (
                 replace(
                     row,
@@ -9961,7 +9994,7 @@ class DashboardService:
             )
         if selection is None:
             reason = (
-                f"M28 monitorando {pair}/{MODEL_28_TIMEFRAME}: nenhum contrato validado concluiu "
+                f"M28 monitorando {pair}/{MODEL_28_TIMEFRAME}: nenhum contrato ranqueado concluiu "
                 "a sequencia causal no ultimo candle fechado."
             )
             return (
@@ -9970,7 +10003,7 @@ class DashboardService:
                     timeframe=MODEL_28_TIMEFRAME,
                     decision="WAIT",
                     theoretical_entry_direction="WAIT",
-                    theoretical_entry_status="M28_AGUARDA_PADRAO_VALIDADO",
+                    theoretical_entry_status="M28_AGUARDA_PADRAO_RANQUEADO",
                     theoretical_entry_price=None,
                     theoretical_entry_reason=reason,
                     active_model="M28_PATTERN_MINER_ADAPTIVE",
@@ -9984,21 +10017,33 @@ class DashboardService:
                     entry_price=None,
                     stop=None,
                     target=None,
-                    status="M28_AGUARDA_PADRAO_VALIDADO",
+                    status="M28_AGUARDA_PADRAO_RANQUEADO",
                     reason=reason,
-                    invalid_reason="M28_AGUARDA_PADRAO_VALIDADO",
+                    invalid_reason="M28_AGUARDA_PADRAO_RANQUEADO",
                     invalid_fields=("pattern_occurrence",),
                 ),
             )
 
         direction = str(selection.direction or "").upper()
-        entry = float(selection.entry_reference)
-        stop = float(selection.stop_reference)
-        target = float(selection.target_reference)
+        reference_entry = float(selection.entry_reference)
+        reference_stop = float(selection.stop_reference)
+        reference_target = float(selection.target_reference)
+        stop_distance = abs(reference_entry - reference_stop)
+        target_distance = abs(reference_target - reference_entry)
+        entry = self._positive_float(row.last_price, reference_entry)
+        if direction == "BUY":
+            stop = entry - stop_distance
+            target = entry + target_distance
+        else:
+            stop = entry + stop_distance
+            target = entry - target_distance
         geometry_valid = (
-            direction == "BUY" and stop < entry < target
-        ) or (
-            direction == "SELL" and target < entry < stop
+            stop_distance > 0.0
+            and target_distance > 0.0
+            and (
+                (direction == "BUY" and stop < entry < target)
+                or (direction == "SELL" and target < entry < stop)
+            )
         )
         if not geometry_valid:
             reason = "M28 rejeitou geometria incoerente do padrao selecionado."
@@ -10031,6 +10076,14 @@ class DashboardService:
         reward = abs(target - entry)
         risk_reward = reward / risk if risk > 0.0 else 0.0
         parameters = model28_parameters()
+        evidence_tier = str(selection.evidence_tier or "EXPLORATION_DEMO").upper()
+        validated_tier = evidence_tier == "VALIDATED"
+        certification_grade = (
+            "REPLAY_VALIDATED_OOS" if validated_tier else "REPLAY_RANKED_EXPLORATION"
+        )
+        certification_status = (
+            "M28_DEMO_VALIDATED" if validated_tier else "M28_DEMO_EXPLORATION"
+        )
         parameters.update(
             {
                 "setup_id": f"M28:{selection.occurrence_id}",
@@ -10041,6 +10094,29 @@ class DashboardService:
                 "pattern_confidence": selection.confidence,
                 "validation_performance": selection.validation_performance,
                 "oos_performance": selection.oos_performance,
+                "evidence_tier": evidence_tier,
+                "adaptive_rank": selection.adaptive_rank,
+                "pattern_family": selection.pattern_family,
+                "selection_score": selection.selection_score,
+                "repeat_position": selection.repeat_position,
+                "repeat_limit": selection.repeat_limit,
+                "repeat_probability": selection.repeat_probability,
+                "repeat_basis": selection.repeat_basis,
+                "entry_rule": selection.entry_rule,
+                "stop_rule": selection.stop_rule,
+                "target_rule": selection.target_rule,
+                "expiration_rule": selection.expiration_rule,
+                "max_holding_candles": selection.max_holding_candles,
+                "cost_rule": selection.cost_rule,
+                "stop_atr": selection.stop_atr,
+                "target_atr": selection.target_atr,
+                "geometry_method": selection.geometry_method,
+                "pattern_reference_entry": reference_entry,
+                "pattern_stop_distance": stop_distance,
+                "pattern_target_distance": target_distance,
+                "live_entry_reanchored": entry != reference_entry,
+                "one_order_per_pattern_occurrence": True,
+                "outcome_confirmations_before_entry": 0,
                 "indicator_source": f"M28_SHARED_{pair}_M5_CLOSED_CANDLES",
                 "indicator_generated_at": selection.selected_at,
                 "indicator_closed_candle_time": selection.selected_at,
@@ -10053,6 +10129,19 @@ class DashboardService:
             f"CONFIANCA={selection.confidence:.6f}",
             f"VALIDACAO={selection.validation_performance:.6f}",
             f"OOS={selection.oos_performance:.6f}",
+            f"TIER={evidence_tier}",
+            f"RANK={selection.adaptive_rank}",
+            f"FAMILIA={selection.pattern_family}",
+            f"REPETICAO={selection.repeat_position}/{selection.repeat_limit}",
+            f"PROB_REPETICAO={selection.repeat_probability:.6f}",
+            f"REGRA_ENTRADA={selection.entry_rule}",
+            f"REGRA_STOP={selection.stop_rule}",
+            f"REGRA_ALVO={selection.target_rule}",
+            f"EXPIRACAO={selection.expiration_rule}",
+            f"HOLD_MAX={selection.max_holding_candles}_M5",
+            f"CUSTO={selection.cost_rule}",
+            f"SL_ATR={selection.stop_atr:.6f}",
+            f"TP_ATR={selection.target_atr:.6f}",
             f"M28={MODEL_28_CONTRACT_VERSION}",
         )
         plan = MT5ResearchTradePlan(
@@ -10072,23 +10161,35 @@ class DashboardService:
             reward_pips=reward,
             risk_percent=abs(risk / entry) if entry else 0.0,
             reward_percent=abs(reward / entry) if entry else 0.0,
-            stop_reason="SL causal congelado pelo contrato validado do Pattern Miner.",
-            target_reason="TP causal congelado pelo contrato validado do Pattern Miner.",
+            stop_reason=(
+                "SL empirico especifico deste Pattern ID, aprendido na amostra "
+                "Discovery e congelado antes da validacao."
+            ),
+            target_reason=(
+                "TP empirico especifico deste Pattern ID, aprendido na amostra "
+                "Discovery e congelado antes da validacao."
+            ),
             stop_management=MODEL_28_STOP_MANAGEMENT,
             stop_management_parameters=parameters,
-            stop_management_reason="M28 preserva SL/TP do padrao escolhido ao vivo.",
+            stop_management_reason=(
+                "M28 preserva SL/TP e prazo maximo do contrato empirico reconhecido "
+                "ao vivo."
+            ),
             alpha_id=MODEL_28_ALPHA_ID,
             alpha_version=selection.versioned_id,
             beta_id=MODEL_28_BETA_ID,
             beta_version=MODEL_28_CONTRACT_VERSION,
-            beta_mode="FIXED_PATTERN_GEOMETRY",
-            beta_reason="Saida por SL ou TP do padrao causal validado.",
+            beta_mode="EMPIRICAL_PATTERN_CONTRACT",
+            beta_reason=(
+                "Saida por SL, TP ou expiracao aprendidos para o Pattern ID nas "
+                "100 mil velas."
+            ),
             source=MODEL_28_SOURCE,
             reason=selection.reason,
             diagnostics=diagnostics,
             certification_score=max(0.0, selection.confidence * 100.0),
-            certification_grade="REPLAY_VALIDATED_OOS",
-            certification_status="M28_DEMO_ADAPTIVE_APPROVED",
+            certification_grade=certification_grade,
+            certification_status=certification_status,
             certification_usage="Modelo M28 autorizado somente para MT5 Demo.",
             certification_demo_allowed=True,
         )
@@ -10113,13 +10214,13 @@ class DashboardService:
                 lab_alpha_version=selection.versioned_id,
                 beta_id=MODEL_28_BETA_ID,
                 beta_version=MODEL_28_CONTRACT_VERSION,
-                beta_mode="FIXED_PATTERN_GEOMETRY",
+                beta_mode="EMPIRICAL_PATTERN_CONTRACT",
                 lab_parameters=parameters,
                 lab_configuration_source=MODEL_28_SOURCE,
                 lab_confidence=selection.confidence,
                 lab_ict_score=max(0.0, selection.confidence * 100.0),
-                lab_ict_grade="REPLAY_VALIDATED_OOS",
-                lab_ict_status="M28_DEMO_ADAPTIVE_APPROVED",
+                lab_ict_grade=certification_grade,
+                lab_ict_status=certification_status,
                 lab_ict_usage=plan.certification_usage,
                 lab_ict_demo_allowed=True,
                 entry_filter_status="OK",

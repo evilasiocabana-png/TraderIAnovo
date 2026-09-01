@@ -29,15 +29,17 @@ before entry. The frozen context contains:
 - market session;
 - last major causal event in the preceding twelve candles.
 
-The sample is split chronologically into 60% discovery, 20% validation and 20%
-out-of-sample. To avoid sparse combinations, the miner evaluates causal pattern
-families independently by source model and direction: trend, structure, RSI,
-ADX, ATR regime, session, major-event family and trend/structure alignment.
+Each source model and direction receives its own chronological split of 60%
+discovery, 20% validation and 20% out-of-sample. To avoid sparse combinations,
+the miner evaluates causal pattern families independently by source model and
+direction: trend, structure, RSI, ADX, ATR regime, session, major-event family,
+trend/structure alignment and the causal RSI combinations with trend,
+structure, ADX, ATR, session and event family.
 
 A rule needs at least 20 occurrences, at least three observations in every
 split and the same expectancy sign in discovery, validation and OOS before it
 can be classified as `APPROVE` or `BLOCK`. Otherwise it remains
-`NO_EVIDENCE`. Conflicting live evidence always falls back to `NO_EVIDENCE`.
+`NO_EVIDENCE`.
 
 ## Runtime
 
@@ -55,21 +57,15 @@ Every copied M23 plan records:
 - sample count and validation/OOS expectancy;
 - `m23_pattern_filter_blocks_execution`.
 
-The operational mode is `ACTIVE_BLOCK_ONLY`. A confirmed `BLOCK` changes the
-new M23 candidate to `WAIT` before the provider is called. `APPROVE` does not
-force an entry, and `NO_EVIDENCE` preserves the source signal.
+The operational mode is `INDIVIDUAL_BLOCK_ONLY`. A confirmed `BLOCK` from the
+same source model changes the new M23 candidate to `WAIT` before the provider
+is called. `APPROVE` is informational and does not force an entry, while
+`NO_EVIDENCE` preserves the source signal. If different dimensions from the
+same source match simultaneously, a validated `BLOCK` has precedence over an
+informational `APPROVE`.
 
-The portfolio-wide RSI family is also evaluated by direction. The current
-validated defensive rule blocks an M23 `SELL` from any source when the causal
-closed-candle RSI is below 30. A portfolio `BLOCK` has precedence over an
-`APPROVE` from an individual source because it is an explicit basket-risk
-guardrail.
-
-This rule is versioned as a promoted drawdown guardrail. Automatic recalculation
-continues updating its sample and metrics, but cannot silently remove the
-operational block. Changing or retiring it requires an explicit audited change.
-Its objective is reducing drawdown, so it is evaluated separately from filters
-whose sole objective is maximizing net expectancy.
+There is no portfolio-wide `ALL_SOURCES` rule. This prevents the result from one
+source model from blocking another source with a different setup and outcome.
 
 ## Safety Rules
 
@@ -80,5 +76,4 @@ whose sole objective is maximizing net expectancy.
 - For allowed signals, the filter cannot change entry, volume, SL, TP or basket
   management.
 - A discovered rule needs stable discovery, validation and OOS sign to prevent
-  a new M23 entry. A promoted drawdown guardrail is the documented exception and
-  can only be added or removed explicitly.
+  a new M23 entry.

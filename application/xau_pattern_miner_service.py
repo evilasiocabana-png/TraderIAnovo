@@ -8,11 +8,14 @@ import json
 import os
 from pathlib import Path
 
+from application.model28_pattern_miner_shadow import (
+    DEFAULT_MODEL_28_RESEARCH_REPORT_PATH,
+    synchronize_model28_replay_contracts,
+)
 from domain.operational_pattern import OperationalPatternSpec, ShadowSignalResult
 from replay.pattern_miner import PatternMinerConfig, PatternReplayEngine
 from replay.pattern_miner.models import PatternReplayState, ReplaySpeed
 from replay.pattern_miner.operational import OperationalPatternStore, ShadowSignalJournal
-from replay.pattern_miner.operational import PatternPromotionValidator
 
 
 DEFAULT_HISTORICO_XAU_PATH = (
@@ -139,6 +142,18 @@ class XauPatternMinerService:
                 "mae_mean_atr": item.mae_mean_atr,
                 "first_passage_1_atr": item.first_passage_1_atr,
                 "first_passage_2_atr": item.first_passage_2_atr,
+                "first_passage_1_expectancy_net": (
+                    item.first_passage_1_expectancy_net
+                ),
+                "first_passage_2_expectancy_net": (
+                    item.first_passage_2_expectancy_net
+                ),
+                "fp1_discovery_net": item.fp1_discovery_net,
+                "fp1_validation_net": item.fp1_validation_net,
+                "fp1_oos_net": item.fp1_oos_net,
+                "fp2_discovery_net": item.fp2_discovery_net,
+                "fp2_validation_net": item.fp2_validation_net,
+                "fp2_oos_net": item.fp2_oos_net,
                 "discovery": item.discovery_performance,
                 "validation": item.validation_performance,
                 "oos": item.oos_performance,
@@ -228,24 +243,12 @@ class XauPatternMinerService:
         return OperationalPatternStore(self.operational_store_path).load()
 
     def promote_pattern(self, pattern_id: str) -> OperationalPatternSpec:
-        """Manually promote one ranked pattern to the M28 candidate registry."""
+        """Keep promotion automatic and tied to the frozen Replay report."""
 
-        state = self.engine.state()
-        result = state.result
-        if result is None:
-            raise ValueError("Execute ou restaure o Replay antes de promover um padrao.")
-        ranking = next(
-            (item for item in result.rankings if item.pattern_id == pattern_id),
-            None,
-        )
-        if ranking is None:
-            raise ValueError(f"Padrao nao encontrado no ranking atual: {pattern_id}")
-        return OperationalPatternStore(self.operational_store_path).promote(
-            ranking,
-            symbol=state.symbol,
-            timeframe=state.timeframe,
-            max_event_distance=self.engine.config.max_event_distance,
-            source_cache_key=result.cache_key,
+        raise ValueError(
+            f"Promocao manual desnecessaria para {pattern_id}. O M28 promove "
+            "automaticamente os contratos aprovados em Discovery, Validation "
+            "e OOS nas 100 mil velas."
         )
 
     def set_shadow(self, versioned_id: str, enabled: bool) -> OperationalPatternSpec:
@@ -258,54 +261,16 @@ class XauPatternMinerService:
         return ShadowSignalJournal(self.shadow_journal_path).load()
 
     def prepare_adaptive_shadow(self, limit: int = 12) -> tuple[OperationalPatternSpec, ...]:
-        """Authorize the strongest validated patterns for live adaptive Shadow."""
+        """Synchronize the Replay-approved contracts used by live M28 Demo."""
 
-        self.ensure_loaded()
-        state = self.restore_cache()
-        result = state.result
-        if result is None:
-            raise ValueError("Replay validado indisponivel para preparar o M28 Shadow.")
-        store = OperationalPatternStore(self.operational_store_path)
-        eligible = [
-            ranking
-            for ranking in result.rankings
-            if not PatternPromotionValidator().validate(ranking)
-        ]
-        target = max(int(limit), 1)
-        per_direction = max(target // 2, 1)
-        selected_rankings = (
-            [item for item in eligible if item.direction > 0][:per_direction]
-            + [item for item in eligible if item.direction < 0][:per_direction]
+        del limit
+        prepared = synchronize_model28_replay_contracts(
+            registry_path=self.operational_store_path,
+            report_path=DEFAULT_MODEL_28_RESEARCH_REPORT_PATH,
+            config=self.engine.config,
         )
-        if len(selected_rankings) < target:
-            selected_ids = {item.pattern_id for item in selected_rankings}
-            selected_rankings.extend(
-                item
-                for item in eligible
-                if item.pattern_id not in selected_ids
-            )
-        selected_rankings = selected_rankings[:target]
-        prepared: list[OperationalPatternSpec] = []
-        for ranking in selected_rankings:
-            spec = store.promote(
-                ranking,
-                symbol=state.symbol,
-                timeframe=state.timeframe,
-                max_event_distance=self.engine.config.max_event_distance,
-                source_cache_key=result.cache_key,
-            )
-            if spec.shadow_status.value != "RUNNING":
-                spec = store.set_shadow(spec.versioned_id, True)
-            prepared.append(spec)
-        prepared_ids = {item.versioned_id for item in prepared}
-        for existing in store.load():
-            if (
-                existing.symbol == self.symbol
-                and existing.timeframe == self.timeframe
-                and existing.shadow_status.value == "RUNNING"
-                and existing.versioned_id not in prepared_ids
-            ):
-                store.set_shadow(existing.versioned_id, False)
-        if not prepared:
-            raise ValueError("Nenhum padrao passou ocorrencias, score, validacao e OOS.")
-        return tuple(prepared)
+        return tuple(
+            item
+            for item in prepared
+            if item.symbol == self.symbol and item.timeframe == self.timeframe
+        )

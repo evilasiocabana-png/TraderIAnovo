@@ -87,6 +87,14 @@ from application.model26_xau_m5_smart_money import (
     MODEL_26_TIMEFRAME,
     evaluate_model26_exit,
 )
+from application.model28_pattern_miner_shadow import (
+    MODEL_28_BETA_ID,
+    MODEL_28_STOP_MANAGEMENT,
+)
+from replay.pattern_miner.operational import (
+    MODEL_28_CONTRACT_VERSION,
+    MODEL_28_ID,
+)
 from application.model24_xau_basket import (
     MODEL_24_ALPHA_ID,
     MODEL_24_BETA_ID,
@@ -175,6 +183,23 @@ def _timestamp_value(value: object) -> float | None:
         return float(datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp())
     except (OSError, OverflowError, ValueError):
         return None
+
+
+def _position_age_minutes(position: object) -> float | None:
+    """Read the provider open time when the visual snapshot did not carry age."""
+
+    opened_at = _timestamp_value(getattr(position, "time", None))
+    if opened_at is not None and opened_at <= 0.0:
+        opened_at = None
+    if opened_at is None:
+        opened_milliseconds = _non_negative_optional_float(
+            getattr(position, "time_msc", None)
+        )
+        if opened_milliseconds is not None:
+            opened_at = opened_milliseconds / 1000.0
+    if opened_at is None or opened_at <= 0.0:
+        return None
+    return max((datetime.now().timestamp() - opened_at) / 60.0, 0.0)
 
 
 def _candle_timestamp(row: object) -> float | None:
@@ -1076,7 +1101,11 @@ class PositionManagerService:
             current_target=target,
             r_multiple=r_multiple,
             distance_to_target_r=distance_to_target_r,
-            time_in_position_minutes=plan.time_in_position_minutes,
+            time_in_position_minutes=(
+                plan.time_in_position_minutes
+                if plan.time_in_position_minutes is not None
+                else _position_age_minutes(position)
+            ),
             atr=plan.atr,
             momentum=plan.momentum,
             volatility=plan.volatility,
@@ -1115,6 +1144,11 @@ class PositionManagerService:
             or policy == MODEL_3_STOP_MANAGEMENT
         ):
             return self._decide_model3_rsi50_flip(plan, snapshot)
+        if (
+            str(plan.operational_model or "").upper() == MODEL_28_ID
+            or policy == MODEL_28_STOP_MANAGEMENT
+        ):
+            return self._decide_model28_expiration(plan, snapshot)
         if (
             str(plan.operational_model or "").upper() == MODEL_26_ID
             or policy == MODEL_26_STOP_MANAGEMENT
@@ -1315,6 +1349,113 @@ class PositionManagerService:
             beta_version=plan.beta_version,
             beta_mode=plan.beta_mode,
             evidence=snapshot.evidence,
+        )
+
+    def _decide_model28_expiration(
+        self,
+        plan: PositionTradePlan,
+        snapshot: PositionStateSnapshot,
+    ) -> PositionManagerDecision:
+        """Keep learned barriers and close at the contract-specific horizon."""
+
+        parameters = dict(plan.stop_management_parameters or {})
+        try:
+            max_holding_candles = int(parameters.get("max_holding_candles", 0) or 0)
+        except (TypeError, ValueError):
+            max_holding_candles = 0
+        expiration_rule = str(parameters.get("expiration_rule", "") or "").upper()
+        contract_valid = (
+            str(parameters.get("contract_version", "") or "")
+            == MODEL_28_CONTRACT_VERSION
+            and str(parameters.get("geometry_method", "") or "")
+            == "PATTERN_DISCOVERY_EMPIRICAL_MAE_MFE"
+            and expiration_rule
+            == f"FULL_EXIT_AFTER_{max_holding_candles}_M5_CANDLES"
+        )
+        if max_holding_candles <= 0 or not contract_valid:
+            return PositionManagerDecision(
+                symbol=plan.symbol,
+                ticket=snapshot.ticket,
+                state="M28_EMPIRICAL_CONTRACT_INVALID",
+                action="HOLD_POSITION",
+                reason=(
+                    "Contrato M28 sem horizonte empirico valido; SL/TP existentes "
+                    "foram preservados e a expiracao automatica foi bloqueada."
+                ),
+                confidence=0.0,
+                beta_id=MODEL_28_BETA_ID,
+                beta_version=MODEL_28_CONTRACT_VERSION,
+                beta_mode="EMPIRICAL_PATTERN_CONTRACT",
+                evidence=snapshot.evidence + ("M28_MAX_HOLDING_MISSING",),
+                missing_data=(
+                    "contract_version",
+                    "geometry_method",
+                    "expiration_rule",
+                    "max_holding_candles",
+                ),
+            )
+
+        maximum_minutes = float(max_holding_candles * 5)
+        age = snapshot.time_in_position_minutes
+        if age is None:
+            return PositionManagerDecision(
+                symbol=plan.symbol,
+                ticket=snapshot.ticket,
+                state="M28_WAITING_POSITION_AGE",
+                action="HOLD_POSITION",
+                reason=(
+                    "M28 preservou o contrato porque o horario de abertura da posicao "
+                    "nao estava disponivel para auditar a expiracao."
+                ),
+                confidence=0.0,
+                beta_id=MODEL_28_BETA_ID,
+                beta_version=MODEL_28_CONTRACT_VERSION,
+                beta_mode="EMPIRICAL_PATTERN_CONTRACT",
+                evidence=snapshot.evidence + ("M28_POSITION_AGE_MISSING",),
+                missing_data=("time_in_position_minutes",),
+            )
+        if float(age) < maximum_minutes:
+            return PositionManagerDecision(
+                symbol=plan.symbol,
+                ticket=snapshot.ticket,
+                state="M28_EMPIRICAL_CONTRACT_ACTIVE",
+                action="HOLD_POSITION",
+                reason=(
+                    f"Contrato M28 ativo por {float(age):.1f}/{maximum_minutes:.1f} min; "
+                    "manter o SL e o TP especificos do Pattern ID."
+                ),
+                confidence=1.0,
+                beta_id=MODEL_28_BETA_ID,
+                beta_version=MODEL_28_CONTRACT_VERSION,
+                beta_mode="EMPIRICAL_PATTERN_CONTRACT",
+                evidence=snapshot.evidence
+                + (f"M28_MAX_HOLDING={max_holding_candles}_M5",),
+            )
+
+        allowed = self.assisted_execution_enabled
+        reason = (
+            f"Prazo empirico do Pattern ID encerrado apos {max_holding_candles} "
+            "candles M5; executar Full Exit conforme o contrato testado no Replay."
+        )
+        return PositionManagerDecision(
+            symbol=plan.symbol,
+            ticket=snapshot.ticket,
+            state="M28_EMPIRICAL_TIME_EXIT",
+            action="FULL_EXIT",
+            reason=reason,
+            confidence=1.0,
+            beta_id=MODEL_28_BETA_ID,
+            beta_version=MODEL_28_CONTRACT_VERSION,
+            beta_mode="EMPIRICAL_PATTERN_CONTRACT",
+            allowed_to_execute=allowed,
+            execution_mode="AUTOMATIC_DEMO" if allowed else "READ_ONLY",
+            requested_close_volume=snapshot.volume,
+            final_exit_reason=reason,
+            evidence=snapshot.evidence
+            + (
+                f"M28_MAX_HOLDING={max_holding_candles}_M5",
+                f"M28_POSITION_AGE_MIN={float(age):.3f}",
+            ),
         )
 
     def _decide_model26_full_exit(

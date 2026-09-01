@@ -107,15 +107,27 @@ class ForexTimeLayerTest(unittest.TestCase):
         self.assertFalse(context.temporal_blocked)
         self.assertNotIn("ROLLOVER", context.temporal_status)
 
-    def test_bloqueia_domingo_abertura(self) -> None:
+    def test_libera_domingo_a_partir_das_1805_brt(self) -> None:
         context = ForexTimeLayer().classify(
             "EURUSD",
-            "2026-07-05T21:10:00+00:00",
+            "2026-07-05T21:05:00+00:00",
+            allow_static_rollover=False,
         )
 
         self.assertTrue(context.is_sunday_open)
+        self.assertFalse(context.temporal_blocked)
+        self.assertNotEqual(context.temporal_status, "DOMINGO_ABERTURA_BLOQUEADO")
+
+    def test_bloqueia_domingo_ate_180459_brt(self) -> None:
+        context = ForexTimeLayer().classify(
+            "EURUSD",
+            "2026-07-05T21:04:59+00:00",
+            allow_static_rollover=False,
+        )
+
+        self.assertFalse(context.is_sunday_open)
         self.assertTrue(context.temporal_blocked)
-        self.assertEqual(context.temporal_status, "DOMINGO_ABERTURA_BLOQUEADO")
+        self.assertEqual(context.temporal_status, "FIM_DE_SEMANA_BLOQUEADO")
 
     def test_bloqueia_sabado_inteiro(self) -> None:
         context = ForexTimeLayer().classify(

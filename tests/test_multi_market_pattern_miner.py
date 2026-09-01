@@ -49,9 +49,13 @@ def test_summary_is_rejected_when_dataset_changes(tmp_path: Path) -> None:
     assert service.load_summary() is None
 
 
-def test_runtime_initializes_every_promoted_market() -> None:
-    runtime = Model28ShadowRuntime()
-    assert {symbol for symbol, timeframe in runtime.active_markets()} == set(
-        MT5_RESEARCH_MARKETS
+def test_runtime_rejects_legacy_promotions_without_cost_aware_evidence(
+    tmp_path: Path,
+) -> None:
+    runtime = Model28ShadowRuntime(
+        registry_path=tmp_path / "patterns.json",
+        journal_path=tmp_path / "shadow.json",
+        auto_activate_replay_contracts=False,
     )
-    assert {timeframe for _, timeframe in runtime.active_markets()} == {"M5"}
+    assert runtime.active_markets() == ()
+    assert runtime.has_active_specs() is False

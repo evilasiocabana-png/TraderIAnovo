@@ -25,17 +25,17 @@ class WeeklyRobotScheduleTest(unittest.TestCase):
             datetime(2026, 7, 31, 17, 30, tzinfo=BRT)
         )
         self.assertFalse(decision.operating)
-        self.assertIn("2026-08-02T18:01:00", decision.next_transition_brt)
+        self.assertIn("2026-08-02T18:05:00", decision.next_transition_brt)
 
-    def test_sunday_before_1801_is_closed(self) -> None:
+    def test_sunday_before_1805_is_closed(self) -> None:
         decision = weekly_robot_schedule_decision(
-            datetime(2026, 8, 2, 18, 0, 59, tzinfo=BRT)
+            datetime(2026, 8, 2, 18, 4, 59, tzinfo=BRT)
         )
         self.assertFalse(decision.operating)
 
-    def test_sunday_at_1801_is_operating(self) -> None:
+    def test_sunday_at_1805_is_operating(self) -> None:
         decision = weekly_robot_schedule_decision(
-            datetime(2026, 8, 2, 18, 1, tzinfo=BRT)
+            datetime(2026, 8, 2, 18, 5, tzinfo=BRT)
         )
         self.assertTrue(decision.operating)
         self.assertIn("2026-08-07T17:30:00", decision.next_transition_brt)

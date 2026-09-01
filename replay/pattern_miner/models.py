@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+import math
 
 
 class PatternReplayStatus(str, Enum):
@@ -163,6 +164,14 @@ class PatternRanking:
     validation_performance: float
     oos_performance: float
     score: float
+    first_passage_1_expectancy_net: float = 0.0
+    first_passage_2_expectancy_net: float = 0.0
+    fp1_discovery_net: float = 0.0
+    fp1_validation_net: float = 0.0
+    fp1_oos_net: float = 0.0
+    fp2_discovery_net: float = 0.0
+    fp2_validation_net: float = 0.0
+    fp2_oos_net: float = 0.0
 
     @property
     def direction_label(self) -> str:
@@ -179,6 +188,29 @@ class PatternRanking:
             parts.append(f"[{gap}]")
             parts.append(event_type)
         return " -> ".join(parts)
+
+    def net_expectancy_for_target(self, target_atr: float) -> float:
+        return (
+            self.first_passage_2_expectancy_net
+            if math.isclose(target_atr, 2.0)
+            else self.first_passage_1_expectancy_net
+        )
+
+    def net_split_expectancies_for_target(
+        self,
+        target_atr: float,
+    ) -> tuple[float, float, float]:
+        if math.isclose(target_atr, 2.0):
+            return (
+                self.fp2_discovery_net,
+                self.fp2_validation_net,
+                self.fp2_oos_net,
+            )
+        return (
+            self.fp1_discovery_net,
+            self.fp1_validation_net,
+            self.fp1_oos_net,
+        )
 
 
 @dataclass(frozen=True, slots=True)

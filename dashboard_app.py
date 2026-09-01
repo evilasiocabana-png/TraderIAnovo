@@ -31,6 +31,9 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from application.dashboard_service import DashboardService, DashboardServiceError
+from application.model28_forward_validation_service import (
+    record_model28_operational_heartbeat,
+)
 from application.model23_pattern_filter import M23PatternFilterService
 import application.xau_pattern_miner_service as xau_pattern_miner_module
 from application.xau_pattern_miner_service import XauPatternMinerService
@@ -141,6 +144,7 @@ from application.model27_mirror_m26 import (
     model27_parameters,
 )
 from replay.pattern_miner.operational import (
+    MODEL_28_CONTRACT_VERSION,
     MODEL_28_ID as MT5_OPERATIONAL_MODEL_28,
 )
 from application.xau_m5_sma_rsi_model_family import (
@@ -228,6 +232,20 @@ PATTERN_MINER_SELECTED_SYMBOL_KEY = "pattern_miner_selected_symbol"
 PATTERN_REPLAY_MARKETS = (
     "XAUUSD",
     *(symbol for symbol in MT5_RESEARCH_MARKETS if symbol != "XAUUSD"),
+)
+MODEL28_ADAPTIVE_RESEARCH_REPORT_PATH = (
+    Path(__file__).resolve().parent
+    / ".traderia"
+    / "research"
+    / "model28_optimizer"
+    / "empirical_pattern_contracts_v6.json"
+)
+MODEL28_FORWARD_COMPARISON_REPORT_PATH = (
+    Path(__file__).resolve().parent
+    / ".traderia"
+    / "research"
+    / "model28_forward_validation"
+    / "comparison_report.json"
 )
 MT5_DEMO_ROBOT_ONLINE_KEY = "mt5_demo_robot_online_enabled"
 MT5_DEMO_ROBOT_LAST_CYCLE_KEY = "mt5_demo_robot_last_cycle_at"
@@ -689,26 +707,43 @@ def _enforce_weekly_robot_schedule(
     pair = str(online_state.get("pair") or "TODOS")
     timeframe = str(online_state.get("timeframe") or "H1")
     if decision.operating:
+        online_message = (
+            "Robo ligado automaticamente pela agenda semanal "
+            "domingo 18:05 -> sexta 17:30 BRT."
+        )
         if not bool(online_state.get("online", False)):
             robot = service.arm_demo_robot(pair=pair, timeframe=timeframe)
             _persist_demo_robot_online_state(
                 online=True,
                 pair=pair,
                 timeframe=timeframe,
-                message=(
-                    "Robo ligado automaticamente pela agenda semanal "
-                    "domingo 18:01 -> sexta 17:30 BRT."
-                ),
+                message=online_message,
             )
             _start_demo_robot_background_cycle_once(force=True)
             action = "AUTO_ARMED"
             close_result: dict[str, object] = {}
             result_status = str(getattr(robot, "status", "ARMED") or "ARMED")
         else:
+            online_message_changed = (
+                str(online_state.get("message") or "") != online_message
+            )
+            if online_message_changed:
+                _persist_demo_robot_online_state(
+                    online=True,
+                    pair=pair,
+                    timeframe=timeframe,
+                    message=online_message,
+                )
             action = "KEEP_ONLINE"
             close_result = {}
             result_status = "ONLINE"
-            if str(previous.get("schedule_status") or "") == decision.status:
+            if (
+                str(previous.get("schedule_status") or "") == decision.status
+                and str(previous.get("reason") or "") == decision.reason
+                and str(previous.get("next_transition_brt") or "")
+                == decision.next_transition_brt
+                and not online_message_changed
+            ):
                 return {"status": result_status, "action": action}
         _write_weekly_robot_schedule_state(
             decision,
@@ -725,7 +760,7 @@ def _enforce_weekly_robot_schedule(
             timeframe=timeframe,
             message=(
                 "Robo desligado automaticamente na sexta 17:30 BRT; "
-                "retorno domingo 18:01 BRT."
+                "retorno domingo 18:05 BRT."
             ),
         )
         _write_demo_robot_background_state(
@@ -885,6 +920,12 @@ def _demo_robot_background_cycle() -> None:
                     result_status="OFFLINE",
                     message=schedule.reason,
                 )
+            _record_model28_cycle_availability(
+                online=False,
+                cycle_completed=False,
+                status=schedule.status,
+                message=schedule.reason,
+            )
             time.sleep(MT5_DEMO_ROBOT_INTERVAL_SECONDS)
             continue
         state = _load_demo_robot_online_state()
@@ -941,6 +982,13 @@ def _demo_robot_background_cycle() -> None:
                             else []
                         ),
                     )
+                _record_model28_cycle_availability(
+                    online=True,
+                    cycle_completed=True,
+                    runtime_snapshot=runtime_snapshot,
+                    status=str(getattr(robot, "status", "N/D")),
+                    message=str(getattr(robot, "result_message", "")),
+                )
                 _write_demo_robot_background_state(
                     online=True,
                     pair=pair,
@@ -950,6 +998,12 @@ def _demo_robot_background_cycle() -> None:
                     message=str(getattr(robot, "result_message", "")),
                 )
             except Exception as exc:  # noqa: BLE001 - ciclo externo nao deve derrubar app
+                _record_model28_cycle_availability(
+                    online=online,
+                    cycle_completed=False,
+                    status="ERROR",
+                    message=str(exc),
+                )
                 _write_demo_robot_background_state(
                     online=True,
                     pair=pair,
@@ -959,6 +1013,39 @@ def _demo_robot_background_cycle() -> None:
                     message=str(exc),
                 )
         time.sleep(MT5_DEMO_ROBOT_INTERVAL_SECONDS)
+
+
+def _record_model28_cycle_availability(
+    *,
+    online: bool,
+    cycle_completed: bool,
+    runtime_snapshot: object | None = None,
+    status: str,
+    message: str,
+) -> None:
+    """Record only the evidence needed for a fair Replay versus MT5 audit."""
+
+    selected = MT5_OPERATIONAL_MODEL_28 in set(
+        _load_persisted_mt5_operational_selections()
+    )
+    ready_symbols = tuple(
+        str(getattr(row, "pair", "") or "").strip().upper()
+        for row in list(getattr(runtime_snapshot, "pairs", []) or [])
+        if str(getattr(row, "status", "") or "").upper() == "OK"
+        and int(getattr(row, "received_candles", 0) or 0) > 0
+    )
+    try:
+        record_model28_operational_heartbeat(
+            online=online,
+            model_selected=selected,
+            cycle_completed=cycle_completed,
+            ready_symbols=ready_symbols,
+            status=status,
+            message=message,
+        )
+    except OSError:
+        # Audit persistence must never interrupt the trading cycle.
+        return
 
 
 def _mt5_snapshot_has_received_candles(snapshot: object) -> bool:
@@ -2430,11 +2517,15 @@ def exibir_mt5_forex_dashboard(
     if report is None:
         report = position_report
     _exibir_saidas_teoricas_mt5(service, report, display_rows)
+    st.caption(
+        "Resumo dos sinais teoricos atuais dos ativos monitorados; estes numeros "
+        "nao representam ordens enviadas nem posicoes abertas no MT5."
+    )
     colunas = st.columns(4)
     decision_counts = _forex_decision_counts(display_rows)
-    colunas[0].metric("BUY", decision_counts["BUY"])
-    colunas[1].metric("SELL", decision_counts["SELL"])
-    colunas[2].metric("WAIT", decision_counts["WAIT"])
+    colunas[0].metric("Sinais BUY", decision_counts["BUY"])
+    colunas[1].metric("Sinais SELL", decision_counts["SELL"])
+    colunas[2].metric("Sinais WAIT", decision_counts["WAIT"])
     colunas[3].metric(
         "Indisponiveis",
         len(getattr(forex, "unavailable_pairs", []) or []),
@@ -2673,15 +2764,32 @@ def _render_mt5_operational_model_selector(
         if MT5_OPERATIONAL_MODEL_28 in persisted_selections:
             selection_getter = getattr(service, "get_model28_live_selection", None)
             live_selection = selection_getter() if callable(selection_getter) else None
-            if live_selection is None:
+            contract_getter = getattr(
+                service,
+                "has_model28_operational_contracts",
+                None,
+            )
+            has_contracts = bool(contract_getter()) if callable(contract_getter) else False
+            if not has_contracts:
+                gate = _model28_adaptive_gate_status()
+                st.warning(
+                    "M28 selecionado, mas o portfólio adaptativo ainda não possui "
+                    "contratos operacionais. Execute a mineração dos 19 históricos "
+                    "antes de liberar entradas Demo."
+                )
+            elif live_selection is None:
                 st.info(
-                    "M28 selecionado: aguardando um padrao validado concluir a "
-                    "sequencia causal no candle M5 fechado de um dos 19 ativos."
+                    "M28 selecionado: aguardando a primeira ocorrência completa de "
+                    "um padrão ranqueado no candle M5 fechado. Não há espera por "
+                    "resultados anteriores do padrão."
                 )
             else:
                 st.success(
                     "M28 pronto para envio Demo: "
                     f"{live_selection.direction} | {live_selection.pattern_id} | "
+                    f"{live_selection.evidence_tier} R{live_selection.adaptive_rank} | "
+                    f"repetição {live_selection.repeat_position}/"
+                    f"{live_selection.repeat_limit} | "
                     f"entrada {live_selection.entry_reference:.2f} | "
                     f"SL {live_selection.stop_reference:.2f} | "
                     f"TP {live_selection.target_reference:.2f}."
@@ -3080,6 +3188,8 @@ def _mt5_operational_model_short_label(model: str) -> str:
         return "M26"
     if normalized == MT5_OPERATIONAL_MODEL_27:
         return "M27"
+    if normalized == MT5_OPERATIONAL_MODEL_28:
+        return "M28"
     if normalized == MT5_OPERATIONAL_MODEL_24:
         return "M24"
     if normalized == MT5_OPERATIONAL_MODEL_25:
@@ -3262,51 +3372,1133 @@ def exibir_mt5_history_comparison_dashboard(
     service: DashboardService,
     data: object,
 ) -> None:
-    """Exibe historico MT5 Forex sem comparar com datasets externos."""
-    st.subheader("Historico MT5 Forex")
+    """Compara o M28 teorico pos-corte com as tentativas realmente enviadas."""
+    st.subheader("Validacao M28: Replay x MT5")
     st.caption(
-        "Mostra somente pares Forex carregados do MT5 nesta sessao. "
-        "Nenhum dataset legado participa desta tela."
+        "A base original de 100.000 candles por ativo permanece congelada. "
+        "O complemento incremental e baixado somente pelo botao abaixo e nunca "
+        "se mistura ao dataset usado para descobrir os padroes. A conferencia "
+        "comeca em 30/08/2026 as 19:00 no horario de Brasilia."
     )
-    forex = getattr(data, "mt5_forex_signals", None)
-    if forex is None:
-        st.info("MT5 Forex ainda nao carregado.")
+    report = service.get_model28_forward_validation_report()
+    update_message = str(
+        st.session_state.pop("model28_forward_update_message", "") or ""
+    )
+    if update_message:
+        st.success(update_message)
+    if st.button("Baixar complemento", key="model28_forward_update"):
+        progress = st.progress(0.0)
+        progress_text = st.empty()
+
+        def update_progress(current: int, total: int, symbol: str) -> None:
+            progress.progress(min(current / max(total, 1), 1.0))
+            progress_text.caption(
+                f"Verificando complemento de {symbol}: ativo {current} de {total}."
+            )
+
+        try:
+            with st.spinner(
+                "Baixando somente velas M5 fechadas posteriores ao ultimo candle salvo e "
+                "reconstruindo a validacao causal..."
+            ):
+                report = service.update_model28_forward_validation_data(
+                    progress_callback=update_progress,
+                )
+            progress.progress(1.0)
+            progress_text.caption("Atualizacao incremental concluida.")
+            new_candles = sum(
+                int(row.get("new_candles", 0) or 0)
+                for row in list(report.get("markets", []) or [])
+            )
+            st.session_state["model28_forward_update_message"] = (
+                f"Complemento concluido: {new_candles} nova(s) vela(s). "
+                "Indicadores e graficos foram reconstruidos com o relatorio atualizado."
+            )
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Falha na atualizacao incremental M28: {exc}")
+
+    metrics = st.columns(6)
+    metrics[0].metric("Ativos", len(list(report.get("markets", []) or [])))
+    metrics[1].metric(
+        "Candles complementares",
+        int(report.get("total_incremental_candles", 0) or 0),
+    )
+    metrics[2].metric(
+        "Sinais em janela ativa",
+        int(report.get("theoretical_signals", 0) or 0),
+    )
+    metrics[3].metric(
+        "Tentativas em janela ativa",
+        int(report.get("actual_attempts", 0) or 0),
+    )
+    metrics[4].metric("Conferem", int(report.get("matches", 0) or 0))
+    metrics[5].metric(
+        "Divergencias",
+        int(report.get("divergences", 0) or 0),
+    )
+    st.caption(
+        "Ultima atualizacao: "
+        f"{_friendly_candle_time(report.get('generated_at', 'N/D'))} | "
+        "Atualizacao automatica por ciclo: DESLIGADA | Dataset original: SOMENTE LEITURA"
+    )
+    excluded_theory = int(
+        report.get("theoretical_signals_excluded_inactive", 0) or 0
+    )
+    excluded_attempts = int(
+        report.get("actual_attempts_excluded_inactive", 0) or 0
+    )
+    before_start_theory = int(
+        report.get("theoretical_signals_excluded_before_start", 0) or 0
+    )
+    before_start_attempts = int(
+        report.get("actual_attempts_excluded_before_start", 0) or 0
+    )
+    comparison_start = str(report.get("comparison_start_brt", "N/D") or "N/D")
+    st.info(
+        "Marco fixo da conferencia: "
+        f"{_friendly_candle_time(comparison_start)}. O candle M5 iniciado as "
+        "18:55 entra porque seu fechamento ocorre as 19:00. "
+        f"Antes do marco: {before_start_theory} sinal(is) teorico(s) e "
+        f"{before_start_attempts} tentativa(s), todos ignorados."
+    )
+    tracking_started = str(
+        report.get("availability_tracking_started_at", "N/D") or "N/D"
+    )
+    if tracking_started == "N/D":
+        st.warning(
+            "Ainda nao existe heartbeat operacional para comparar com justica. "
+            "Sinais retrospectivos nao serao tratados como falha do robo."
+        )
+    else:
+        st.info(
+            "Escopo justo: somente candles em que o robo estava armado, o M28 "
+            "selecionado, o MT5 tinha dados do ativo e o ciclo terminou. "
+            f"Depois do marco, fora desse escopo: {excluded_theory} sinal(is) "
+            f"teorico(s) e {excluded_attempts} tentativa(s). Heartbeat desde "
+            f"{_friendly_candle_time(tracking_started)}."
+        )
+
+    st.caption(
+        "Graficos reconstruidos pelo ultimo download concluido em: "
+        f"{_friendly_candle_time(report.get('generated_at', 'N/D'))}."
+    )
+    _render_model28_theoretical_vs_realized_chart(report)
+
+    st.markdown("#### Cobertura incremental por ativo")
+    market_rows = [
+        {
+            "Ativo": str(row.get("symbol", "N/D")),
+            "TF": str(row.get("timeframe", "M5")),
+            "Corte original": _friendly_candle_time(
+                row.get("original_cutoff", "N/D")
+            ),
+            "Ultima vela incremental": _friendly_candle_time(
+                row.get("last_incremental_candle", "N/D")
+            ),
+            "Novas nesta atualizacao": int(row.get("new_candles", 0) or 0),
+            "Total incremental": int(row.get("incremental_candles", 0) or 0),
+            "Estado": str(row.get("status", "AGUARDANDO_ATUALIZACAO")),
+        }
+        for row in list(report.get("markets", []) or [])
+    ]
+    _render_stable_readonly_table(market_rows)
+
+    st.markdown("#### Conferencia do plano M28")
+    st.caption(
+        "Cada linha confronta o sinal reconstruido pelo mesmo motor causal do "
+        "Replay com a tentativa registrada pelo executor Demo MT5."
+    )
+    comparison_rows = [
+        {
+            "Candle M5": _friendly_candle_time(row.get("candle_time", "N/D")),
+            "Ativo": str(row.get("symbol", "N/D")),
+            "Padrao": str(row.get("pattern_id", "N/D")),
+            "Lado": str(row.get("direction", "N/D")),
+            "Entrada teorica": _price_label(row.get("theoretical_entry")),
+            "SL teorico": _price_label(row.get("theoretical_stop")),
+            "TP teorico": _price_label(row.get("theoretical_target")),
+            "Entrada plano MT5": _price_label(row.get("mt5_entry_plan")),
+            "Preco executado": _price_label(row.get("mt5_executed_price")),
+            "Ticket": row.get("ticket") or "N/D",
+            "Conferencia": str(row.get("comparison_status", "N/D")),
+            "Motivo": str(row.get("reason", "N/D")),
+        }
+        for row in list(report.get("comparisons", []) or [])
+    ]
+    if comparison_rows:
+        _render_stable_readonly_table(comparison_rows)
+    else:
+        st.info(
+            "Ainda nao ha comparacoes pos-corte. Clique em Atualizar dados para "
+            "buscar o complemento fechado e gerar a primeira conferencia."
+        )
+
+
+def _render_model28_theoretical_vs_realized_chart(
+    report: Mapping[str, object],
+) -> None:
+    """Overlay all theoretical and realized M28 outcomes without pairing samples."""
+
+    theoretical = list(report.get("theoretical_curve", []) or [])
+    confirmed_theoretical = _model28_confirmed_theoretical_curve(report)
+    confirmed_comparisons = [
+        dict(row or {})
+        for row in list(report.get("comparisons", []) or [])
+        if str(row.get("comparison_status", ""))
+        in {"CONFERE", "CONFERE_TOLERANCIA_ATR"}
+    ]
+    confirmed_tickets = {
+        str(row.get("ticket"))
+        for row in confirmed_comparisons
+        if row.get("ticket") not in {None, "", 0, "0", "N/D"}
+    }
+    realized_all = [
+        dict(row or {})
+        for row in list(report.get("realized_curve", []) or [])
+        if str(row.get("ticket")) in confirmed_tickets
+    ]
+    realized = [
+        row
+        for row in realized_all
+        if row.get("result_r") is not None
+    ]
+    flow = _model28_order_flow_summary(report)
+    theoretical_signals = int(flow["theoretical"])
+    matched_attempts = int(flow["attempted"])
+    matches = int(flow["confirmed"])
+    waiting = int(flow["waiting"])
+    rejected = int(flow["rejected"])
+    forward_only = int(flow["forward_only"])
+    execution_rate = (
+        matches / theoretical_signals * 100.0
+        if theoretical_signals > 0
+        else 0.0
+    )
+    realized_total_r = sum(
+        float(row.get("result_r", 0.0) or 0.0) for row in realized
+    )
+    realized_total_usd = sum(
+        float(row.get("result_usd", 0.0) or 0.0) for row in realized_all
+    )
+    realized_tickets = {str(row.get("ticket")) for row in realized_all}
+    projected_values = [
+        float(row["projected_profit_usd"])
+        for row in confirmed_comparisons
+        if row.get("projected_profit_usd") is not None
+        and str(row.get("ticket")) in realized_tickets
+    ]
+    projected_total_usd = sum(projected_values)
+
+    market_count = len(list(report.get("markets", []) or []))
+    st.markdown(
+        f"#### Consolidado M28 - todos os ativos ({market_count})"
+        if market_count
+        else "#### Consolidado M28 - todos os ativos"
+    )
+    st.caption(
+        "Este primeiro grafico soma exclusivamente o M28 de todos os mercados. "
+        "Os graficos seguintes reiniciam o acumulado e mostram cada ativo separado."
+    )
+    summary_top = st.columns(3)
+    summary_top[0].metric("Dia comparado", str(report.get("chart_day", "N/D")))
+    summary_top[1].metric("Sinais com robo ativo", theoretical_signals)
+    summary_top[2].metric("Tentativas MT5", matched_attempts)
+    summary_bottom = st.columns(3)
+    summary_bottom[0].metric("Ordens confirmadas", matches)
+    summary_bottom[1].metric("Sem tentativa", waiting)
+    summary_bottom[2].metric(
+        "Aproveitamento",
+        f"{execution_rate:.1f}%",
+        help="Planos que conferiram divididos somente pelos sinais observados com o ciclo operacional ativo.",
+    )
+
+    outcome_top = st.columns(3)
+    outcome_top[0].metric("Rejeitados", rejected)
+    outcome_top[1].metric("Sem sinal teorico", forward_only)
+    outcome_top[2].metric("Teoricos resolvidos", len(theoretical))
+    outcome_bottom = st.columns(3)
+    outcome_bottom[0].metric("Operacoes encerradas", len(realized_all))
+    outcome_bottom[1].metric(
+        "Lucro projetado",
+        f"US$ {projected_total_usd:+.2f}" if projected_values else "N/D",
+        help=(
+            "Soma do lucro bruto no TP das mesmas ordens M28 confirmadas que "
+            "ja encerraram e compoem o lucro real."
+        ),
+    )
+    outcome_bottom[2].metric(
+        "Lucro real",
+        f"US$ {realized_total_usd:+.2f}",
+        help=(
+            "Resultado liquido das ordens M28 confirmadas e ja encerradas no MT5, "
+            "incluindo comissao, swap e taxas."
+        ),
+    )
+
+    st.markdown("##### Fluxo de envio - todos os ativos")
+    _render_model28_order_flow_chart(report, height=320)
+    failure_rows = _model28_order_flow_failure_rows(report)
+    if failure_rows:
+        st.markdown("##### Onde o envio parou")
+        _render_stable_readonly_table(failure_rows)
+
+    if not theoretical and not realized:
+        st.info(
+            "Ainda nao existem desfechos teoricos nem operacoes M28 encerradas no dia. "
+            "Clique em Atualizar dados para reconstruir a curva forward."
+        )
         return
 
-    colunas = st.columns(4)
-    colunas[0].metric("Fonte MT5", "MetaTrader 5")
-    colunas[1].metric("Timeframe MT5", getattr(forex, "timeframe", "N/D"))
-    colunas[2].metric("Pares MT5", len(list(getattr(forex, "pairs", []) or [])))
-    colunas[3].metric("Status", getattr(forex, "connection_status", "N/D"))
-
-    research = getattr(data, "mt5_heuristic_research", None)
-    if research is not None:
-        st.subheader("Historico de Pesquisa MT5")
-        pesquisa = st.columns(4)
-        pesquisa[0].metric(
-            "Ultima atualizacao",
-            _friendly_candle_time(getattr(research, "last_update", "N/D")),
+    theory_values = [
+        {
+            "time": str(row.get("time", "")),
+            "value": float(row.get("cumulative_r", 0.0) or 0.0),
+            "result": float(row.get("result_r", 0.0) or 0.0),
+            "symbol": str(row.get("symbol", "N/D")),
+            "pattern": str(row.get("pattern_id", "N/D")),
+            "outcome": str(row.get("outcome", "N/D")),
+        }
+        for row in theoretical
+    ]
+    realized_values: list[dict[str, object]] = []
+    realized_cumulative_r = 0.0
+    for row in realized:
+        result_r = float(row.get("result_r", 0.0) or 0.0)
+        realized_cumulative_r += result_r
+        realized_values.append(
+            {
+                "time": str(row.get("time", "")),
+                "value": realized_cumulative_r,
+                "result": result_r,
+                "symbol": str(row.get("symbol", "N/D")),
+                "ticket": str(row.get("ticket", "N/D")),
+            }
         )
-        pesquisa[0].caption(
-            f"Banco local: {service.get_mt5_research_history_database_path()}"
-        )
-        pesquisa[1].metric(
-            "Candles historicos",
-            int(getattr(research, "candles_loaded", 0) or 0),
-        )
-        pesquisa[2].metric("Timeframe pesquisa", getattr(research, "timeframe", "M1"))
-        pesquisa[3].metric("Status pesquisa", getattr(research, "status", "N/D"))
-        st.caption(
-            "Este snapshot so muda quando voce executa a atualizacao historica "
-            "de 5000 candles no Laboratorio de Pesquisa."
-        )
-
-    _render_stable_readonly_table(
-        [_mt5_history_row(row) for row in list(getattr(forex, "pairs", []) or [])]
+    day_start = str(
+        report.get("comparison_start_brt")
+        or f"{report.get('chart_day', '')}T00:00:00-03:00"
     )
-    st.info(
-        "Historico explicativo em modo Forex-only. Para pesquisa, use a aba "
-        "Laboratorio de Pesquisa."
+    if theoretical:
+        theory_values.insert(
+            0,
+            {
+                "time": day_start,
+                "value": 0.0,
+                "result": 0.0,
+                "symbol": "INICIO",
+                "pattern": "BASE_ZERO",
+                "outcome": "BASE",
+            },
+        )
+    confirmed_values = [
+        {
+            "time": str(row.get("time", "")),
+            "value": float(row.get("cumulative_r", 0.0) or 0.0),
+            "result": float(row.get("result_r", 0.0) or 0.0),
+            "symbol": str(row.get("symbol", "N/D")),
+            "pattern": str(row.get("pattern_id", "N/D")),
+            "outcome": str(row.get("outcome", "N/D")),
+        }
+        for row in confirmed_theoretical
+    ]
+    if confirmed_values:
+        confirmed_values.insert(
+            0,
+            {
+                "time": day_start,
+                "value": 0.0,
+                "result": 0.0,
+                "symbol": "INICIO",
+                "pattern": "BASE_ZERO",
+                "outcome": "BASE",
+            },
+        )
+    if realized:
+        realized_values.insert(
+            0,
+            {
+                "time": day_start,
+                "value": 0.0,
+                "result": 0.0,
+                "symbol": "INICIO",
+                "ticket": "BASE_ZERO",
+            },
+        )
+    layers: list[dict[str, object]] = []
+    if theory_values:
+        layers.append(
+            {
+                "data": {"values": theory_values},
+                "mark": {"type": "line", "point": True, "color": "#2563EB", "strokeWidth": 2},
+                "encoding": {
+                    "x": {"field": "time", "type": "temporal", "title": "Horario de encerramento"},
+                    "y": {
+                        "field": "value",
+                        "type": "quantitative",
+                        "title": "Teorico acumulado (R)",
+                        "axis": {"titleColor": "#2563EB"},
+                        "scale": {"zero": True},
+                    },
+                    "tooltip": [
+                        {"field": "time", "type": "temporal", "title": "Horario"},
+                        {"field": "symbol", "type": "nominal", "title": "Ativo"},
+                        {"field": "pattern", "type": "nominal", "title": "Padrao"},
+                        {"field": "outcome", "type": "nominal", "title": "Desfecho"},
+                        {"field": "result", "type": "quantitative", "title": "Resultado (R)", "format": ".2f"},
+                        {"field": "value", "type": "quantitative", "title": "Acumulado (R)", "format": ".2f"},
+                    ],
+                },
+            }
+        )
+    if confirmed_values:
+        layers.append(
+            {
+                "data": {"values": confirmed_values},
+                "mark": {
+                    "type": "line",
+                    "point": True,
+                    "color": "#059669",
+                    "strokeWidth": 3,
+                },
+                "encoding": {
+                    "x": {
+                        "field": "time",
+                        "type": "temporal",
+                        "title": "Horario de encerramento",
+                    },
+                    "y": {
+                        "field": "value",
+                        "type": "quantitative",
+                        "title": "Resultado acumulado (R)",
+                        "scale": {"zero": True},
+                    },
+                    "tooltip": [
+                        {"field": "time", "type": "temporal", "title": "Horario"},
+                        {"field": "symbol", "type": "nominal", "title": "Ativo"},
+                        {"field": "pattern", "type": "nominal", "title": "Padrao confirmado"},
+                        {"field": "outcome", "type": "nominal", "title": "Desfecho teorico"},
+                        {"field": "result", "type": "quantitative", "title": "Resultado (R)", "format": ".2f"},
+                        {"field": "value", "type": "quantitative", "title": "Confirmado acumulado (R)", "format": ".2f"},
+                    ],
+                },
+            }
+        )
+    if realized_values:
+        layers.append(
+            {
+                "data": {"values": realized_values},
+                "mark": {"type": "line", "point": True, "color": "#D97706", "strokeWidth": 2},
+                "encoding": {
+                    "x": {"field": "time", "type": "temporal", "title": "Horario de encerramento"},
+                    "y": {
+                        "field": "value",
+                        "type": "quantitative",
+                        "title": "Realizado liquido (R)",
+                        "axis": {"orient": "right", "titleColor": "#D97706"},
+                        "scale": {"zero": True},
+                    },
+                    "tooltip": [
+                        {"field": "time", "type": "temporal", "title": "Horario"},
+                        {"field": "symbol", "type": "nominal", "title": "Ativo"},
+                        {"field": "ticket", "type": "nominal", "title": "Ticket"},
+                        {"field": "result", "type": "quantitative", "title": "Resultado (R)", "format": ".2f"},
+                        {"field": "value", "type": "quantitative", "title": "Acumulado (R)", "format": ".2f"},
+                    ],
+                },
+            }
+        )
+    st.markdown("##### Resultado acumulado em R - todos os ativos")
+    st.vega_lite_chart(
+        None,
+        {
+            "layer": layers,
+            "resolve": {"scale": {"y": "shared"}},
+            "height": 340,
+        },
+        width="stretch",
+    )
+    st.caption(
+        "Azul: sinais teoricos M28 que ocorreram durante janelas operacionais comprovadas "
+        "e ja atingiram SL, TP ou o prazo empirico do Pattern ID, liquidos do spread "
+        "registrado. Verde: desfecho teorico somente dos planos que "
+        "chegaram ao executor e ficaram CONFERE. Laranja: resultado liquido das "
+        "operacoes efetivamente encerradas no MT5. As curvas usam a mesma unidade R; "
+        "confirmacao de plano nao significa operacao encerrada."
+    )
+    st.markdown("##### Lucro projetado x lucro real (US$) - todos os ativos")
+    _render_model28_financial_chart(report, height=320)
+    _render_model28_symbol_charts(report)
+    st.markdown("#### Resultado por ativo")
+    st.caption(
+        "A abertura por ativo impede que ganhos financeiros maiores em XAUUSD ou "
+        "BTCUSD escondam perdas estatisticas nos pares Forex."
+    )
+    _render_stable_readonly_table(_model28_asset_comparison_rows(report))
+
+
+def _model28_confirmed_theoretical_curve(
+    report: Mapping[str, object],
+) -> list[dict[str, object]]:
+    """Build cumulative theoretical R only for plans confirmed by the executor."""
+
+    confirmed_keys = {
+        (
+            str(row.get("symbol", "")),
+            str(row.get("candle_time", "")),
+            str(row.get("pattern_id", "")),
+            str(row.get("direction", "")),
+        )
+        for row in list(report.get("comparisons", []) or [])
+        if str(row.get("comparison_status", ""))
+        in {"CONFERE", "CONFERE_TOLERANCIA_ATR"}
+    }
+    cumulative_r = 0.0
+    output: list[dict[str, object]] = []
+    for source in sorted(
+        list(report.get("theoretical_curve", []) or []),
+        key=lambda row: str(row.get("time", "")),
+    ):
+        row = dict(source or {})
+        key = (
+            str(row.get("symbol", "")),
+            str(row.get("signal_time", "")),
+            str(row.get("pattern_id", "")),
+            str(row.get("direction", "")),
+        )
+        if key not in confirmed_keys:
+            continue
+        cumulative_r += float(row.get("result_r", 0.0) or 0.0)
+        output.append({**row, "cumulative_r": round(cumulative_r, 6)})
+    return output
+
+
+def _model28_order_flow_summary(
+    report: Mapping[str, object],
+    symbol: str | None = None,
+) -> dict[str, int]:
+    """Count each stage between a reconstructed M28 signal and MT5 acceptance."""
+
+    normalized_symbol = str(symbol or "").strip().upper()
+    rows = [
+        dict(row or {})
+        for row in list(report.get("comparisons", []) or [])
+        if not normalized_symbol
+        or str(row.get("symbol", "")).upper() == normalized_symbol
+    ]
+    theoretical = [
+        row
+        for row in rows
+        if str(row.get("comparison_status", "")) != "SEM_SINAL_FORWARD"
+    ]
+    attempted = [
+        row
+        for row in theoretical
+        if str(row.get("comparison_status", "")) != "AGUARDANDO_EXECUCAO"
+    ]
+    confirmed = [
+        row
+        for row in theoretical
+        if str(row.get("comparison_status", ""))
+        in {"CONFERE", "CONFERE_TOLERANCIA_ATR"}
+    ]
+    waiting = [
+        row
+        for row in theoretical
+        if str(row.get("comparison_status", "")) == "AGUARDANDO_EXECUCAO"
+    ]
+    rejected = [
+        row
+        for row in theoretical
+        if str(row.get("comparison_status", ""))
+        not in {"CONFERE", "CONFERE_TOLERANCIA_ATR", "AGUARDANDO_EXECUCAO"}
+    ]
+    forward_only = [
+        row
+        for row in rows
+        if str(row.get("comparison_status", "")) == "SEM_SINAL_FORWARD"
+    ]
+    return {
+        "theoretical": len(theoretical),
+        "attempted": len(attempted),
+        "confirmed": len(confirmed),
+        "waiting": len(waiting),
+        "rejected": len(rejected),
+        "forward_only": len(forward_only),
+    }
+
+
+def _model28_order_flow_values(
+    report: Mapping[str, object],
+    symbol: str | None = None,
+) -> list[dict[str, object]]:
+    """Build cumulative signal, attempt and confirmation counts over event time."""
+
+    normalized_symbol = str(symbol or "").strip().upper()
+    rows = [
+        dict(row or {})
+        for row in list(report.get("comparisons", []) or [])
+        if str(row.get("comparison_status", "")) != "SEM_SINAL_FORWARD"
+        and (
+            not normalized_symbol
+            or str(row.get("symbol", "")).upper() == normalized_symbol
+        )
+    ]
+    rows.sort(
+        key=lambda row: (
+            str(row.get("candle_time", "")),
+            str(row.get("symbol", "")),
+            str(row.get("pattern_id", "")),
+        )
+    )
+    totals = {"Sinais teoricos": 0, "Tentativas MT5": 0, "Ordens confirmadas": 0}
+    values: list[dict[str, object]] = []
+    for row in rows:
+        status = str(row.get("comparison_status", ""))
+        totals["Sinais teoricos"] += 1
+        if status != "AGUARDANDO_EXECUCAO":
+            totals["Tentativas MT5"] += 1
+        if status in {"CONFERE", "CONFERE_TOLERANCIA_ATR"}:
+            totals["Ordens confirmadas"] += 1
+        for series, value in totals.items():
+            values.append(
+                {
+                    "time": str(row.get("candle_time", "")),
+                    "value": value,
+                    "series": series,
+                    "symbol": str(row.get("symbol", "N/D")),
+                    "pattern": str(row.get("pattern_id", "N/D")),
+                    "status": status,
+                }
+            )
+    return values
+
+
+def _render_model28_order_flow_chart(
+    report: Mapping[str, object],
+    *,
+    symbol: str | None = None,
+    height: int = 230,
+) -> None:
+    values = _model28_order_flow_values(report, symbol)
+    comparison_start = str(
+        report.get("comparison_start_brt")
+        or f"{report.get('chart_day', '')}T00:00:00-03:00"
+    )
+    for series in ("Sinais teoricos", "Tentativas MT5", "Ordens confirmadas"):
+        values.insert(
+            0,
+            {
+                "time": comparison_start,
+                "value": 0,
+                "series": series,
+                "symbol": "INICIO",
+                "pattern": "BASE_ZERO",
+                "status": "BASE",
+            },
+        )
+    st.vega_lite_chart(
+        None,
+        {
+            "data": {"values": values},
+            "mark": {
+                "type": "line",
+                "point": True,
+                "strokeWidth": 2.5,
+                "interpolate": "step-after",
+            },
+            "encoding": {
+                "x": {
+                    "field": "time",
+                    "type": "temporal",
+                    "title": "Horario do sinal",
+                },
+                "y": {
+                    "field": "value",
+                    "type": "quantitative",
+                    "title": "Quantidade acumulada",
+                    "scale": {"zero": True},
+                },
+                "color": {
+                    "field": "series",
+                    "type": "nominal",
+                    "title": "Etapa",
+                    "legend": {"orient": "top", "direction": "horizontal"},
+                    "scale": {
+                        "domain": [
+                            "Sinais teoricos",
+                            "Tentativas MT5",
+                            "Ordens confirmadas",
+                        ],
+                        "range": ["#2563EB", "#D97706", "#059669"],
+                    },
+                },
+                "tooltip": [
+                    {"field": "series", "type": "nominal", "title": "Etapa"},
+                    {"field": "time", "type": "temporal", "title": "Horario"},
+                    {"field": "symbol", "type": "nominal", "title": "Ativo"},
+                    {"field": "pattern", "type": "nominal", "title": "Padrao"},
+                    {"field": "status", "type": "nominal", "title": "Status"},
+                    {"field": "value", "type": "quantitative", "title": "Acumulado"},
+                ],
+            },
+            "height": height,
+        },
+        width="stretch",
+    )
+
+
+def _model28_order_flow_failure_rows(
+    report: Mapping[str, object],
+) -> list[dict[str, object]]:
+    output: list[dict[str, object]] = []
+    for source in list(report.get("comparisons", []) or []):
+        row = dict(source or {})
+        status = str(row.get("comparison_status", ""))
+        if status not in {"AGUARDANDO_EXECUCAO", "REJEITADO_MT5", "DIVERGE_GEOMETRIA"}:
+            continue
+        output.append(
+            {
+                "Horario": _friendly_candle_time(row.get("candle_time")),
+                "Ativo": str(row.get("symbol", "N/D")),
+                "Lado": str(row.get("direction", "N/D")),
+                "Padrao": str(row.get("pattern_id", "N/D")),
+                "Etapa": (
+                    "SEM TENTATIVA"
+                    if status == "AGUARDANDO_EXECUCAO"
+                    else "REJEITADA/DIVERGENTE"
+                ),
+                "Motivo": str(row.get("reason", "N/D")),
+            }
+        )
+    return sorted(output, key=lambda row: (str(row["Ativo"]), str(row["Horario"])))
+
+
+def _model28_symbol_curve_data(
+    report: Mapping[str, object],
+    symbol: str,
+) -> dict[str, list[dict[str, object]]]:
+    """Return three independent cumulative curves scoped to one market."""
+
+    normalized = str(symbol or "").upper()
+    theoretical = [
+        dict(row or {})
+        for row in list(report.get("theoretical_curve", []) or [])
+        if str(row.get("symbol", "")).upper() == normalized
+    ]
+    confirmed = [
+        dict(row or {})
+        for row in _model28_confirmed_theoretical_curve(report)
+        if str(row.get("symbol", "")).upper() == normalized
+    ]
+    realized = [
+        dict(row or {})
+        for row in list(report.get("realized_curve", []) or [])
+        if str(row.get("symbol", "")).upper() == normalized
+        and row.get("result_r") is not None
+    ]
+    return {
+        "theoretical": _model28_reaccumulate_curve(theoretical),
+        "confirmed": _model28_reaccumulate_curve(confirmed),
+        "realized": _model28_reaccumulate_curve(realized),
+    }
+
+
+def _model28_reaccumulate_curve(
+    rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    cumulative_r = 0.0
+    output: list[dict[str, object]] = []
+    for row in sorted(rows, key=lambda item: str(item.get("time", ""))):
+        cumulative_r += float(row.get("result_r", 0.0) or 0.0)
+        output.append({**row, "cumulative_r": round(cumulative_r, 6)})
+    return output
+
+
+def _model28_financial_curve_rows(
+    report: Mapping[str, object],
+    symbol: str | None = None,
+) -> list[dict[str, object]]:
+    """Build projected and realized USD curves from the same confirmed closed tickets."""
+
+    normalized = str(symbol or "").upper()
+    confirmed_by_ticket = {
+        str(row.get("ticket")): dict(row or {})
+        for row in list(report.get("comparisons", []) or [])
+        if str(row.get("comparison_status", ""))
+        in {"CONFERE", "CONFERE_TOLERANCIA_ATR"}
+        and row.get("ticket") not in {None, "", 0, "0", "N/D"}
+        and (
+            not normalized
+            or str(row.get("symbol", "")).upper() == normalized
+        )
+    }
+    closed = sorted(
+        (
+            dict(row or {})
+            for row in list(report.get("realized_curve", []) or [])
+            if str(row.get("ticket")) in confirmed_by_ticket
+            and (
+                not normalized
+                or str(row.get("symbol", "")).upper() == normalized
+            )
+        ),
+        key=lambda row: str(row.get("time", "")),
+    )
+    if not closed:
+        return []
+
+    day_start = str(
+        report.get("comparison_start_brt")
+        or f"{report.get('chart_day', '')}T00:00:00-03:00"
+    )
+    output: list[dict[str, object]] = [
+        {
+            "time": day_start,
+            "series": "Lucro projetado",
+            "value": 0.0,
+            "result": 0.0,
+            "symbol": normalized or "TODOS",
+            "ticket": "BASE_ZERO",
+        },
+        {
+            "time": day_start,
+            "series": "Lucro real",
+            "value": 0.0,
+            "result": 0.0,
+            "symbol": normalized or "TODOS",
+            "ticket": "BASE_ZERO",
+        },
+    ]
+    projected_total = 0.0
+    realized_total = 0.0
+    for row in closed:
+        ticket = str(row.get("ticket"))
+        comparison = confirmed_by_ticket[ticket]
+        projected = comparison.get("projected_profit_usd")
+        if projected is None:
+            continue
+        projected_value = float(projected or 0.0)
+        realized_value = float(row.get("result_usd", 0.0) or 0.0)
+        projected_total += projected_value
+        realized_total += realized_value
+        common = {
+            "time": str(row.get("time", "")),
+            "symbol": str(row.get("symbol", "N/D")),
+            "ticket": ticket,
+        }
+        output.extend(
+            [
+                {
+                    **common,
+                    "series": "Lucro projetado",
+                    "value": round(projected_total, 6),
+                    "result": round(projected_value, 6),
+                },
+                {
+                    **common,
+                    "series": "Lucro real",
+                    "value": round(realized_total, 6),
+                    "result": round(realized_value, 6),
+                },
+            ]
+        )
+    return output if len(output) > 2 else []
+
+
+def _render_model28_financial_chart(
+    report: Mapping[str, object],
+    *,
+    symbol: str | None = None,
+    height: int = 280,
+) -> None:
+    rows = _model28_financial_curve_rows(report, symbol)
+    if not rows:
+        st.caption("Ainda nao ha operacoes M28 confirmadas e encerradas para plotar.")
+        return
+    st.vega_lite_chart(
+        None,
+        {
+            "data": {"values": rows},
+            "mark": {"type": "line", "point": True, "strokeWidth": 2.5},
+            "encoding": {
+                "x": {
+                    "field": "time",
+                    "type": "temporal",
+                    "title": "Horario de encerramento",
+                },
+                "y": {
+                    "field": "value",
+                    "type": "quantitative",
+                    "title": "Lucro acumulado (US$)",
+                    "scale": {"zero": True},
+                },
+                "color": {
+                    "field": "series",
+                    "type": "nominal",
+                    "title": "Curva financeira",
+                    "legend": {"orient": "top", "direction": "horizontal"},
+                    "scale": {
+                        "domain": ["Lucro projetado", "Lucro real"],
+                        "range": ["#2563EB", "#059669"],
+                    },
+                },
+                "tooltip": [
+                    {"field": "series", "type": "nominal", "title": "Curva"},
+                    {"field": "time", "type": "temporal", "title": "Horario"},
+                    {"field": "symbol", "type": "nominal", "title": "Ativo"},
+                    {"field": "ticket", "type": "nominal", "title": "Ticket"},
+                    {
+                        "field": "result",
+                        "type": "quantitative",
+                        "title": "Resultado da operacao (US$)",
+                        "format": ".2f",
+                    },
+                    {
+                        "field": "value",
+                        "type": "quantitative",
+                        "title": "Acumulado (US$)",
+                        "format": ".2f",
+                    },
+                ],
+            },
+            "height": height,
+        },
+        width="stretch",
+    )
+    st.caption(
+        "Azul: TP financeiro projetado. Verde: resultado real liquido. "
+        "As duas curvas usam exatamente os mesmos tickets M28 confirmados e encerrados."
+    )
+
+
+def _render_model28_symbol_charts(report: Mapping[str, object]) -> None:
+    """Render one independent M28 comparison chart for every monitored market."""
+
+    symbols = [
+        str(row.get("symbol", "")).upper()
+        for row in list(report.get("markets", []) or [])
+        if str(row.get("symbol", "")).strip()
+    ]
+    if not symbols:
+        symbols = sorted(
+            {
+                str(row.get("symbol", "")).upper()
+                for field in ("theoretical_curve", "realized_curve", "comparisons")
+                for row in list(report.get(field, []) or [])
+                if str(row.get("symbol", "")).strip()
+            }
+        )
+    symbols = list(dict.fromkeys(symbols))
+    st.markdown(f"#### M28 desmembrado por ativo ({len(symbols)})")
+    st.caption(
+        "Cada ativo recomeca em 0 R no marco das 19:00. Os acumulados abaixo "
+        "nao recebem resultados de nenhum outro mercado."
+    )
+    for symbol in symbols:
+        curves = _model28_symbol_curve_data(report, symbol)
+        flow = _model28_order_flow_summary(report, symbol)
+        symbol_confirmed = [
+            dict(row or {})
+            for row in list(report.get("comparisons", []) or [])
+            if str(row.get("symbol", "")).upper() == symbol
+            and str(row.get("comparison_status", ""))
+            in {"CONFERE", "CONFERE_TOLERANCIA_ATR"}
+        ]
+        symbol_confirmed_tickets = {
+            str(row.get("ticket"))
+            for row in symbol_confirmed
+            if row.get("ticket") not in {None, "", 0, "0", "N/D"}
+        }
+        realized_financial = [
+            dict(row or {})
+            for row in list(report.get("realized_curve", []) or [])
+            if str(row.get("symbol", "")).upper() == symbol
+            and str(row.get("ticket")) in symbol_confirmed_tickets
+        ]
+        realized_usd = sum(
+            float(row.get("result_usd", 0.0) or 0.0)
+            for row in realized_financial
+        )
+        realized_tickets = {
+            str(row.get("ticket")) for row in realized_financial
+        }
+        projected_values = [
+            float(row["projected_profit_usd"])
+            for row in symbol_confirmed
+            if row.get("projected_profit_usd") is not None
+            and str(row.get("ticket")) in realized_tickets
+        ]
+        projected_usd = sum(projected_values)
+        theoretical_r = (
+            float(curves["theoretical"][-1].get("cumulative_r", 0.0) or 0.0)
+            if curves["theoretical"]
+            else 0.0
+        )
+        confirmed_r = (
+            float(curves["confirmed"][-1].get("cumulative_r", 0.0) or 0.0)
+            if curves["confirmed"]
+            else 0.0
+        )
+        st.markdown(f"##### {symbol}")
+        metrics_top = st.columns(3)
+        metrics_top[0].metric("Sinais", int(flow["theoretical"]))
+        metrics_top[1].metric("Tentativas", int(flow["attempted"]))
+        metrics_top[2].metric("Confirmadas", int(flow["confirmed"]))
+        metrics_bottom = st.columns(3)
+        metrics_bottom[0].metric("Sem tentativa", int(flow["waiting"]))
+        metrics_bottom[1].metric("Rejeitadas", int(flow["rejected"]))
+        rate = (
+            float(flow["confirmed"]) / float(flow["theoretical"]) * 100.0
+            if flow["theoretical"]
+            else 0.0
+        )
+        metrics_bottom[2].metric("Aproveitamento", f"{rate:.1f}%")
+        result_top = st.columns(2)
+        result_top[0].metric("Resultado teorico", f"{theoretical_r:.2f} R")
+        result_top[1].metric(
+            "Resultado dos confirmados",
+            f"{confirmed_r:.2f} R",
+        )
+        result_bottom = st.columns(2)
+        result_bottom[0].metric(
+            "Lucro projetado",
+            f"US$ {projected_usd:+.2f}" if projected_values else "N/D",
+            help=(
+                "Lucro bruto no TP das mesmas ordens M28 confirmadas e "
+                "encerradas usadas no lucro real deste ativo."
+            ),
+        )
+        result_bottom[1].metric(
+            "Lucro real",
+            f"US$ {realized_usd:+.2f}",
+            help=(
+                f"Resultado liquido de {len(realized_financial)} operacao(oes) "
+                "M28 confirmada(s) e encerrada(s) neste ativo."
+            ),
+        )
+        _render_model28_order_flow_chart(report, symbol=symbol, height=230)
+        st.markdown(f"###### Financeiro M28 - {symbol}")
+        _render_model28_financial_chart(report, symbol=symbol, height=230)
+
+
+def _model28_asset_comparison_rows(
+    report: Mapping[str, object],
+) -> list[dict[str, object]]:
+    """Summarize independent theory, execution and realized outcomes per symbol."""
+
+    totals: dict[str, dict[str, float]] = {}
+
+    def symbol_totals(symbol: object) -> dict[str, float]:
+        key = str(symbol or "N/D").upper()
+        return totals.setdefault(
+            key,
+            {
+                "theoretical_signals": 0.0,
+                "theoretical_resolved": 0.0,
+                "theoretical_r": 0.0,
+                "actual_attempts": 0.0,
+                "matches": 0.0,
+                "waiting": 0.0,
+                "divergences": 0.0,
+                "actual_closed": 0.0,
+                "projected_usd": 0.0,
+                "actual_usd": 0.0,
+                "actual_r": 0.0,
+            },
+        )
+
+    for source in list(report.get("comparisons", []) or []):
+        row = dict(source or {})
+        values = symbol_totals(row.get("symbol"))
+        status = str(row.get("comparison_status", ""))
+        if status != "SEM_SINAL_FORWARD":
+            values["theoretical_signals"] += 1.0
+        if status != "AGUARDANDO_EXECUCAO":
+            values["actual_attempts"] += 1.0
+        if status in {"CONFERE", "CONFERE_TOLERANCIA_ATR"}:
+            values["matches"] += 1.0
+        elif status == "AGUARDANDO_EXECUCAO":
+            values["waiting"] += 1.0
+        else:
+            values["divergences"] += 1.0
+
+    for source in list(report.get("theoretical_curve", []) or []):
+        row = dict(source or {})
+        values = symbol_totals(row.get("symbol"))
+        values["theoretical_resolved"] += 1.0
+        values["theoretical_r"] += float(row.get("result_r", 0.0) or 0.0)
+
+    confirmed_tickets = {
+        str(row.get("ticket"))
+        for row in list(report.get("comparisons", []) or [])
+        if str(row.get("comparison_status", ""))
+        in {"CONFERE", "CONFERE_TOLERANCIA_ATR"}
+        and row.get("ticket") not in {None, "", 0, "0", "N/D"}
+    }
+    projected_by_ticket = {
+        str(row.get("ticket")): float(row.get("projected_profit_usd", 0.0) or 0.0)
+        for row in list(report.get("comparisons", []) or [])
+        if str(row.get("comparison_status", ""))
+        in {"CONFERE", "CONFERE_TOLERANCIA_ATR"}
+        and row.get("ticket") not in {None, "", 0, "0", "N/D"}
+    }
+    for source in list(report.get("realized_curve", []) or []):
+        row = dict(source or {})
+        ticket = str(row.get("ticket"))
+        if ticket not in confirmed_tickets:
+            continue
+        values = symbol_totals(row.get("symbol"))
+        values["actual_closed"] += 1.0
+        values["projected_usd"] += projected_by_ticket.get(ticket, 0.0)
+        values["actual_usd"] += float(row.get("result_usd", 0.0) or 0.0)
+        if row.get("result_r") is not None:
+            values["actual_r"] += float(row.get("result_r", 0.0) or 0.0)
+
+    output: list[dict[str, object]] = []
+    for symbol, values in totals.items():
+        theoretical_signals = int(values["theoretical_signals"])
+        actual_closed = int(values["actual_closed"])
+        confirmation_rate = (
+            values["matches"] / theoretical_signals * 100.0
+            if theoretical_signals > 0
+            else 0.0
+        )
+        theoretical_r = values["theoretical_r"]
+        actual_r = values["actual_r"]
+        if actual_closed == 0:
+            diagnosis = "SEM EXECUCAO ENCERRADA"
+        elif theoretical_r > 0.0 and actual_r < 0.0:
+            diagnosis = "DIVERGE: TEORIA + / MT5 -"
+        elif theoretical_r < 0.0 and actual_r > 0.0:
+            diagnosis = "DIVERGE: TEORIA - / MT5 +"
+        elif theoretical_r >= 0.0 and actual_r >= 0.0:
+            diagnosis = "ALINHADO POSITIVO"
+        else:
+            diagnosis = "ALINHADO NEGATIVO"
+        output.append(
+            {
+                "Ativo": symbol,
+                "Sinais teoricos": theoretical_signals,
+                "Teoricos resolvidos": int(values["theoretical_resolved"]),
+                "Teorico (R)": round(theoretical_r, 2),
+                "Tentativas MT5": int(values["actual_attempts"]),
+                "Confirmados": int(values["matches"]),
+                "Confirmacao": f"{confirmation_rate:.1f}%",
+                "Encerrados MT5": actual_closed,
+                "Lucro projetado (US$)": round(values["projected_usd"], 2),
+                "Resultado MT5 (US$)": round(values["actual_usd"], 2),
+                "Resultado MT5 (R)": round(actual_r, 2),
+                "Diagnostico": diagnosis,
+            }
+        )
+    return sorted(
+        output,
+        key=lambda row: (
+            float(row["Resultado MT5 (US$)"]),
+            str(row["Ativo"]),
+        ),
+        reverse=True,
     )
 
 
@@ -12629,8 +13821,8 @@ def _render_m23_signal_replay(service: DashboardService) -> None:
         st.header("Replay dos Sinais M23")
         st.caption(
             "Cruza cada negocio encerrado do M23 com o ultimo contexto causal M5 "
-            "disponivel antes da entrada. Fontes, setups e tipos permanecem "
-            "separados; contratos antigos nao sao misturados aos atuais."
+            "disponivel antes da entrada. Cada fonte recebe divisao temporal e "
+            "regras proprias; nenhum modelo empresta evidencia a outro."
         )
         if st.button(
             "Calcular filtro M23",
@@ -12667,9 +13859,9 @@ def _render_m23_signal_replay(service: DashboardService) -> None:
         metrics[4].metric("Bloquear", report.block_rules)
         metrics[5].metric("Modo", report.mode)
         st.info(
-            "ACTIVE_BLOCK_ONLY: somente regras BLOCK confirmadas em descoberta, "
-            "validacao e OOS impedem a entrada. Ausencia ou conflito de evidencia "
-            "preserva o sinal original."
+            "INDIVIDUAL_BLOCK_ONLY: somente regras BLOCK da propria fonte, "
+            "confirmadas em descoberta, validacao e OOS, impedem a entrada. "
+            "Ausencia de evidencia preserva o sinal original."
         )
 
         source_rows: dict[tuple[str, str], dict[str, object]] = {}
@@ -12694,6 +13886,19 @@ def _render_m23_signal_replay(service: DashboardService) -> None:
                 float(row["Vitorias"]) / int(row["Negocios"])
                 if int(row["Negocios"])
                 else 0.0
+            )
+            source_model = str(row["Modelo fonte"])
+            source_rules = [
+                rule for rule in report.rules if rule.source_model == source_model
+            ]
+            row["Bloqueios individuais"] = sum(
+                rule.decision == "BLOCK" for rule in source_rules
+            )
+            row["Padroes favoraveis"] = sum(
+                rule.decision == "APPROVE" for rule in source_rules
+            )
+            row["Padroes sem evidencia"] = sum(
+                rule.decision == "NO_EVIDENCE" for rule in source_rules
             )
         st.subheader("Resultado por fonte e tipo de entrada")
         st.dataframe(
@@ -12855,8 +14060,6 @@ def _render_multi_market_pattern_replay() -> None:
                 state = current.calculate_maximum()
                 if getattr(getattr(state, "status", None), "value", "") != "FINISHED":
                     failures.append(symbol)
-                else:
-                    current.prepare_adaptive_shadow()
             except (OSError, TypeError, ValueError, RuntimeError):
                 failures.append(symbol)
             finally:
@@ -12865,7 +14068,11 @@ def _render_multi_market_pattern_replay() -> None:
         if failures:
             st.error("Falha no Maximum de: " + ", ".join(failures))
         else:
-            st.success("19 replays concluidos e padroes validados preparados para o M28 Demo.")
+            st.success(
+                "19 replays concluídos. O relatório adaptativo usa Discovery, "
+                "Validation e OOS para ranquear contratos próprios de cada ativo; "
+                "a execução permanece exclusiva da conta Demo."
+            )
         st.rerun()
 
     st.subheader("Analises independentes por ativo")
@@ -13121,6 +14328,30 @@ def _render_pattern_miner_summary(state: object) -> None:
             st.error(f"Lookahead detectado ou auditoria inconsistente: {failures}")
 
 
+def _model28_adaptive_gate_status() -> dict[str, object]:
+    """Read the persisted adaptive evidence without recalculating Replay in the UI."""
+
+    def read(path: Path) -> dict[str, object]:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            return {}
+
+    research = read(MODEL28_ADAPTIVE_RESEARCH_REPORT_PATH)
+    forward = read(MODEL28_FORWARD_COMPARISON_REPORT_PATH)
+    return {
+        "historical_candidates": int(research.get("operational_total", 0) or 0),
+        "operational_markets": int(
+            research.get("operational_market_total", 0) or 0
+        ),
+        "validated_candidates": int(research.get("approved_total", 0) or 0),
+        "forward_tested": int(forward.get("theoretical_signals", 0) or 0),
+        "forward_approved": int(forward.get("matches", 0) or 0),
+        "forward_resolved": int(forward.get("actual_closed_trades", 0) or 0),
+        "minimum_forward": 0,
+    }
+
+
 def _render_pattern_ranking(
     miner_service: XauPatternMinerService,
     state: object,
@@ -13181,12 +14412,35 @@ def _render_pattern_ranking(
             hide_index=True,
         )
         st.divider()
-        st.markdown("#### Modelo 28 - promoção operacional controlada")
+        st.markdown("#### Modelo 28 - portfólio adaptativo Demo")
         st.caption(
-            "A promoção cria uma especificação versionada e inicialmente incapaz de "
-            "enviar ordens. O SHADOW apenas acompanha candles e gera SignalCandidate."
+            "Cada ativo recebe padrões próprios, ranqueados nas 100 mil velas. "
+            "VALIDATED e EXPLORATION_DEMO podem enviar somente em Demo; conta Real "
+            "permanece bloqueada. A primeira ocorrência entra sem confirmação; a "
+            "distribuição histórica entre isolado, par, trio e 4+ limita as repetições."
         )
-        pattern_options = [item.pattern_id for item in rankings]
+        active_specs = sorted(
+            (
+                item
+                for item in latest_by_pattern.values()
+                if str(getattr(item, "contract_version", ""))
+                == MODEL_28_CONTRACT_VERSION
+                and str(getattr(getattr(item, "status", None), "value", ""))
+                == "OPERATIONAL_CANDIDATE"
+                and str(
+                    getattr(getattr(item, "shadow_status", None), "value", "")
+                )
+                == "RUNNING"
+            ),
+            key=lambda item: int(getattr(item, "adaptive_rank", 0) or 0),
+        )
+        active_by_pattern = {item.pattern_id: item for item in active_specs}
+        pattern_options = [item.pattern_id for item in active_specs]
+        pattern_options.extend(
+            item.pattern_id
+            for item in rankings
+            if item.pattern_id not in active_by_pattern
+        )
         live_selection = (
             service.get_model28_live_selection(miner_service.symbol)
             if service is not None
@@ -13206,50 +14460,86 @@ def _render_pattern_ranking(
                 "no último candle M5 fechado."
             )
         selected_pattern_id = st.selectbox(
-            "Padrão para inspeção manual e promoção",
+            "Padrão para inspeção",
             pattern_options,
             key="xau_pattern_operational_candidate",
             format_func=lambda pattern_id: (
                 f"{pattern_id} (ATUAL AO VIVO)"
                 if pattern_id == current_pattern_id
-                else pattern_id
+                else (
+                    f"{pattern_id} (CONTRATO M28 RANK "
+                    f"{int(getattr(active_by_pattern[pattern_id], 'adaptive_rank', 0) or 0)})"
+                    if pattern_id in active_by_pattern
+                    else f"{pattern_id} (RANKING DE PESQUISA)"
+                )
             ),
         )
         selected_ranking = next(
-            item for item in rankings if item.pattern_id == selected_pattern_id
+            (
+                item
+                for item in rankings
+                if item.pattern_id == selected_pattern_id
+            ),
+            None,
         )
         selected_spec = latest_by_pattern.get(selected_pattern_id)
         _render_operational_pattern_details(selected_ranking, selected_spec)
+        gate = _model28_adaptive_gate_status()
+        st.caption(
+            "Biblioteca automática v6 de contratos empíricos: "
+            f"{gate['historical_candidates']} contrato(s) em "
+            f"{gate['operational_markets']} mercado(s), incluindo "
+            f"{gate['validated_candidates']} validado(s) integralmente. "
+            "O acompanhamento forward possui "
+            f"{gate['forward_resolved']} operação(ões) resolvida(s); ele monitora "
+            "desempenho, sem exigir duas confirmações antes da primeira ordem."
+        )
         action_columns = st.columns(3)
-        if action_columns[0].button(
-            "Promover para modelo operacional",
+        action_columns[0].button(
+            "Contratos empíricos v6",
             key="xau_pattern_promote_model28",
             use_container_width=True,
-        ):
-            try:
-                promoted = miner_service.promote_pattern(selected_pattern_id)
-                st.success(
-                    f"{promoted.versioned_id} criado como OPERATIONAL_CANDIDATE."
-                )
-                st.rerun()
-            except ValueError as exc:
-                st.error(str(exc))
+            disabled=True,
+            help=(
+                "Os contratos são gerados automaticamente por ativo a partir do "
+                "ranking causal das 100 mil velas."
+            ),
+        )
         if selected_spec is not None:
             shadow_running = getattr(
                 getattr(selected_spec, "shadow_status", None), "value", "OFF"
             ) == "RUNNING"
-            shadow_label = "Desativar SHADOW" if shadow_running else "Ativar SHADOW"
+            is_current_contract = (
+                str(getattr(selected_spec, "contract_version", ""))
+                == MODEL_28_CONTRACT_VERSION
+            )
+            shadow_label = (
+                "Desativar no M28" if shadow_running else "Ativar no M28"
+            )
             if action_columns[1].button(
                 shadow_label,
                 key="xau_pattern_toggle_shadow_model28",
                 use_container_width=True,
+                disabled=not is_current_contract,
+                help=(
+                    None
+                    if is_current_contract
+                    else "Contrato legado preservado apenas para auditoria."
+                ),
             ):
                 miner_service.set_shadow(selected_spec.versioned_id, not shadow_running)
                 st.rerun()
+        current_setup_ids = {
+            item.setup_id
+            for item in specs
+            if str(getattr(item, "contract_version", ""))
+            == MODEL_28_CONTRACT_VERSION
+        }
         shadow_rows = [
             item
             for item in miner_service.shadow_results()
-            if selected_spec is None or item.setup_id == selected_spec.setup_id
+            if item.setup_id in current_setup_ids
+            and (selected_spec is None or item.setup_id == selected_spec.setup_id)
         ]
         closed_shadow = [item for item in shadow_rows if item.status != "OPEN"]
         shadow_targets = sum(item.status == "TARGET" for item in closed_shadow)
@@ -13285,17 +14575,26 @@ def _render_model28_live_selection(service: DashboardService) -> None:
         st.subheader("M28 - reconhecimento adaptativo ao vivo")
         st.caption(
             "Usa somente candles M5 fechados e os mesmos detectores causais do Replay. "
-            "Quando o M28 esta selecionado, o padrao validado pode gerar ordem Demo "
-            "com lote fixo de 0,11; conta Real permanece bloqueada."
+            "Quando o M28 está selecionado, a primeira ocorrência completa de um "
+            "padrão ranqueado pode gerar uma ordem Demo com lote fixo de 0,11. "
+            "As repetições seguintes respeitam a frequência histórica de isolados, "
+            "pares, trios e 4+. O mesmo pattern_occurrence_id não pode ser reenviado; "
+            "conta Real permanece bloqueada."
         )
         metrics = st.columns(3)
         metrics[0].metric("Mercados monitorados", len(active_markets))
         metrics[1].metric("Padrões atuais", len(selections))
         metrics[2].metric("Lote Demo", "0,11")
+        if not active_markets:
+            st.warning(
+                "O portfólio adaptativo M28 ainda não foi gerado. Sem contrato "
+                "ranqueado por ativo, o modelo permanece aguardando nova mineração."
+            )
+            return
         if not selections:
             st.info(
                 "Nenhuma sequência causal foi concluída no último candle M5 fechado. "
-                "Os contratos promovidos continuam sendo monitorados; nenhuma ordem "
+                "Os contratos ranqueados continuam sendo monitorados; nenhuma ordem "
                 "M28 é liberada enquanto não existir um padrão atual."
             )
             return
@@ -13307,6 +14606,17 @@ def _render_model28_live_selection(service: DashboardService) -> None:
                     "Padrão atual": item.pattern_id,
                     "Contrato": item.versioned_id,
                     "Direção": item.direction,
+                    "Evidência": item.evidence_tier,
+                    "Rank": item.adaptive_rank,
+                    "Família": item.pattern_family,
+                    "Score adaptativo": item.selection_score,
+                    "Repetição": f"{item.repeat_position}/{item.repeat_limit}",
+                    "Chance de repetir": item.repeat_probability,
+                    "SL aprendido (ATR)": item.stop_atr,
+                    "TP aprendido (ATR)": item.target_atr,
+                    "Prazo M5": item.max_holding_candles,
+                    "Regra SL": item.stop_rule,
+                    "Regra TP": item.target_rule,
                     "Confiança": item.confidence,
                     "Validação": item.validation_performance,
                     "OOS": item.oos_performance,
@@ -13323,22 +14633,56 @@ def _render_operational_pattern_details(ranking: object, spec: object | None) ->
     """Show research evidence and the exact promoted operational contract."""
 
     with st.expander("Detalhes do padrão e contrato operacional", expanded=False):
-        st.write(f"**Sequência:** {getattr(ranking, 'display_sequence', 'N/D')}")
-        st.write(
-            f"**Direção:** {getattr(ranking, 'direction_label', 'N/D')} | "
-            f"**Ocorrências:** {getattr(ranking, 'occurrences', 0)} | "
-            f"**Score:** {getattr(ranking, 'score', 0.0):.6f}"
+        sequence = getattr(ranking, "display_sequence", "") or " → ".join(
+            str(item) for item in getattr(spec, "event_sequence", ())
         )
-        st.write(
-            f"**Discovery:** {getattr(ranking, 'discovery_performance', 0.0):.6f} | "
-            f"**Validation:** {getattr(ranking, 'validation_performance', 0.0):.6f} | "
-            f"**OOS:** {getattr(ranking, 'oos_performance', 0.0):.6f}"
+        direction = getattr(ranking, "direction_label", "") or getattr(
+            spec, "direction", "N/D"
         )
-        st.write(
-            f"**MFE/MAE médios:** {getattr(ranking, 'mfe_mean_atr', 0.0):.3f} ATR / "
-            f"{getattr(ranking, 'mae_mean_atr', 0.0):.3f} ATR | "
-            f"**Expectancy:** {getattr(ranking, 'expectancy', 0.0):.6f}"
+        occurrences = int(
+            getattr(ranking, "occurrences", 0)
+            or getattr(spec, "minimum_occurrences", 0)
+            or 0
         )
+        score = float(
+            getattr(ranking, "score", 0.0)
+            or getattr(spec, "selection_score", 0.0)
+            or 0.0
+        )
+        st.write(f"**Sequência:** {sequence or 'N/D'}")
+        st.write(
+            f"**Direção:** {direction} | "
+            f"**Ocorrências:** {occurrences} | "
+            f"**Score:** {score:.6f}"
+        )
+        discovery = dict(getattr(spec, "discovery_metrics", ()) or ())
+        validation = dict(getattr(spec, "validation_metrics", ()) or ())
+        oos = dict(getattr(spec, "oos_metrics", ()) or ())
+        st.write(
+            f"**Discovery:** {float(getattr(ranking, 'discovery_performance', 0.0) or discovery.get('performance', 0.0)):.6f} | "
+            f"**Validation:** {float(getattr(ranking, 'validation_performance', 0.0) or validation.get('performance', 0.0)):.6f} | "
+            f"**OOS:** {float(getattr(ranking, 'oos_performance', 0.0) or oos.get('performance', 0.0)):.6f}"
+        )
+        geometry_method = str(getattr(spec, "geometry_method", "") or "")
+        if geometry_method == "PATTERN_DISCOVERY_EMPIRICAL_MAE_MFE":
+            geometry = dict(getattr(spec, "geometry_statistics", ()) or ())
+            stop_quantile = float(geometry.get("stop_quantile", 0.0) or 0.0)
+            target_quantile = float(geometry.get("target_quantile", 0.0) or 0.0)
+            st.write(
+                f"**Distribuição Discovery usada:** MFE Q{target_quantile * 100:.0f} "
+                f"= {float(getattr(spec, 'target_atr', 0.0) or 0.0):.3f} ATR | "
+                f"MAE Q{stop_quantile * 100:.0f} "
+                f"= {float(getattr(spec, 'stop_atr', 0.0) or 0.0):.3f} ATR | "
+                f"**Expectancy do contrato:** "
+                f"{float(discovery.get('performance', 0.0) or 0.0):.6f}R"
+            )
+        else:
+            st.write(
+                f"**MFE/MAE médios:** "
+                f"{getattr(ranking, 'mfe_mean_atr', 0.0):.3f} ATR / "
+                f"{getattr(ranking, 'mae_mean_atr', 0.0):.3f} ATR | "
+                f"**Expectancy:** {getattr(ranking, 'expectancy', 0.0):.6f}"
+            )
         if spec is None:
             st.info(
                 "Ainda não promovido. Entrada, stop e target somente serão "
@@ -13349,14 +14693,73 @@ def _render_operational_pattern_details(ranking: object, spec: object | None) ->
             f"**Status operacional:** {spec.status.value} | "
             f"**Shadow:** {spec.shadow_status.value} | **Versão:** {spec.versioned_id}"
         )
-        st.write(f"**Entrada:** {spec.entry_rule}")
-        st.write(f"**Stop:** {spec.stop_rule}")
-        st.write(f"**Target:** {spec.target_rule}")
-        st.write(f"**Expiração:** {spec.expiration_rule}")
+        contract_version = str(getattr(spec, "contract_version", "") or "LEGADO")
+        st.write(f"**Contrato de execução:** {contract_version}")
         st.write(
-            "**Contexto:** warm-up completo; indicadores, estrutura, sessão e "
-            "eventos produzidos pelo mesmo Event Engine causal do Replay."
+            f"**Evidência:** {getattr(spec, 'evidence_tier', 'LEGACY')} | "
+            f"**Rank adaptativo:** {getattr(spec, 'adaptive_rank', 0)} | "
+            f"**Família:** {getattr(spec, 'pattern_family', 'N/D')} | "
+            f"**Score adaptativo:** {float(getattr(spec, 'selection_score', 0.0)):.6f}"
         )
+        repeat_window = int(getattr(spec, "repeat_window_candles", 100) or 100)
+        st.write(
+            f"**Recorrência histórica:** até "
+            f"{int(getattr(spec, 'repeat_limit', 1) or 1)} ocorrência(s) no mesmo "
+            f"episódio de {repeat_window} candles M5 contínuos "
+            f"({repeat_window * 5} min) | chance de chegar à segunda ocorrência "
+            f"{float(getattr(spec, 'repeat_probability', 0.0) or 0.0) * 100.0:.1f}%"
+        )
+        repeat_stats = dict(getattr(spec, "repeat_statistics", ()) or ())
+        if repeat_stats:
+            st.write(
+                "**Distribuição dos episódios:** "
+                f"{int(repeat_stats.get('isolated', 0))} isolados | "
+                f"{int(repeat_stats.get('pairs', 0))} pares | "
+                f"{int(repeat_stats.get('triples', 0))} trios | "
+                f"{int(repeat_stats.get('four', 0))} de quatro | "
+                f"{int(repeat_stats.get('five_plus', 0))} de cinco ou mais"
+            )
+            position_rows = []
+            for position in range(1, 6):
+                trades = int(repeat_stats.get(f"position_{position}_trades", 0))
+                if trades <= 0:
+                    continue
+                position_rows.append(
+                    {
+                        "Posição": position,
+                        "Amostras": trades,
+                        "Alcançada": repeat_stats.get(
+                            f"position_{position}_reach_probability", 0.0
+                        ),
+                        "Expectativa líquida (R)": repeat_stats.get(
+                            f"position_{position}_expectancy_r", 0.0
+                        ),
+                        "Limite inferior 80% (R)": repeat_stats.get(
+                            f"position_{position}_lower_80_expectancy_r", 0.0
+                        ),
+                    }
+                )
+            if position_rows:
+                st.dataframe(position_rows, use_container_width=True, hide_index=True)
+        st.write(f"**Entrada:** {spec.entry_rule}")
+        st.write(
+            f"**Stop:** {spec.stop_rule} | "
+            f"**Distância:** {float(getattr(spec, 'stop_atr', 1.0)):.2f} ATR"
+        )
+        st.write(
+            f"**Target:** {spec.target_rule} | "
+            f"**Distância:** {float(getattr(spec, 'target_atr', 1.0)):.2f} ATR"
+        )
+        st.write(
+            f"**Expiração:** {spec.expiration_rule} | "
+            f"**Prazo:** {int(getattr(spec, 'max_holding_candles', 0) or 0)} candles M5"
+        )
+        st.write(
+            f"**Derivação:** {getattr(spec, 'geometry_method', 'N/D')} | "
+            f"**Custos históricos:** {getattr(spec, 'cost_rule', 'N/D')}"
+        )
+        context = dict(getattr(spec, "context_filters", ()) or ())
+        st.write(f"**Contexto causal exigido:** {context or {'warmup_complete': True}}")
 
 
 def _render_pattern_logs(state: object) -> None:
@@ -14506,8 +15909,14 @@ def _percent_metric(value: float) -> str:
     return f"{value * 100:.2f}%"
 
 
-def _price_label(value: float) -> str:
-    return f"{value:.2f}"
+def _price_label(value: object) -> str:
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        return "N/D"
+    if not math.isfinite(numeric_value):
+        return "N/D"
+    return f"{numeric_value:.2f}"
 
 
 def _integer_metric(value: float | int) -> str:

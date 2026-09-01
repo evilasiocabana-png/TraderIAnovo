@@ -26,14 +26,21 @@ MODEL_28_ID = "MODELO_28_PATTERN_MINER_SHADOW"
 MODEL_28_SHORT_NAME = "M28"
 MODEL_28_SOURCE = "REPLAY_PATTERN_MINER"
 MODEL_28_EXECUTION_MODE = "DEMO_ADAPTIVE"
-MODEL_28_CONTRACT_VERSION = "M28_PATTERN_BRIDGE_V2"
+MODEL_28_CONTRACT_VERSION = "M28_PATTERN_BRIDGE_V6_EMPIRICAL_CONTRACTS"
+MODEL_28_LEGACY_CONTRACT_VERSION = "M28_PATTERN_BRIDGE_V3_COST_AWARE"
+MODEL_28_ENTRY_RULE = "MARKET_ON_NEXT_BAR_AFTER_PATTERN_COMPLETION"
 
 
 class PatternPromotionValidator:
     """Gate manual promotion with evidence already measured by the Replay."""
 
-    def __init__(self, minimum_occurrences: int = 20) -> None:
+    def __init__(
+        self,
+        minimum_occurrences: int = 100,
+        minimum_split_expectancy_r: float = 0.05,
+    ) -> None:
         self.minimum_occurrences = minimum_occurrences
+        self.minimum_split_expectancy_r = minimum_split_expectancy_r
 
     def validate(self, ranking: PatternRanking) -> tuple[str, ...]:
         failures: list[str] = []
@@ -43,10 +50,13 @@ class PatternPromotionValidator:
             failures.append("INSUFFICIENT_OCCURRENCES")
         if ranking.score <= 0.0:
             failures.append("NON_POSITIVE_SCORE")
-        if ranking.validation_performance <= 0.0:
-            failures.append("VALIDATION_NOT_POSITIVE")
-        if ranking.oos_performance <= 0.0:
-            failures.append("OOS_NOT_POSITIVE")
+        target_atr = _validated_target_atr(ranking)
+        split_expectancies = ranking.net_split_expectancies_for_target(target_atr)
+        if any(
+            value < self.minimum_split_expectancy_r
+            for value in split_expectancies
+        ):
+            failures.append("NET_SPLIT_EXPECTANCY_TOO_LOW")
         return tuple(failures)
 
 
@@ -192,7 +202,11 @@ class LivePatternTracker:
                 state.last_event_index = record.index
                 if state.next_event < len(spec.event_sequence):
                     continue
-                signal = _signal_from_completion(spec, record, state.start_index)
+                signal = (
+                    _signal_from_completion(spec, record, state.start_index)
+                    if _context_matches(spec, record)
+                    else None
+                )
                 if signal is not None:
                     signals.append(signal)
                 self.states[spec.versioned_id] = state = _TrackerState()
@@ -269,6 +283,13 @@ class ShadowSignalJournal:
         for signal in signals:
             if signal.pattern_occurrence_id in known:
                 continue
+            context = signal.context()
+            try:
+                max_holding_candles = int(
+                    context.get("max_holding_candles", 0) or 0
+                )
+            except (TypeError, ValueError):
+                max_holding_candles = 0
             rows.append(
                 ShadowSignalResult(
                     pattern_occurrence_id=signal.pattern_occurrence_id,
@@ -281,6 +302,11 @@ class ShadowSignalJournal:
                     entry_reference=signal.entry_reference,
                     stop_reference=signal.stop_reference,
                     target_reference=signal.target_reference,
+                    max_holding_candles=max_holding_candles,
+                    entry_filled=(
+                        str(context.get("entry_rule", "")) != MODEL_28_ENTRY_RULE
+                    ),
+                    cost_rule=str(context.get("cost_rule", "")),
                 )
             )
         self._save(rows)
@@ -299,6 +325,34 @@ class ShadowSignalJournal:
                 continue
             if candle.timestamp.isoformat() <= item.opened_at:
                 continue
+            if not item.entry_filled:
+                stop_distance = abs(item.entry_reference - item.stop_reference)
+                target_distance = abs(item.target_reference - item.entry_reference)
+                if stop_distance <= 0.0 or target_distance <= 0.0:
+                    continue
+                entry = float(candle.open)
+                if item.direction == "BUY":
+                    stop = entry - stop_distance
+                    target = entry + target_distance
+                else:
+                    stop = entry + stop_distance
+                    target = entry - target_distance
+                spread_price = (
+                    max(float(candle.spread or 0.0), 0.0)
+                    * _historical_spread_point_size(item.symbol)
+                    if item.cost_rule == "RECORDED_ENTRY_SPREAD_ONLY"
+                    else 0.0
+                )
+                item = replace(
+                    item,
+                    entry_reference=entry,
+                    stop_reference=stop,
+                    target_reference=target,
+                    entry_filled=True,
+                    cost_r=spread_price / stop_distance,
+                )
+                rows[index] = item
+                changed = True
             risk = abs(item.entry_reference - item.stop_reference)
             if risk <= 0.0:
                 continue
@@ -308,20 +362,48 @@ class ShadowSignalJournal:
             else:
                 stopped = candle.high >= item.stop_reference
                 targeted = candle.low <= item.target_reference
-            if not stopped and not targeted:
+            candles_observed = item.candles_observed + 1
+            if stopped:
+                # Conservative collision rule: stop wins if both occur in one candle.
+                status = "AMBIGUOUS_STOP" if targeted else "STOP"
+                exit_reference = item.stop_reference
+                result_r = -1.0 - item.cost_r
+            elif targeted:
+                status = "TARGET"
+                exit_reference = item.target_reference
+                result_r = (
+                    abs(item.target_reference - item.entry_reference) / risk
+                    - item.cost_r
+                )
+            elif (
+                item.max_holding_candles > 0
+                and candles_observed >= item.max_holding_candles
+            ):
+                status = "TIME_EXIT"
+                exit_reference = float(candle.close)
+                reward_r = abs(
+                    item.target_reference - item.entry_reference
+                ) / risk
+                marked_r = (
+                    (exit_reference - item.entry_reference) / risk
+                    if item.direction == "BUY"
+                    else (item.entry_reference - exit_reference) / risk
+                )
+                result_r = max(-1.0, min(reward_r, marked_r)) - item.cost_r
+            else:
+                rows[index] = replace(
+                    item,
+                    candles_observed=candles_observed,
+                )
+                changed = True
                 continue
-            # Conservative collision rule: stop wins if both occur in one candle.
-            status = "STOP" if stopped else "TARGET"
-            exit_reference = item.stop_reference if stopped else item.target_reference
-            result_r = -1.0 if stopped else abs(
-                item.target_reference - item.entry_reference
-            ) / risk
             rows[index] = replace(
                 item,
                 status=status,
                 closed_at=candle.timestamp.isoformat(),
                 exit_reference=exit_reference,
                 result_r=result_r,
+                candles_observed=candles_observed,
             )
             changed = True
         if changed:
@@ -345,6 +427,15 @@ class ShadowSignalJournal:
         _replace_with_retry(temporary, self.path)
 
 
+def _historical_spread_point_size(symbol: str) -> float:
+    normalized = str(symbol or "").upper()
+    if normalized.endswith("JPY"):
+        return 0.001
+    if normalized in {"XAUUSD", "BTCUSD"}:
+        return 0.01
+    return 0.00001
+
+
 def _replace_with_retry(source: Path, target: Path) -> None:
     """Tolerate short OneDrive/antivirus locks without losing atomic writes."""
 
@@ -362,9 +453,16 @@ def _replace_with_retry(source: Path, target: Path) -> None:
 
 
 def _validated_target_atr(ranking: PatternRanking) -> float:
-    utility_1r = 2.0 * ranking.first_passage_1_atr - 1.0
-    utility_2r = 3.0 * ranking.first_passage_2_atr - 1.0
-    return 2.0 if utility_2r > utility_1r else 1.0
+    fp1_floor = min(ranking.net_split_expectancies_for_target(1.0))
+    fp2_floor = min(ranking.net_split_expectancies_for_target(2.0))
+    if fp2_floor != fp1_floor:
+        return 2.0 if fp2_floor > fp1_floor else 1.0
+    return (
+        2.0
+        if ranking.first_passage_2_expectancy_net
+        > ranking.first_passage_1_expectancy_net
+        else 1.0
+    )
 
 
 def _spec_from_ranking(
@@ -378,6 +476,9 @@ def _spec_from_ranking(
     source_cache_key: str,
     target_atr: float,
 ) -> OperationalPatternSpec:
+    discovery, validation, oos = ranking.net_split_expectancies_for_target(
+        target_atr
+    )
     return OperationalPatternSpec.created_now(
         setup_id=setup_id,
         pattern_id=ranking.pattern_id,
@@ -389,19 +490,30 @@ def _spec_from_ranking(
         event_gap_buckets=ranking.gap_buckets,
         max_distance_between_events=max_event_distance,
         context_filters=(("warmup_complete", True),),
-        entry_rule="MARKET_REFERENCE_ON_PATTERN_COMPLETION_CLOSE",
+        entry_rule=MODEL_28_ENTRY_RULE,
         stop_rule="REPLAY_FIRST_PASSAGE_MINUS_1_ATR",
         target_rule=f"REPLAY_FIRST_PASSAGE_PLUS_{target_atr:g}_ATR",
         target_atr=target_atr,
-        expiration_rule=f"INVALIDATE_AFTER_{max_event_distance}_CANDLES_WITHOUT_NEXT_EVENT",
+        expiration_rule="EXPIRE_AT_NEXT_CLOSED_CANDLE",
         minimum_score=ranking.score,
         minimum_occurrences=ranking.occurrences,
-        discovery_metrics=(("performance", ranking.discovery_performance),),
-        validation_metrics=(("performance", ranking.validation_performance),),
-        oos_metrics=(("performance", ranking.oos_performance),),
+        discovery_metrics=(
+            ("performance", discovery),
+            ("horizon_return_atr", ranking.discovery_performance),
+        ),
+        validation_metrics=(
+            ("performance", validation),
+            ("horizon_return_atr", ranking.validation_performance),
+        ),
+        oos_metrics=(
+            ("performance", oos),
+            ("horizon_return_atr", ranking.oos_performance),
+        ),
         status=OperationalPatternStatus.OPERATIONAL_CANDIDATE,
         shadow_status=ShadowStatus.OFF,
         source_cache_key=source_cache_key,
+        stop_atr=1.0,
+        contract_version=MODEL_28_LEGACY_CONTRACT_VERSION,
     )
 
 
@@ -415,6 +527,10 @@ def _same_contract(left: OperationalPatternSpec, right: OperationalPatternSpec) 
         left.stop_rule,
         left.target_rule,
         left.expiration_rule,
+        left.context_filters,
+        left.stop_atr,
+        left.target_atr,
+        left.contract_version,
         left.source_cache_key,
     ) == (
         right.pattern_id,
@@ -425,6 +541,10 @@ def _same_contract(left: OperationalPatternSpec, right: OperationalPatternSpec) 
         right.stop_rule,
         right.target_rule,
         right.expiration_rule,
+        right.context_filters,
+        right.stop_atr,
+        right.target_atr,
+        right.contract_version,
         right.source_cache_key,
     )
 
@@ -465,11 +585,14 @@ def _signal_from_completion(
         return None
     entry = record.close
     atr = record.atr14
+    stop_atr = max(float(spec.stop_atr), 0.0)
+    if stop_atr <= 0.0:
+        return None
     if spec.direction == "BUY":
-        stop = entry - atr
+        stop = entry - atr * stop_atr
         target = entry + atr * spec.target_atr
     else:
-        stop = entry + atr
+        stop = entry + atr * stop_atr
         target = entry - atr * spec.target_atr
     return SignalCandidate(
         setup_id=spec.setup_id,
@@ -497,5 +620,69 @@ def _signal_from_completion(
             ("adx14", record.adx14),
             ("structure", record.structure_state),
             ("session", record.session),
+            ("pattern_id", spec.pattern_id),
+            ("entry_rule", spec.entry_rule),
+            ("stop_rule", spec.stop_rule),
+            ("target_rule", spec.target_rule),
+            ("expiration_rule", spec.expiration_rule),
+            ("max_holding_candles", spec.max_holding_candles),
+            ("cost_rule", spec.cost_rule),
         ),
     )
+
+
+def _context_matches(spec: OperationalPatternSpec, record: EventRecord) -> bool:
+    """Apply the same causal context buckets used by the v4 research gate."""
+
+    for name, expected in spec.context_filters:
+        if name == "scope" and str(expected).upper() == "ALL":
+            continue
+        if name == "warmup_complete":
+            if bool(record.warmup_complete) != bool(expected):
+                return False
+            continue
+        observed = _context_value(str(name), spec.direction, record)
+        if observed is None or str(observed) != str(expected):
+            return False
+    return True
+
+
+def _context_value(name: str, direction: str, record: EventRecord) -> str | None:
+    event_direction = 1 if direction == "BUY" else -1
+    if name == "session":
+        return str(record.session or "N/D")
+    if name == "trend":
+        return _context_alignment(record.trend_state, event_direction)
+    if name == "structure":
+        return _context_alignment(record.structure_state, event_direction)
+    if name == "adx":
+        return _context_bucket(record.adx14, 20.0, 30.0)
+    if name == "rsi":
+        return _context_bucket(record.rsi14, 30.0, 70.0)
+    if name == "volume":
+        return _context_bucket(record.volume_relative, 0.8, 1.2)
+    return None
+
+
+def _context_alignment(state: str, direction: int) -> str:
+    normalized = str(state or "neutral").lower()
+    if normalized == "neutral":
+        return "NEUTRAL"
+    aligned = (direction > 0 and normalized == "bullish") or (
+        direction < 0 and normalized == "bearish"
+    )
+    return "ALIGNED" if aligned else "COUNTER"
+
+
+def _context_bucket(
+    value: float | None,
+    lower: float,
+    upper: float,
+) -> str:
+    if value is None:
+        return "N/D"
+    if value < lower:
+        return "LOW"
+    if value < upper:
+        return "MID"
+    return "HIGH"

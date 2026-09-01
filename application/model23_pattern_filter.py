@@ -21,11 +21,10 @@ from application.model23_basket_accumulator import model23_entry_type
 from replay.pattern_miner.models import EventRecord
 
 
-MODEL_23_PATTERN_FILTER_SCHEMA = "m23-pattern-filter-v4"
-MODEL_23_PATTERN_FILTER_MODE = "ACTIVE_BLOCK_ONLY"
+MODEL_23_PATTERN_FILTER_SCHEMA = "m23-pattern-filter-v5"
+MODEL_23_PATTERN_FILTER_MODE = "INDIVIDUAL_BLOCK_ONLY"
+# Kept only so old report readers/tests can identify the retired portfolio scope.
 MODEL_23_PATTERN_FILTER_ALL_SOURCES = "ALL_SOURCES"
-MODEL_23_DRAWDOWN_GUARD_DIRECTION = "SELL"
-MODEL_23_DRAWDOWN_GUARD_RSI_ZONE = "RSI_LT30"
 MODEL_23_PATTERN_FILTER_PATH = (
     Path(".traderia") / "research" / "m23_pattern_filter" / "report.json"
 )
@@ -249,15 +248,7 @@ class M23PatternFilterService:
         )
         pattern_id = _pattern_id(context.signature)
         normalized_source = str(source_model or "").upper()
-        portfolio_blocks = [
-            rule
-            for rule in report.rules
-            if rule.source_model == MODEL_23_PATTERN_FILTER_ALL_SOURCES
-            and rule.direction == _direction(direction)
-            and rule.decision == "BLOCK"
-            and _context_rule_value(context, rule.pattern_scope) == rule.pattern_value
-        ]
-        matching = portfolio_blocks or [
+        matching = [
             rule
             for rule in report.rules
             if rule.source_model == normalized_source
@@ -270,31 +261,18 @@ class M23PatternFilterService:
                 pattern_id=pattern_id,
                 reason="Contexto atual nao possui amostra OOS suficiente; nenhuma trava aplicada."
             )
-        decisions = {rule.decision for rule in matching}
-        if len(decisions) > 1:
-            return M23PatternFilterDecision(
-                decision="NO_EVIDENCE",
-                pattern_id=pattern_id,
-                reason=(
-                    "Contexto atual possui evidencias conflitantes; "
-                    "nenhuma trava aplicada."
-                ),
-            )
-        rule = max(matching, key=_rule_strength)
-        promoted_drawdown_guard = _is_promoted_drawdown_guard(rule)
+        # In block-only mode, a validated source-specific block cannot be
+        # neutralized by an informational APPROVE rule from another dimension.
+        blocking = [rule for rule in matching if rule.decision == "BLOCK"]
+        rule = max(blocking or matching, key=_rule_strength)
         return M23PatternFilterDecision(
             decision=rule.decision,
             rule_id=rule.rule_id,
             pattern_id=rule.pattern_id,
             reason=(
-                "Protecao M23 promovida contra drawdown: SELL com RSI abaixo "
-                "de 30; a entrada da cesta foi bloqueada."
-                if promoted_drawdown_guard
-                else (
-                    f"Filtro M23 {rule.decision}: n={rule.samples}, "
-                    f"validacao={rule.validation_expectancy:.2f}, "
-                    f"OOS={rule.oos_expectancy:.2f}."
-                )
+                f"Filtro individual M23 {rule.decision} para {normalized_source}: "
+                f"n={rule.samples}, validacao={rule.validation_expectancy:.2f}, "
+                f"OOS={rule.oos_expectancy:.2f}."
             ),
             samples=rule.samples,
             validation_expectancy=rule.validation_expectancy,
@@ -311,27 +289,17 @@ class M23PatternFilterService:
         matching = [
             rule
             for rule in report.rules
-            if rule.source_model == MODEL_23_PATTERN_FILTER_ALL_SOURCES
-            and rule.direction == sample.direction
-            and rule.decision == "BLOCK"
-            and _context_rule_value(sample.context, rule.pattern_scope)
-            == rule.pattern_value
-        ]
-        if matching:
-            return "BLOCK"
-        matching = [
-            rule
-            for rule in report.rules
             if rule.source_model == sample.source_model
             and rule.direction == sample.direction
             and rule.decision in {"APPROVE", "BLOCK"}
             and _context_rule_value(sample.context, rule.pattern_scope)
             == rule.pattern_value
         ]
-        decisions = {rule.decision for rule in matching}
-        if len(decisions) != 1:
-            return "NO_EVIDENCE"
-        return next(iter(decisions))
+        if any(rule.decision == "BLOCK" for rule in matching):
+            return "BLOCK"
+        if any(rule.decision == "APPROVE" for rule in matching):
+            return "APPROVE"
+        return "NO_EVIDENCE"
 
     def save(self, report: M23PatternFilterReport) -> None:
         payload = {
@@ -451,15 +419,6 @@ def _build_rules(samples: Sequence[M23PatternSample]) -> list[M23PatternRule]:
     for sample in samples:
         for scope, value in _sample_rule_dimensions(sample):
             groups[(sample.source_model, sample.direction, scope, value)].append(sample)
-            if scope == "RSI":
-                groups[
-                    (
-                        MODEL_23_PATTERN_FILTER_ALL_SOURCES,
-                        sample.direction,
-                        scope,
-                        value,
-                    )
-                ].append(sample)
     rules: list[M23PatternRule] = []
     for (source, direction, scope, value), items in groups.items():
         discovery = [item.net_result for item in items if item.split == "DISCOVERY"]
@@ -490,13 +449,6 @@ def _build_rules(samples: Sequence[M23PatternSample]) -> list[M23PatternRule]:
                 and win_rate > 0.5
             ):
                 decision = "APPROVE"
-        if (
-            source == MODEL_23_PATTERN_FILTER_ALL_SOURCES
-            and direction == MODEL_23_DRAWDOWN_GUARD_DIRECTION
-            and scope == "RSI"
-            and value == MODEL_23_DRAWDOWN_GUARD_RSI_ZONE
-        ):
-            decision = "BLOCK"
         pattern_id = _pattern_id(f"{scope}|{value}")
         rule_key = f"{source}|{direction}|{scope}|{value}"
         rules.append(
@@ -539,15 +491,12 @@ def _sample_rule_dimensions(sample: M23PatternSample) -> tuple[tuple[str, str], 
             "TREND_STRUCTURE",
             f"{context.trend_alignment}|{context.structure_alignment}",
         ),
-    )
-
-
-def _is_promoted_drawdown_guard(rule: M23PatternRule) -> bool:
-    return (
-        rule.source_model == MODEL_23_PATTERN_FILTER_ALL_SOURCES
-        and rule.direction == MODEL_23_DRAWDOWN_GUARD_DIRECTION
-        and rule.pattern_scope == "RSI"
-        and rule.pattern_value == MODEL_23_DRAWDOWN_GUARD_RSI_ZONE
+        ("RSI_TREND", f"{context.rsi_zone}|{context.trend_alignment}"),
+        ("RSI_STRUCTURE", f"{context.rsi_zone}|{context.structure_alignment}"),
+        ("RSI_ADX", f"{context.rsi_zone}|{context.adx_zone}"),
+        ("RSI_ATR", f"{context.rsi_zone}|{context.atr_regime}"),
+        ("RSI_SESSION", f"{context.rsi_zone}|{context.session}"),
+        ("RSI_EVENT", f"{context.rsi_zone}|{_event_family(context.latest_event)}"),
     )
 
 
@@ -564,6 +513,12 @@ def _context_rule_value(context: M23PatternContext, scope: str) -> str:
         "TREND_STRUCTURE": (
             f"{context.trend_alignment}|{context.structure_alignment}"
         ),
+        "RSI_TREND": f"{context.rsi_zone}|{context.trend_alignment}",
+        "RSI_STRUCTURE": f"{context.rsi_zone}|{context.structure_alignment}",
+        "RSI_ADX": f"{context.rsi_zone}|{context.adx_zone}",
+        "RSI_ATR": f"{context.rsi_zone}|{context.atr_regime}",
+        "RSI_SESSION": f"{context.rsi_zone}|{context.session}",
+        "RSI_EVENT": f"{context.rsi_zone}|{_event_family(context.latest_event)}",
     }
     return values.get(str(scope or "").upper(), "N/D")
 
@@ -582,14 +537,33 @@ def _rule_strength(rule: M23PatternRule) -> tuple[float, int, int]:
 
 
 def _assign_chronological_splits(samples: Sequence[M23PatternSample]) -> list[M23PatternSample]:
-    total = len(samples)
-    discovery_end = int(total * 0.60)
-    validation_end = int(total * 0.80)
+    grouped: dict[tuple[str, str], list[M23PatternSample]] = defaultdict(list)
+    for sample in samples:
+        grouped[(sample.source_model, sample.direction)].append(sample)
     assigned: list[M23PatternSample] = []
-    for index, sample in enumerate(samples):
-        split = "DISCOVERY" if index < discovery_end else "VALIDATION" if index < validation_end else "OOS"
-        assigned.append(M23PatternSample(**{**asdict(sample), "context": sample.context, "split": split}))
-    return assigned
+    for group in grouped.values():
+        ordered = sorted(group, key=lambda item: item.timestamp)
+        total = len(ordered)
+        discovery_end = int(total * 0.60)
+        validation_end = int(total * 0.80)
+        for index, sample in enumerate(ordered):
+            split = (
+                "DISCOVERY"
+                if index < discovery_end
+                else "VALIDATION"
+                if index < validation_end
+                else "OOS"
+            )
+            assigned.append(
+                M23PatternSample(
+                    **{
+                        **asdict(sample),
+                        "context": sample.context,
+                        "split": split,
+                    }
+                )
+            )
+    return sorted(assigned, key=lambda item: item.timestamp)
 
 
 def _is_closed_m23_row(row: object) -> bool:

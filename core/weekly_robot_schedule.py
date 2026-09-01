@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 BRAZIL_TIMEZONE = ZoneInfo("America/Sao_Paulo")
 FRIDAY_CLOSE = time(17, 30)
-SUNDAY_OPEN = time(18, 1)
+SUNDAY_OPEN = time(18, 5)
 
 
 @dataclass(frozen=True)
@@ -24,7 +24,7 @@ class WeeklyRobotScheduleDecision:
 def weekly_robot_schedule_decision(
     now: datetime | None = None,
 ) -> WeeklyRobotScheduleDecision:
-    """Return the fixed Sunday 18:01 to Friday 17:30 BRT window."""
+    """Return the fixed Sunday 18:05 to Friday 17:30 BRT window."""
     local = _as_brazil_time(now or datetime.now(tz=BRAZIL_TIMEZONE))
     weekday = local.weekday()
     clock = local.time().replace(tzinfo=None)
@@ -36,7 +36,7 @@ def weekly_robot_schedule_decision(
     if operating:
         status = "WEEKLY_WINDOW_OPEN"
         reason = (
-            "Robo deve permanecer ligado de domingo 18:01 ate sexta 17:30 "
+            "Robo deve permanecer ligado de domingo 18:05 ate sexta 17:30 "
             "no horario de Brasilia."
         )
         transition = _next_friday_close(local)
@@ -44,7 +44,7 @@ def weekly_robot_schedule_decision(
         status = "WEEKLY_WINDOW_CLOSED"
         reason = (
             "Robo deve permanecer desligado e sem posicoes entre sexta 17:30 "
-            "e domingo 18:01 no horario de Brasilia."
+            "e domingo 18:05 no horario de Brasilia."
         )
         transition = _next_sunday_open(local)
     return WeeklyRobotScheduleDecision(

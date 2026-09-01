@@ -13,8 +13,14 @@ from replay.pattern_miner.causality import PatternCausalityAuditor
 from replay.pattern_miner.detectors import CausalEventDetector
 from replay.pattern_miner.engine import PatternReplayEngine
 from replay.pattern_miner.indicators import IndicatorEngine
-from replay.pattern_miner.mining import OutcomeEngine
-from replay.pattern_miner.models import CandleBar, PatternOccurrence, ReplaySpeed
+from replay.pattern_miner.mining import OutcomeEngine, PatternMiner
+from replay.pattern_miner.models import (
+    CandleBar,
+    FirstPassageOutcome,
+    OccurrenceOutcome,
+    PatternOccurrence,
+    ReplaySpeed,
+)
 
 
 class PatternIndicatorEngineTest(unittest.TestCase):
@@ -242,6 +248,72 @@ class OutcomeEngineTest(unittest.TestCase):
         fp1 = next(item for item in outcome.first_passage if item.target_atr == 1.0)
         self.assertEqual(fp1.status, "SUCCESS")
         self.assertEqual(fp1.candles_to_hit, 1)
+
+    def test_outcome_enters_at_next_bar_open(self) -> None:
+        config = PatternMinerConfig(
+            outcome_horizons=(1,),
+            first_passage_targets_atr=(1.0,),
+        )
+        candles = [
+            self._bar(0, 100.0, 100.2, 99.8, 100.0),
+            self._bar(1, 102.0, 103.2, 101.8, 103.0),
+        ]
+        records = self._records_with_atr(candles, atr=1.0)
+        occurrence = PatternOccurrence(
+            pattern_id="PAT-NEXT-OPEN",
+            sequence=("SWEEP_LOW", "BOS_UP"),
+            gap_buckets=("same candle",),
+            direction=1,
+            start_index=0,
+            end_index=0,
+            event_indices=(0, 0),
+            split="DISCOVERY",
+        )
+
+        outcome = OutcomeEngine(config).evaluate(occurrence, candles, records)
+
+        assert outcome is not None
+        assert outcome.horizons[0].return_atr == 1.0
+        assert outcome.first_passage[0].status == "SUCCESS"
+
+    def test_net_expectancy_subtracts_execution_friction(self) -> None:
+        miner = PatternMiner(PatternMinerConfig(execution_friction_r=0.5))
+        outcomes = [
+            self._passage_outcome("SUCCESS", split="DISCOVERY", target=2.0),
+            self._passage_outcome("FAILURE", split="DISCOVERY", target=2.0),
+        ]
+
+        expectancy = miner._first_passage_expectancy(
+            outcomes,
+            2.0,
+            split="DISCOVERY",
+        )
+
+        # Gross values are +2R and -1R; both pay the 0.5R friction.
+        assert expectancy == 0.0
+
+    @staticmethod
+    def _passage_outcome(
+        status: str,
+        *,
+        split: str,
+        target: float,
+    ) -> OccurrenceOutcome:
+        occurrence = PatternOccurrence(
+            pattern_id="PAT-COST",
+            sequence=("SWEEP_LOW", "BOS_UP"),
+            gap_buckets=("same candle",),
+            direction=1,
+            start_index=0,
+            end_index=0,
+            event_indices=(0, 0),
+            split=split,
+        )
+        return OccurrenceOutcome(
+            occurrence=occurrence,
+            horizons=(),
+            first_passage=(FirstPassageOutcome(target, status, 1),),
+        )
 
     @staticmethod
     def _records_with_atr(candles: list[CandleBar], atr: float):

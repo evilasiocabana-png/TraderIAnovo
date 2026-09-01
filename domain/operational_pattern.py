@@ -51,6 +51,21 @@ class OperationalPatternSpec:
     status: OperationalPatternStatus
     shadow_status: ShadowStatus = ShadowStatus.OFF
     source_cache_key: str = ""
+    stop_atr: float = 1.0
+    contract_version: str = ""
+    evidence_tier: str = "LEGACY"
+    adaptive_rank: int = 0
+    pattern_family: str = ""
+    selection_score: float = 0.0
+    repeat_limit: int = 1
+    repeat_window_candles: int = 100
+    repeat_probability: float = 0.0
+    repeat_basis: str = "FIRST_OCCURRENCE_ONLY"
+    repeat_statistics: tuple[tuple[str, float], ...] = ()
+    max_holding_candles: int = 100
+    cost_rule: str = ""
+    geometry_method: str = ""
+    geometry_statistics: tuple[tuple[str, float], ...] = ()
 
     @property
     def versioned_id(self) -> str:
@@ -72,6 +87,8 @@ class OperationalPatternSpec:
             "discovery_metrics",
             "validation_metrics",
             "oos_metrics",
+            "repeat_statistics",
+            "geometry_statistics",
         ):
             values[key] = tuple(tuple(item) for item in values.get(key, ()))
         values["status"] = OperationalPatternStatus(values["status"])
@@ -130,6 +147,11 @@ class ShadowSignalResult:
     closed_at: str | None = None
     exit_reference: float | None = None
     result_r: float | None = None
+    max_holding_candles: int = 0
+    candles_observed: int = 0
+    entry_filled: bool = True
+    cost_rule: str = ""
+    cost_r: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

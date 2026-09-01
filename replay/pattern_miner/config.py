@@ -11,7 +11,7 @@ import json
 class PatternMinerConfig:
     """All research thresholds used by the Pattern Miner."""
 
-    schema_version: str = "xau-pattern-miner-v2"
+    schema_version: str = "xau-pattern-miner-v3-cost-aware-next-open"
     warmup_candles: int = 200
     ema_periods: tuple[int, ...] = (9, 20, 50, 200)
     rsi_period: int = 14
@@ -40,6 +40,9 @@ class PatternMinerConfig:
     first_passage_targets_atr: tuple[float, ...] = (0.5, 1.0, 1.5, 2.0, 3.0)
     discovery_fraction: float = 0.60
     validation_fraction: float = 0.20
+    execution_friction_r: float = 0.50
+    operational_min_occurrences: int = 100
+    operational_min_split_expectancy_r: float = 0.05
     causality_audit_fractions: tuple[float, ...] = (0.60, 0.999)
     session_asia_start_utc: int = 0
     session_london_start_utc: int = 7

@@ -22,6 +22,234 @@ from streamlit.testing.v1 import AppTest
 class DashboardAppRuntimeTest(unittest.TestCase):
     """Valida renderizacao real do workbench via Streamlit AppTest."""
 
+    def test_price_label_trata_preco_mt5_ausente_sem_quebrar_tela(self) -> None:
+        self.assertEqual(dashboard_app._price_label(None), "N/D")
+        self.assertEqual(dashboard_app._price_label("invalido"), "N/D")
+        self.assertEqual(dashboard_app._price_label(float("nan")), "N/D")
+        self.assertEqual(dashboard_app._price_label(123.456), "123.46")
+
+    def test_validacao_m28_separa_teoria_e_execucao_por_ativo(self) -> None:
+        rows = dashboard_app._model28_asset_comparison_rows(
+            {
+                "comparisons": [
+                    {
+                        "symbol": "XAUUSD",
+                        "comparison_status": "CONFERE",
+                        "ticket": "M28-1",
+                        "projected_profit_usd": 20.0,
+                    },
+                    {
+                        "symbol": "EURUSD",
+                        "comparison_status": "AGUARDANDO_EXECUCAO",
+                    },
+                ],
+                "theoretical_curve": [
+                    {"symbol": "XAUUSD", "result_r": 2.0},
+                    {"symbol": "EURUSD", "result_r": 2.0},
+                ],
+                "realized_curve": [
+                    {
+                        "symbol": "XAUUSD",
+                        "ticket": "M28-1",
+                        "result_usd": 10.0,
+                        "result_r": -1.0,
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(rows[0]["Ativo"], "XAUUSD")
+        self.assertEqual(rows[0]["Lucro projetado (US$)"], 20.0)
+        self.assertEqual(rows[0]["Resultado MT5 (US$)"], 10.0)
+        self.assertEqual(rows[0]["Resultado MT5 (R)"], -1.0)
+        self.assertEqual(rows[0]["Diagnostico"], "DIVERGE: TEORIA + / MT5 -")
+        self.assertEqual(rows[1]["Diagnostico"], "SEM EXECUCAO ENCERRADA")
+
+    def test_curva_financeira_m28_alinha_projetado_e_real_pelos_tickets(self) -> None:
+        rows = dashboard_app._model28_financial_curve_rows(
+            {
+                "comparison_start_brt": "2026-08-30T19:00:00-03:00",
+                "comparisons": [
+                    {
+                        "symbol": "XAUUSD",
+                        "ticket": "1",
+                        "comparison_status": "CONFERE",
+                        "projected_profit_usd": 20.0,
+                    },
+                    {
+                        "symbol": "EURUSD",
+                        "ticket": "2",
+                        "comparison_status": "CONFERE_TOLERANCIA_ATR",
+                        "projected_profit_usd": 30.0,
+                    },
+                    {
+                        "symbol": "XAUUSD",
+                        "ticket": "3",
+                        "comparison_status": "REJEITADO_MT5",
+                        "projected_profit_usd": 99.0,
+                    },
+                ],
+                "realized_curve": [
+                    {
+                        "time": "2026-08-30T22:00:00-03:00",
+                        "symbol": "XAUUSD",
+                        "ticket": "1",
+                        "result_usd": -5.0,
+                    },
+                    {
+                        "time": "2026-08-30T22:05:00-03:00",
+                        "symbol": "EURUSD",
+                        "ticket": "2",
+                        "result_usd": 12.0,
+                    },
+                    {
+                        "time": "2026-08-30T22:10:00-03:00",
+                        "symbol": "XAUUSD",
+                        "ticket": "3",
+                        "result_usd": 99.0,
+                    },
+                ],
+            }
+        )
+
+        projected = [row["value"] for row in rows if row["series"] == "Lucro projetado"]
+        realized = [row["value"] for row in rows if row["series"] == "Lucro real"]
+        self.assertEqual(projected, [0.0, 20.0, 50.0])
+        self.assertEqual(realized, [0.0, -5.0, 7.0])
+
+    def test_curva_verde_m28_contem_somente_planos_confirmados(self) -> None:
+        report = {
+            "comparisons": [
+                {
+                    "symbol": "XAUUSD",
+                    "candle_time": "2026-08-30T22:00:00+00:00",
+                    "pattern_id": "PAT-OK",
+                    "direction": "BUY",
+                    "comparison_status": "CONFERE",
+                },
+                {
+                    "symbol": "EURUSD",
+                    "candle_time": "2026-08-30T22:05:00+00:00",
+                    "pattern_id": "PAT-SEM-ENVIO",
+                    "direction": "SELL",
+                    "comparison_status": "AGUARDANDO_EXECUCAO",
+                },
+            ],
+            "theoretical_curve": [
+                {
+                    "time": "2026-08-30T22:10:00+00:00",
+                    "signal_time": "2026-08-30T22:00:00+00:00",
+                    "symbol": "XAUUSD",
+                    "pattern_id": "PAT-OK",
+                    "direction": "BUY",
+                    "result_r": 2.0,
+                },
+                {
+                    "time": "2026-08-30T22:15:00+00:00",
+                    "signal_time": "2026-08-30T22:05:00+00:00",
+                    "symbol": "EURUSD",
+                    "pattern_id": "PAT-SEM-ENVIO",
+                    "direction": "SELL",
+                    "result_r": -1.0,
+                },
+            ],
+        }
+
+        curve = dashboard_app._model28_confirmed_theoretical_curve(report)
+
+        self.assertEqual(len(curve), 1)
+        self.assertEqual(curve[0]["pattern_id"], "PAT-OK")
+        self.assertEqual(curve[0]["cumulative_r"], 2.0)
+
+    def test_curvas_m28_reiniciam_acumulado_para_cada_ativo(self) -> None:
+        report = {
+            "comparisons": [
+                {
+                    "symbol": "XAUUSD",
+                    "candle_time": "2026-08-30T22:00:00+00:00",
+                    "pattern_id": "PAT-XAU",
+                    "direction": "BUY",
+                    "comparison_status": "CONFERE",
+                }
+            ],
+            "theoretical_curve": [
+                {
+                    "time": "2026-08-30T22:10:00+00:00",
+                    "signal_time": "2026-08-30T22:00:00+00:00",
+                    "symbol": "XAUUSD",
+                    "pattern_id": "PAT-XAU",
+                    "direction": "BUY",
+                    "result_r": 2.0,
+                    "cumulative_r": 7.0,
+                },
+                {
+                    "time": "2026-08-30T22:15:00+00:00",
+                    "signal_time": "2026-08-30T22:05:00+00:00",
+                    "symbol": "EURUSD",
+                    "pattern_id": "PAT-EUR",
+                    "direction": "SELL",
+                    "result_r": -1.0,
+                    "cumulative_r": 6.0,
+                },
+            ],
+            "realized_curve": [],
+        }
+
+        xau = dashboard_app._model28_symbol_curve_data(report, "XAUUSD")
+        eur = dashboard_app._model28_symbol_curve_data(report, "EURUSD")
+
+        self.assertEqual(xau["theoretical"][-1]["cumulative_r"], 2.0)
+        self.assertEqual(xau["confirmed"][-1]["cumulative_r"], 2.0)
+        self.assertEqual(eur["theoretical"][-1]["cumulative_r"], -1.0)
+        self.assertEqual(eur["confirmed"], [])
+
+    def test_fluxo_m28_separa_sem_tentativa_rejeicao_e_confirmacao(self) -> None:
+        report = {
+            "comparisons": [
+                {
+                    "symbol": "XAUUSD",
+                    "candle_time": "2026-08-30T22:00:00+00:00",
+                    "pattern_id": "PAT-WAIT",
+                    "comparison_status": "AGUARDANDO_EXECUCAO",
+                },
+                {
+                    "symbol": "XAUUSD",
+                    "candle_time": "2026-08-30T22:05:00+00:00",
+                    "pattern_id": "PAT-REJECT",
+                    "comparison_status": "REJEITADO_MT5",
+                },
+                {
+                    "symbol": "XAUUSD",
+                    "candle_time": "2026-08-30T22:10:00+00:00",
+                    "pattern_id": "PAT-OK",
+                    "comparison_status": "CONFERE",
+                },
+                {
+                    "symbol": "XAUUSD",
+                    "candle_time": "2026-08-30T22:15:00+00:00",
+                    "pattern_id": "PAT-EXTRA",
+                    "comparison_status": "SEM_SINAL_FORWARD",
+                },
+            ]
+        }
+
+        summary = dashboard_app._model28_order_flow_summary(report, "XAUUSD")
+        values = dashboard_app._model28_order_flow_values(report, "XAUUSD")
+
+        self.assertEqual(summary["theoretical"], 3)
+        self.assertEqual(summary["attempted"], 2)
+        self.assertEqual(summary["confirmed"], 1)
+        self.assertEqual(summary["waiting"], 1)
+        self.assertEqual(summary["rejected"], 1)
+        self.assertEqual(summary["forward_only"], 1)
+        last_values = {
+            row["series"]: row["value"]
+            for row in values[-3:]
+        }
+        self.assertEqual(last_values["Sinais teoricos"], 3)
+        self.assertEqual(last_values["Tentativas MT5"], 2)
+        self.assertEqual(last_values["Ordens confirmadas"], 1)
+
     def test_gate_temporal_usa_candle_mais_recente_entre_todos_os_modelos(self) -> None:
         service = SimpleNamespace(
             configuration_service=SimpleNamespace(
@@ -788,6 +1016,14 @@ class DashboardAppRuntimeTest(unittest.TestCase):
                 for model_id in expected
             },
             expected,
+        )
+
+    def test_m28_usa_rotulo_proprio_no_resumo_operacional(self) -> None:
+        self.assertEqual(
+            dashboard_app._mt5_operational_model_short_label(
+                dashboard_app.MT5_OPERATIONAL_MODEL_28,
+            ),
+            "M28",
         )
 
     def test_m8_a_m12_usam_somente_xauusd_m5_na_tabela(self) -> None:

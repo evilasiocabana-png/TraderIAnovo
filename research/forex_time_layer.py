@@ -281,7 +281,10 @@ class ForexTimeLayer:
         return timestamp_utc.weekday() == 4 and timestamp_utc.hour >= 20
 
     def _is_sunday_open(self, timestamp_utc: datetime) -> bool:
-        return timestamp_utc.weekday() == 6 and 21 <= timestamp_utc.hour < 24
+        return (
+            timestamp_utc.weekday() == 6
+            and (timestamp_utc.hour, timestamp_utc.minute) >= (21, 5)
+        )
 
     def _temporal_decision(
         self,
@@ -307,13 +310,6 @@ class ForexTimeLayer:
                 True,
                 0.0,
                 "Mercado Forex fechado no fim de semana.",
-            )
-        if self._is_sunday_open(timestamp_utc):
-            return (
-                "DOMINGO_ABERTURA_BLOQUEADO",
-                True,
-                0.0,
-                "Abertura de domingo: liquidez reduzida e spread instavel.",
             )
         if self._is_friday_late(timestamp_utc):
             return (

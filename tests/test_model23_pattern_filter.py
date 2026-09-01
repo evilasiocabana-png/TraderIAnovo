@@ -186,15 +186,15 @@ def test_filter_never_blocks_when_evidence_is_missing(tmp_path) -> None:
     assert decision.decision == "NO_EVIDENCE"
 
 
-def test_portfolio_sell_rsi_below_30_blocks_across_sources(tmp_path) -> None:
+def test_rules_and_splits_are_independent_for_each_source(tmp_path) -> None:
     path = tmp_path / "report.json"
     service = M23PatternFilterService(path)
     records = tuple(_record(index, rsi14=25.0) for index in range(30))
     rows = [
-        _row(
-            index,
-            source_model=(SOURCE_M1 if index % 2 else SOURCE_M2),
-        )
+        _row(index, profit=-1.0, source_model=SOURCE_M1)
+        for index in range(1, 26)
+    ] + [
+        _row(index, profit=1.0, source_model=SOURCE_M2)
         for index in range(1, 26)
     ]
     report = service.analyze(
@@ -203,14 +203,76 @@ def test_portfolio_sell_rsi_below_30_blocks_across_sources(tmp_path) -> None:
         records_by_symbol={"EURUSD": records},
     )
 
-    assert any(
+    assert not any(
         rule.source_model == MODEL_23_PATTERN_FILTER_ALL_SOURCES
-        and rule.direction == "SELL"
+        for rule in report.rules
+    )
+    assert any(
+        rule.source_model == SOURCE_M1
         and rule.pattern_scope == "RSI"
         and rule.pattern_value == "RSI_LT30"
         and rule.decision == "BLOCK"
         for rule in report.rules
     )
+    assert any(
+        rule.source_model == SOURCE_M2
+        and rule.pattern_scope == "RSI"
+        and rule.pattern_value == "RSI_LT30"
+        and rule.decision == "APPROVE"
+        for rule in report.rules
+    )
+    assert {
+        sample.split
+        for sample in report.samples
+        if sample.source_model == SOURCE_M1
+    } == {"DISCOVERY", "VALIDATION", "OOS"}
+    blocked = M23PatternFilterService(path).evaluate(
+        source_model=SOURCE_M1,
+        symbol="EURUSD",
+        entry_type="INITIAL",
+        direction="SELL",
+        record=records[-1],
+        history=records,
+    )
+
+    approved = M23PatternFilterService(path).evaluate(
+        source_model=SOURCE_M2,
+        symbol="EURUSD",
+        entry_type="INITIAL",
+        direction="SELL",
+        record=records[-1],
+        history=records,
+    )
+
+    assert blocked.decision == "BLOCK"
+    assert blocked.samples == 25
+    assert approved.decision == "APPROVE"
+
+
+def test_validated_source_block_has_precedence_over_approve(tmp_path) -> None:
+    path = tmp_path / "report.json"
+    service = M23PatternFilterService(path)
+    records = tuple(_record(index, rsi14=42.0) for index in range(30))
+    rows = [
+        _row(index, profit=(-2.0 if index % 2 else 1.0))
+        for index in range(1, 26)
+    ]
+    report = service.analyze(
+        rows,
+        allowed_source_models=(SOURCE_M1,),
+        records_by_symbol={"EURUSD": records},
+    )
+    # Force two dimensions to disagree without changing their source identity.
+    rules = list(report.rules)
+    block = next(rule for rule in rules if rule.pattern_scope == "RSI")
+    approve_index = next(
+        index for index, rule in enumerate(rules) if rule.pattern_scope == "TREND"
+    )
+    from dataclasses import replace
+
+    rules[approve_index] = replace(rules[approve_index], decision="APPROVE")
+    service.save(replace(report, rules=tuple(rules)))
+
     decision = M23PatternFilterService(path).evaluate(
         source_model=SOURCE_M1,
         symbol="EURUSD",
@@ -220,5 +282,5 @@ def test_portfolio_sell_rsi_below_30_blocks_across_sources(tmp_path) -> None:
         history=records,
     )
 
+    assert block.decision == "BLOCK"
     assert decision.decision == "BLOCK"
-    assert decision.samples == 25

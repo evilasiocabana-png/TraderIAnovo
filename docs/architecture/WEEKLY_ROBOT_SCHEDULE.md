@@ -7,18 +7,18 @@ Status: regra operacional obrigatoria
 ## Janela
 
 ```text
-Domingo 18:01 BRT -> Sexta 17:30 BRT: robo sempre ligado
-Sexta 17:30 BRT -> Domingo 18:01 BRT: robo desligado e conta Demo zerada
+Domingo 18:05 BRT -> Sexta 17:30 BRT: robo sempre ligado
+Sexta 17:30 BRT -> Domingo 18:05 BRT: robo desligado e conta Demo zerada
 ```
 
 Os limites sao inclusivos: sexta exatamente 17:30 ja pertence a janela
-fechada; domingo exatamente 18:01 ja pertence a janela operacional.
+fechada; domingo exatamente 18:05 ja pertence a janela operacional.
 
 ## Execucao
 
 - Um thread semanal independente inicia mesmo quando o robo esta offline.
 - Dentro da janela, estado persistido OFF e corrigido para ON.
-- Se o computador ou app iniciar depois de 18:01 no domingo, a primeira
+- Se o computador ou app iniciar depois de 18:05 no domingo, a primeira
   avaliacao reconhece a janela aberta e rearma o robo sem exigir a transicao.
 - Fora da janela, estado persistido ON e corrigido para OFF.
 - Ao fechar a janela, todas as posicoes abertas da conta MT5 Demo sao

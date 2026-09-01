@@ -1035,7 +1035,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
         )
         self.assertEqual(
             basket_plan.stop_management_parameters["m23_pattern_filter_mode"],
-            "ACTIVE_BLOCK_ONLY",
+            "INDIVIDUAL_BLOCK_ONLY",
         )
         self.assertFalse(
             basket_plan.stop_management_parameters[

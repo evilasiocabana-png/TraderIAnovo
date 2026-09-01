@@ -132,7 +132,7 @@ class DashboardFacadeTest(unittest.TestCase):
         "Robo Demo MT5",
         "Entrada Teorica MT5",
         "Calibracao Forex MT5",
-        "Historico MT5 Forex",
+        "Validacao M28: Replay x MT5",
     }
 
     def test_dashboard_importa_apenas_fachada_dashboard_service(self) -> None:

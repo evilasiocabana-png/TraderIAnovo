@@ -57,8 +57,14 @@ class OutcomeEngine:
         end = occurrence.end_index
         if end < 0 or end >= len(candles):
             return None
+        entry_index = end + 1
+        if entry_index >= len(candles):
+            return None
         atr = records[end].atr14
-        entry = candles[end].close
+        # The live market order only exists after the completion candle closes.
+        # The next bar open is the earliest OHLC price the historical engine can
+        # use without crediting movement that happened before execution.
+        entry = candles[entry_index].open
         if atr is None or atr <= 0.0 or entry <= 0.0:
             return None
         direction = occurrence.direction or self._inferred_direction(occurrence.sequence)
@@ -66,10 +72,10 @@ class OutcomeEngine:
             return None
         horizons: list[HorizonOutcome] = []
         for horizon in self.config.outcome_horizons:
-            last = end + horizon
+            last = entry_index + horizon - 1
             if last >= len(candles):
                 continue
-            future = candles[end + 1 : last + 1]
+            future = candles[entry_index : last + 1]
             exit_price = candles[last].close
             directional_return = direction * (exit_price - entry)
             if direction > 0:
@@ -91,7 +97,14 @@ class OutcomeEngine:
                 )
             )
         first_passage = tuple(
-            self._first_passage(candles, end, entry, atr, direction, target)
+            self._first_passage(
+                candles,
+                entry_index,
+                entry,
+                atr,
+                direction,
+                target,
+            )
             for target in self.config.first_passage_targets_atr
         )
         return OccurrenceOutcome(
@@ -103,7 +116,7 @@ class OutcomeEngine:
     @staticmethod
     def _first_passage(
         candles: list[CandleBar],
-        end: int,
+        entry_index: int,
         entry: float,
         atr: float,
         direction: int,
@@ -111,8 +124,8 @@ class OutcomeEngine:
     ) -> FirstPassageOutcome:
         favorable = target_atr * atr
         adverse = atr
-        limit = min(len(candles), end + 101)
-        for index in range(end + 1, limit):
+        limit = min(len(candles), entry_index + 100)
+        for index in range(entry_index, limit):
             bar = candles[index]
             if direction > 0:
                 favorable_hit = bar.high >= entry + favorable
@@ -121,11 +134,23 @@ class OutcomeEngine:
                 favorable_hit = bar.low <= entry - favorable
                 adverse_hit = bar.high >= entry + adverse
             if favorable_hit and adverse_hit:
-                return FirstPassageOutcome(target_atr, "AMBIGUOUS", index - end)
+                return FirstPassageOutcome(
+                    target_atr,
+                    "AMBIGUOUS",
+                    index - entry_index + 1,
+                )
             if favorable_hit:
-                return FirstPassageOutcome(target_atr, "SUCCESS", index - end)
+                return FirstPassageOutcome(
+                    target_atr,
+                    "SUCCESS",
+                    index - entry_index + 1,
+                )
             if adverse_hit:
-                return FirstPassageOutcome(target_atr, "FAILURE", index - end)
+                return FirstPassageOutcome(
+                    target_atr,
+                    "FAILURE",
+                    index - entry_index + 1,
+                )
         return FirstPassageOutcome(target_atr, "UNRESOLVED", None)
 
     @staticmethod
@@ -297,13 +322,21 @@ class PatternMiner:
             }
             fp1 = self._first_passage_rate(outcomes, 1.0)
             fp2 = self._first_passage_rate(outcomes, 2.0)
+            fp1_expectancy = self._first_passage_expectancy(outcomes, 1.0)
+            fp2_expectancy = self._first_passage_expectancy(outcomes, 2.0)
+            fp1_splits = {
+                split: self._first_passage_expectancy(outcomes, 1.0, split=split)
+                for split in ("DISCOVERY", "VALIDATION", "OOS")
+            }
+            fp2_splits = {
+                split: self._first_passage_expectancy(outcomes, 2.0, split=split)
+                for split in ("DISCOVERY", "VALIDATION", "OOS")
+            }
             expectancy = mean(returns)
             score = self._score(
-                expectancy,
-                fp1,
-                fp2,
                 len(outcomes),
-                split_performance,
+                fp1_splits,
+                fp2_splits,
             )
             rankings.append(
                 PatternRanking(
@@ -326,6 +359,14 @@ class PatternMiner:
                     validation_performance=split_performance["VALIDATION"],
                     oos_performance=split_performance["OOS"],
                     score=score,
+                    first_passage_1_expectancy_net=fp1_expectancy,
+                    first_passage_2_expectancy_net=fp2_expectancy,
+                    fp1_discovery_net=fp1_splits["DISCOVERY"],
+                    fp1_validation_net=fp1_splits["VALIDATION"],
+                    fp1_oos_net=fp1_splits["OOS"],
+                    fp2_discovery_net=fp2_splits["DISCOVERY"],
+                    fp2_validation_net=fp2_splits["VALIDATION"],
+                    fp2_oos_net=fp2_splits["OOS"],
                 )
             )
         rankings.sort(key=lambda ranking: (-ranking.score, -ranking.occurrences, ranking.pattern_id))
@@ -363,21 +404,53 @@ class PatternMiner:
             return 0.0
         return sum(status == "SUCCESS" for status in resolved) / len(resolved)
 
+    def _first_passage_expectancy(
+        self,
+        outcomes: list[OccurrenceOutcome],
+        target: float,
+        *,
+        split: str | None = None,
+    ) -> float:
+        values: list[float] = []
+        for outcome in outcomes:
+            if split is not None and outcome.occurrence.split != split:
+                continue
+            result = next(
+                (
+                    item
+                    for item in outcome.first_passage
+                    if math.isclose(item.target_atr, target)
+                ),
+                None,
+            )
+            if result is None or result.status == "UNRESOLVED":
+                continue
+            gross_r = target if result.status == "SUCCESS" else -1.0
+            values.append(gross_r - self.config.execution_friction_r)
+        return mean(values) if values else 0.0
+
     def _score(
         self,
-        expectancy: float,
-        fp1: float,
-        fp2: float,
         sample_size: int,
-        split_performance: dict[str, float],
+        fp1_splits: dict[str, float],
+        fp2_splits: dict[str, float],
     ) -> float:
-        sample_penalty = min(1.0, math.sqrt(sample_size / max(self.config.min_pattern_occurrences * 4, 1)))
-        discovery = split_performance["DISCOVERY"]
-        validation = split_performance["VALIDATION"]
-        oos = split_performance["OOS"]
-        instability = abs(discovery - validation) + abs(discovery - oos)
-        raw = expectancy + 0.40 * (fp1 - 0.5) + 0.30 * (fp2 - 0.5)
-        return raw * sample_penalty - 0.35 * instability
+        sample_penalty = min(
+            1.0,
+            math.sqrt(
+                sample_size / max(self.config.operational_min_occurrences, 1)
+            ),
+        )
+
+        def robust_score(values: dict[str, float]) -> float:
+            discovery = values["DISCOVERY"]
+            validation = values["VALIDATION"]
+            oos = values["OOS"]
+            floor = min(discovery, validation, oos)
+            instability = abs(discovery - validation) + abs(discovery - oos)
+            return floor * sample_penalty - 0.15 * instability
+
+        return max(robust_score(fp1_splits), robust_score(fp2_splits))
 
     @staticmethod
     def _gap_bucket(gap: int) -> str:
