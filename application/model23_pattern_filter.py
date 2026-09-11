@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from collections import defaultdict
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
 import gzip
 import hashlib
 import json
@@ -111,6 +111,13 @@ class M23PatternFilterDecision:
     samples: int = 0
     validation_expectancy: float = 0.0
     oos_expectancy: float = 0.0
+    # Legacy pattern_id identifies the selected rule when one matches. Keep a
+    # separate, always context-derived identifier for execution/replay audits.
+    context_pattern_id: str = "N/D"
+    context_timestamp: str = "N/D"
+    context_snapshot: dict[str, str] = field(default_factory=dict)
+    context_status: str = "MISSING"
+    report_generated_at: str = "N/D"
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +131,7 @@ class M23PatternFilterReport:
     samples: tuple[M23PatternSample, ...]
     schema_version: str = MODEL_23_PATTERN_FILTER_SCHEMA
     mode: str = MODEL_23_PATTERN_FILTER_MODE
+    ignored_context_rows: int = 0
 
     @property
     def approve_rules(self) -> int:
@@ -177,10 +185,21 @@ class M23PatternFilterService:
             timestamps = [_utc(record.timestamp).timestamp() for record in records]
             symbol_candidates = [item for item in candidates if _text(_value(item[0], "symbol")).upper() == symbol]
             for row, source, timestamp in symbol_candidates:
-                record_index = bisect_right(timestamps, _utc(timestamp).timestamp()) - 1
+                entry_time = _utc(timestamp)
+                # EventRecord.timestamp is the M5 OPEN time. Its completed OHLC
+                # is available only five minutes later, never inside that bar.
+                record_index = bisect_right(
+                    timestamps, (entry_time - timedelta(minutes=5)).timestamp()
+                ) - 1
                 if record_index < 0:
                     continue
                 record = records[record_index]
+                candle_closed_at = _utc(record.timestamp) + timedelta(minutes=5)
+                if (
+                    not record.warmup_complete
+                    or entry_time - candle_closed_at > timedelta(minutes=5)
+                ):
+                    continue
                 direction = _direction(_value(row, "side"))
                 context = context_from_record(record, direction=direction, history=records, index=record_index)
                 parameters = _stop_parameters(row)
@@ -213,6 +232,7 @@ class M23PatternFilterService:
             eligible_rows=len(candidates),
             contextualized_rows=len(samples),
             ignored_legacy_rows=ignored_legacy,
+            ignored_context_rows=len(candidates) - len(samples),
             rules=tuple(rules),
             samples=tuple(samples),
         )
@@ -228,25 +248,74 @@ class M23PatternFilterService:
         direction: str,
         record: EventRecord | None,
         history: Sequence[EventRecord] = (),
+        expected_record_time: datetime | None = None,
+        decision_time: datetime | None = None,
     ) -> M23PatternFilterDecision:
         """Evaluate one live signal using the persisted out-of-sample rules."""
 
+        report = self.load()
+        metadata: dict[str, Any] = {
+            "report_generated_at": report.generated_at if report is not None else "N/D",
+        }
         if record is None:
             return M23PatternFilterDecision(
-                reason="Filtro M23 sem candle M5 causal; entrada preservada."
+                reason="Filtro M23 sem candle M5 causal; entrada preservada.",
+                context_status="MISSING",
+                **metadata,
             )
-        report = self.load()
-        if report is None:
-            return M23PatternFilterDecision(
-                reason="Filtro M23 ainda nao foi calculado; entrada preservada."
-            )
+        record_time = _utc(record.timestamp)
+        metadata["context_timestamp"] = record_time.isoformat()
+        # The supplied record is authoritative. Drop later history so an older
+        # signal can never inherit an event or ATR baseline from future candles.
+        causal_history = tuple(sorted(
+            (candidate for candidate in history if _utc(candidate.timestamp) < record_time),
+            key=lambda candidate: _utc(candidate.timestamp),
+        )) + (record,)
         context = context_from_record(
             record,
             direction=_direction(direction),
-            history=history,
-            index=(len(history) - 1 if history else None),
+            history=causal_history,
+            index=len(causal_history) - 1,
         )
         pattern_id = _pattern_id(context.signature)
+        metadata.update(
+            context_pattern_id=pattern_id,
+            context_snapshot=asdict(context),
+        )
+        expected = _utc(expected_record_time) if expected_record_time is not None else None
+        observed_at = _utc(decision_time) if decision_time is not None else (
+            expected + timedelta(minutes=5) if expected is not None else None
+        )
+        if expected is not None and record_time != expected:
+            return M23PatternFilterDecision(
+                reason="Filtro M23 com candle diferente do sinal; contexto nao utilizado e entrada preservada.",
+                context_status="MISMATCH",
+                **metadata,
+            )
+        if observed_at is not None and record_time + timedelta(minutes=5) > observed_at:
+            return M23PatternFilterDecision(
+                reason="Filtro M23 recebeu candle ainda nao fechado na decisao; contexto nao utilizado e entrada preservada.",
+                context_status="NOT_CLOSED",
+                **metadata,
+            )
+        if observed_at is not None and observed_at - (record_time + timedelta(minutes=5)) > timedelta(minutes=5):
+            return M23PatternFilterDecision(
+                reason="Filtro M23 com contexto M5 antigo para a decisao; contexto nao utilizado e entrada preservada.",
+                context_status="STALE",
+                **metadata,
+            )
+        if not record.warmup_complete:
+            return M23PatternFilterDecision(
+                reason="Filtro M23 sem aquecimento completo; contexto nao utilizado e entrada preservada.",
+                context_status="WARMUP_INCOMPLETE",
+                **metadata,
+            )
+        metadata["context_status"] = "VALID" if observed_at is not None else "UNVERIFIED_TIME"
+        if report is None:
+            return M23PatternFilterDecision(
+                reason="Filtro M23 ainda nao foi calculado; entrada preservada.",
+                **metadata,
+            )
         normalized_source = str(source_model or "").upper()
         matching = [
             rule
@@ -259,7 +328,8 @@ class M23PatternFilterService:
         if not matching:
             return M23PatternFilterDecision(
                 pattern_id=pattern_id,
-                reason="Contexto atual nao possui amostra OOS suficiente; nenhuma trava aplicada."
+                reason="Contexto atual nao possui amostra OOS suficiente; nenhuma trava aplicada.",
+                **metadata,
             )
         # In block-only mode, a validated source-specific block cannot be
         # neutralized by an informational APPROVE rule from another dimension.
@@ -277,6 +347,7 @@ class M23PatternFilterService:
             samples=rule.samples,
             validation_expectancy=rule.validation_expectancy,
             oos_expectancy=rule.oos_expectancy,
+            **metadata,
         )
 
     @staticmethod
@@ -335,6 +406,7 @@ class M23PatternFilterService:
             eligible_rows=int(payload.get("eligible_rows") or 0),
             contextualized_rows=int(payload.get("contextualized_rows") or 0),
             ignored_legacy_rows=int(payload.get("ignored_legacy_rows") or 0),
+            ignored_context_rows=int(payload.get("ignored_context_rows") or 0),
             rules=tuple(M23PatternRule(**item) for item in payload.get("rules", [])),
             samples=tuple(
                 M23PatternSample(

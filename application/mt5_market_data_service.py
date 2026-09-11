@@ -291,6 +291,12 @@ class MT5MarketDataService:
     latest_forex_candles: dict[tuple[str, str], list[Candle]] = field(
         default_factory=dict
     )
+    # Process-local monotonic time of successful provider reads. Never restored
+    # from disk: cached/seeded candles alone do not prove live availability.
+    m23_context_observed_at: dict[tuple[str, str], float] = field(
+        default_factory=dict,
+        repr=False,
+    )
     supplemental_forex_seed_only_keys: set[tuple[str, str]] = field(
         default_factory=set,
         repr=False,
@@ -562,6 +568,8 @@ class MT5MarketDataService:
                     normalized_timeframe,
                     candles,
                 )
+                if candles:
+                    self.m23_context_observed_at[(pair, normalized_timeframe)] = perf_counter()
             except TimeoutError as exc:
                 unavailable_pairs.append(pair)
                 read_errors.append(f"{pair}: timeout: {exc}")
@@ -867,6 +875,8 @@ class MT5MarketDataService:
                     normalized_timeframe,
                     candles,
                 )
+                if candles and not cached_candles:
+                    self.m23_context_observed_at[(pair, normalized_timeframe)] = perf_counter()
             except TimeoutError as exc:
                 unavailable_pairs.append(pair)
                 read_errors.append(f"{pair}: timeout: {exc}")
@@ -1177,6 +1187,7 @@ class MT5MarketDataService:
                         limit=max(int(count), 500),
                     )
                 self.supplemental_forex_seed_only_keys.discard(key)
+                self.m23_context_observed_at[key] = perf_counter()
                 loaded_any = True
         if loaded_any:
             self._persist_supplemental_forex_cache()
@@ -1597,6 +1608,8 @@ class MT5MarketDataService:
                     normalized_timeframe,
                     candles,
                 )
+                if candles and preloaded_market_data is None:
+                    self.m23_context_observed_at[(pair, normalized_timeframe)] = perf_counter()
             except TimeoutError as exc:
                 unavailable_pairs.append(pair)
                 read_errors.append(f"{pair}: timeout: {exc}")

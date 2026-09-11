@@ -67,7 +67,8 @@ def _row(
     profit: float = -1.0,
     source_model: str = SOURCE_M1,
 ) -> dict[str, object]:
-    timestamp = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * index)
+    # An executed entry may only observe the completed M5 at this index.
+    timestamp = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=5 * (index + 1))
     return {
         "timestamp": timestamp.isoformat(),
         "mt5_time": timestamp.isoformat(),

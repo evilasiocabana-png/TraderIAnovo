@@ -58,6 +58,21 @@ from research.mt5_research_trade_plan import MT5ResearchTradePlan
 from tests.architecture_test_utils import read_source
 
 
+
+
+def _prime_m23_context_for_contract_test(service, symbol):
+    from datetime import timedelta, timezone
+    from time import perf_counter
+    start = datetime(2026, 8, 13, tzinfo=timezone.utc)
+    # Fully described, freshly observed closed M5 context is a prerequisite.
+    service.mt5_market_data_service.latest_forex_candles[(symbol, "M5")] = [
+        {"time": start + timedelta(minutes=5 * i), "open": 4300.0 + i,
+         "high": 4301.5 + i, "low": 4299.5 + i, "close": 4301.0 + i,
+         "tick_volume": 100, "spread": 2} for i in range(201)
+    ]
+    service.mt5_market_data_service.m23_context_observed_at[(symbol, "M5")] = perf_counter()
+    service.mt5_market_data_service.supplemental_forex_seed_only_keys.discard((symbol, "M5"))
+
 class DashboardViewModelContractTest(unittest.TestCase):
     """Valida o contrato estavel entre backend e UI."""
 
@@ -1001,6 +1016,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
             beta_mode="FULL_EXIT_SOURCE",
         )
 
+        _prime_m23_context_for_contract_test(service, row.pair)
         basket_row, basket_plan = service._mt5_model23_variant_from_source(
             row,
             plan,
@@ -1084,6 +1100,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
             stop_management="M8_SMA_RSI_FULL_EXIT",
         )
 
+        _prime_m23_context_for_contract_test(service, row.pair)
         basket_row, basket_plan = service._mt5_model23_variant_from_source(
             row,
             plan,
@@ -1128,7 +1145,10 @@ class DashboardViewModelContractTest(unittest.TestCase):
             status="PLANO_VALIDO",
             stop_management_parameters={"active_entry_order_type": "MARKET"},
         )
+        _prime_m23_context_for_contract_test(service, row.pair)
         blocked = SimpleNamespace(
+            context_pattern_id="CTX-FIXTURE", context_timestamp="2026-08-13T16:35:00+00:00",
+            context_snapshot={}, context_status="VALID", report_generated_at="fixture",
             decision="BLOCK",
             rule_id="RULE-BLOCK",
             pattern_id="PAT-BLOCK",
@@ -1205,6 +1225,7 @@ class DashboardViewModelContractTest(unittest.TestCase):
             stop_management="M8_SMA_RSI_FULL_EXIT",
         )
 
+        _prime_m23_context_for_contract_test(service, row.pair)
         basket_row, basket_plan = service._mt5_model23_variant_from_source(
             row,
             plan,

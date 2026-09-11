@@ -1,3 +1,7 @@
+## 2026-09-11 - Sincronizacao do contexto M23
+
+Correcao autorizada: contexto independente de contratos M28, candle fechado alinhado ao sinal, 200 fechadas deterministicas e leitura MT5 recente. Contexto ausente/invalido aguarda dados; NO_EVIDENCE com contexto valido preserva entrada. Regras congeladas e posicoes abertas preservadas. Identificadores de regra/contexto e fotografia auditavel separados. Ver docs/research/M23_CONTEXT_SYNC_2026-09-11.md. Replay financeiro integral nao certificado.
+
 # Execution Log
 
 ## 2026-08-27 - Modelo 28 Pattern Miner Operational Shadow

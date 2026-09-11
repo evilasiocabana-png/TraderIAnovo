@@ -133,7 +133,9 @@ from application.model23_pattern_filter import (
     MODEL_23_PATTERN_FILTER_MODE,
     M23PatternFilterService,
 )
+from application.model23_source_context import M23SourceContextBuilder
 _MODEL23_PATTERN_FILTER_SERVICE = M23PatternFilterService()
+_MODEL23_SOURCE_CONTEXT = M23SourceContextBuilder()
 from application.model24_xau_basket import (
     MODEL_24_ALPHA_ID,
     MODEL_24_ALPHA_VERSION,
@@ -1988,6 +1990,12 @@ class DashboardService:
         for pair, timeframe_labels in required.items():
             for timeframe_label in timeframe_labels:
                 require_supplemental(pair, timeframe_label)
+        if self._mt5_model23_routing_enabled():
+            # M23 context is required even without an active M28 contract.
+            for market_row in list(getattr(data, "pairs", ()) or ()):
+                market_symbol = str(getattr(market_row, "pair", "") or "").upper()
+                if market_symbol:
+                    require_supplemental(market_symbol, "M5")
         if callable(supplemental_refresh) and supplemental_required:
             supplemental_refresh(
                 supplemental_required,
@@ -2000,6 +2008,7 @@ class DashboardService:
             self._refresh_model28_live_shadow()
         self._auto_export_mt5_visual_signals()
         return data
+
 
     def get_model28_live_selection(
         self,
@@ -8208,6 +8217,26 @@ class DashboardService:
             if str(getattr(row, "pair", "")).upper() == requested
         ]
 
+    def _record_m23_context_diagnostic(self, symbol, source, parameters):
+        """Record context availability separately from trading-rule decisions."""
+        try:
+            import json as context_json
+            from pathlib import Path as ContextPath
+            from datetime import datetime as ContextDateTime, timezone as ContextTimezone
+            payload = {
+                "updated_at": ContextDateTime.now(ContextTimezone.utc).isoformat(),
+                "symbol": symbol,
+                "source_model": source,
+                **{key: value for key, value in parameters.items()
+                   if key.startswith(("m23_context_", "m23_pattern_filter_"))},
+            }
+            path = ContextPath(".traderia/runtime/m23_context_sync_latest.json")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(context_json.dumps(payload, ensure_ascii=True), encoding="utf-8")
+        except (OSError, TypeError, ValueError):
+            pass
+
+
     def _mt5_model23_variant_from_source(
         self,
         row: DashboardMT5ForexSignalRowViewModel,
@@ -8287,26 +8316,49 @@ class DashboardService:
                 ),
             }
         )
-        runtime = getattr(self, "model28_shadow_runtime", None)
-        latest_record = (
-            runtime.latest_record(str(row.pair), "M5")
-            if runtime is not None and hasattr(runtime, "latest_record")
-            else None
+        market_service = getattr(self, "mt5_market_data_service", None)
+        context_rows = list(getattr(market_service, "latest_forex_candles", {}).get(
+            (str(row.pair).upper(), "M5"), ()) or ())
+        from time import perf_counter as context_clock
+        context_key = (str(row.pair).upper(), "M5")
+        observed_at = getattr(market_service, "m23_context_observed_at", {}).get(context_key)
+        observation_age = context_clock() - observed_at if observed_at is not None else None
+        seed_only = context_key in getattr(market_service, "supplemental_forex_seed_only_keys", set())
+        feed_current = observation_age is not None and 0 <= observation_age <= 60 and not seed_only
+        context_window = _MODEL23_SOURCE_CONTEXT.build(
+            context_rows if feed_current else (),
+            expected_candle=parameters.get("indicator_closed_candle_time"),
         )
-        record_history = (
-            runtime.record_history(str(row.pair), "M5")
-            if runtime is not None and hasattr(runtime, "record_history")
-            else ()
-        )
+        if not feed_current:
+            context_window = replace(
+                context_window, status="LIVE_DATA_UNCONFIRMED",
+                reason="Candles M5 precisam de leitura MT5 confirmada nos ultimos 60 segundos.",
+            )
+        parameters["m23_context_observation_age_seconds"] = observation_age
+        parameters["m23_context_seed_only"] = seed_only
         pattern_filter = _MODEL23_PATTERN_FILTER_SERVICE.evaluate(
             source_model=normalized_source,
             symbol=str(row.pair),
             entry_type=source_entry_type,
             direction=str(plan.direction or row.decision or "WAIT"),
-            record=latest_record,
-            history=record_history,
+            record=context_window.record,
+            history=context_window.history,
+            expected_record_time=context_window.expected_time,
+            decision_time=context_window.decision_time,
         )
-        pattern_filter_blocks = pattern_filter.decision == "BLOCK"
+        parameters.update(context_window.audit())
+        parameters.update({
+            "m23_pattern_filter_context_id": pattern_filter.context_pattern_id,
+            "m23_pattern_filter_context_timestamp": pattern_filter.context_timestamp,
+            "m23_pattern_filter_context_snapshot": pattern_filter.context_snapshot,
+            "m23_pattern_filter_context_status": pattern_filter.context_status,
+            "m23_pattern_filter_report_generated_at": pattern_filter.report_generated_at,
+        })
+        context_not_ready = (
+            context_window.status != "ALIGNED" or pattern_filter.context_status != "VALID"
+        )
+        pattern_filter_blocks = pattern_filter.decision == "BLOCK" or context_not_ready
+        parameters["m23_context_waiting_for_data"] = context_not_ready
         parameters.update(
             {
                 "m23_pattern_filter_mode": MODEL_23_PATTERN_FILTER_MODE,
@@ -8327,9 +8379,15 @@ class DashboardService:
                 ).upper(),
             }
         )
+        # Persist the exact inputs even when a signal is waiting or blocked.
+        self._record_m23_context_diagnostic(str(row.pair), normalized_source, parameters)
         if pattern_filter_blocks:
-            status = "M23_PATTERN_FILTER_BLOCKED"
-            reason = pattern_filter.reason
+            status = 'M23_CONTEXT_WAITING' if context_not_ready else 'M23_PATTERN_FILTER_BLOCKED'
+            reason = (
+                'M23 aguarda contexto M5 sincronizado: ' + (
+                    context_window.reason if context_window.status != 'ALIGNED' else pattern_filter.reason
+                ) if context_not_ready else pattern_filter.reason
+            )
             return (
                 replace(
                     row,
@@ -8447,6 +8505,7 @@ class DashboardService:
             research_plan_risk_reward=basket_risk_reward,
         )
         return basket_row, basket_plan
+
 
     def _mt5_model24_variant_from_source(
         self,
