@@ -1,3 +1,14 @@
+## Atualizacao M28 em 2026-09-11
+
+O M28 preserva selecao, ranking, geometria e validade do contrato minerado original.
+O overlay baseado em resultados realizados permanece arquivado e desativado.
+Antes de expor a selecao, materializar o plano e encaminha-lo ao executor, o
+Dashboard exige leitura MT5 confirmada nos ultimos 60s e contexto do minerador
+igual a ultima M5 fechada do cache em horario e OHLC. A ultima linha em formacao
+e excluida. Cache somente restaurado, lacuna M5, registro sem aquecimento ou
+plano que mudou de contexto/ocorrencia resultam em espera. Isso nao altera as
+saidas de posicoes abertas nem as regras de outros modelos.
+
 # TraderIA Novo - Fluxo Operacional E Relacoes De Ponta A Ponta
 
 `M24_CONTRACT=M24_SETUP_V19_20260823; SHA256=d918353322bc17fd17e1c7d0ba47272cf19431ef2c60d9cd1686829f2802c05f`

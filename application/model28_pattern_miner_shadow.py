@@ -208,6 +208,8 @@ class Model28ShadowRuntime:
         registry_is_default = (
             Path(registry_path).resolve() == DEFAULT_MODEL_28_REGISTRY_PATH.resolve()
         )
+        # User restored the original mined setups; realized-outcome study stays offline.
+        self._realized_filter_enabled = False
         self._auto_activate_replay_contracts = (
             registry_is_default or research_report_path is not None
             if auto_activate_replay_contracts is None
@@ -571,6 +573,7 @@ def model28_parameters() -> dict[str, object]:
         "exploration_contracts_can_send_demo": True,
         "shadow_required_before_active": False,
         "forward_validation_blocks_demo": False,
+        "realized_context_filter_enabled": False,
         "execution_volume": MODEL_28_VOLUME,
         "can_send_orders": True,
         "real_account_allowed": False,

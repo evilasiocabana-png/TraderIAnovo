@@ -651,6 +651,20 @@ def test_model28_reanchors_learned_distances_on_next_live_price() -> None:
     )
     service = object.__new__(DashboardService)
     object.__setattr__(service, "get_model28_live_selection", lambda: selection)
+    from types import SimpleNamespace
+    from time import perf_counter
+    stamp = datetime.fromisoformat(selection.selected_at)
+    closed = dict(time=stamp, open=3400.0, high=3405.0, low=3398.0, close=3401.0)
+    record = SimpleNamespace(timestamp=stamp, index=200, warmup_complete=True,
+                             open=3400.0, high=3405.0, low=3398.0, close=3401.0)
+    object.__setattr__(service, "mt5_market_data_service", SimpleNamespace(
+        latest_forex_candles={("XAUUSD", "M5"): [closed, {**closed, "time": stamp + timedelta(minutes=5)}]},
+        m23_context_observed_at={("XAUUSD", "M5"): perf_counter()},
+        supplemental_forex_seed_only_keys=set(),
+    ))
+    object.__setattr__(service, "model28_shadow_runtime", SimpleNamespace(
+        active_markets=lambda: (("XAUUSD", "M5"),), latest_record=lambda *_: record,
+    ))
     fallback = MT5ResearchTradePlan(
         symbol="XAUUSD", timeframe="M5", direction="WAIT", entry_price=None,
         stop=None, target=None, risk_reward=0.0, stop_multiplier=0.0,

@@ -223,6 +223,7 @@ from application.model27_mirror_m26 import (
     mirror_model26_order_type,
     model27_parameters,
 )
+from application.model28_context_sync import validate_model28_context
 from application.model28_pattern_miner_shadow import (
     MODEL_28_ALPHA_ID,
     MODEL_28_BETA_ID,
@@ -2011,27 +2012,99 @@ class DashboardService:
         return data
 
 
+    def _model28_context_check(self, symbol, selection=None):
+        """Guard M28 entries using the shared confirmed read and causal record."""
+        from time import perf_counter
+        key = (str(symbol).upper(), MODEL_28_TIMEFRAME)
+        market = getattr(self, "mt5_market_data_service", None)
+        runtime = getattr(self, "model28_shadow_runtime", None)
+        latest = getattr(runtime, "latest_record", None)
+        record = latest(*key) if callable(latest) else None
+        result = validate_model28_context(
+            rows=getattr(market, "latest_forex_candles", {}).get(key, ()),
+            record=record,
+            observed_at=getattr(market, "m23_context_observed_at", {}).get(key),
+            now=perf_counter(),
+            seed_only=key in getattr(market, "supplemental_forex_seed_only_keys", set()),
+            selection=selection,
+        )
+        self._record_m28_context_diagnostic(key[0], {
+            **result.audit(),
+            "m28_context_sync_version": "2026-09-11",
+            "m28_realized_context_filter_enabled": bool(getattr(runtime, "_realized_filter_enabled", False)),
+        })
+        return result
+
+
+    def _model28_entry_context_check(self, symbol, plan):
+        """Recheck a queued plan immediately before handing it to execution."""
+        selection = self.get_model28_live_selection(symbol)
+        result = self._model28_context_check(symbol, selection)
+        if not result.ready:
+            return result
+        parameters = dict(plan.stop_management_parameters or {})
+        if (
+            selection is None
+            or parameters.get("pattern_occurrence_id") != selection.occurrence_id
+            or parameters.get("m28_context_candle") != result.audit().get("m28_context_candle")
+        ):
+            result = replace(result, ready=False, status="PLAN_CONTEXT_CHANGED",
+                             reason="O contexto ou padrao mudou; aguarde a remontagem do plano M28.")
+            self._record_m28_context_diagnostic(symbol, result.audit())
+        return result
+
+
+    def _record_m28_context_diagnostic(self, symbol, audit):
+        """Keep a small local record of the input gate without account data."""
+        try:
+            path = Path(".traderia/runtime/m28_context_sync_latest.json")
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                payload = {}
+            markets = payload.get("markets", {}) if isinstance(payload, dict) else {}
+            if not isinstance(markets, dict):
+                markets = {}
+            markets[str(symbol).upper()] = dict(audit)
+            payload = {
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "markets": dict(list(markets.items())[-64:]),
+            }
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        except (OSError, TypeError, ValueError):
+            # Diagnostics must never change a failed gate into an allowed entry.
+            pass
+
+
     def get_model28_live_selection(
         self,
         symbol: str | None = None,
     ) -> Model28LiveSelection | None:
-        """Return the current causal M28 setup, optionally scoped by market."""
+        """Expose a pattern only while its M5 context has a confirmed live read."""
+        if symbol is None:
+            selections = self.list_model28_live_selections()
+            return max(selections, key=lambda item: item.selected_at) if selections else None
+        if not self._model28_context_check(symbol).ready:
+            return None
+        selection = self.model28_shadow_runtime.live_selection(symbol)
+        if selection is not None and not self._model28_context_check(symbol, selection).ready:
+            return None
+        return selection
 
-        return self.model28_shadow_runtime.live_selection(symbol)
 
     def list_model28_live_selections(self) -> tuple[Model28LiveSelection, ...]:
-        """Return every current M28 selection, one per promoted live market."""
-
+        """Use the same live-data gate in the report and in the order plan."""
         selections = (
-            self.model28_shadow_runtime.live_selection(symbol, timeframe)
+            self.get_model28_live_selection(symbol)
             for symbol, timeframe in self.model28_shadow_runtime.active_markets()
+            if timeframe == MODEL_28_TIMEFRAME
         )
-        return tuple(
-            sorted(
-                (item for item in selections if item is not None),
-                key=lambda item: (item.symbol, item.timeframe),
-            )
-        )
+        return tuple(sorted(
+            (item for item in selections if item is not None),
+            key=lambda item: (item.symbol, item.timeframe),
+        ))
+
 
     def has_model28_operational_contracts(self) -> bool:
         """Report whether any 100k-ranked M28 Demo contract can create entries."""
@@ -7570,6 +7643,18 @@ class DashboardService:
                     model_plan,
                     operational_model=operational_model,
                 )
+                if operational_model == MT5_OPERATIONAL_MODEL_28:
+                    context_sync = self._model28_entry_context_check(model_row.pair, model_plan)
+                    if not context_sync.ready:
+                        last_waiting = self._demo_robot_view_model(
+                            row=model_row, status="ARMED_WAITING",
+                            message="M28 aguardando dados sincronizados antes do envio.",
+                            result_status="M28_CONTEXT_WAITING",
+                            result_message=context_sync.reason,
+                            entry_price=None, stop=None, target=None,
+                            provider="MT5_DEMO", mt5_order_send_enabled=True,
+                        )
+                        continue
                 result = self.mt5_demo_robot_service.evaluate_once(signal, robot_plan)
                 if result.status in {"EXECUTED", "REJECTED"}:
                     status_view = self._demo_robot_view_model(
@@ -10088,6 +10173,28 @@ class DashboardService:
                     invalid_fields=("symbol",),
                 ),
             )
+        context_sync = self._model28_context_check(pair, selection)
+        if not context_sync.ready:
+            reason = "M28 aguarda contexto M5 sincronizado: " + context_sync.reason
+            parameters = dict(fallback_plan.stop_management_parameters or {})
+            parameters.update(context_sync.audit())
+            return (
+                replace(
+                    row, timeframe=MODEL_28_TIMEFRAME, decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status="M28_CONTEXT_WAITING",
+                    theoretical_entry_price=None, theoretical_entry_reason=reason,
+                    active_model="M28_PATTERN_MINER_ADAPTIVE", reason=reason,
+                ),
+                replace(
+                    fallback_plan, symbol=pair, timeframe=MODEL_28_TIMEFRAME,
+                    direction="WAIT", entry_price=None, stop=None, target=None,
+                    status="M28_CONTEXT_WAITING", reason=reason,
+                    invalid_reason="M28_CONTEXT_WAITING",
+                    invalid_fields=("m28_context",),
+                    stop_management_parameters=parameters,
+                ),
+            )
         if selection is None:
             reason = (
                 f"M28 monitorando {pair}/{MODEL_28_TIMEFRAME}: nenhum contrato ranqueado concluiu "
@@ -10172,6 +10279,7 @@ class DashboardService:
         reward = abs(target - entry)
         risk_reward = reward / risk if risk > 0.0 else 0.0
         parameters = model28_parameters()
+        parameters.update(context_sync.audit())
         evidence_tier = str(selection.evidence_tier or "EXPLORATION_DEMO").upper()
         validated_tier = evidence_tier == "VALIDATED"
         certification_grade = (
@@ -10338,6 +10446,7 @@ class DashboardService:
             ),
             plan,
         )
+
 
     def _mt5_model26_smart_money_plans(
         self,
