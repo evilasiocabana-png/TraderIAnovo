@@ -13770,6 +13770,7 @@ def exibir_replay_dashboard(service: DashboardService, data: object) -> None:
     )
     _render_multi_market_pattern_replay()
     _render_m23_signal_replay(service)
+    _render_m23_additional_filters()
     selected_symbol = st.selectbox(
         "Abrir analise detalhada",
         PATTERN_REPLAY_MARKETS,
@@ -13810,6 +13811,7 @@ def exibir_replay_dashboard(service: DashboardService, data: object) -> None:
         time.sleep(0.05 if state.speed.value == "Fast" else 0.35)
         miner_service.process_batch()
         st.rerun()
+
 
 
 def _render_m23_signal_replay(service: DashboardService) -> None:
@@ -13956,6 +13958,79 @@ def _render_m23_signal_replay(service: DashboardService) -> None:
             f"Gerado em {report.generated_at}. A curva filtrada e contrafactual; "
             "novas entradas passam a aplicar as regras BLOCK persistidas."
         )
+
+
+def _render_m23_additional_filters() -> None:
+    """Display the separate, explicitly configured M23 context blockers."""
+    from application.model23_additional_filters import load_catalog
+
+    catalog = load_catalog()
+    with st.container(border=True):
+        st.header("Filtros adicionais")
+        st.caption(
+            "Camada adicional do M23, separada das regras originais. "
+            "Aplica-se somente a compras vindas do M7 no ouro, quando todos "
+            "os campos do contexto fechado coincidem com um cenário cadastrado."
+        )
+        if catalog.status != "READY":
+            st.info(catalog.reason)
+            return
+        mode_label = {"BLOCK": "Bloqueio ativado", "OBSERVE": "Observação", "OFF": "Desativado"}[catalog.mode]
+        metrics = st.columns(3)
+        metrics[0].metric("Modo adicional", mode_label)
+        metrics[1].metric("Cenários cadastrados", len(catalog.rules))
+        metrics[2].metric("Rota", "M23 ← M7 · Ouro · Compra")
+        if catalog.mode == "BLOCK":
+            st.info(
+                "Bloqueio manual ativado para estes cenários. Cada condição tem "
+                "uma ocorrência observada; não são filtros estatisticamente validados. "
+                "As regras originais continuam sendo aplicadas."
+            )
+        elif catalog.mode == "OBSERVE":
+            st.info("Os cenários são reconhecidos e registrados, sem bloqueio adicional de entradas.")
+        else:
+            st.info("O catálogo permanece disponível para consulta; bloqueio adicional desativado.")
+        st.dataframe(
+            [{"Cenário": rule.label, "Condição": rule.description,
+              "Amostra": int(rule.evidence.get("operations", 0)),
+              "Validação": "Exploratória", "Ação": mode_label}
+             for rule in catalog.rules],
+            use_container_width=True, hide_index=True,
+        )
+        labels = {
+            "ALIGNED": "A favor", "COUNTER": "Contra", "NEUTRAL": "Neutra",
+            "RSI_GE70": "RSI ≥ 70", "RSI_30_50": "30 ≤ RSI < 50",
+            "ADX_GE25": "ADX ≥ 25", "ADX_LT20": "ADX < 20",
+            "ATR_NORMAL": "Normal", "LONDON": "Londres", "NEW YORK": "Nova York",
+            "ORDER_BLOCK_UP:WITH": "Bloco de ordens de alta a favor",
+            "FVG_RETEST:AGAINST": "Reteste de desequilíbrio contra",
+            "SWEEP_HIGH:AGAINST": "Varredura de máxima contra",
+        }
+        fields = [("trend_alignment", "Tendência"), ("structure_alignment", "Estrutura"),
+                  ("rsi_zone", "RSI"), ("adx_zone", "ADX"), ("atr_regime", "Volatilidade"),
+                  ("session", "Sessão"), ("latest_event", "Evento recente")]
+        with st.expander("Ver condições completas"):
+            st.dataframe(
+                [{"Cenário": rule.label, **{label: labels.get(rule.context_snapshot[key], rule.context_snapshot[key])
+                                          for key, label in fields}} for rule in catalog.rules],
+                use_container_width=True, hide_index=True,
+            )
+        # Private study evidence stays local and never becomes catalog rules.
+        evidence_path = Path(".traderia/research/m23_additional_filters/evidence.json")
+        try:
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            private_rules = evidence.get("rules", {})
+            evidence_rows = [{"Cenário": rule.label,
+                              "Ocorrências encerradas": private_rules[rule.rule_id]["operations"],
+                              "Resultado líquido observado (USD)": private_rules[rule.rule_id]["net"]}
+                             for rule in catalog.rules if rule.rule_id in private_rules]
+            if evidence_rows:
+                with st.expander("Resultado observado no estudo"):
+                    st.dataframe(evidence_rows, use_container_width=True, hide_index=True)
+                    st.caption("Resultado realizado da conta Demo no recorte estudado; não representa economia comprovada do filtro.")
+        except (OSError, ValueError, TypeError, KeyError):
+            pass
+
 
 
 def _m23_pattern_filter_audit_rows(service: DashboardService) -> list[object]:

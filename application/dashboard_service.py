@@ -134,6 +134,7 @@ from application.model23_pattern_filter import (
     M23PatternFilterService,
 )
 from application.model23_source_context import M23SourceContextBuilder
+from application.model23_additional_filters import load_catalog, evaluate_additional_filters
 _MODEL23_PATTERN_FILTER_SERVICE = M23PatternFilterService()
 _MODEL23_SOURCE_CONTEXT = M23SourceContextBuilder()
 from application.model24_xau_basket import (
@@ -8228,13 +8229,14 @@ class DashboardService:
                 "symbol": symbol,
                 "source_model": source,
                 **{key: value for key, value in parameters.items()
-                   if key.startswith(("m23_context_", "m23_pattern_filter_"))},
+                   if key.startswith(("m23_context_", "m23_pattern_filter_", "m23_additional_"))},
             }
             path = ContextPath(".traderia/runtime/m23_context_sync_latest.json")
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(context_json.dumps(payload, ensure_ascii=True), encoding="utf-8")
         except (OSError, TypeError, ValueError):
             pass
+
 
 
     def _mt5_model23_variant_from_source(
@@ -8379,6 +8381,22 @@ class DashboardService:
                 ).upper(),
             }
         )
+        additional_filter = evaluate_additional_filters(
+            catalog=load_catalog(),
+            source_model=normalized_source,
+            symbol=str(row.pair),
+            direction=str(plan.direction or row.decision or "WAIT"),
+            context_snapshot=pattern_filter.context_snapshot,
+            context_status=pattern_filter.context_status if not context_not_ready else "INVALID",
+        )
+        parameters.update({
+            "m23_additional_mode": additional_filter.mode,
+            "m23_additional_status": additional_filter.status,
+            "m23_additional_matched_ids": list(additional_filter.matched_ids),
+            "m23_additional_matched_labels": list(additional_filter.matched_labels),
+            "m23_additional_blocks_execution": additional_filter.blocks_execution,
+            "m23_additional_reason": additional_filter.reason,
+        })
         # Persist the exact inputs even when a signal is waiting or blocked.
         self._record_m23_context_diagnostic(str(row.pair), normalized_source, parameters)
         if pattern_filter_blocks:
@@ -8412,6 +8430,24 @@ class DashboardService:
                     reason=reason,
                     invalid_reason=status,
                     invalid_fields=("m23_pattern_filter",),
+                    stop_management_parameters=parameters,
+                ),
+            )
+        if additional_filter.blocks_execution:
+            status = "M23_ADDITIONAL_FILTER_BLOCKED"
+            reason = additional_filter.reason
+            return (
+                replace(
+                    row, decision="WAIT", theoretical_entry_direction="WAIT",
+                    theoretical_entry_status=status, theoretical_entry_price=None,
+                    theoretical_entry_reason=reason, research_plan_status=status,
+                    research_plan_entry_price=None, research_plan_stop=None,
+                    research_plan_target=None, research_plan_reason=reason,
+                ),
+                replace(
+                    plan, direction="WAIT", entry_price=None, stop=None, target=None,
+                    status=status, reason=reason, invalid_reason=status,
+                    invalid_fields=("m23_additional_filter",),
                     stop_management_parameters=parameters,
                 ),
             )
@@ -8505,6 +8541,7 @@ class DashboardService:
             research_plan_risk_reward=basket_risk_reward,
         )
         return basket_row, basket_plan
+
 
 
     def _mt5_model24_variant_from_source(
