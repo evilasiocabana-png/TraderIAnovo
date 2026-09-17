@@ -10,6 +10,7 @@ from core.decision_pipeline import DecisionPipeline
 from application.model15_xau_m5_breakout import MODEL_15_ID
 from application.model16_xau_m5_price_ema_breakout import MODEL_16_ID
 from application.model23_basket_accumulator import is_model23
+from application.model29_basket_accumulator import is_model29
 from application.model24_xau_basket import is_model24
 from application.model26_xau_m5_smart_money import is_model26
 from application.model27_mirror_m26 import is_model27
@@ -106,7 +107,7 @@ class DemoExecutionPolicy:
     """Travas operacionais obrigatorias para execucao demo."""
 
     max_daily_operations: int = 0
-    max_daily_loss: float = 500.0
+    max_daily_loss: float = 0.0
     # A camada ForexTimeLayer decide sessao aberta, fim de semana e rollover.
     # Esta janela permanece 24h para nao contradizer sessoes Asia/Londres/NY.
     allowed_start: str = "00:00"
@@ -467,7 +468,7 @@ class DemoExecutionService:
             and self.daily_operations >= self.policy.max_daily_operations
         ):
             return "Limite de operacoes por dia atingido."
-        if self.daily_result <= -abs(self.policy.max_daily_loss):
+        if self.policy.max_daily_loss > 0 and self.daily_result <= -self.policy.max_daily_loss:
             return "Limite de perda diaria atingido."
         if order.quantity <= 0:
             return "Quantidade invalida para execucao demo."
@@ -492,7 +493,7 @@ class DemoExecutionService:
                 "MODELO_1_ALPHA_ATUAL",
             )
         )
-        if is_model23(operational_model):
+        if is_model23(operational_model) or is_model29(operational_model):
             typed_checker = getattr(
                 self.provider,
                 "has_open_position_for_model_entry_type",
@@ -526,7 +527,7 @@ class DemoExecutionService:
             )
             or {}
         )
-        if is_model23(model) or is_model24(model):
+        if is_model23(model) or is_model29(model) or is_model24(model):
             model = str(parameters.get("source_operational_model") or "").upper()
             if not model:
                 return False

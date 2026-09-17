@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $projectRoot = "C:\Users\evcab\OneDrive\Documentos\traderiaianovo"
 $python = "C:\Users\evcab\AppData\Local\Python\pythoncore-3.14-64\python.exe"
 $mt5Path = "C:\Program Files\MetaTrader 5\terminal64.exe"
+$mt5DemoPath = Join-Path $env:LOCALAPPDATA "TraderIANovo\MT5-Demo\terminal64.exe"
 $cloudflared = "C:\Program Files (x86)\cloudflared\cloudflared.exe"
 $cloudflareToken = "C:\Users\evcab\AppData\Local\TraderIANovo\cloudflared\tunnel-token.txt"
 $cloudflareLogDirectory = Join-Path $projectRoot "logs"
@@ -39,23 +40,33 @@ function Test-TraderIAHealth {
 }
 
 function Start-TraderIAMT5 {
-    $terminal = Get-Process -Name "terminal64" -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($null -ne $terminal) {
-        return
-    }
-    if (-not (Test-Path -LiteralPath $mt5Path)) {
-        return
-    }
-    Start-Process `
-        -FilePath $mt5Path `
-        -WorkingDirectory (Split-Path -Parent $mt5Path) `
-        -WindowStyle Hidden
-    for ($attempt = 0; $attempt -lt 30; $attempt++) {
-        if (Get-Process -Name "terminal64" -ErrorAction SilentlyContinue) {
-            break
+    foreach ($path in @($mt5Path, $mt5DemoPath)) {
+        $terminal = Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" `
+            -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -eq $path }
+        if ($terminal) {
+            continue
         }
-        Start-Sleep -Seconds 1
+        if (-not (Test-Path -LiteralPath $path)) {
+            Write-Warning "Terminal nao instalado: $path"
+            continue
+        }
+        $startArguments = @{
+            FilePath = $path
+            WorkingDirectory = (Split-Path -Parent $path)
+            WindowStyle = "Normal"
+        }
+        if ($path -eq $mt5DemoPath) {
+            $startArguments.ArgumentList = @("/portable")
+        }
+        Start-Process @startArguments
+        for ($attempt = 0; $attempt -lt 30; $attempt++) {
+            $terminal = Get-CimInstance Win32_Process -Filter "Name='terminal64.exe'" `
+                -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -eq $path }
+            if ($terminal) {
+                break
+            }
+            Start-Sleep -Seconds 1
+        }
     }
 }
 
@@ -169,6 +180,10 @@ if ((Test-TraderIAPort) -and -not (Test-TraderIAHealth)) {
 Start-TraderIAMT5
 
 if (-not (Test-TraderIAHealth)) {
+    $env:TRADERIA_EXECUTION_ACCOUNT_MODE = "DEMO"
+    $env:TRADERIA_REAL_EXECUTION_ENABLED = "0"
+    $env:TRADERIA_DEMO_ACCOUNT_LOGIN = "61551556"
+    $env:TRADERIA_DEMO_ACCOUNT_SERVER = "Pepperstone-Demo"
     $env:TRADERIA_DEMO_EXECUTION_ENABLED = "1"
     $env:TRADERIA_MT5_INPROCESS_ENABLED = "1"
     $env:TRADERIA_MT5_MARKET_DATA_EXTERNAL_PROCESS_ENABLED = "1"
@@ -179,7 +194,8 @@ if (-not (Test-TraderIAHealth)) {
     $env:TRADERIA_MT5_RUNTIME_CACHE_SECONDS = "10"
     $env:TRADERIA_MT5_SERVER_TIME_CACHE_SECONDS = "10"
     $env:TRADERIA_MT5_REPORT_EXTERNAL_TIMEOUT_SECONDS = "8"
-    $env:MT5_PATH = $mt5Path
+    $env:MT5_PATH = $mt5DemoPath
+    $env:MT5_PORTABLE = "1"
 
     $arguments = @(
         "-m",
@@ -213,6 +229,9 @@ if (-not (Test-TraderIAHealth)) {
 }
 
 if (Test-TraderIAHealth) {
+    Start-Process -FilePath $python `
+        -ArgumentList @("`"$(Join-Path $projectRoot 'scripts\run_additional_real.py')`"") `
+        -WorkingDirectory $projectRoot -WindowStyle Hidden
     Start-TraderIARamGuard
     Start-TraderIACloudflareTunnel
     Start-Process $url

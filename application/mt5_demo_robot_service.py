@@ -32,6 +32,7 @@ from application.forex_m5_sma_rsi_model_family import (
 )
 from application.model15_xau_m5_breakout import MODEL_15_ID
 from application.model16_xau_m5_price_ema_breakout import MODEL_16_ID
+from application.model29_basket_accumulator import MODEL_29_ENTRY_SOURCE, is_model29
 from application.model23_basket_accumulator import (
     MODEL_23_ENTRY_SOURCE,
     is_model23,
@@ -429,7 +430,12 @@ class MT5DemoRobotService:
             order,
             paper_validated=True,
         )
-        if execution.accepted or self._is_terminal_rejection(execution.message):
+        paired_copy = (
+            signal.operational_model == "MODELO_23_BASKET_ACCUMULATOR_SOURCE_M29"
+            and (trade_plan.stop_management_parameters or {}).get("m23_m29_origin_source") == "M7"
+            and (trade_plan.stop_management_parameters or {}).get("m23_m29_pair_original_ticket")
+        )
+        if execution.accepted or (not paired_copy and self._is_terminal_rejection(execution.message)):
             self._mark_candle_evaluated(key, signal.candle_time, current_decision)
         return MT5DemoRobotResult(
             status="EXECUTED" if execution.accepted else "REJECTED",
@@ -459,6 +465,7 @@ class MT5DemoRobotService:
         model = str(getattr(signal, "operational_model", "") or "").upper()
         if (
             is_model23(model)
+            or is_model29(model)
             or is_model24(model)
             or is_model25(model)
             or is_model26(model)
@@ -547,6 +554,7 @@ class MT5DemoRobotService:
             "MODEL_16_FOREX_MANUAL_RULE",
             "MODEL_17_FOREX_MANUAL_RULE",
             MODEL_23_ENTRY_SOURCE,
+            MODEL_29_ENTRY_SOURCE,
             MODEL_24_ENTRY_SOURCE,
             MODEL_25_ENTRY_SOURCE,
             MODEL_26_SOURCE,
@@ -574,6 +582,7 @@ class MT5DemoRobotService:
             return "M25 opera exclusivamente XAUUSD/M5."
         if (
             is_model23(validation_model)
+            or is_model29(validation_model)
             or validation_is_model24
             or validation_is_model25_source
         ):
@@ -743,6 +752,10 @@ class MT5DemoRobotService:
             signal.operational_model or trade_plan.operational_model or ""
         )
         parameters = dict(trade_plan.stop_management_parameters or {})
+        if is_model29(operational_model):
+            source = str(operational_model).upper()
+            mode = str(parameters.get("m29_m7_mode", "NORMAL")).upper()
+            return 0.2 if source.endswith("_SOURCE_M7") and mode == "ESPELHADO" else 0.1
         if is_model23(operational_model):
             routed_volume = parameters.get("execution_volume")
             try:

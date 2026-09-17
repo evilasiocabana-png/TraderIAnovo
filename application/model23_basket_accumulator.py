@@ -23,7 +23,7 @@ MODEL_23_EXIT_POLICY = "M23_FULL_EXIT_1000_ONLY"
 MODEL_23_FULL_EXIT_USD = 1000.0
 MODEL_23_CLOSE_CONFIRMATION_SECONDS = 15.0
 MODEL_23_STATE_PATH = Path(".traderia") / "model23_basket_state.json"
-MODEL_23_ADDITIONAL_SOURCE_NUMBERS = (26,)
+MODEL_23_ADDITIONAL_SOURCE_NUMBERS = (26, 29)
 
 _MODEL23_LOCK = threading.Lock()
 
@@ -91,6 +91,8 @@ def model23_entry_type(
 ) -> str:
     """Resolve o tipo operacional real herdado pela copia M23."""
     payload = dict(parameters or {})
+    if payload.get("source_model_label") == "M29" and payload.get("m23_entry_type"):
+        return re.sub(r"[^A-Z0-9_]+", "_", str(payload["m23_entry_type"]).upper()).strip("_")
     candidates = (
         payload.get("m23_entry_type"),
         payload.get("m24_entry_role"),

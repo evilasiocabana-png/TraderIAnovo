@@ -7,8 +7,11 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
+from core.mt5_execution_account import real_execution_enabled
+from application.model28_realized_filter import allows_realized_pattern
 
 from domain.operational_pattern import (
     OperationalPatternSpec,
@@ -40,7 +43,7 @@ MODEL_28_STOP_MANAGEMENT = "M28_EMPIRICAL_PATTERN_CONTRACT"
 MODEL_28_SYMBOL = "XAUUSD"
 MODEL_28_TIMEFRAME = "M5"
 DEFAULT_MODEL_28_REGISTRY_PATH = (
-    Path(__file__).resolve().parents[1]
+    Path(os.environ.get("TRADERIA_ACCOUNT_RUNTIME_ROOT") or Path(__file__).resolve().parents[1])
     / ".traderia"
     / "research"
     / "historicoXAU"
@@ -297,6 +300,13 @@ class Model28ShadowRuntime:
         symbol: str | None = None,
         timeframe: str = MODEL_28_TIMEFRAME,
     ) -> Model28LiveSelection | None:
+        if self._realized_filter_enabled:
+            for key, selection in tuple(self._selections.items()):
+                engine = self._engines.get(key)
+                spec = next((item for item in engine.tracker.specs
+                             if item.versioned_id == selection.versioned_id), None) if engine else None
+                if spec is None or not allows_realized_pattern(spec, self._latest_records.get(key), engine.records if engine else ()):
+                    self._selections.pop(key, None)
         if symbol:
             return self._selections.get((symbol.upper(), timeframe.upper()))
         if not self._selections:
@@ -416,6 +426,8 @@ class Model28ShadowRuntime:
         for signal in active_signals:
             versioned_id = f"{signal.setup_id}_v{signal.setup_version}"
             spec = specs[versioned_id]
+            if self._realized_filter_enabled and not allows_realized_pattern(spec, record, engine.records):
+                continue
             position = self._repeat_position(signal, spec, journal_rows)
             repeat_positions[signal.pattern_occurrence_id] = position
             if position <= max(int(spec.repeat_limit), 1):
@@ -576,7 +588,7 @@ def model28_parameters() -> dict[str, object]:
         "realized_context_filter_enabled": False,
         "execution_volume": MODEL_28_VOLUME,
         "can_send_orders": True,
-        "real_account_allowed": False,
+        "real_account_allowed": real_execution_enabled(),
         "active_entry_order_type": "MARKET",
         "active_signal_kind": "ADAPTIVE_PATTERN",
         "stop_management": MODEL_28_STOP_MANAGEMENT,

@@ -51,7 +51,9 @@ def _mt5_timeframe_value(timeframe: str) -> object:
 
 def main() -> None:
     """Roda um unico ciclo operacional demo com travas explicitas."""
-    enabled = os.environ.get("TRADERIA_DEMO_EXECUTION_ENABLED") == "1"
+    from core.mt5_execution_account import execution_enabled
+
+    enabled = execution_enabled()
     symbol = os.environ.get("TRADERIA_DEMO_SYMBOL", "WDO")
     timeframe_label = os.environ.get("TRADERIA_DEMO_TIMEFRAME", "M1")
     quantity = float(os.environ.get("TRADERIA_DEMO_QUANTITY", "0.1"))
@@ -68,7 +70,7 @@ def main() -> None:
             provider=execution_provider,
             policy=DemoExecutionPolicy(
                 max_daily_operations=int(os.environ.get("TRADERIA_DEMO_MAX_TRADES", "8")),
-                max_daily_loss=float(os.environ.get("TRADERIA_DEMO_MAX_DAILY_LOSS", "500")),
+                max_daily_loss=float(os.environ.get("TRADERIA_DEMO_MAX_DAILY_LOSS", "0")),
                 allowed_start=os.environ.get("TRADERIA_DEMO_ALLOWED_START", "00:00"),
                 allowed_end=os.environ.get("TRADERIA_DEMO_ALLOWED_END", "23:59"),
             ),

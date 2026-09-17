@@ -323,7 +323,8 @@ class DemoExecutionServiceTest(unittest.TestCase):
         service = DashboardService()
 
         class MT5DemoExecutionProvider(_AcceptingProvider):
-            pass
+            from core.mt5_execution_account import MT5ExecutionAccount
+            execution_account = MT5ExecutionAccount.from_env()
 
         object.__setattr__(
             service,

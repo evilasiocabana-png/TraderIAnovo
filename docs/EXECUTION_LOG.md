@@ -1,3 +1,106 @@
+## 2026-09-17 - M29 restrito a fonte M7
+
+Novas entradas M29 aceitam somente M7, nos modos NORMAL e ESPELHADO. A lista de avaliacao e a whitelist compartilhada pelos preflights de mercado/pendentes foram restringidas. A copia de sinais M29 para M23 tambem recusa origens diferentes de M7; fontes proprias M23 permanecem inalteradas. Historico legado, posicoes existentes, regras de modo, lotes e sincronizacao foram preservados. Painel informa apenas M7.
+
+Validacao: 129 testes passaram em integracao M29, cesta, sequencia M7, copia M23, retry, sincronizacao, identidade de saida e rotulo de modo. Nenhuma ordem foi enviada pelos testes. Proximo controle: observar o primeiro ciclo apos carregar o aplicativo; nao forcar entradas nem encerramentos.
+
+## 2026-09-15 - Sincronizacao da dupla dentro do M23
+
+M7 original e copia M29/M7 no M23 exigem ambos planos e ambas posicoes anteriores encerradas. Original precisa ser aceito antes da tentativa da copia no mesmo ciclo. Controles separados do envio proprio M29. Ordens enviadas sequencialmente; rejeicao da corretora pode deixar somente uma perna, sem prometer atomicidade.
+
+## 2026-09-15 - Duas sequencias realizadas no titulo M23
+
+M7 original separado do M7 originado no M29 e executado no M23. Ate sete fechamentos por grupo, conciliados por conta, origem, volume e custos. Nao usa simulacao nem resultado proprio M29 no grupo de copias. Leitura apenas.
+
+## 2026-09-15 - Separacao setup M29 e envio proprio
+
+Autorizado: com M23 habilitado, gerar o setup M29 mesmo com envio proprio M29 desmarcado. Copia M23 fonte M29 agora depende do plano validado e dos gates do M23, nao de uma ordem propria M29. Desmarcar ambos impede ambas as rotas. Modo continua no M23 S7; lotes 0.2 espelhado e 0.1 normal.
+
+## 2026-09-15 - M23 incorpora sinal confirmado do M29
+
+Autorizacao explicita: manter operacao propria M29 e acrescentar copia no M23. Copia somente de ordens M29 aceitas no ciclo, ouro, com origem S29 (nao S7), direcao/SL/TP preservados e lote 0.2 espelhado / 0.1 normal. Cesta M23 e gates normais continuam. Sem alimentacao circular: sequencia continua lendo exclusivamente M23 S7.
+
+## 2026-09-15 - M29 somente ouro e lote por modo
+
+Usuario autorizou novas entradas M29 somente XAUUSD. M7 espelhado usa 0.2; normal e demais fontes usam 0.1. Plano bloqueia demais ativos e provider valida ativo/lote antes do envio. Nao fecha posicoes existentes.
+
+## 2026-09-15 - M29 referencia continua no M23
+
+Autorizado pelo usuario: modo do M7 no M29 agora recalculado pelos encerramentos do M7 no M23 por ativo/conta. Alternancia de quatro seguida PP espelha; seguida GG normaliza. Resultados proprios M29 nao mudam o modo. Historico inicial preservado para exibicao, posicoes abertas intactas.
+
+## 2026-09-14 - Entrada teorica M23 visivel
+
+Secao M23 antes do M29 na aba MT5, com snapshot da avaliacao por fonte/ativo e sete resultados encerrados do M7 por ativo no titulo. Modo Normal explicito. Somente observabilidade, sem mudar aprovacao/envio. Sintaxe dos dois arquivos validada.
+
+## 2026-09-14 - Modo por ativo no titulo M29
+
+Titulo da entrada teorica MT5 acrescenta Normal/Espelhado apos a sequencia G/P de cada ativo, lendo o estado salvo da conta. Ausencia de modo e explicita. Alteracao somente de exibicao; sintaxe validada.
+
+## 2026-09-14 - Leitura do titulo M29 corrigida
+
+Servico UI desarmado nao expoe leitura externa. Consulta usa leitor MT5 sem armar execucao; validada com provedor desabilitado no ambiente real do painel, retornando sete resultados por ativo.
+
+## 2026-09-14 - Sequencia M7 no titulo M29
+
+Titulo MT5 mostra sete resultados por ativo: seed inicial congelado M23 e encerramentos proprios M29. Leitura conciliada por conta, cache 30s, sem modificar estado de espelhamento. G/P/E e ordem cronologica explicados.
+
+## 2026-09-14 - Rotulo de modo M29/M7
+
+Modelo/envio identifica M29 Normal ou Espelhado pelo modo registrado no plano de entrada, sem consultar o estado atual. Sem evidencia usa Modo nao registrado. Demais fontes preservadas.
+
+## 2026-09-13 - Identidade M29 na saida teorica
+
+Reconhecida variante M29_SOURCE antes do fallback M1. Modelo/envio/gestao preservam identidade M29; M1 permanece origem do setup. Sem alteracao de ordem, SL ou TP.
+
+## 2026-09-13 - Entradas teoricas M29/M28 e relatorio M29
+
+Secoes M29 e M28 adicionadas imediatamente apos M27 na aba MT5. M29 exibe ultima avaliacao real da rota em cache, incluindo bloqueios, modo e horario; nao reexecuta sinal na tela. M28 reutiliza reconhecimento ao vivo existente. Grafico individual M29 ja presente; corrigido filtro do grafico principal para reconhecer M29 sem agregar outros modelos. Testes M29/ciclo: 26 passaram.
+
+## 2026-09-13 - Correcao da selecao M29 no ciclo automatico
+
+O carregamento persistido do ciclo automatico agora inclui M29 junto ao M23. Antes descartava M29 mesmo selecionado; sincronizacao da interface ja o incluia. Preservadas selecoes, fontes, regras M7/espelhamento, risco e contas. Regressao isolada reproduziu falha anterior e validou M23+M29, M29 sozinho e M23 sozinho (4 testes). Nenhuma ordem de teste enviada.
+
+## 2026-09-13 - Retirada da excecao BTCUSD
+
+Por solicitacao do usuario, todos os ativos voltam a mesma janela:
+domingo 18:05 ate sexta 17:30 BRT, incluindo BTCUSD. Removidos ciclo e
+roteamento BTC_ONLY da Demo e Real; fechamento semanal nao exclui Bitcoin.
+Contas, modelos e stops preservados. 16 testes de agenda e transporte passaram.
+O painel estava sem processo; foi restaurado pelo launcher oficial e health
+local/publico responderam OK. Sem envio de ordem de teste.
+
+## 2026-09-12 - Agenda semanal com excecao BTCUSD
+
+BTCUSD permanece elegivel no fim de semana nas contas ja autorizadas.
+Outros ativos encerram sexta 17:30 BRT e retomam domingo 18:05 BRT.
+Fechamento agendado exclui BTCUSD e cancela pendencias nao BTC do proprio robo.
+Entrada revalidada por ativo no provider; saidas e SL/TP continuam permitidos.
+Selecao de modelos, lotes e autorizacao Real preservadas. Usuario autorizou
+concluir e ativar a excecao apos o bloqueio inicial da revisao de seguranca.
+168 testes passaram com MT5 simulado; testes de agenda usam limites reais
+de sexta/domingo e regressao geral isola o relogio via agenda desativada apenas
+no processo de testes. Implantado pelo launcher oficial, health local/publico OK.
+Painel confirmou monitoramento ativo; estado online BTCUSD e agenda BTC_ONLY.
+Selecao M23/M28/M29 preservada por hash. Real permanece desautorizada.
+Primeiro ciclo teve falha transitoria na sonda de posicoes; recuperou sem
+fallback nem retirada de protecoes. Verificacao 20:16 BRT: online BTCUSD,
+AGUARDANDO_PLANO / SEM_GATILHO_VALIDO. Agenda BTC_ONLY, nenhuma posicao
+ou pendencia nao BTC restante. Nao foi forcada ordem para testar.
+
+## 2026-09-12 - M29 independente, publicado e desmarcado
+
+M29 recebe diretamente M1/M2/M5/M7/M8/M10/M18/M20, sem depender
+do envio M23. Identidade, comentarios, deduplicacao, cesta e sequencia proprios.
+M7 alterna normal/espelhado por ativo e conta: quatro resultados alternados
+seguidos de duas perdas espelham; nova alternancia seguida de dois ganhos
+normaliza. Bootstrap M23/fonte M7 somente na inicializacao; depois resultados
+liquidos encerrados M29. SL original vira TP, stop simetrico e RR geometrico 1:1.
+150 testes do recorte passaram. App publicado, health ok e selecao M23/M28
+preservada. M29 desmarcado; Real nao autorizada nem ligada nesta entrega.
+Ver docs/architecture/OPERATIONAL_MODEL_29_ACCUMULATOR.md. Proximo passo:
+conferencia autenticada do painel e observacao controlada, sem assumir melhora
+financeira comprovada e sem habilitar o M29 automaticamente.
+
 ## 2026-09-11 - M28 original com sincronizacao de candles
 
 Usuario determinou preservar o setup original minerado e retirar o filtro contextual das 66 operacoes. Overlay realizado desativado para todos os registros, sem reaprender, alterar contratos minerados ou substituir por whitelist. Sincronizacao de dados mantida por solicitacao: leitura MT5 confirmada em ate 60s, sem cache somente restaurado, registro aquecido com horario/OHLC iguais a ultima M5 fechada. Rechecagem antes do executor impede plano envelhecido ou contexto/ocorrencia substituidos. Fontes M23 e suas regras permanecem preservadas. Ver docs/research/M28_ORIGINAL_CONTEXT_SYNC_2026-09-11.md.
@@ -10,7 +113,143 @@ Usuario autorizou bloquear novas entradas nos tres contextos exatos de compra M2
 
 Correcao autorizada: contexto independente de contratos M28, candle fechado alinhado ao sinal, 200 fechadas deterministicas e leitura MT5 recente. Contexto ausente/invalido aguarda dados; NO_EVIDENCE com contexto valido preserva entrada. Regras congeladas e posicoes abertas preservadas. Identificadores de regra/contexto e fotografia auditavel separados. Ver docs/research/M23_CONTEXT_SYNC_2026-09-11.md. Replay financeiro integral nao certificado.
 
+
+## 2026-09-10 - Reversao completa da trava nova de repeticao
+
+A pedido do usuario, removida a chamada da trava nova do executor. M7 direto e M23 fonte M7 voltam ao comportamento anterior a essa trava. Filtro contextual anterior e atualizacao do relatorio preservados.
+
+## 2026-09-10 - Reversao da trava de repeticao no M23
+
+A pedido do usuario, retirada a rota M23 fonte M7 da trava de repeticao. M23 retorna ao comportamento anterior a essa trava; filtro contextual original preservado. M7 direto e atualizacao do relatorio mantidos. 11 testes focados aprovados para a reversao.
+
+## 2026-09-10 - Protecao de repeticao M7 XAU e atualizacao de relatorios
+
+Autorizado pelo usuario: M7 direto e M23 fonte M7 em XAUUSD bloqueiam repeticao na mesma direcao ate 60s da saida completa, sem novo M5 fechado. Rotas separadas por comentario/magic; falha de leitura suspende entrada abrangida. Demais fontes, BTC e saidas preservados. Relatorio mantem intervalo de 30s, independente da janela de entrada. Estudo retrospectivo nao equivale a replay de carteira. 11 testes focados aprovados antes da instalacao.
+
+## 2026-09-08 - M28 contextual substitui lista de dois padroes
+
+Metodo de contexto e evidencia do M23 aplicado ao M28: 66 contextos reconstruidos de candles atuais, 630 regras sem evidencia minima e zero bloqueios. Retirada a lista exclusiva BTCUSD/USDJPY. Sem evidencia preserva entrada; recalculo sob demanda. M23, lotes e saidas preservados. 37 testes aprovados. Ver docs/research/M28_CONTEXTUAL_FILTER_2026-09-08.md.
+
+
+## 2026-09-08 - Filtro M28 por resultado executado Demo
+
+Filtro de novas entradas implementado com lista de dois padroes versionados positivos nos dois recortes observados. Evidencia exploratoria pequena, sem promessa de lucro. M23 e gestao de posicoes preservados. 33 testes aprovados no codigo instalado; painel recarregado e health OK. Verificado em 2026-09-08T00:28:14.194137-03:00. Ver docs/research/M28_REALIZED_ENTRY_FILTER_2026-09-07.md.
+
 # Execution Log
+
+## 2026-09-06 - Indicadores Demo/Real e identidade no restart
+
+- Separados estados por conta e identidade da fonte da analise no painel.
+- Removida afirmacao global de impossibilidade de Real, incompativel com o
+  controle adicional. Autorizacao Real nao foi alterada.
+- Heartbeat antigo nao aparece como conexao/permissoes atuais; validade 90s,
+  horarios BRT e estado desconhecido explicito. Renderizacao somente leitura.
+- Causa da divergencia confirmada no processo: guardiao reiniciava Demo com
+  MT5_PATH do terminal Real, sem login/servidor Demo fixados. Caminho corrigido.
+- 29 testes focados aprovados, incluindo controles, isolamento, estado antigo,
+  identidade divergente, permissoes e escape HTML; sintaxe Python/PowerShell OK.
+- Nenhuma regra de setup, lote, filtro, SL/TP ou autorizacao modificada.
+
+## 2026-09-05 - Documentacao da evolucao desde terca-feira
+
+- Registrado marco fixo 01/09/2026 00:00 BRT, com dados Demo ate 04/09.
+- Conferencia read-only: 1318 deals, 659 posicoes reconciliadas com log local;
+  recorte de 295 encerramentos, dos quais 289 entradas posteriores ao marco.
+- Resultado liquido principal +USD 1529.31; secundario +USD 2415.86;
+  seis posicoes herdadas explicam +USD 886.55 de diferenca.
+- Documento e JSON preservam metricas, fontes/hashes, curvas realizadas,
+  contribuicoes por modelo/ativo, episodios de queda e limitacoes da amostra.
+- Propostos checkpoints de 4/8/12 semanas e 6 meses. Sem garantia de
+  consistencia pelo calendario e sem tratar copias de sinais como independentes.
+- Nenhuma estrategia, configuracao, ordem, runtime ou agenda alterada;
+  documentacao nao inicia coleta automatica. Nao reiniciado o painel.
+
+## 2026-09-04 - Execucao Demo e Real independente
+
+- Complemento de agenda: fechamento semanal Real restrito ao magic do robo;
+  operacoes manuais excluidas. 43 testes de servicos/controle/isolamento
+  aprovados apos essa verificacao. Processo Real recarregado desabilitado.
+
+- Adicionado processo Real separado com mesmo motor de estrategia, snapshots
+  operacionais separados e mutex do sistema operacional por conta.
+- Demo principal no launcher, identidade 61551556 e terminal portable fixados.
+- Checkbox Real funcional e persistido sem tocar no estado da Demo; desmarcar
+  bloqueia novos envios de entrada e preserva gestao de posicoes autorizadas.
+- Painel reiniciado oficialmente e DOM conferido: sem radio Demo/Real,
+  checkbox adicional disponivel, desmarcado, status/permissoes Real visiveis.
+- Leitura confirmou ambas as contas corretas. Demo Algotrading ligado,
+  Real desligado e saldo Real informado pelo terminal 0.0.
+- 124 testes/16 subtestes e 4 cenarios PowerShell aprovados. Segundo processo
+  Real encerrou pelo lock; somente um loop permaneceu. Nenhuma ordem Real enviada.
+- Regressao do painel 191 testes aprovados; suite de servicos/M28/controles
+  70 aprovados apos adequar fake legado a identidade explicita de conta.
+
+## 2026-09-04 - Painel recarregado e conferido
+
+- Reiniciado somente o processo Streamlit da porta 8532, pelo inicializador
+  oficial. Health respondeu ok; navegador confirmou ausencia do seletor antigo.
+- Controle adicional Real aparece indisponivel, com motivo explicito.
+- Mantido estado anterior Real desabilitado, agenda suspensa e robo desarmado.
+  A Demo nao esta operando nesta sessao. Execucao simultanea segue pendente.
+- Checagens Algotrading do transporte tambem carregadas neste reinicio.
+
+## 2026-09-04 - Remocao do seletor exclusivo Demo/Real
+
+- Retirado o radio e o handler que trocava a conta, desarmava o robo e
+  suspendia a agenda. Renderizacao nao modifica autorizacoes ou estado Demo.
+- Unico controle adicional Real fica explicitamente indisponivel enquanto
+  faltarem os workers isolados. Pedido de simultaneidade ainda incompleto.
+- 7 testes e 14 subtestes aprovados; sem acesso ao terminal nos testes.
+- Mudanca ainda nao carregada pelo processo do painel (requer reinicio).
+
+## 2026-09-04 - Permissoes Algotrading no transporte MT5
+
+- Todo envio revalida conexao, Algotrading, API Python e permissoes de conta
+  antes e depois de order_check. Metadado ausente bloqueia a chamada.
+- Falhas de transporte incluem os status na mensagem mostrada pelo robo;
+  logs de entrada e gestao registram snapshot de permissoes na falha.
+- Testes isolados: 101 testes e 16 subtestes aprovados; inclui Demo/Real,
+  permissao revogada durante preflight e todas as acoes de transporte.
+- Nenhuma ordem enviada ao terminal nem permissao habilitada nos testes.
+- Reinicio do processo do painel necessario para carregar o modulo alterado.
+
+## 2026-09-04 - Atalho principal abre ambos os MT5
+
+- Inicializador principal agora verifica Real e Demo pelo caminho exato.
+- Abre somente a instancia ausente, com /portable na Demo e janelas visiveis.
+- Testes PowerShell: nenhum aberto, somente Real, somente Demo e ambos abertos;
+  quatro cenarios aprovados sem iniciar processos reais durante os testes.
+- Nao alterado o destino do atalho principal, contas ou autorizacao de envio.
+
+## 2026-09-04 - Segunda instancia MT5
+
+- MT5 Demo portable instalado em LocalAppData/TraderIANovo/MT5-Demo usando
+  binarios locais com assinatura MetaQuotes valida; original preservado.
+- Dois atalhos identificados Real/Demo; dois processos confirmados abertos.
+- Sonda read-only confirmou conta Real 51517136; Demo retornou IPC timeout.
+- Nenhuma senha/cadastro de contas copiado; login Demo depende do usuario.
+- MT5_PATH explicito agora impede fallback para executavel errado, e o
+  transporte verifica o diretorio do terminal conectado.
+- Envio simultaneo continua pendente; seletor atual continua exclusivo.
+
+## 2026-09-04 - Executor MT5 Real e Demo
+
+- Adicionado seletor Demo/Real dentro do bloco Robo MT5 da aba MT5 Forex.
+- Aplicacao de conta exige consentimento Real, desarma e revoga executores
+  anteriores. Interface testada isoladamente, sem chamar transporte MT5.
+- Validacao da interface: 191 testes/44 subtestes de runtime e 94 testes/2
+  subtestes de controles/provider aprovados. Painel recarregado com Real
+  desabilitado e agenda automatica suspensa, sem confirmar nem armar Real.
+
+- Adicionada selecao explicita de modo, login e servidor Real.
+- Mesmo fluxo de setups, lotes, SL/TP e duplicidade para os dois modos.
+- Falhas de conta, book e order_check bloqueiam o transporte.
+- Removido limite diario implicito de 500; padrao agora 0, sem limite extra.
+- Novos testes com MT5 fake verificam paridade de requests e conta divergente.
+- Ambiente operacional nao foi ativado em Real nem reiniciado.
+- Validacao: 423 testes e 48 subtestes passaram no conjunto provider,
+  servico, M28 e runtime do painel. Rechecagem final do provider e novos
+  cenarios: 91 testes e 2 subtestes passaram. py_compile e diff --check OK.
 
 ## 2026-08-27 - Modelo 28 Pattern Miner Operational Shadow
 
@@ -2501,3 +2740,92 @@ Novas entradas devem registrar:
   varias sessoes Streamlit e produzia a alternancia visual online/offline;
 - validacao automatizada: `145 passed, 14 subtests passed` na suite de mercado
   MT5 e contrato do dashboard.
+## 2026-09-14 - Resumo movel do ouro M23/M29
+
+Titulos das sequencias M7 mostram somente XAUUSD e saldo liquido das mesmas
+sete ultimas posicoes encerradas. Bitcoin retirado apenas desse resumo visual.
+M29 preserva a origem inicial M23 declarada na legenda. Cache de 30 segundos
+e fragmento automatico preservados. Dois testes isolados passaram, cobrindo
+janela movel, saldo, exclusao visual do BTC e ausencia de resultados.
+Nenhuma regra de entrada, permissao de conta ou ordem alterada nesta mudanca.
+## 2026-09-14 - Comparacao somente com encerramentos proprios
+
+M29 mostra ate sete encerramentos proprios M7/XAU, sem seed no saldo ou letras.
+M23 mostra os ultimos N proprios, N limitado aos encerramentos M29 ate sete.
+O bootstrap operacional permanece intacto. Seis testes passaram (4/7/8,
+janela movel, exclusao do seed/BTC e ausencia de dados).
+Auditoria MT5 somente leitura: duas perdas M29 vieram de compras espelhadas
+encerradas no SL; a venda M23 do periodo ainda estava aberta. Ultimos N
+encerramentos nao sao pares de sinais. Nenhuma regra operacional alterada.
+## 2026-09-14 - Sincronizacao M7 ouro M23/M29
+
+Por autorizacao do usuario, novas entradas M7/XAU do M29 exigem confirmacao
+M23 no mesmo ciclo, candle e plano fonte. Fonte calculada uma vez para ambas
+as rotas. Normal/espelhado preservados; em espelhado o TP confere com SL M23.
+Somente uma tentativa por confirmacao; ticket M23 registrado no plano M29.
+Com ambos selecionados, nova dupla aguarda ambas as posicoes M7/XAU encerrarem
+e plano correspondente M29 pronto. Sem reentrada isolada, catch-up ou fechamento
+forcado. Outras fontes e BTC permanecem independentes. Contas e selecao intactas.
+67 testes do recorte passaram, incluindo fluxo completo com executor simulado.
+A suite geral demo apresentou 9 falhas; uma foi reproduzida em memoria sem
+as alteracoes de sincronizacao. Nao se declara a suite geral integralmente verde.
+Ordens separadas nao sao atomicas: M29 ainda pode ser rejeitado apos aceite M23.
+SL/TP e saidas nao foram sincronizados; RR1 nao garante resultados inversos.
+
+
+## 15/09/2026 — Retomada da copia M29/M7 no M23
+
+Confirmado pelo usuario: manter original aceita e repetir somente a rejeitada enquanto o mesmo plano for valido. Implementacao e limites em docs/M23_M29_REJECTED_LEG_RETRY.md. 198 testes e 2 subtestes passaram; falhas legadas M24/M25 reproduzidas sem a mudanca. Sem ordens de teste, commit ou push nesta etapa.
+
+
+## 15/09/2026 — Continuidade visual M29 no titulo M23
+Pedido autorizado: completar ate sete letras com encerramentos proprios antigos do M29/M7 ouro e continuar com as copias encerradas no M23. Origem e quantidade identificadas no titulo; apenas historico anterior a primeira entrada copiada encerrada entra como complemento. Sem sintetizar letras; com seis resultados mostra seis. Referencia original de espelhamento preservada. 13 testes passaram. Sem commit/push nesta etapa.
+
+
+## 15/09/2026 — Gatilho adicional de quatro perdas M7 ouro
+Usuario autorizou NORMAL -> ESPELHADO apos quatro perdas consecutivas encerradas do M7 original no M23/XAUUSD. Gatilho anterior de quatro alternados + PP preservado; retorno por quatro alternados + GG preservado. Perdas no modo ESPELHADO nao alternam modo repetidamente. Empate/ganho interrompe a sequencia; tickets duplicados nao contam. Aplicacao apenas ouro, sem mudar lotes, sincronizacao, stops ou posicoes abertas.
+99 testes passaram. Historico nativo consultado: 42 encerramentos originais, maior sequencia de 9 perdas, liquido -1968.46. Reconstituicao do detector antigo e novo mudou para ESPELHADO na operacao 32 nos dois casos; nao e simulacao de lucro nem prova de execucao historica do espelho. Alteracao local, sem commit/push nesta etapa.
+
+
+### Correcao imediata: apenas pesquisa, sem novo gatilho
+O usuario esclareceu que estava apenas pesquisando. Removido imediatamente o gatilho de quatro perdas que havia sido interpretado como pedido de instalacao, restaurando o detector e sua chamada anteriores. O registro anterior de aplicacao esta supersedido por esta correcao. Pesquisa historica preservada separadamente. Sem alteracao solicitada no modo, lotes, sincronizacao ou posicoes.
+
+
+## 15/09/2026 — Autorizacao explicita dos gatilhos adicionais simetricos
+Apos esclarecer que a fala anterior era pesquisa, o usuario agora autorizou implementar: quatro perdas consecutivas -> ESPELHADO; quatro ganhos consecutivos -> NORMAL. Preservadas as alternativas existentes de quatro resultados alternados seguidos de PP/GG. Referencia exclusiva M7 original do M23/XAUUSD; resultados M29 e copias M23/S29 nao decidem modo. Ganho/perda oposto e empate interrompem a serie; fechamento duplicado nao conta. Mesmo modo nao dispara alternancia repetida. Ao mudar, janela reinicia como antes. Outros ativos mantem criterio anterior. Lotes e sincronizacao preservados.
+106 testes passaram, incluindo todos os gatilhos, series interrompidas, nao alternancia repetitiva, execucao da dupla e retomada. Instalacao local autorizada; sem commit/push nesta etapa.
+
+
+## 16/09/2026 — Encerramentos recentes omitidos na sequencia
+Diagnostico: consulta m29_sequence terminava em now UTC, mas timestamps recentes do terminal estavam adiantados; encerramento real da copia M29/M7 no M23 com lote 0.2 e liquido -470.60 nao era retornado. Consulta limitada ao agora omitia; consulta estendida retornou. Corrigido limite superior para now UTC + 1 dia (somente deals ja existentes no MT5; nenhum resultado sintetico). Consumidores continuam excluindo posicoes abertas e conciliando volumes. Nova leitura nativa confirmou sequencia combinada PGGGGGP, incluindo a perda. Historico proprio M29 permanece independente. 61 testes passaram, incluindo regressao com fechamento em horario de servidor adiantado. Sem alteracao das regras, lotes ou ordens; sem commit/push nesta etapa.
+
+
+## 16/09/2026 — Tabela de letras por fonte do M23 no Relatorio
+Conforme esclarecimento do usuario, tabela somente com fonte do sinal e sequencia das ultimas sete operacoes encerradas em G/P (E para empate), abaixo da selecao dos modelos e antes do grafico principal. Sem valores financeiros nem contagens. Recorte usa data/hora inicial do relatorio; ordenacao cronologica existente, MT5 confirmado, deduplicacao de ticket. Letra considera lucro + comissao + swap + taxas. M29 apenas operacoes incorporadas ao M23; fontes desconhecidas identificadas sem adivinhar. Dois testes passaram cobrindo custos, duplicacao, posicoes abertas, corte em sete e fontes separadas. Sintaxe do painel validada. Sem alteracao de estrategia ou ordens; sem commit/push nesta etapa.
+
+
+### 16/09/2026 — Ajuste solicitado da tabela M23
+Agora apenas fontes ativas da cesta e fonte adicional M29, com sequencia completa de todas as operacoes encerradas no periodo selecionado e saldo liquido por fonte. Removido limite de sete. Fontes ativas sem encerramentos aparecem explicitamente com saldo zero. Custos incluidos, duplicados excluidos, tres testes passaram. Somente apresentacao.
+
+
+## 16/09/2026 — Grafico unico por modelo e estrutura patrimonial
+Um grafico por modelo no Relatorio. Se a fonte participa do M23, seletor alterna operacoes proprias e sinais executados pelo M23, sem concatenar ou somar os historicos. Historicos antigos continuam disponiveis. Curva principal agregada preservada.
+
+Curvas individuais liquidas partem de zero no periodo selecionado: lucro, comissao, swap e taxas. Apenas encerramentos confirmados, deduplicados e ordenados; G verde, P vermelho, E cinza. Sequencia completa visivel com rolagem; zoom e seletor de trecho; saldo do periodo.
+
+Estrutura descritiva por extremos confirmados: dois topos e fundos ascendentes definem Alta; ambos descendentes Baixa. Rompimento ou estrutura mista indica Transicao; dados insuficientes Formacao. Confirmacao requer reversao de 0.5, 1 ou 2 vezes a mediana absoluta das ultimas 20 operacoes nao nulas observadas. Padrao: 1. Os extremos ficam no ponto original, com momento de confirmacao no tooltip. Estado so muda na confirmacao, sem retroagir. Linhas tracejadas ligam extremos, nao projetam retornos.
+
+Sete testes passaram: custos/deduplicacao/fontes, alta com perdas, baixa com ganhos, inversao, invariancia do prefixo e dados insuficientes. Streamlit AppTest renderizou os dois tipos de historico sem excecao; schemas Vega-Lite validados por Altair. Nenhuma regra de ordens, lotes, filtros ou espelhamento foi alterada.
+
+Sem commit/push nesta etapa.
+
+Esclarecimento final: grafico individual agregado do M23 preservado sem sequencia G/P, por combinar fontes. Estudos G/P permanecem nas fontes separadas. Sintaxe validada.
+
+### 16/09/2026 — Correcao do grafico vazio
+Reproduzido no navegador: selecao de zoom no nivel superior de camadas gerava Duplicate signal e impedia renderizacao. Zoom agora pertence apenas a camada da curva. Confirmado visualmente no navegador com dados sinteticos: curva e pontos verdes/vermelhos e letras visiveis; AppTest e schema tambem verificados. Sem alteracao financeira ou operacional.
+
+### 16/09/2026 — Carga do relatorio completo no Chrome
+Reproduzida falta de resposta do navegador com historico completo. Curva colorida antes criava faceta/grupo por operacao; alterada para marcas rule independentes com os mesmos pontos inicial/final, reduzindo grupos e dados duplicados sem descartar operacoes. AppTest/schema passaram. Validacao visual completa em andamento.
+
+### 16/09/2026 — Restaurar todos os graficos individuais
+Por solicitacao expressa, removido seletor que limitava a visualizacao a um modelo. Restaurado loop de todos os modelos do relatorio, preservando escolha de origem por modelo, curvas coloridas e excecao do M23 agregado. Mantidas correcoes de zoom e segmentos leves. Sintaxe validada; sem alteracao de regras de negociacao.

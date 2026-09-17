@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -10,6 +11,14 @@ from zoneinfo import ZoneInfo
 BRAZIL_TIMEZONE = ZoneInfo("America/Sao_Paulo")
 FRIDAY_CLOSE = time(17, 30)
 SUNDAY_OPEN = time(18, 5)
+
+
+def weekly_entry_allowed(symbol: str, now: datetime | None = None) -> bool:
+    """All symbols, including BTCUSD, follow the same weekly window."""
+    return (
+        os.getenv("TRADERIA_WEEKLY_ROBOT_SCHEDULE_ENABLED", "1").strip() == "0"
+        or weekly_robot_schedule_decision(now).operating
+    )
 
 
 @dataclass(frozen=True)
@@ -43,8 +52,8 @@ def weekly_robot_schedule_decision(
     else:
         status = "WEEKLY_WINDOW_CLOSED"
         reason = (
-            "Robo deve permanecer desligado e sem posicoes entre sexta 17:30 "
-            "e domingo 18:05 no horario de Brasilia."
+            "Todos os ativos, incluindo BTCUSD, ficam desligados e sem posicoes "
+            "entre sexta 17:30 e domingo 18:05 no horario de Brasilia."
         )
         transition = _next_sunday_open(local)
     return WeeklyRobotScheduleDecision(

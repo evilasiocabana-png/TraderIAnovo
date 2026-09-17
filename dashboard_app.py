@@ -104,6 +104,7 @@ from application.model8_xau_m5_sma_rsi_reentry import (
     MODEL_8_STOP_MANAGEMENT,
     model8_parameters,
 )
+from application.model29_basket_accumulator import MODEL_29_ID as MT5_OPERATIONAL_MODEL_29
 from application.model23_basket_accumulator import (
     MODEL_23_ID as MT5_OPERATIONAL_MODEL_23,
     model23_entry_type,
@@ -379,6 +380,7 @@ MT5_OPERATIONAL_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_26,
     MT5_OPERATIONAL_MODEL_27,
     MT5_OPERATIONAL_MODEL_28,
+    MT5_OPERATIONAL_MODEL_29,
 )
 MT5_ACTIVE_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_1,
@@ -401,6 +403,7 @@ MT5_ACTIVE_SOURCE_MODEL_IDS = (
 MT5_SELECTABLE_OPERATIONAL_MODEL_IDS = (
     *MT5_ACTIVE_SOURCE_MODEL_IDS,
     MT5_OPERATIONAL_MODEL_23,
+    MT5_OPERATIONAL_MODEL_29,
 )
 MT5_MODEL_23_EXCLUDED_SOURCE_MODEL_IDS = (
     MT5_OPERATIONAL_MODEL_16,
@@ -484,7 +487,7 @@ MT5_MODEL23_BASKET_STATE_PATH = Path(".traderia") / "model23_basket_state.json"
 MT5_MODEL24_BASKET_STATE_PATH = Path(".traderia") / "model24_basket_state.json"
 MT5_MODEL25_BASKET_STATE_PATH = Path(".traderia") / "model25_basket_state.json"
 MT5_ACTIVE_REPORT_MODEL_NUMBERS = (
-    1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 26, 27, 28,
+    1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 26, 27, 28, 29,
 )
 MT5_DEMO_ROBOT_ONLINE_STATE_PATH = (
     Path(".traderia") / "mt5_demo_robot_online_state.json"
@@ -659,9 +662,11 @@ def _start_demo_robot_background_cycle_once(force: bool = False) -> None:
 
 
 def _weekly_robot_schedule_enabled() -> bool:
+    from core.mt5_execution_account import execution_enabled
+
     return (
         os.getenv("TRADERIA_WEEKLY_ROBOT_SCHEDULE_ENABLED", "1").strip() == "1"
-        and os.getenv("TRADERIA_DEMO_EXECUTION_ENABLED", "0").strip() == "1"
+        and execution_enabled()
     )
 
 
@@ -755,52 +760,22 @@ def _enforce_weekly_robot_schedule(
     if bool(online_state.get("online", False)) or service.mt5_demo_robot_service.enabled:
         service.disarm_demo_robot(pair=pair, timeframe=timeframe)
         _persist_demo_robot_online_state(
-            online=False,
-            pair=pair,
-            timeframe=timeframe,
-            message=(
-                "Robo desligado automaticamente na sexta 17:30 BRT; "
-                "retorno domingo 18:05 BRT."
-            ),
+            online=False, pair=pair, timeframe=timeframe, message=decision.reason,
         )
-        _write_demo_robot_background_state(
-            online=False,
-            pair=pair,
-            timeframe=timeframe,
-            status=decision.status,
-            result_status="OFFLINE",
-            message=decision.reason,
-        )
-        action = "AUTO_DISARMED"
-    else:
-        action = "KEEP_OFFLINE"
+    _write_demo_robot_background_state(
+        online=False, pair=pair, timeframe=timeframe,
+        status=decision.status, result_status="OFFLINE", message=decision.reason,
+    )
     close_result = dict(previous.get("close_result") or {})
-    flat_check_due = _weekly_flat_check_due(previous, decision)
-    if flat_check_due:
+    action = "KEEP_OFFLINE"
+    if _weekly_flat_check_due(previous, decision):
         with MT5_FOREX_CYCLE_LOCK:
             close_result = service.close_all_demo_positions(
                 reason="WEEKLY_FRIDAY_1730_BRT",
             )
-        background_state = _load_demo_robot_background_state()
-        if bool(background_state.get("online", False)):
-            _write_demo_robot_background_state(
-                online=False,
-                pair=pair,
-                timeframe=timeframe,
-                status=decision.status,
-                result_status="OFFLINE",
-                message=decision.reason,
-            )
-        action = f"{action}_AND_FLAT_CHECK"
-    elif (
-        action == "KEEP_OFFLINE"
-        and str(previous.get("schedule_status") or "") == decision.status
-    ):
-        return {"status": decision.status, "action": action, **close_result}
+        action = "KEEP_OFFLINE_AND_FLAT_CHECK"
     _write_weekly_robot_schedule_state(
-        decision,
-        action=action,
-        close_result=close_result,
+        decision, action=action, close_result=close_result,
     )
     return {"status": decision.status, "action": action, **close_result}
 
@@ -871,7 +846,9 @@ def _load_weekly_robot_schedule_state() -> dict[str, object]:
 
 
 def _demo_robot_background_cycle_should_start() -> bool:
-    if os.getenv("TRADERIA_DEMO_EXECUTION_ENABLED", "0").strip() != "1":
+    from core.mt5_execution_account import execution_enabled
+
+    if not execution_enabled():
         return False
     if os.getenv("TRADERIA_DEMO_ROBOT_BACKGROUND_CYCLE_ENABLED", "1").strip() != "1":
         return False
@@ -903,28 +880,18 @@ def _demo_robot_background_cycle() -> None:
         schedule = weekly_robot_schedule_decision()
         if _weekly_robot_schedule_enabled() and not schedule.operating:
             state = _load_demo_robot_online_state()
-            if bool(state.get("online", False)):
-                _persist_demo_robot_online_state(
-                    online=False,
-                    pair=str(state.get("pair") or "TODOS"),
-                    timeframe=str(state.get("timeframe") or "H1"),
-                    message=schedule.reason,
-                )
-            background_state = _load_demo_robot_background_state()
-            if bool(background_state.get("online", False)):
-                _write_demo_robot_background_state(
-                    online=False,
-                    pair=str(state.get("pair") or "TODOS"),
-                    timeframe=str(state.get("timeframe") or "H1"),
-                    status=schedule.status,
-                    result_status="OFFLINE",
-                    message=schedule.reason,
-                )
+            _persist_demo_robot_online_state(
+                online=False, pair=str(state.get("pair") or "TODOS"),
+                timeframe=str(state.get("timeframe") or "H1"), message=schedule.reason,
+            )
+            _write_demo_robot_background_state(
+                online=False, pair=str(state.get("pair") or "TODOS"),
+                timeframe=str(state.get("timeframe") or "H1"),
+                status=schedule.status, result_status="OFFLINE", message=schedule.reason,
+            )
             _record_model28_cycle_availability(
-                online=False,
-                cycle_completed=False,
-                status=schedule.status,
-                message=schedule.reason,
+                online=False, cycle_completed=False,
+                status=schedule.status, message=schedule.reason,
             )
             time.sleep(MT5_DEMO_ROBOT_INTERVAL_SECONDS)
             continue
@@ -1073,6 +1040,7 @@ def _apply_persisted_operational_model_to_service(service: DashboardService) -> 
         for item in selections
         if item in {
             MT5_OPERATIONAL_MODEL_23,
+            MT5_OPERATIONAL_MODEL_29,
         }
     )
     multi_setter = getattr(service, "set_mt5_operational_models", None)
@@ -1713,9 +1681,8 @@ def _mt5_forex_auto_cycle_enabled() -> bool:
 
 
 def _mt5_report_auto_refresh_enabled() -> bool:
-    if os.getenv("TRADERIA_MT5_REPORT_AUTO_REFRESH_ENABLED", "1").strip() != "1":
-        return False
-    return _mt5_forex_market_cycle_allowed_now()
+    # Reporting refresh is independent from permission to evaluate market entries.
+    return os.getenv("TRADERIA_MT5_REPORT_AUTO_REFRESH_ENABLED", "1").strip() == "1"
 
 
 def _ui_light_refresh_enabled() -> bool:
@@ -2402,9 +2369,7 @@ def exibir_mt5_forex_dashboard(
     _inject_mt5_forex_auto_refresh()
 
     st.subheader("MT5 Forex")
-    st.warning(
-        "SOMENTE ANALISE DE MERCADO. NENHUMA ORDEM REAL SERA ENVIADA."
-    )
+    st.caption("Analise de mercado. Estado de execucao separado por conta abaixo.")
     st.caption(
         "Leitura pelo ultimo estado local do TraderIA."
     )
@@ -2459,12 +2424,11 @@ def exibir_mt5_forex_dashboard(
         else "JSON visual mantido pelo ultimo estado local."
     )
 
-    colunas = st.columns(5)
-    colunas[0].metric("Status MT5", getattr(forex, "connection_status", "N/D"))
-    colunas[1].metric("Servidor", getattr(forex, "server", "N/D"))
-    colunas[2].metric("Conta", getattr(forex, "account", "N/D"))
-    colunas[3].metric("Timeframe MT5 lido", getattr(forex, "timeframe", "M1"))
-    colunas[4].metric("Modo", getattr(forex, "read_only_status", "READ ONLY"))
+    from core.mt5_execution_account import MT5ExecutionAccount
+    from dashboard.mt5_account_controls import render_mt5_accounts_status
+
+    policy = MT5ExecutionAccount.from_env()
+    render_mt5_accounts_status(forex, configured=policy.mode == "DEMO" and policy.configured)
     _exibir_mt5_safe_mode_minimal_diagnostic(forex)
     _exibir_mt5_connection_health(forex)
     # Atualizacao manual usa load_mt5_forex_signals no helper.
@@ -2580,6 +2544,7 @@ def _mt5_operational_model_labels() -> dict[str, str]:
         MT5_OPERATIONAL_MODEL_16: "Modelo 16 - Forex Setup D: + inclinacao SMA50",
         MT5_OPERATIONAL_MODEL_17: "Modelo 17 - Forex Setup E: filtros combinados",
         MT5_OPERATIONAL_MODEL_23: "Modelo 23 - acumulador financeiro",
+        MT5_OPERATIONAL_MODEL_29: "Modelo 29 - acumulador independente",
         MT5_OPERATIONAL_MODEL_24: "Modelo 24 - XAU RSI50 com cesta financeira",
         MT5_OPERATIONAL_MODEL_25: "Modelo 25 - cesta das fontes XAU M8/M10/M18-M22",
         MT5_OPERATIONAL_MODEL_26: "Modelo 26 - XAU M5 continuidade e lateralizacao",
@@ -2669,6 +2634,7 @@ def _persist_mt5_operational_model_form_selection() -> str:
         for model in selections
         if model in {
             MT5_OPERATIONAL_MODEL_23,
+            MT5_OPERATIONAL_MODEL_29,
         }
     )
     if len(selections) == 1:
@@ -2835,6 +2801,7 @@ def _render_mt5_operational_model_selector(
             f"US$ {float(basket.get('net_result_usd', 0.0) or 0.0):.2f}",
         )
         basket_columns[3].metric("Full Exit", "+US$ 1.000,00")
+    _render_model29_status(persisted_selections)
     if selected == MT5_OPERATIONAL_MODEL_8_TO_17:
         st.success(
             "Grupo operacional M8-M22 ativo conforme o escopo proprio de cada setup."
@@ -3122,6 +3089,7 @@ def _sync_mt5_operational_model_with_service(service: DashboardService) -> str:
         for item in selections
         if item in {
             MT5_OPERATIONAL_MODEL_23,
+            MT5_OPERATIONAL_MODEL_29,
         }
     )
     multi_setter = getattr(service, "set_mt5_operational_models", None)
@@ -3184,6 +3152,8 @@ def _mt5_operational_model_short_label(model: str) -> str:
         return f"M{spec.number}" if spec is not None else "XAU+"
     if normalized == MT5_OPERATIONAL_MODEL_23:
         return "M23"
+    if normalized == MT5_OPERATIONAL_MODEL_29:
+        return "M29"
     if normalized == MT5_OPERATIONAL_MODEL_26:
         return "M26"
     if normalized == MT5_OPERATIONAL_MODEL_27:
@@ -3227,6 +3197,36 @@ def _mt5_operational_model_enabled(selected: str, model: str) -> bool:
             and model in MT5_OPERATIONAL_MODEL_8_TO_17_IDS
         )
     )
+
+
+def _render_model29_status(selections) -> None:
+    st.markdown("#### Modelo 29")
+    enabled = MT5_OPERATIONAL_MODEL_29 in selections
+    try:
+        basket = json.loads(Path(".traderia/model29_basket_state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        basket = {}
+    columns = st.columns(3)
+    columns[0].metric("Novas entradas M29", "LIGADAS" if enabled else "DESLIGADAS")
+    columns[1].metric("Posicoes M29", int(basket.get("positions", 0) or 0))
+    columns[2].metric("Resultado cesta M29", f"US$ {float(basket.get('net_result_usd', 0) or 0):.2f}")
+    with st.expander("Fontes e sequencia M7 - M29", expanded=enabled):
+        st.write("M7")
+        rows = []
+        for path in sorted(Path(".traderia/model29_sequences").glob("*.json")):
+            try:
+                document = json.loads(path.read_text(encoding="utf-8"))
+                for symbol, state in document.get("symbols", {}).items():
+                    rows.append({"Conta": document.get("account", ""), "Ativo": symbol,
+                                 "Fonte": "M7", "Modo proxima entrada": state.get("mode", "NORMAL"),
+                                 "Sequencia atual": " ".join(state.get("outcomes", [])),
+                                 "Encerradas M29": int(state.get("positions", 0) or 0)})
+            except (OSError, ValueError, TypeError):
+                continue
+        if rows:
+            st.dataframe(rows, use_container_width=True, hide_index=True)
+        else:
+            st.caption("Sequencia M7 ainda sem leitura conciliada nesta conta.")
 
 
 def _load_mt5_model23_basket_state() -> dict[str, object]:
@@ -5245,6 +5245,13 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
         tzinfo=BRAZIL_TIMEZONE,
     )
     main_chart_selection = _mt5_equity_main_chart_model_selection()
+    from application.model23_source_summary import collect_m23_source_results, collect_realized_results
+    active_source_labels = {
+        f"M{operational_model_number(model)}" for model in MT5_MODEL_23_SOURCE_MODEL_IDS
+        if operational_model_number(model) is not None
+    } | {"M29"}
+    m23_source_results = collect_m23_source_results(_mt5_closed_realized_rows(
+        _mt5_rows_for_equity_model_filter(rows, "MODELO 23"), start_at), active_source_labels)
     main_chart_rows = _mt5_rows_for_equity_model_selection(
         rows,
         main_chart_selection,
@@ -5299,14 +5306,104 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
         financials=main_financials,
     )
     for model_filter in visible_individual_models:
-        _render_mt5_equity_chart(
-            model_filter,
-            model_curves[model_filter],
-            start_at=start_at,
-            model_filter=model_filter,
-            financials=model_financials[model_filter],
-        )
+        if model_filter == "MODELO 23":
+            _render_mt5_equity_chart(model_filter,model_curves[model_filter],start_at=start_at,
+                model_filter=model_filter,financials=model_financials[model_filter])
+            continue
+        source_label = f"M{operational_model_number(model_filter)}"
+        own_results=collect_realized_results(_mt5_closed_realized_rows(model_rows[model_filter],start_at))
+        source_results=m23_source_results.get(source_label,[])
+        own_model=True
+        if source_label in active_source_labels:
+            origin=st.radio(f"Historico exibido — {source_label}",
+                ["Sinais executados pelo M23","Operacoes proprias"],
+                index=0 if source_results else 1,horizontal=True,key=f"equity_history_origin_{source_label}")
+            own_model=origin=="Operacoes proprias"
+        _render_m23_source_structure(source_label,own_results if own_model else source_results,own_model=own_model)
 
+
+
+def _render_m23_source_structure(source, results, *, own_model=False):
+    """Separate source-in-M23 history; never overwrite a model's own curve."""
+    from application.realized_equity_structure import analyze_equity_structure
+    panel_key = ("own_" if own_model else "m23_source_") + source
+    st.markdown(f"##### {source} — historico proprio" if own_model else f"##### M23 — sinais do {source}")
+    st.caption(("Somente operacoes proprias deste modelo. " if own_model else
+                "Historico separado: somente operacoes encerradas dentro do M23. ") +
+               "Curva liquida, com comissao, swap e taxas; base zero no periodo selecionado.")
+    if not results:
+        st.info("Nenhuma operacao encerrada neste historico e periodo.")
+        return
+    with st.expander(f"Explorar trecho e leitura de estrutura — {source}", expanded=False):
+        sensitivity = st.select_slider("Filtrar oscilacoes pequenas", options=[0.5, 1.0, 2.0], value=1.0,
+            format_func=lambda v: {0.5: "Mais detalhes", 1.0: "Intermediario", 2.0: "Movimentos maiores"}[v],
+            key=f"m23_structure_sensitivity_{panel_key}")
+        if len(results)>1:
+            first,last=st.slider("Trecho de operacoes", 1,len(results),(1,len(results)), key=f"m23_structure_range_{panel_key}_{len(results)}")
+        else:
+            first,last=1,1
+        show_letters=st.checkbox("Mostrar G/P sobre os pontos", value=len(results)<=40, key=f"m23_structure_letters_{panel_key}")
+        st.caption("Alta exige os dois ultimos topos e fundos confirmados ascendentes; baixa exige ambos descendentes. "
+                   "Transicao indica estrutura mista ou rompida. Formacao significa que ainda faltam pivos. "
+                   "Um extremo so e confirmado depois de um movimento contrario; a cor de tendencia comeca nessa confirmacao. "
+                   "Sensibilidade usa metade, uma ou duas vezes o resultado absoluto mediano das ultimas 20 operacoes ja encerradas. "
+                   "Estudo descritivo: nao altera o espelhamento nem cria filtro de entrada.")
+    study=analyze_equity_structure(results,float(sensitivity))
+    metrics=st.columns(3)
+    metrics[0].metric("Saldo liquido do periodo",f"US$ {study['net']:+.2f}")
+    metrics[1].metric("Estrutura atual",study["state"])
+    metrics[2].metric("Encerramentos",len(results))
+    points=[p for p in study['points'] if first-1<=p['operation']<=last]
+    pivots=[p for p in study['pivots'] if first-1<=p['operation']<=last and p['confirmed']<=last]
+    bands=[dict(start=max(first-1,seg['start']-1),end=min(last,seg['end']),state=seg['state'])
+           for seg in study['segments'] if seg['end']>=first and seg['start']<=last]
+    colors={"domain":["Formacao","Alta","Baixa","Transicao"],"range":["#94a3b8","#22c55e","#ef4444","#f59e0b"]}
+    x={"field":"operation","type":"quantitative","title":"Operacao encerrada (ordem cronologica)","axis":{"tickMinStep":1}}
+    y={"field":"equity","type":"quantitative","title":"Resultado liquido acumulado (US$)","scale":{"zero":False}}
+    tooltip=[{"field":"operation","type":"quantitative","title":"Operacao"},
+             {"field":"time","type":"nominal","title":"Encerramento"},
+             {"field":"net","type":"quantitative","format":".2f","title":"Resultado liquido"},
+             {"field":"equity","type":"quantitative","format":".2f","title":"Acumulado"},
+             {"field":"state","type":"nominal","title":"Estrutura conhecida"}]
+    gain_color={"field":"letter","type":"nominal","scale":{"domain":["G","P","E"],"range":["#16a34a","#dc2626","#64748b"]},"legend":{"title":"Resultado"}}
+    edges=[]
+    for previous,current in zip(points,points[1:]):
+        edges.append({**current,"previous_operation":previous["operation"],"previous_equity":previous["equity"]})
+    layers=[
+        {"data":{"values":bands},"mark":{"type":"rect","opacity":0.09},"encoding":{
+            "x":{"field":"start","type":"quantitative"},"x2":{"field":"end"},
+            "color":{"field":"state","type":"nominal","scale":colors,"legend":{"title":"Estrutura"}}}},
+        {"data":{"values":edges},"mark":{"type":"rule","strokeWidth":2},"encoding":{"x":x,"y":y,"x2":{"field":"previous_operation"},"y2":{"field":"previous_equity"},"color":{**gain_color,"legend":None},"tooltip":tooltip}},
+        {"data":{"values":pivots},"mark":{"type":"line","strokeDash":[6,4],"strokeWidth":1.5,"point":True},"encoding":{
+            "x":x,"y":y,"color":{"field":"kind","type":"nominal","scale":{"domain":["Topo","Fundo"],"range":["#7c3aed","#0284c7"]},"legend":{"title":"Pivos confirmados"}},
+            "tooltip":[{"field":"kind","title":"Pivo"},{"field":"operation","title":"Extremo"},{"field":"confirmed","title":"Confirmado na operacao"},{"field":"equity","title":"Acumulado","format":".2f","type":"quantitative"}]}},
+        {"data":{"values":[p for p in points if p['operation']>0]},"mark":{"type":"point","filled":True,"size":65},"encoding":{"x":x,"y":y,"color":gain_color,"tooltip":tooltip}},
+    ]
+    if show_letters:
+        layers.append({"data":{"values":[p for p in points if p['operation']>0]},"mark":{"type":"text","dy":-13,"fontSize":11},"encoding":{"x":x,"y":y,"text":{"field":"letter"},"color":{**gain_color,"legend":None}}})
+    # Attach zoom to one layer only: a top-level layered selection creates duplicate Vega signals.
+    layers[1]["params"]=[{"name":f"m23_zoom_{panel_key}","select":{"type":"interval","encodings":["x","y"]},"bind":"scales"}]
+    st.vega_lite_chart({"layer":layers,"height":390,"resolve":{"scale":{"color":"independent"}}},use_container_width=True)
+    st.caption("Pontos: verde = ganho, vermelho = perda. Linhas tracejadas ligam topos e fundos confirmados; "
+               "nao sao projecoes. Arraste/role o grafico para explorar; o seletor de trecho fica acima.")
+    letter_colors={"G":"#16a34a","P":"#dc2626","E":"#64748b"}
+    letter_html=" ".join(f'<span style="color:{letter_colors.get(r["letter"],"#64748b")}">{r["letter"] if r["letter"] in letter_colors else "?"}</span>' for r in results[first-1:last])
+    st.markdown('<div style="overflow-x:auto;white-space:nowrap;font-family:monospace;font-weight:700;font-size:16px;padding:8px 0" aria-label="Sequencia cronologica">'+letter_html+'</div>',unsafe_allow_html=True)
+    with st.expander(f"Sequencia e trechos identificados — {source}",expanded=False):
+        table=[]
+        for seg in study['segments']:
+            a,b=max(first,seg['start']),min(last,seg['end'])
+            if a>b:continue
+            slice_results=results[a-1:b]
+            table.append({"Operacoes":f"{a}–{b}","Estrutura":seg['state'],
+                "Sequencia":" ".join(r['letter'] for r in slice_results),
+                "Saldo do trecho (US$)":round(sum(r['net'] for r in slice_results),2)})
+        st.dataframe(table,hide_index=True,use_container_width=True)
+        if study['transitions']:
+            st.caption("Inversoes estruturais confirmadas: "+"; ".join(
+                f"operacao {t['operation']}: {t['previous']} para {t['current']}" for t in study['transitions']))
+        else:
+            st.caption("Nenhuma inversao estrutural confirmada neste recorte.")
 
 def _mt5_equity_main_chart_model_selection() -> str:
     st.caption("Grafico principal")
@@ -5358,7 +5455,7 @@ def _mt5_rows_for_equity_model_selection(
         ]
     selected_keys = {
         part for part in normalized.split("+")
-        if re.fullmatch(r"(?:M|MODELO)(?:[1-9]|1\d|2[0-8])", part)
+        if re.fullmatch(r"(?:M|MODELO)(?:[1-9]|1\d|2[0-9])", part)
     }
     model_keys = {
         alias: f"MODELO{index}"
@@ -5387,7 +5484,11 @@ def _render_mt5_equity_chart(
     start_at: datetime,
     model_filter: str,
     financials: dict[str, float],
+    structure_results: list[dict] | None = None,
 ) -> None:
+    if structure_results is not None:
+        _render_m23_source_structure(model_filter.replace("MODELO ", "M"), structure_results, own_model=True)
+        return
     snapshot = _mt5_equity_chart_snapshot(curve)
     panel_key = _mt5_equity_chart_key(model_filter)
     render_version = str(snapshot["render_version"])
@@ -5576,6 +5677,10 @@ def _mt5_equity_model_setup_summary(model_filter: str) -> str:
         "MODELO 27": (
             "Espelho independente do M26 | direcao e geometria invertidas | "
             "SL/TP fixos em RR 1:1"
+        ),
+        "MODELO 29": (
+            "Fonte M7 | "
+            "cesta independente +US$1.000 | M7 normal/espelhado por sequencia"
         ),
         "MODELO 28": (
             "Pattern Miner adaptativo multiativo M5 | padrao causal escolhido "
@@ -6332,10 +6437,18 @@ def _exibir_robo_demo_mt5(
     forex: object,
     rows: list[dict[str, object]],
 ) -> object:
-    st.subheader("Robo Demo MT5")
+    from core.mt5_execution_account import MT5ExecutionAccount
+
+    account_policy = MT5ExecutionAccount.from_env()
+    account_heading = st.empty()
+    account_heading.subheader("Robo MT5 - Demo e Real")
+    from dashboard.mt5_account_controls import render_mt5_account_controls
+
+    render_mt5_account_controls()
     st.warning(
-        "Execucao MT5 Demo real somente com TRADERIA_DEMO_EXECUTION_ENABLED=1 "
-        "e conta MT5 DEMO. Conta real permanece bloqueada."
+        f"Executor principal: {account_policy.mode}. "
+        + ("Habilitado na configuracao; envio depende das validacoes da conta e do sinal."
+           if account_policy.configured else "Envio desabilitado na configuracao.")
     )
     pair_options = [
         str(row.get("Par", "")).strip()
@@ -6346,7 +6459,7 @@ def _exibir_robo_demo_mt5(
     selected_pair = monitor_options[0]
     if pair_options:
         selected_pair = st.selectbox(
-            "Pares monitorados pelo robo demo",
+            "Pares monitorados pelo robo",
             monitor_options,
             key="mt5_demo_robot_pair",
             on_change=_mark_ui_critical_interaction,
@@ -6363,7 +6476,10 @@ def _exibir_robo_demo_mt5(
         controls[2],
         key="mt5_demo_robot_forex_session_filter_enabled",
     )
-    if controls[1].button("Armar robo demo", key="mt5_demo_robot_arm"):
+    if controls[1].button(
+        f"Armar robo {account_policy.mode}", key="mt5_demo_robot_arm",
+        disabled=not account_policy.configured,
+    ):
         _mark_ui_critical_interaction()
         _record_runtime_event("DEMO_ROBOT_ARM_REQUESTED")
         _apply_forex_session_filter_preference(service, selected_session_filter)
@@ -6424,12 +6540,14 @@ def _exibir_robo_demo_mt5(
             disarmed_robot,
         )
     controls[5].caption(
-        "Para operar em demo: conta MT5 DEMO, env habilitado, plano Research "
-        "valido e sem posicao aberta no simbolo."
+        f"Conta exigida: {account_policy.mode}. Envio sujeito ao sinal, "
+        "aos stops e as regras de duplicidade do modelo."
     )
-    online_enabled = bool(st.session_state.get(MT5_DEMO_ROBOT_ONLINE_KEY, False))
+    online_enabled = account_policy.configured and bool(
+        st.session_state.get(MT5_DEMO_ROBOT_ONLINE_KEY, False)
+    )
     runtime_message = st.session_state.get(MT5_DEMO_ROBOT_MESSAGE_KEY)
-    if runtime_message:
+    if runtime_message and account_policy.configured:
         st.caption(str(runtime_message))
     if online_enabled:
         if not _demo_robot_background_cycle_active():
@@ -6446,8 +6564,8 @@ def _exibir_robo_demo_mt5(
             )
         else:
             st.warning(
-                "Monitoramento online BLOQUEADO pelo backend. Verifique conta demo, "
-                "TRADERIA_DEMO_EXECUTION_ENABLED e estado do robo antes de operar."
+                "Monitoramento online BLOQUEADO pelo backend. Verifique a conta "
+                "configurada e o estado do robo."
             )
     else:
         st.info("Monitoramento online INATIVO. Arme o robo para iniciar.")
@@ -7519,6 +7637,119 @@ def _exibir_entradas_teoricas_mt5(
             decision_column="Direcao",
             color_status_cells=True,
         )
+        if model_id == MT5_OPERATIONAL_MODEL_27:
+            st.subheader("Entrada Teorica MT5 - Modelo 23" + _model23_sequence_title_suffix(
+                service.demo_robot_execution_service.provider,
+                os.getenv("TRADERIA_EXECUTION_ACCOUNT_MODE", "DEMO"), os.getenv("MT5_PATH", ""),
+            ))
+            st.caption("Duas sequencias: M7 original do M23; e M29/M7 no M23, completada com encerramentos proprios antigos do M29. "
+                       "Ate sete encerramentos reais por grupo, do mais antigo ao mais recente; o titulo identifica a origem historica. G = ganho; P = perda; E = empate. "
+                       "Somente a sequencia original decide o modo. Sinais sem execucao e posicoes abertas nao contam.")
+            st.caption("Ultimas avaliacoes da rota M23 no ciclo automatico. Plano valido nao confirma envio; confira horario e motivo.")
+            _render_stable_readonly_table(
+                [dict(value) for key, value in shared_decisions.items()
+                 if isinstance(key, tuple) and len(key) == 2
+                 and str(key[0]).startswith(MT5_OPERATIONAL_MODEL_23 + "_SOURCE_") and isinstance(value, dict)],
+                model_column="Fonte", decision_column="Direcao", color_status_cells=True,
+                empty_columns=["Fonte", "Par", "Direcao", "Status", "Entrada", "Stop", "Alvo", "Modo M7", "Motivo", "Atualizado"],
+                empty_message="Aguardando avaliacao M23 no ciclo automatico.",
+            )
+            st.subheader("Entrada Teorica MT5 - Modelo 29" + _model29_sequence_title_suffix(
+                service.demo_robot_execution_service.provider,
+                os.getenv("TRADERIA_EXECUTION_ACCOUNT_MODE", "DEMO"), os.getenv("MT5_PATH", ""),
+            ))
+            st.caption("M7 no ouro: ate sete ultimos encerramentos proprios do M29, do mais antigo ao mais recente. "
+                       "G = ganho; P = perda; E = empate. Saldo e sequencia sem heranca do M23. Mesma quantidade nao significa mesmos sinais.")
+            st.caption("M29 somente ouro: lote 0.2 no M7 espelhado e 0.1 no normal. O setup alimenta o M23 mesmo com envio proprio M29 desmarcado. "
+                       "Plano valido nao confirma envio de ordem; confira horario e motivo. "
+                       "O modo espelhado aparece somente nas fontes M7 e acompanha os resultados encerrados do M7 no M23.")
+            _render_stable_readonly_table(
+                _model29_theoretical_snapshot_rows(shared_decisions),
+                model_column="Fonte", decision_column="Direcao", color_status_cells=True,
+                empty_columns=["Fonte", "Par", "Direcao", "Status", "Entrada", "Stop", "Alvo", "Modo M7", "Motivo", "Atualizado"],
+                empty_message="Aguardando avaliacao M29 no ciclo automatico.",
+            )
+            st.subheader("Entrada Teorica MT5 - Modelo 28")
+            _render_model28_live_selection(service)
+
+
+
+
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _model23_sequence_title_suffix(_provider, account_mode, terminal_path):
+    """Read reconciled results only; never bootstrap or change sequence mode."""
+    from application.model29_sequence_history import closed_m7_positions
+    import hashlib
+    try:
+        from infrastructure.execution.mt5_demo_execution_provider import MT5DemoExecutionProvider
+        reader = _provider if callable(getattr(_provider, "_external_mt5_read", None)) else MT5DemoExecutionProvider()
+        payload = reader._external_mt5_read("m29_sequence", portable=os.getenv("MT5_PORTABLE", "0") == "1")
+        account = payload.get("account") or {}
+        if not payload.get("ok") or not account.get("login") or not account.get("server"):
+            return " (sequencia indisponivel)"
+        from application.model23_display_history import closed_m29_m7_copies, m29_display_continuation
+        closed = closed_m7_positions(payload)
+        original = [r["net"] for r in closed if r["model"] == 23 and r["symbol"] == "XAUUSD"][-7:]
+        parts = []
+        def describe(label, values):
+            letters = "".join("G" if v > 0 else "P" if v < 0 else "E" for v in values)
+            return label + ": " + (letters or "sem encerramentos") + f" | {len(values)} operacoes | US$ {sum(values):+.2f}"
+        parts.append(describe("Ouro M7 original", original))
+        try:
+            copies = closed_m29_m7_copies(payload)
+            combined = m29_display_continuation(closed, copies)
+            values = [r["net"] for r in combined]
+            seed_count = sum(r["display_origin"] == "Historico proprio M29" for r in combined)
+            label = f"Ouro M29/M7: {seed_count} historicas M29 + {len(combined)-seed_count} no M23"
+            parts.append(describe(label, values))
+        except OSError:
+            parts.append("Ouro M29/M7 dentro do M23: historico indisponivel")
+        return " (" + "; ".join(parts) + ")"
+    except (OSError, ValueError, RuntimeError, TypeError, AttributeError):
+        return " (sequencia indisponivel)"
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _model29_sequence_title_suffix(_provider, account_mode, terminal_path):
+    """Read reconciled results only; never bootstrap or change sequence mode."""
+    from application.model29_sequence_history import closed_m7_positions
+    import hashlib
+    try:
+        from infrastructure.execution.mt5_demo_execution_provider import MT5DemoExecutionProvider
+        reader = _provider if callable(getattr(_provider, "_external_mt5_read", None)) else MT5DemoExecutionProvider()
+        payload = reader._external_mt5_read("m29_sequence", portable=os.getenv("MT5_PORTABLE", "0") == "1")
+        account = payload.get("account") or {}
+        if not payload.get("ok") or not account.get("login") or not account.get("server"):
+            return " (sequencia indisponivel)"
+        identity = str(account["server"]) + ":" + str(account["login"])
+        path = Path(".traderia/model29_sequences") / (hashlib.sha256(identity.encode()).hexdigest() + ".json")
+        document = json.loads(path.read_text(encoding="utf-8"))
+        if document.get("account") != identity:
+            return " (sequencia indisponivel)"
+        closed = closed_m7_positions(payload)
+        parts = []
+        for symbol, label in (("XAUUSD", "Ouro"),):
+            state = document.get("symbols", {}).get(symbol)
+            if not isinstance(state, dict):
+                continue
+            own_values = [r["net"] for r in closed if r["model"] == 29 and r["symbol"] == symbol][-7:]
+            values = own_values
+            letters = "".join("G" if v > 0 else "P" if v < 0 else "E" for v in values[-7:])
+            mode_label = {"NORMAL": "Normal", "ESPELHADO": "Espelhado"}.get(str(state.get("mode", "")).upper(), "Modo indisponivel")
+            result_label = f" | Saldo M29 ({len(own_values)} operacoes proprias): US$ {sum(own_values):+.2f}"
+            parts.append(label + ": " + (letters or "sem resultados") + result_label + " - " + mode_label)
+        return " (" + "; ".join(parts) + ")" if parts else " (sem sequencia M7)"
+    except (OSError, ValueError, RuntimeError, TypeError, AttributeError):
+        return " (sequencia indisponivel)"
+
+
+def _model29_theoretical_snapshot_rows(snapshot):
+    return [dict(value) for key, value in snapshot.items()
+            if isinstance(key, tuple) and len(key) == 2
+            and str(key[0]).startswith(MT5_OPERATIONAL_MODEL_29 + "_SOURCE_")
+            and isinstance(value, dict)]
 
 
 def _mt5_theoretical_entry_source_rows(
@@ -9855,6 +10086,7 @@ def _mt5_theoretical_exit_has_recorded_model(row: object) -> bool:
         or model.startswith(MT5_OPERATIONAL_MODEL_25)
         or model.startswith(MT5_OPERATIONAL_MODEL_26)
         or model.startswith(MT5_OPERATIONAL_MODEL_27)
+        or model.startswith(MT5_OPERATIONAL_MODEL_29)
     )
 
 
@@ -9864,6 +10096,8 @@ def _mt5_theoretical_exit_effective_model(
 ) -> str:
     """Usa o modelo gravado na ordem; fallback apenas para posicao legada."""
     row_model = str(getattr(row, "operational_model", "") or "").upper()
+    if row_model.startswith(MT5_OPERATIONAL_MODEL_29):
+        return row_model
     if row_model.startswith(MT5_OPERATIONAL_MODEL_23):
         return row_model
     if row_model.startswith(MT5_OPERATIONAL_MODEL_24):
@@ -10174,6 +10408,17 @@ def _mt5_sender_model_label(
         or getattr(row, "operational_model", "N/D")
         or "N/D"
     ).upper()
+    if model == MT5_OPERATIONAL_MODEL_23 + "_SOURCE_M29":
+        snapshot = getattr(row, "plan_snapshot", {}) or {}
+        parameters = snapshot.get("stop_management_parameters", {}) if isinstance(snapshot, dict) else {}
+        mode = {"NORMAL": "Normal", "ESPELHADO": "Espelhado"}.get(parameters.get("m23_m29_mode"), "Modo nao registrado")
+        return f"MODELO 23 - {mode} (fonte M29)"
+    if model.startswith(MT5_OPERATIONAL_MODEL_29 + "_SOURCE_M7"):
+        snapshot = getattr(row, "plan_snapshot", {}) or {}
+        parameters = snapshot.get("stop_management_parameters", {}) if isinstance(snapshot, dict) else {}
+        mode = str(parameters.get("m29_m7_mode", "") if isinstance(parameters, dict) else "").upper()
+        label = {"ESPELHADO": "Espelhado", "NORMAL": "Normal"}.get(mode, "Modo nao registrado")
+        return f"MODELO 29 - {label} (fonte M7)"
     model_key = _mt5_equity_row_model_key(
         SimpleNamespace(operational_model=model, plan_snapshot={})
     )
@@ -13813,7 +14058,6 @@ def exibir_replay_dashboard(service: DashboardService, data: object) -> None:
         st.rerun()
 
 
-
 def _render_m23_signal_replay(service: DashboardService) -> None:
     """Render the supervised replay that learns from actual M23 source trades."""
 
@@ -13960,6 +14204,7 @@ def _render_m23_signal_replay(service: DashboardService) -> None:
         )
 
 
+
 def _render_m23_additional_filters() -> None:
     """Display the separate, explicitly configured M23 context blockers."""
     from application.model23_additional_filters import load_catalog
@@ -14030,7 +14275,6 @@ def _render_m23_additional_filters() -> None:
                     st.caption("Resultado realizado da conta Demo no recorte estudado; não representa economia comprovada do filtro.")
         except (OSError, ValueError, TypeError, KeyError):
             pass
-
 
 
 def _m23_pattern_filter_audit_rows(service: DashboardService) -> list[object]:

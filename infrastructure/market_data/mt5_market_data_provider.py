@@ -109,6 +109,8 @@ class MT5MarketDataProvider:
             }
         if terminal_path:
             connection_arguments["path"] = str(terminal_path)
+        if os.getenv("MT5_PORTABLE") == "1":
+            connection_arguments["portable"] = True
 
         try:
             self.connected = bool(mt5.initialize(**connection_arguments))
@@ -680,6 +682,7 @@ class MT5MarketDataProvider:
     def _external_mt5_call(self, action: str, **kwargs: Any) -> dict[str, Any]:
         request = {
             "action": action,
+            "portable": os.getenv("MT5_PORTABLE") == "1",
             "terminal_path": resolve_mt5_terminal_path(
                 self._credential("MT5_PATH", self.terminal_path)
             ),
@@ -708,6 +711,8 @@ def emit(payload):
 try:
     terminal_path = request.get("terminal_path")
     initialize_arguments = {"path": str(terminal_path)} if terminal_path else {}
+    if request.get("portable"):
+        initialize_arguments["portable"] = True
     if not mt5.initialize(**initialize_arguments):
         emit({"ok": False, "message": f"MT5 initialize() falhou: {mt5.last_error()}"})
         raise SystemExit(0)

@@ -1,4 +1,4 @@
-"""Adaptador exclusivo para envio de ordens em conta demo do MetaTrader 5."""
+"""Adaptador MT5 compartilhado entre Demo e Real explicitamente configurada."""
 
 from __future__ import annotations
 
@@ -30,6 +30,11 @@ from application.model23_basket_accumulator import (
     model23_position_matches,
     model23_position_source,
     model23_source_model_id,
+)
+from application.model29_basket_accumulator import (
+    MODEL_29_ID, MODEL_29_SOURCE_NUMBERS, is_model29, model29_entry_type, model29_entry_type_token,
+    model29_order_comment, model29_position_entry_type_token,
+    model29_position_matches, model29_position_source, model29_source_model_id,
 )
 from application.model24_xau_basket import (
     MODEL_24_ID,
@@ -71,6 +76,8 @@ from domain.operational_model_policy import (
 )
 from domain.contracts.dynamic_exit_demo_sl import DynamicExitDemoSLExecutionResult
 from core.jsonl_tail import read_last_text_lines
+from core.mt5_execution_account import MT5ExecutionAccount
+from core.mt5_permissions import read_permissions, permissions_allowed, permissions_label
 from core.mt5_external_process_gate import (
     get_mt5_external_cache,
     mt5_external_process_slot,
@@ -82,7 +89,7 @@ from core.mt5_process_probe import resolve_mt5_terminal_path, terminate_process_
 _MT5_ORDER_SEND_LOCK = threading.Lock()
 MAX_OPERATIONAL_MODELS_PER_SYMBOL = 22
 MAX_MODEL23_POSITIONS_PER_SYMBOL = 64
-KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 28))
+KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 30))
 INDEPENDENT_SMA_RSI_MODEL_IDS = frozenset(
     {
         MODEL_8_ID,
@@ -93,7 +100,7 @@ INDEPENDENT_SMA_RSI_MODEL_IDS = frozenset(
 
 
 def _is_basket_model(value: object) -> bool:
-    return is_model23(value) or is_model24(value) or is_model25(value)
+    return is_model23(value) or is_model29(value) or is_model24(value) or is_model25(value)
 
 
 @dataclass(frozen=True)
@@ -103,7 +110,7 @@ class _ExecutionSendException:
 
 @dataclass
 class MT5DemoExecutionProvider:
-    """Provider MT5 restrito a conta demo e ordens normalizadas."""
+    """Ordens normalizadas; nome legado preservado para integracao existente."""
 
     mt5: Any | None = None
     magic: int = 260629
@@ -115,6 +122,10 @@ class MT5DemoExecutionProvider:
         default_factory=lambda: Path(".traderia") / "mt5_stop_management.jsonl"
     )
     operational_model_state_path: Path | None = None
+    execution_account: MT5ExecutionAccount = field(default_factory=MT5ExecutionAccount.from_env)
+    _environment_account: MT5ExecutionAccount = field(
+        default_factory=MT5ExecutionAccount.from_env, init=False, repr=False,
+    )
     external_read_cache: dict[str, tuple[float, dict[str, Any]]] = field(
         default_factory=dict,
         repr=False,
@@ -157,6 +168,8 @@ class MT5DemoExecutionProvider:
         operational_model: str,
     ) -> bool:
         """Consulta posicao aberta do mesmo simbolo e modelo operacional."""
+        if is_model29(operational_model):
+            return self._has_open_position_for_model29(symbol, operational_model)
         global_model23_source = is_model23(operational_model)
         query_symbol = "" if global_model23_source else symbol
         if self._external_reads_enabled():
@@ -215,6 +228,10 @@ class MT5DemoExecutionProvider:
         order: ExecutionOrder,
     ) -> bool:
         """Gate antecipado M23 com a mesma chave atomica do envio final."""
+        if is_model29(getattr(order, "operational_model", "")):
+            if self._external_reads_enabled():
+                return False
+            return self._model29_source_position_preflight(order) is not None
         if not is_model23(getattr(order, "operational_model", "")):
             return self.has_open_position_for_model(
                 order.symbol,
@@ -455,7 +472,10 @@ request = json.loads(sys.argv[1])
 import MetaTrader5 as mt5
 
 path = request.get("terminal_path")
-ok = bool(mt5.initialize(path=path) if path else mt5.initialize())
+initialize_options = {"path": path} if path else {}
+if "portable" in request:
+    initialize_options["portable"] = bool(request["portable"])
+ok = bool(mt5.initialize(**initialize_options))
 if not ok:
     print(json.dumps({"ok": False, "rows": [], "message": str(mt5.last_error())}))
     raise SystemExit(0)
@@ -488,6 +508,20 @@ elif action == "candles":
             "tick_volume": int(rate["tick_volume"]),
         })
     payload = {"ok": True, "rows": rows}
+elif action == "m29_sequence":
+    from datetime import datetime, timezone, timedelta
+    account = mt5.account_info()
+    # Some terminals timestamp deals in broker time ahead of UTC. Query a
+    # generous upper bound so already executed recent closures are not lost.
+    # MT5 returns actual deals only; open positions remain excluded by callers.
+    values = mt5.history_deals_get(datetime(2026, 7, 1, tzinfo=timezone.utc), datetime.now(timezone.utc) + timedelta(days=1))
+    positions = mt5.positions_get()
+    payload = {
+        "ok": account is not None and values is not None and positions is not None,
+        "account": (account._asdict() if account else {}),
+        "rows": [item._asdict() for item in (values or [])],
+        "open_positions": [item._asdict() for item in (positions or [])],
+    }
 elif action == "history_deals":
     from datetime import datetime, timedelta, timezone
     since_text = str(request.get("since") or "").replace("Z", "+00:00")
@@ -957,7 +991,7 @@ mt5.shutdown()
         return result
 
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
-        """Converte ExecutionOrder em request MT5 e envia para conta demo."""
+        """Converte ExecutionOrder em request MT5 para a conta configurada."""
         selection_check = self._operational_selection_preflight(order)
         if selection_check is not None:
             self._write_log(order, selection_check)
@@ -993,6 +1027,11 @@ mt5.shutdown()
             self._write_log(order, symbol_check)
             return symbol_check
 
+        book_check = self._entry_book_check(order.symbol)
+        if book_check is not None:
+            self._write_log(order, book_check)
+            return book_check
+
         duplicate_rejection = self._duplicate_plan_preflight(order)
         if duplicate_rejection is not None:
             self._write_log(order, duplicate_rejection)
@@ -1020,6 +1059,14 @@ mt5.shutdown()
             # Rele a selecao dentro do mesmo lock do order_send. Isso fecha a
             # janela em que um plano antigo poderia atravessar apos o usuario
             # trocar as caixas no Dashboard.
+            account_check = self._demo_account_check()
+            if account_check is not None:
+                self._write_log(order, account_check)
+                return account_check
+            book_check = self._entry_book_check(order.symbol)
+            if book_check is not None:
+                self._write_log(order, book_check)
+                return book_check
             selection_check = self._operational_selection_preflight(order)
             if selection_check is not None:
                 self._write_log(order, selection_check)
@@ -1046,6 +1093,8 @@ mt5.shutdown()
                 self._write_log(order, stop_target_rejection)
                 return stop_target_rejection
             pending_transition_rejection = (
+                self._model29_pending_source_preflight_locked(order)
+                if is_model29(getattr(order, "operational_model", "")) else
                 self._model23_pending_source_preflight_locked(order)
             )
             if pending_transition_rejection is not None:
@@ -1079,7 +1128,7 @@ mt5.shutdown()
                 self._write_log(order, pending_replacement)
                 return pending_replacement
             try:
-                response = self.mt5.order_send(request)
+                response = self._checked_order_send(request)
             except Exception as exc:  # noqa: BLE001 - ponte externa MT5
                 response = _ExecutionSendException(exc)
             result = self._result_from_response(response, order_check=order_check)
@@ -1134,6 +1183,8 @@ mt5.shutdown()
 
     def _operational_selection_key(self, value: object) -> str:
         normalized = str(value or "").upper()
+        if is_model29(normalized):
+            return "M29"
         if is_model23(normalized) or normalized == MODEL_23_ID:
             return "M23"
         if is_model24(normalized) or normalized == MODEL_24_ID:
@@ -1179,7 +1230,7 @@ mt5.shutdown()
             update = self._managed_stop_update(position, signal)
             if update is None:
                 continue
-            response = self.mt5.order_send(update["request"])
+            response = self._checked_order_send(update["request"])
             result = self._result_from_response(response)
             payload = {
                 "timestamp": datetime.now().astimezone().isoformat(),
@@ -1635,6 +1686,12 @@ mt5.shutdown()
         return 0.01 if str(symbol).upper().endswith("JPY") else 0.0001
 
     def _initialize_check(self) -> ExecutionResult | None:
+        expected_path = self.execution_account.terminal_path
+        if expected_path and not Path(expected_path).is_file():
+            return ExecutionResult(
+                accepted=False, status="REJECTED",
+                message="Terminal MT5 configurado nao existe; descoberta automatica bloqueada.",
+            )
         terminal_info = getattr(self.mt5, "terminal_info", None)
         account_info = getattr(self.mt5, "account_info", None)
         if callable(terminal_info) and callable(account_info):
@@ -1648,17 +1705,23 @@ mt5.shutdown()
                 terminal is not None
                 and account is not None
                 and getattr(terminal, "connected", None) is True
+                and (
+                    not expected_path or os.path.normcase(str(getattr(terminal, "path", "")))
+                    == os.path.normcase(str(Path(expected_path).parent))
+                )
             ):
                 return None
         initialize = getattr(self.mt5, "initialize", None)
-        terminal_path = resolve_mt5_terminal_path(os.getenv("MT5_PATH"))
+        terminal_path = expected_path or resolve_mt5_terminal_path(os.getenv("MT5_PATH"))
         arguments = {"path": terminal_path} if terminal_path else {}
+        if os.getenv("MT5_PORTABLE") == "1":
+            arguments["portable"] = True
         initialized = True
         if callable(initialize):
             try:
                 initialized = bool(initialize(**arguments))
             except TypeError:
-                initialized = bool(initialize())
+                initialized = False if expected_path else bool(initialize())
         if not initialized:
             return ExecutionResult(
                 accepted=False,
@@ -1668,21 +1731,43 @@ mt5.shutdown()
         return None
 
     def _demo_account_check(self) -> ExecutionResult | None:
-        account = self.mt5.account_info()
+        if MT5ExecutionAccount.from_env() != self._environment_account:
+            return ExecutionResult(
+                accepted=False, status="REJECTED",
+                message="Configuracao da conta mudou; executor anterior desautorizado.",
+            )
+        try:
+            account = self.mt5.account_info()
+        except Exception:  # noqa: BLE001 - external account metadata
+            account = None
         if account is None:
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
-                message="Conta MT5 indisponivel.",
+                message="Conta MT5 indisponivel. " + permissions_label(read_permissions(self.mt5)),
             )
-        demo_mode = getattr(self.mt5, "ACCOUNT_TRADE_MODE_DEMO", None)
-        trade_mode = getattr(account, "trade_mode", None)
-        if demo_mode is not None and trade_mode != demo_mode:
+        rejection = self.execution_account.rejection(self.mt5, account)
+        if rejection is not None:
             return ExecutionResult(
                 accepted=False,
                 status="REJECTED",
-                message="Execucao bloqueada: conta MT5 nao e demo.",
+                message=rejection + " " + permissions_label(read_permissions(self.mt5)),
             )
+        return None
+
+    def _entry_book_check(self, symbol: str) -> ExecutionResult | None:
+        for name in ("positions_get", "orders_get"):
+            reader = getattr(self.mt5, name, None)
+            try:
+                values = reader(symbol=symbol) if callable(reader) else None
+            except Exception:  # noqa: BLE001 - external broker state
+                values = None
+            if values is None:
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=f"Entrada bloqueada: {name} indisponivel para {symbol}.",
+                )
         return None
 
     def _ensure_symbol(self, symbol: str) -> ExecutionResult | None:
@@ -1970,8 +2055,10 @@ mt5.shutdown()
                 and self._positive_float(getattr(order, "target", None)) is not None
             )
         if (
-            is_model23(getattr(order, "operational_model", ""))
-            and bool(parameters.get("m23_structural_target_enabled"))
+            (is_model23(getattr(order, "operational_model", ""))
+             and bool(parameters.get("m23_structural_target_enabled"))
+             or is_model29(getattr(order, "operational_model", ""))
+             and bool(parameters.get("m29_structural_target_enabled") or parameters.get("m29_mirrored")))
             and self._positive_float(getattr(order, "target", None)) is not None
         ):
             return False
@@ -2165,6 +2252,15 @@ mt5.shutdown()
                 )
             if (
                 not same_route
+                and is_model29(getattr(order, "operational_model", ""))
+                and model29_position_matches(pending)
+                and model29_position_source(pending) == model29_source_model_id(order.operational_model)
+            ):
+                same_route = self._model29_position_type_token(pending) == model29_entry_type_token(
+                    self._model29_order_entry_type(order)
+                )
+            if (
+                not same_route
                 and legacy_comment
                 and pending_comment == legacy_comment
             ):
@@ -2178,7 +2274,7 @@ mt5.shutdown()
             ticket = int(getattr(pending, "ticket", 0) or 0)
             if ticket <= 0:
                 continue
-            response = self.mt5.order_send(
+            response = self._checked_order_send(
                 {
                     "action": self.mt5.TRADE_ACTION_REMOVE,
                     "order": ticket,
@@ -2382,6 +2478,10 @@ mt5.shutdown()
     ) -> ExecutionResult | None:
         """Aplica somente o teto tecnico de posicoes e bloqueia origem desconhecida."""
         operational_model = getattr(order, "operational_model", "")
+        if is_model29(operational_model):
+            source_rejection = self._model29_source_position_preflight(order)
+            if source_rejection is not None:
+                return source_rejection
         if is_model23(operational_model):
             source_rejection = self._model23_source_position_preflight(order)
             if source_rejection is not None:
@@ -2469,6 +2569,249 @@ mt5.shutdown()
                 )
         return None
 
+    def _model29_source_position_preflight(
+        self,
+        order: ExecutionOrder,
+    ) -> ExecutionResult | None:
+        """Permite uma exposicao global por modelo-fonte e tipo de entrada."""
+        operational_model = getattr(order, "operational_model", "")
+        if not is_model29(operational_model):
+            return None
+        source_model = model29_source_model_id(operational_model)
+        if str(order.symbol).upper() != "XAUUSD":
+            return ExecutionResult(accepted=False, status="REJECTED", message="M29 opera somente ouro (XAUUSD).")
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        mode = str(parameters.get("m29_m7_mode", "NORMAL")).upper()
+        expected_volume = 0.2 if source_model == "M7" and mode == "ESPELHADO" else 0.1
+        if abs(float(order.quantity) - expected_volume) > 1e-8:
+            return ExecutionResult(accepted=False, status="REJECTED", message="M29 lote diferente do modo autorizado.")
+        if source_model not in {f"M{number}" for number in MODEL_29_SOURCE_NUMBERS}:
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message="M29 com modelo-fonte nao autorizado foi bloqueado.",
+            )
+        entry_type = self._model29_order_entry_type(order)
+        entry_type_token = model29_entry_type_token(entry_type)
+        if not entry_type_token:
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=(
+                    f"M29 fonte {source_model} sem tipo de entrada identificavel "
+                    "foi bloqueada antes do envio."
+                ),
+            )
+        try:
+            positions = list(self.mt5.positions_get() or [])
+        except Exception as exc:  # noqa: BLE001 - ponte externa MT5
+            return ExecutionResult(
+                accepted=False,
+                status="ERROR",
+                message=f"M29 nao conseguiu auditar posicoes globais: {exc}",
+            )
+        for position in positions:
+            if not model29_position_matches(position):
+                continue
+            if model29_position_source(position) != source_model:
+                continue
+            position_type_token = self._model29_position_type_token(position)
+            if position_type_token and position_type_token != entry_type_token:
+                continue
+            if not position_type_token:
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=(
+                        f"M29 encontrou posicao legada da fonte {source_model} sem "
+                        "tipo auditavel; nova exposicao foi bloqueada por seguranca."
+                    ),
+                )
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=(
+                    f"M29 ja possui uma posicao aberta para {source_model} + "
+                    f"{entry_type}; o mesmo modelo pode coexistir apenas com "
+                    "tipos de entrada diferentes."
+                ),
+            )
+        return None
+
+    def _model29_pending_source_preflight_locked(
+        self,
+        order: ExecutionOrder,
+    ) -> ExecutionResult | None:
+        """Bloqueia pendencia repetida da mesma fonte e tipo sem impedir reposicao."""
+        operational_model = getattr(order, "operational_model", "")
+        if not is_model29(operational_model):
+            return None
+        source_model = model29_source_model_id(operational_model)
+        if str(order.symbol).upper() != "XAUUSD":
+            return ExecutionResult(accepted=False, status="REJECTED", message="M29 opera somente ouro (XAUUSD).")
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        mode = str(parameters.get("m29_m7_mode", "NORMAL")).upper()
+        expected_volume = 0.2 if source_model == "M7" and mode == "ESPELHADO" else 0.1
+        if abs(float(order.quantity) - expected_volume) > 1e-8:
+            return ExecutionResult(accepted=False, status="REJECTED", message="M29 lote diferente do modo autorizado.")
+        if source_model not in {f"M{number}" for number in MODEL_29_SOURCE_NUMBERS}:
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message="M29 com modelo-fonte nao autorizado foi bloqueado.",
+            )
+        entry_type = self._model29_order_entry_type(order)
+        entry_type_token = model29_entry_type_token(entry_type)
+        if not entry_type_token:
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=f"M29 fonte {source_model} sem tipo de entrada identificavel.",
+            )
+        orders_get = getattr(self.mt5, "orders_get", None)
+        if not callable(orders_get):
+            return None
+        try:
+            pending_orders = list(orders_get() or [])
+        except Exception as exc:  # noqa: BLE001 - ponte externa MT5
+            return ExecutionResult(
+                accepted=False,
+                status="ERROR",
+                message=f"M29 nao conseguiu auditar pendencias globais: {exc}",
+            )
+        candidate_is_pending = self._is_pending_order(order)
+        candidate_symbol = str(getattr(order, "symbol", "") or "").upper()
+        for pending in pending_orders:
+            if not model29_position_matches(pending):
+                continue
+            if model29_position_source(pending) != source_model:
+                continue
+            pending_type_token = self._model29_position_type_token(pending)
+            if pending_type_token and pending_type_token != entry_type_token:
+                continue
+            if not pending_type_token:
+                return ExecutionResult(
+                    accepted=False,
+                    status="REJECTED",
+                    message=(
+                        f"M29 encontrou pendencia legada da fonte {source_model} "
+                        "sem tipo auditavel."
+                    ),
+                )
+            pending_symbol = str(getattr(pending, "symbol", "") or "").upper()
+            if candidate_is_pending and pending_symbol == candidate_symbol:
+                # O fluxo de reposicao remove a pendencia antiga deste mesmo
+                # simbolo antes de publicar o extremo do candle mais recente.
+                continue
+            return ExecutionResult(
+                accepted=False,
+                status="REJECTED",
+                message=(
+                    f"M29 ja possui uma ordem pendente para {source_model} + "
+                    f"{entry_type}; tipos diferentes continuam autorizados."
+                ),
+            )
+        return None
+
+
+    @staticmethod
+    def _model29_order_entry_type(order: ExecutionOrder) -> str:
+        snapshot = dict(getattr(order, "plan_snapshot", None) or {})
+        parameters = dict(snapshot.get("stop_management_parameters") or {})
+        return model29_entry_type(
+            parameters,
+            entry_setup=(
+                snapshot.get("entry_setup")
+                or getattr(order, "entry_setup", "")
+            ),
+            alpha_id=(snapshot.get("alpha_id") or getattr(order, "alpha_id", "")),
+        )
+
+    def _model29_position_type_token(self, position: object) -> str:
+        return model29_position_entry_type_token(position)
+
+    def _has_open_position_for_model29(
+        self,
+        symbol: str,
+        operational_model: str,
+    ) -> bool:
+        """Consulta posicao aberta do mesmo simbolo e modelo operacional."""
+        global_model29_source = is_model29(operational_model)
+        query_symbol = "" if global_model29_source else symbol
+        if self._external_reads_enabled():
+            payload = self._external_mt5_read("positions", symbol=query_symbol)
+            if not bool(payload.get("ok")):
+                return True
+            positions = [
+                SimpleNamespace(**dict(row)) for row in payload.get("rows", [])
+            ]
+        else:
+            initialize_check = self._initialize_check()
+            if initialize_check is not None:
+                return True
+            positions = list(
+                self.mt5.positions_get()
+                if global_model29_source
+                else self.mt5.positions_get(symbol=symbol)
+                or []
+            )
+        if global_model29_source:
+            source_model = model29_source_model_id(operational_model)
+            if source_model == "N/D":
+                return True
+            for position in positions:
+                if not model29_position_matches(position):
+                    continue
+                if model29_position_source(position) == source_model:
+                    return True
+            return False
+        if _is_basket_model(operational_model):
+            if len(positions) >= MAX_MODEL23_POSITIONS_PER_SYMBOL:
+                return True
+            for position in positions:
+                comment = str(getattr(position, "comment", "") or "").upper()
+                if not (KNOWN_MODEL_COMMENTS & set(comment.split())):
+                    return True
+            return False
+        if len(positions) >= MAX_OPERATIONAL_MODELS_PER_SYMBOL:
+            return True
+        expected = self._model_comment(operational_model)
+        for position in positions:
+            comment = str(getattr(position, "comment", "") or "").upper()
+            model_tokens = KNOWN_MODEL_COMMENTS & set(comment.split())
+            if expected in model_tokens:
+                return True
+            # Posicao manual (ou de origem nao identificada) no mesmo simbolo
+            # nao pode receber uma segunda ordem automatica. Somente uma
+            # posicao TraderIA claramente marcada como outro modelo pode
+            # coexistir no ativo.
+            if not model_tokens:
+                return True
+        return False
+
+    def _model23_copy_pair_preflight(self, order):
+        """Recheck the accepted original immediately before copy admission."""
+        parameters = (getattr(order, "plan_snapshot", None) or {}).get("stop_management_parameters") or {}
+        ticket = parameters.get("m23_m29_pair_original_ticket")
+        if not ticket or getattr(order, "operational_model", "") != "MODELO_23_BASKET_ACCUMULATOR_SOURCE_M29":
+            return None
+        try:
+            positions = self.mt5.positions_get()
+            if positions is None:
+                raise RuntimeError("posicoes indisponiveis")
+            import re
+            found = any(str(ticket) in {str(getattr(p, "ticket", None)), str(getattr(p, "identifier", None))}
+                        and str(getattr(p, "symbol", "")).upper() == "XAUUSD"
+                        and re.search(r"\bM23\s+S7\b", str(getattr(p, "comment", "")))
+                        for p in positions)
+        except Exception:
+            return ExecutionResult(False, "ERROR", "Dupla M23/M29 aguarda leitura confirmada da posicao original.")
+        if not found:
+            return ExecutionResult(False, "REJECTED", "Dupla M23/M29: original encerrada; copia nao sera reaberta.")
+        return None
+
     def _model23_source_position_preflight(
         self,
         order: ExecutionOrder,
@@ -2477,6 +2820,13 @@ mt5.shutdown()
         operational_model = getattr(order, "operational_model", "")
         if not is_model23(operational_model):
             return None
+        from application.model23_m29_copy import copy_order_error
+        copy_error = copy_order_error(order)
+        if copy_error:
+            return ExecutionResult(accepted=False, status="REJECTED", message=copy_error)
+        pair_error = self._model23_copy_pair_preflight(order)
+        if pair_error is not None:
+            return pair_error
         source_model = model23_source_model_id(operational_model)
         if source_model == "N/D":
             return ExecutionResult(
@@ -2539,6 +2889,13 @@ mt5.shutdown()
         operational_model = getattr(order, "operational_model", "")
         if not is_model23(operational_model):
             return None
+        from application.model23_m29_copy import copy_order_error
+        copy_error = copy_order_error(order)
+        if copy_error:
+            return ExecutionResult(accepted=False, status="REJECTED", message=copy_error)
+        pair_error = self._model23_copy_pair_preflight(order)
+        if pair_error is not None:
+            return pair_error
         source_model = model23_source_model_id(operational_model)
         if source_model == "N/D":
             return ExecutionResult(
@@ -2766,7 +3123,7 @@ mt5.shutdown()
             )
             if candidate_role == "INITIAL" and pending_side != candidate_side:
                 ticket = int(getattr(pending, "ticket", 0) or 0)
-                response = self.mt5.order_send(
+                response = self._checked_order_send(
                     {
                         "action": self.mt5.TRADE_ACTION_REMOVE,
                         "order": ticket,
@@ -2899,7 +3256,7 @@ mt5.shutdown()
                 continue
             pending_side = "BUY" if getattr(pending, "type", None) == buy_stop else "SELL"
             if candidate_role == "INITIAL" and pending_side != candidate_side:
-                response = self.mt5.order_send(
+                response = self._checked_order_send(
                     {
                         "action": self.mt5.TRADE_ACTION_REMOVE,
                         "order": int(getattr(pending, "ticket", 0) or 0),
@@ -3045,6 +3402,14 @@ mt5.shutdown()
             except json.JSONDecodeError:
                 continue
             if isinstance(payload, dict):
+                mode = payload.get("execution_account_mode", "DEMO")
+                if mode != self.execution_account.mode:
+                    continue
+                if mode == "REAL" and (
+                    payload.get("execution_account_login") != self.execution_account.login
+                    or payload.get("execution_account_server") != self.execution_account.server
+                ):
+                    continue
                 records.append(self._compact_execution_log_record(payload))
         self.execution_log_cache = records
         self.execution_log_cache_signature = signature
@@ -3115,9 +3480,101 @@ mt5.shutdown()
     def _order_send(self, request: dict[str, object]) -> object | None:
         try:
             with _MT5_ORDER_SEND_LOCK:
-                return self.mt5.order_send(request)
+                return self._checked_order_send(request)
         except Exception as exc:  # noqa: BLE001 - ponte externa MT5
             return _ExecutionSendException(exc)
+
+    def cancel_weekly_pending_orders(self, *, exclude_symbols: tuple[str, ...]) -> dict[str, object]:
+        """Cancel only this robot's non-exempt pending orders, with account checks."""
+        rejection = self._initialize_check() or self._demo_account_check()
+        if rejection is not None:
+            return {"remaining": 1, "cancelled": 0, "message": rejection.message}
+
+        def eligible():
+            orders = self.mt5.orders_get()
+            if orders is None:
+                raise RuntimeError("Leitura de pendencias MT5 indisponivel.")
+            return [o for o in orders
+                    if getattr(o, "magic", None) == self.magic
+                    and str(getattr(o, "symbol", "")).upper() not in exclude_symbols]
+
+        cancelled = 0
+        with _MT5_ORDER_SEND_LOCK:
+            for order in eligible():
+                response = self._checked_order_send({
+                    "action": self.mt5.TRADE_ACTION_REMOVE,
+                    "order": int(order.ticket),
+                    "symbol": order.symbol,
+                    "comment": "TraderIA weekly close",
+                })
+                if getattr(response, "retcode", None) == getattr(self.mt5, "TRADE_RETCODE_DONE", 10009):
+                    cancelled += 1
+                self._write_management_log({
+                    "type": "WEEKLY_PENDING_CANCEL", "ticket": int(order.ticket),
+                    "symbol": order.symbol, "retcode": getattr(response, "retcode", None),
+                })
+            remaining = len(eligible())
+        return {"remaining": remaining, "cancelled": cancelled}
+
+    def _checked_order_send(self, request: dict[str, object]) -> object | None:
+        """Revalidate account and broker checks at the transport boundary."""
+        consent = self._additional_real_consent_check(request)
+        if consent:
+            return _ExecutionSendException(RuntimeError(consent))
+        permissions = read_permissions(self.mt5)
+        if not permissions_allowed(permissions):
+            return _ExecutionSendException(RuntimeError(
+                "Envio bloqueado pelas permissoes MT5. " + permissions_label(permissions)
+            ))
+        rejection = self._demo_account_check()
+        if rejection is not None:
+            return _ExecutionSendException(RuntimeError(rejection.message))
+        check = self._order_check(request)
+        if check is None or not self._order_check_passed(check):
+            message = (
+                "Envio bloqueado: order_check indisponivel."
+                if check is None else self._order_check_message(check)
+            )
+            return _ExecutionSendException(RuntimeError(message))
+        rejection = self._demo_account_check()
+        if rejection is not None:
+            return _ExecutionSendException(RuntimeError(rejection.message))
+        permissions = read_permissions(self.mt5)
+        if not permissions_allowed(permissions):
+            return _ExecutionSendException(RuntimeError(
+                "Envio bloqueado pelas permissoes MT5. " + permissions_label(permissions)
+            ))
+        consent = self._additional_real_consent_check(request)
+        if consent:
+            return _ExecutionSendException(RuntimeError(consent))
+        from core.weekly_robot_schedule import weekly_entry_allowed
+        action = request.get("action")
+        entry = (
+            action == getattr(self.mt5, "TRADE_ACTION_PENDING", -1)
+            or (action == getattr(self.mt5, "TRADE_ACTION_DEAL", -2) and not request.get("position"))
+        )
+        if entry and not weekly_entry_allowed(str(request.get("symbol", ""))):
+            return _ExecutionSendException(RuntimeError("Agenda semanal fechada para este ativo; somente BTCUSD liberado."))
+        return self.mt5.order_send(request)
+
+    def _additional_real_consent_check(self, request: dict[str, object]) -> str | None:
+        control = os.getenv("TRADERIA_ADDITIONAL_REAL_CONTROL", "")
+        if not control:
+            return None
+        from core.dual_mt5 import real_control_allows
+
+        action = request.get("action")
+        entry = (
+            action == getattr(self.mt5, "TRADE_ACTION_PENDING", -1)
+            or (action == getattr(self.mt5, "TRADE_ACTION_DEAL", -2) and not request.get("position"))
+        )
+        if not real_control_allows(entry=entry, path=Path(control)):
+            return "Conta Real adicional desautorizada para esta acao."
+        if entry:
+            from core.dual_mt5 import PROJECT, read_json
+            if read_json(PROJECT / ".traderia" / "mt5_demo_robot_online_state.json").get("online") is not True:
+                return "Novas entradas Real suspensas: robo principal desarmado."
+        return None
 
     def _order_check(self, request: dict[str, object]) -> object | None:
         order_check = getattr(self.mt5, "order_check", None)
@@ -3202,7 +3659,8 @@ mt5.shutdown()
             return ExecutionResult(
                 accepted=False,
                 status="ERROR",
-                message=f"Falha ao chamar MT5 order_send: {response.error}",
+                message=(f"Falha ao chamar MT5 order_send: {response.error}. "
+                         + permissions_label(read_permissions(self.mt5))),
                 error_code=self._last_error_code(),
             )
         if response is None:
@@ -3218,7 +3676,8 @@ mt5.shutdown()
                 status="ERROR",
                 message=(
                     "MT5 retornou resposta vazia ao enviar ordem "
-                    f"({self._last_error_message()}{check_detail})."
+                    f"({self._last_error_message()}{check_detail}). "
+                    + permissions_label(read_permissions(self.mt5))
                 ),
                 error_code=self._last_error_code(),
             )
@@ -3227,7 +3686,8 @@ mt5.shutdown()
         return ExecutionResult(
             accepted=done,
             status="ACCEPTED" if done else "REJECTED",
-            message=str(getattr(response, "comment", "")) or self._message(done),
+            message=(str(getattr(response, "comment", "")) or self._message(done))
+            + ("" if done else "; " + permissions_label(read_permissions(self.mt5))),
             ticket=self._ticket(response),
             executed_price=self._executed_price(response),
             error_code=None if done else retcode,
@@ -3309,6 +3769,10 @@ mt5.shutdown()
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "timestamp": datetime.now().astimezone().isoformat(),
+            "execution_account_mode": self.execution_account.mode,
+            "execution_account_login": self.execution_account.login,
+            "execution_account_server": self.execution_account.server,
+            "mt5_permissions_at_log": read_permissions(self.mt5) if not result.accepted else None,
             "symbol": order.symbol,
             "side": order.side,
             "quantity": order.quantity,
@@ -3367,8 +3831,16 @@ mt5.shutdown()
                 if role in {"INITIAL", "REENTRY", "CONTINUATION"}
                 else base
             )
+        if is_model29(getattr(order, "operational_model", "")):
+            base = model29_order_comment(getattr(order, "operational_model", ""))
+            token = model29_entry_type_token(self._model29_order_entry_type(order))
+            return f"{base} {token}" if token else base
         if is_model23(getattr(order, "operational_model", "")):
             base = model23_order_comment(getattr(order, "operational_model", ""))
+            if str(order.operational_model).endswith("_SOURCE_M29"):
+                p = dict((getattr(order,"plan_snapshot",None) or {}).get("stop_management_parameters") or {})
+                if p.get("m23_m29_origin_source") == "M7":
+                    base += " M7"
             entry_type_token = model23_entry_type_token(
                 self._model23_order_entry_type(order)
             )
@@ -3404,7 +3876,7 @@ mt5.shutdown()
         match = re.search(r"(?:MODELO[_ ]?|^M)(\d{1,2})(?:_|\b)", model)
         if match is not None:
             number = int(match.group(1))
-            if 1 <= number <= 28:
+            if 1 <= number <= 29:
                 return f"M{number}"
         if model in {
             "MODELO_2_ESPELHO_BETA2_RR1",
@@ -3443,6 +3915,8 @@ mt5.shutdown()
         return "M1"
 
     def _write_management_log(self, payload: dict[str, Any]) -> None:
+        if payload.get("accepted") is False or payload.get("status") in {"ERROR", "REJECTED"}:
+            payload = {**payload, "mt5_permissions_at_log": read_permissions(self.mt5)}
         self.management_log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.management_log_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(payload, ensure_ascii=True) + "\n")

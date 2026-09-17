@@ -1,0 +1,79 @@
+{
+  "schema_version": "m23-additional-context-candidates-v1",
+  "mode": "BLOCK",
+  "generated_at": "2026-09-11",
+  "study": {
+    "route": "M23",
+    "validated": false,
+    "filter_savings_validated": false,
+    "note": "Candidatos exploratórios separados do filtro original. Cada regra exige todos os sete campos exatos. O resultado realizado associado não é economia comprovada."
+  },
+  "rules": [
+    {
+      "rule_id": "M23ADD-325AB13E1C0A",
+      "label": "Compra com RSI alto e estrutura contrária",
+      "description": "Tendência a favor, estrutura contrária, RSI a partir de 70, ADX a partir de 25, ATR normal, sessão Londres e bloco de ordens de alta a favor.",
+      "source_model": "MODELO_7_LAB_XAU_BTC",
+      "symbol": "XAUUSD",
+      "direction": "BUY",
+      "context_snapshot": {
+        "trend_alignment": "ALIGNED",
+        "structure_alignment": "COUNTER",
+        "rsi_zone": "RSI_GE70",
+        "adx_zone": "ADX_GE25",
+        "atr_regime": "ATR_NORMAL",
+        "session": "LONDON",
+        "latest_event": "ORDER_BLOCK_UP:WITH"
+      },
+      "validated": false,
+      "evidence": {
+        "operations": 1,
+        "validated": false
+      }
+    },
+    {
+      "rule_id": "M23ADD-1BF0350D6D03",
+      "label": "Compra em mercado neutro com reteste contrário",
+      "description": "Tendência e estrutura neutras, RSI de 30 a menos de 50, ADX abaixo de 20, ATR normal, sessão Londres e reteste de FVG contrário.",
+      "source_model": "MODELO_7_LAB_XAU_BTC",
+      "symbol": "XAUUSD",
+      "direction": "BUY",
+      "context_snapshot": {
+        "trend_alignment": "NEUTRAL",
+        "structure_alignment": "NEUTRAL",
+        "rsi_zone": "RSI_30_50",
+        "adx_zone": "ADX_LT20",
+        "atr_regime": "ATR_NORMAL",
+        "session": "LONDON",
+        "latest_event": "FVG_RETEST:AGAINST"
+      },
+      "validated": false,
+      "evidence": {
+        "operations": 1,
+        "validated": false
+      }
+    },
+    {
+      "rule_id": "M23ADD-B844F7230D4F",
+      "label": "Compra contra a tendência após varredura de topo",
+      "description": "Tendência contrária, estrutura a favor, RSI de 30 a menos de 50, ADX a partir de 25, ATR normal, sessão Nova York e varredura de topo contrária.",
+      "source_model": "MODELO_7_LAB_XAU_BTC",
+      "symbol": "XAUUSD",
+      "direction": "BUY",
+      "context_snapshot": {
+        "trend_alignment": "COUNTER",
+        "structure_alignment": "ALIGNED",
+        "rsi_zone": "RSI_30_50",
+        "adx_zone": "ADX_GE25",
+        "atr_regime": "ATR_NORMAL",
+        "session": "NEW YORK",
+        "latest_event": "SWEEP_HIGH:AGAINST"
+      },
+      "validated": false,
+      "evidence": {
+        "operations": 1,
+        "validated": false
+      }
+    }
+  ]
+}

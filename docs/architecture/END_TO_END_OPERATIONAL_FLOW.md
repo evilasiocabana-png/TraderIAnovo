@@ -1,3 +1,9 @@
+## 2026-09-17 - M29 restrito a fonte M7
+
+Novas entradas M29 aceitam somente M7, nos modos NORMAL e ESPELHADO. A lista de avaliacao e a whitelist compartilhada pelos preflights de mercado/pendentes foram restringidas. A copia de sinais M29 para M23 tambem recusa origens diferentes de M7; fontes proprias M23 permanecem inalteradas. Historico legado, posicoes existentes, regras de modo, lotes e sincronizacao foram preservados. Painel informa apenas M7.
+
+Validacao: 129 testes passaram em integracao M29, cesta, sequencia M7, copia M23, retry, sincronizacao, identidade de saida e rotulo de modo. Nenhuma ordem foi enviada pelos testes. Proximo controle: observar o primeiro ciclo apos carregar o aplicativo; nao forcar entradas nem encerramentos.
+
 ## Atualizacao M28 em 2026-09-11
 
 O M28 preserva selecao, ranking, geometria e validade do contrato minerado original.
@@ -629,3 +635,18 @@ barra anterior e impede que uma cotacao parcial seja congelada como candle
 fechado. Se essas duas barras nao tiverem sobreposicao ou continuidade com a
 janela corrente, o runtime baixa novamente as 201 barras e continua bloqueado
 ate a reconciliacao terminar. Lab pesado e backtest permanecem fora desse ciclo.
+# Agenda vigente - 2026-09-13
+
+Todos os ativos, inclusive BTCUSD, operam apenas de domingo 18:05 ate sexta
+17:30 BRT. Excecao de fim de semana cancelada pelo usuario. O fechamento semanal
+inclui BTCUSD; ciclos automaticos voltam a respeitar o fechamento semanal.
+
+# Registro anterior, substituido - 2026-09-12
+
+O ciclo de dados permanece ativo para BTCUSD todos os dias. A agenda semanal
+seleciona BTCUSD fora de domingo 18:05 a sexta 17:30 BRT, sem substituir a
+selecao persistida usada na semana. A limpeza semanal preserva posicoes BTCUSD
+e cancela pendencias dos demais ativos pertencentes ao robo.
+O provider bloqueia novas entradas nao BTC fora da janela, inclusive planos
+em fila; operacoes de protecao e fechamento nao sao barradas por essa agenda.
+Demo e Real autorizada usam a mesma regra, sem autorizar novas contas.

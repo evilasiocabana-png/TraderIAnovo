@@ -129,6 +129,13 @@ from application.model23_basket_accumulator import (
     model23_variant_id,
     model23_entry_type,
 )
+from application.model29_basket_accumulator import (
+    MODEL_29_ALPHA_ID, MODEL_29_ALPHA_VERSION, MODEL_29_BETA_ID,
+    MODEL_29_BETA_VERSION, MODEL_29_ENTRY_SOURCE, MODEL_29_EXIT_POLICY,
+    MODEL_29_FULL_EXIT_USD, MODEL_29_ID as MT5_OPERATIONAL_MODEL_29,
+    Model29BasketManager, is_model29, model29_entry_gate,
+    model29_variant_id, model29_entry_type,
+)
 from application.model23_pattern_filter import (
     MODEL_23_PATTERN_FILTER_MODE,
     M23PatternFilterService,
@@ -137,6 +144,11 @@ from application.model23_source_context import M23SourceContextBuilder
 from application.model23_additional_filters import load_catalog, evaluate_additional_filters
 _MODEL23_PATTERN_FILTER_SERVICE = M23PatternFilterService()
 _MODEL23_SOURCE_CONTEXT = M23SourceContextBuilder()
+MODEL_29_PATTERN_FILTER_MODE = MODEL_23_PATTERN_FILTER_MODE
+_MODEL29_PATTERN_FILTER_SERVICE = M23PatternFilterService(
+    Path(__file__).resolve().parents[1] / "config/m29_pattern_filter.json"
+)
+_MODEL29_SOURCE_CONTEXT = M23SourceContextBuilder()
 from application.model24_xau_basket import (
     MODEL_24_ALPHA_ID,
     MODEL_24_ALPHA_VERSION,
@@ -496,11 +508,15 @@ MT5_MODEL_23_SOURCE_MODEL_IDS = tuple(
     for model in MT5_ACTIVE_SOURCE_MODEL_IDS
     if model not in MT5_MODEL_23_EXCLUDED_SOURCE_MODEL_IDS
 )
+MT5_MODEL_29_SOURCE_MODEL_IDS = (
+    MT5_OPERATIONAL_MODEL_7,
+)
 MT5_MODEL_24_SOURCE_MODEL_IDS = MODEL_24_SOURCE_MODEL_IDS
 MT5_MODEL_25_SOURCE_MODEL_IDS = MODEL_25_SOURCE_MODEL_IDS
 MT5_OPERATIONAL_MODEL_IDS = (
     *MT5_ACTIVE_SOURCE_MODEL_IDS,
     MT5_OPERATIONAL_MODEL_23,
+    MT5_OPERATIONAL_MODEL_29,
 )
 MT5_SELECTABLE_OPERATIONAL_MODEL_IDS = (
     *MT5_OPERATIONAL_MODEL_IDS,
@@ -541,6 +557,7 @@ MT5_OPERATIONAL_MODEL_BY_NUMBER = {
     21: MT5_OPERATIONAL_MODEL_21,
     22: MT5_OPERATIONAL_MODEL_22,
     23: MT5_OPERATIONAL_MODEL_23,
+    29: MT5_OPERATIONAL_MODEL_29,
     24: MT5_OPERATIONAL_MODEL_24,
     25: MT5_OPERATIONAL_MODEL_25,
     26: MT5_OPERATIONAL_MODEL_26,
@@ -987,14 +1004,14 @@ class Alpha001StatusData:
     """Status operacional e arquitetural da Alpha 001."""
 
     strategy_name: str = "Alpha 001 - IORB"
-    status: str = "pesquisa/simulação"
+    status: str = "pesquisa/simulaÃ§Ã£o"
     real_trading_authorized: bool = False
     broker_mt5_integrated: bool = False
     ai_authorized: bool = False
     research_lab_integrated: bool = True
     benchmark_integrated: bool = True
     statistical_validation_status: str = (
-        "validação estatística ainda depende do Research Lab"
+        "validaÃ§Ã£o estatÃ­stica ainda depende do Research Lab"
     )
 
 
@@ -1308,6 +1325,10 @@ class DashboardService:
 
     def set_mt5_operational_model(self, model: str) -> None:
         """Seleciona qual modelo pode enviar ordem demo MT5 neste ciclo."""
+        if str(model or "").upper() == MT5_OPERATIONAL_MODEL_29:
+            self.set_mt5_operational_models((), basket_models=(MT5_OPERATIONAL_MODEL_29,), direct_models_enabled=False)
+            return
+        object.__setattr__(self, "mt5_model29_enabled", False)
         normalized = str(model or MT5_OPERATIONAL_MODEL_1).upper()
         normalized = LEGACY_MT5_OPERATIONAL_MODELS.get(normalized, normalized)
         if normalized not in {
@@ -1402,6 +1423,7 @@ class DashboardService:
             normalized = str(model or "").upper()
             if normalized in {
                 MT5_OPERATIONAL_MODEL_23,
+                MT5_OPERATIONAL_MODEL_29,
             } and normalized not in selected_baskets:
                 selected_baskets.append(normalized)
         if basket_mode and MT5_OPERATIONAL_MODEL_23 not in selected_baskets:
@@ -1419,6 +1441,11 @@ class DashboardService:
                 if model not in evaluation_models:
                     evaluation_models.append(model)
         object.__setattr__(self, "mt5_selected_direct_operational_models", direct_models)
+        if MT5_OPERATIONAL_MODEL_29 in selected_baskets:
+            for model in MT5_MODEL_29_SOURCE_MODEL_IDS:
+                if model not in evaluation_models:
+                    evaluation_models.append(model)
+        object.__setattr__(self, "mt5_model29_enabled", MT5_OPERATIONAL_MODEL_29 in selected_baskets)
         object.__setattr__(self, "mt5_selected_basket_models", tuple(selected_baskets))
         object.__setattr__(self, "mt5_selected_operational_models", tuple(evaluation_models))
         object.__setattr__(self, "mt5_model23_enabled", MT5_OPERATIONAL_MODEL_23 in selected_baskets)
@@ -1533,6 +1560,9 @@ class DashboardService:
     def _mt5_model24_routing_enabled(self) -> bool:
         return False
 
+    def _mt5_model29_routing_enabled(self) -> bool:
+        return bool(getattr(self, "mt5_model29_enabled", False))
+
     def _mt5_model25_routing_enabled(self) -> bool:
         return False
 
@@ -1560,7 +1590,7 @@ class DashboardService:
     ) -> dict[tuple[str, str], object]:
         """Atualiza o monitor com candles ja coletados, sem nova leitura MT5."""
         demo_forward_override = (
-            self._mt5_model23_routing_enabled() or self._mt5_model24_routing_enabled()
+            self._mt5_model23_routing_enabled() or self._mt5_model29_routing_enabled() or self._mt5_model24_routing_enabled()
         )
         selected_models = tuple(
             model_id
@@ -1992,7 +2022,7 @@ class DashboardService:
         for pair, timeframe_labels in required.items():
             for timeframe_label in timeframe_labels:
                 require_supplemental(pair, timeframe_label)
-        if self._mt5_model23_routing_enabled():
+        if self._mt5_model23_routing_enabled() or self._mt5_model29_routing_enabled():
             # M23 context is required even without an active M28 contract.
             for market_row in list(getattr(data, "pairs", ()) or ()):
                 market_symbol = str(getattr(market_row, "pair", "") or "").upper()
@@ -2010,7 +2040,6 @@ class DashboardService:
             self._refresh_model28_live_shadow()
         self._auto_export_mt5_visual_signals()
         return data
-
 
     def _model28_context_check(self, symbol, selection=None):
         """Guard M28 entries using the shared confirmed read and causal record."""
@@ -2035,7 +2064,6 @@ class DashboardService:
         })
         return result
 
-
     def _model28_entry_context_check(self, symbol, plan):
         """Recheck a queued plan immediately before handing it to execution."""
         selection = self.get_model28_live_selection(symbol)
@@ -2052,7 +2080,6 @@ class DashboardService:
                              reason="O contexto ou padrao mudou; aguarde a remontagem do plano M28.")
             self._record_m28_context_diagnostic(symbol, result.audit())
         return result
-
 
     def _record_m28_context_diagnostic(self, symbol, audit):
         """Keep a small local record of the input gate without account data."""
@@ -2076,7 +2103,6 @@ class DashboardService:
             # Diagnostics must never change a failed gate into an allowed entry.
             pass
 
-
     def get_model28_live_selection(
         self,
         symbol: str | None = None,
@@ -2092,7 +2118,6 @@ class DashboardService:
             return None
         return selection
 
-
     def list_model28_live_selections(self) -> tuple[Model28LiveSelection, ...]:
         """Use the same live-data gate in the report and in the order plan."""
         selections = (
@@ -2104,7 +2129,6 @@ class DashboardService:
             (item for item in selections if item is not None),
             key=lambda item: (item.symbol, item.timeframe),
         ))
-
 
     def has_model28_operational_contracts(self) -> bool:
         """Report whether any 100k-ranked M28 Demo contract can create entries."""
@@ -4965,8 +4989,9 @@ class DashboardService:
         ).upper()
         effective_model = (
             basket_source_model
-            if (is_model23(recorded_model) or is_model24(recorded_model))
+            if (is_model23(recorded_model) or is_model29(recorded_model) or is_model24(recorded_model))
             and basket_source_model
+            and not (is_model29(recorded_model) and parameters.get("m29_mirrored"))
             else recorded_model
         )
         recorded_management = (
@@ -4977,7 +5002,7 @@ class DashboardService:
         )
         effective_management = (
             parameters.get("source_stop_management") or recorded_management
-            if is_model23(recorded_model) or is_model24(recorded_model)
+            if is_model23(recorded_model) or is_model29(recorded_model) or is_model24(recorded_model)
             else recorded_management
         )
         indicators = {
@@ -7149,6 +7174,9 @@ class DashboardService:
     def close_all_demo_positions(
         self,
         reason: str = "WEEKLY_FRIDAY_CLOSE",
+        *,
+        exclude_symbols: tuple[str, ...] = (),
+        cancel_pending: bool = False,
     ) -> dict[str, Any]:
         """Fecha todas as posicoes da conta MT5 Demo de forma auditavel."""
         if not self._mt5_demo_execution_enabled():
@@ -7162,7 +7190,18 @@ class DashboardService:
                 "results": [],
             }
         self._enable_mt5_demo_provider()
-        positions = list(self.demo_robot_execution_service.list_open_positions() or [])
+        def positions_for_scheduled_close():
+            positions = list(self.demo_robot_execution_service.list_open_positions() or [])
+            positions = [p for p in positions if str(getattr(p, "symbol", "")).upper() not in exclude_symbols]
+            if os.getenv("TRADERIA_ADDITIONAL_REAL_CONTROL"):
+                magic = getattr(self.demo_robot_execution_service.provider, "magic", None)
+                return [position for position in positions if magic is not None and getattr(position, "magic", None) == magic]
+            return positions
+
+        pending = {"remaining": 0, "cancelled": 0}
+        if cancel_pending:
+            pending = self.demo_robot_execution_service.provider.cancel_weekly_pending_orders(exclude_symbols=exclude_symbols)
+        positions = positions_for_scheduled_close()
         results: list[dict[str, Any]] = []
         for position in positions:
             ticket = int(getattr(position, "ticket", 0) or 0)
@@ -7197,9 +7236,7 @@ class DashboardService:
                     "message": str(getattr(response, "message", "") or ""),
                 }
             )
-        remaining = len(
-            list(self.demo_robot_execution_service.list_open_positions() or [])
-        )
+        remaining = len(positions_for_scheduled_close()) + int(pending.get("remaining", 0))
         closed = sum(bool(item["accepted"]) for item in results)
         rejected = len(results) - closed
         status = (
@@ -7221,6 +7258,7 @@ class DashboardService:
                 else "Ainda existem posicoes abertas; o agendador tentara novamente."
             ),
             "positions_found": len(positions),
+            "pending": pending,
             "closed": closed,
             "rejected": rejected,
             "remaining": remaining,
@@ -7290,15 +7328,24 @@ class DashboardService:
             self.demo_robot_execution_service
         )
 
+        from application.model29_entry_sync import (
+            GoldM7EntrySync, is_gold_m7, same_source_plan, pair_has_open_position,
+            original_plan_for_copy, pair_has_open_copy, RejectedGoldCopyRetry,
+        )
+        gold_m7_sync = GoldM7EntrySync()
+        gold_m7_copy_sync = GoldM7EntrySync()
+        rejected_copy_retry = RejectedGoldCopyRetry()
         last_waiting: DashboardDemoRobotViewModel | None = None
         last_model24_waiting: DashboardDemoRobotViewModel | None = None
         last_executed: DashboardDemoRobotViewModel | None = None
         basket_mode = self._mt5_model23_routing_enabled()
+        basket29_mode = self._mt5_model29_routing_enabled()
+        basket29_block = self._evaluate_model29_risk_gate(pair, timeframe)
         basket24_mode = self._mt5_model24_routing_enabled()
         basket25_mode = self._mt5_model25_routing_enabled()
         direct_mode = self._mt5_direct_routing_enabled()
         basket_block = self._evaluate_model23_risk_gate(pair, timeframe)
-        if basket_block is not None:
+        if basket_block is not None and not basket29_mode:
             return basket_block
         basket24_block = self._evaluate_model24_risk_gate(pair, timeframe)
         if basket24_block is not None:
@@ -7311,8 +7358,10 @@ class DashboardService:
         for source_row in rows:
             if basket_mode:
                 basket_block = self._evaluate_model23_risk_gate(pair, timeframe)
-                if basket_block is not None:
+                if basket_block is not None and not basket29_mode:
                     return basket_block
+            if basket29_mode:
+                basket29_block = self._evaluate_model29_risk_gate(pair, timeframe)
             if basket24_mode:
                 basket24_block = self._evaluate_model24_risk_gate(pair, timeframe)
                 if basket24_block is not None:
@@ -7376,7 +7425,8 @@ class DashboardService:
                 )
                 routes = (
                     *(("DIRECT",) if direct_mode and operational_model in direct_models else ()),
-                    *(("M23",) if basket_mode and operational_model in MT5_MODEL_23_SOURCE_MODEL_IDS else ()),
+                    *(("M23",) if basket_mode and basket_block is None and operational_model in MT5_MODEL_23_SOURCE_MODEL_IDS else ()),
+                    *(("M29",) if (basket_mode or (basket29_mode and basket29_block is None)) and operational_model in MT5_MODEL_29_SOURCE_MODEL_IDS else ()),
                     *(("M24",) if basket24_mode else ()),
                     *(("M25",) if basket25_mode and operational_model in MODEL_25_SOURCE_MODEL_IDS else ()),
                 )
@@ -7457,7 +7507,14 @@ class DashboardService:
                         continue
                     source_model = dynamic_exit_source_model(operational_model)
                     if source_model is None:
-                        cache_key = (operational_model, route)
+                        cache_route = (
+                            "M23_M29_SYNC"
+                            if operational_model == MT5_OPERATIONAL_MODEL_7
+                            and str(row.pair).upper() == "XAUUSD"
+                            and route in {"M23", "M29"}
+                            else route
+                        )
+                        cache_key = (operational_model, cache_route)
                         source_result = entry_source_results.get(cache_key)
                         if source_result is None:
                             source_result = self._mt5_apply_operational_model(
@@ -7483,6 +7540,7 @@ class DashboardService:
                             *source_result,
                             operational_model=operational_model,
                         )
+                    self._record_m7_execution_diagnostic("source", operational_model, model_row, model_plan)
                     source_ready = (
                         str(getattr(model_row, "decision", "") or "").upper()
                         in {"BUY", "SELL"}
@@ -7497,6 +7555,15 @@ class DashboardService:
                             model_plan,
                             source_operational_model=operational_model,
                         )
+                        self.lab_operational_decision_cache[(basket_model, str(model_row.pair))] = {
+                            "Fonte": str(operational_model), "Par": str(model_row.pair),
+                            "Direcao": str(model_plan.direction), "Status": str(model_plan.status),
+                            "Entrada": model_plan.entry_price, "Stop": model_plan.stop,
+                            "Alvo": model_plan.target, "Modo M7": "Normal",
+                            "Motivo": str(model_plan.reason),
+                            "Atualizado": datetime.now(timezone.utc).isoformat(),
+                        }
+                        self._record_m7_execution_diagnostic("basket", operational_model, model_row, model_plan)
                         if not (
                             str(getattr(model_row, "decision", "") or "").upper()
                             in {"BUY", "SELL"}
@@ -7504,6 +7571,38 @@ class DashboardService:
                         ):
                             continue
                         model_candidates.append((basket_model, model_row, model_plan))
+                    elif route == "M29":
+                        basket_model = model29_variant_id(operational_model)
+                        model_row, model_plan = self._mt5_model29_variant_from_source(
+                            model_row, model_plan, source_operational_model=operational_model,
+                        )
+                        self.lab_operational_decision_cache[(basket_model, str(model_row.pair))] = {
+                            "Fonte": str(operational_model), "Par": str(model_row.pair),
+                            "Direcao": str(model_plan.direction), "Status": str(model_plan.status),
+                            "Entrada": model_plan.entry_price, "Stop": model_plan.stop,
+                            "Alvo": model_plan.target,
+                            "Modo M7": dict(model_plan.stop_management_parameters or {}).get("m29_m7_mode", "Nao se aplica"),
+                            "Motivo": str(model_plan.reason),
+                            "Atualizado": datetime.now(timezone.utc).isoformat(),
+                        }
+                        if model_row.decision not in {"BUY", "SELL"} or model_plan.status != "PLANO_VALIDO":
+                            continue
+                        if basket29_mode and basket29_block is None:
+                            model_candidates.append((basket_model, model_row, model_plan))
+                        if basket_mode:
+                            from application.model23_m29_copy import copy_m29_signal
+                            copied = copy_m29_signal(basket_model, model_row, model_plan)
+                            if copied is not None:
+                                model_candidates.append(copied)
+                                copy_model, copy_row, copy_plan = copied
+                                self.lab_operational_decision_cache[(copy_model + "_" + str(copy_plan.stop_management_parameters["m23_m29_origin_source"]), str(copy_row.pair))] = {
+                                    "Fonte": "M29 <- " + str(copy_plan.stop_management_parameters["m23_m29_origin_source"]),
+                                    "Par": str(copy_row.pair), "Direcao": str(copy_plan.direction),
+                                    "Status": str(copy_plan.status), "Entrada": copy_plan.entry_price,
+                                    "Stop": copy_plan.stop, "Alvo": copy_plan.target,
+                                    "Modo M7": copy_plan.stop_management_parameters["m23_m29_mode"],
+                                    "Motivo": copy_plan.reason, "Atualizado": datetime.now(timezone.utc).isoformat(),
+                                }
                     elif route == "M25":
                         basket_model = model25_variant_id(operational_model)
                         model_row, model_plan = self._mt5_model25_variant_from_source(
@@ -7574,12 +7673,20 @@ class DashboardService:
                 continue
             for operational_model, model_row, model_plan in model_candidates:
                 candidate_is_m23 = is_model23(operational_model)
+                candidate_is_m29 = is_model29(operational_model)
                 candidate_is_m24 = is_model24(operational_model)
                 candidate_is_m25 = is_model25(operational_model)
                 if candidate_is_m23:
                     basket_block = self._evaluate_model23_risk_gate(pair, timeframe)
                     if basket_block is not None:
-                        return basket_block
+                        if not basket29_mode:
+                            return basket_block
+                        continue
+                if candidate_is_m29:
+                    basket29_block = self._evaluate_model29_risk_gate(pair, timeframe)
+                    if basket29_block is not None:
+                        last_waiting = basket29_block
+                        continue
                 model_candle_time = str(
                     getattr(model_row, "theoretical_entry_candle", "") or ""
                 ).strip()
@@ -7588,6 +7695,31 @@ class DashboardService:
                     if model_candle_time.upper() not in {"", "N/D", "NONE"}
                     else str(getattr(source_row, "last_candle_time", "") or "")
                 )
+                if candidate_is_m23 and is_gold_m7(model_plan):
+                    paired = False
+                    for other_model, other_row, other_plan in model_candidates:
+                        other_candle = str(getattr(other_row, "theoretical_entry_candle", "") or "").strip()
+                        if other_candle.upper() in {"", "N/D", "NONE"}:
+                            other_candle = str(getattr(source_row, "last_candle_time", "") or "")
+                        if other_model == MT5_OPERATIONAL_MODEL_23 + "_SOURCE_M29" and same_source_plan(model_plan, signal_candle_time, original_plan_for_copy(other_plan), other_candle):
+                            paired = True
+                            break
+                    reason = "M29 sem plano correspondente pronto neste ciclo."
+                    if paired:
+                        try:
+                            occupied = pair_has_open_copy(self.demo_robot_execution_service.list_open_positions())
+                            reason = "Aguardando encerrar ambas as posicoes M23/M29 M7 ouro." if occupied else ""
+                        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+                            reason = "Nao foi possivel confirmar ambas as cestas sem posicao: " + str(exc)
+                    if reason:
+                        last_waiting = self._demo_robot_view_model(
+                            row=model_row, status="ARMED_WAITING",
+                            message="M23/M29 M7 ouro aguardam entrada conjunta.",
+                            result_status="M23_M29_WAITING_PAIR", result_message=reason,
+                            entry_price=model_plan.entry_price, stop=model_plan.stop,
+                            target=model_plan.target, provider="MT5_DEMO", mt5_order_send_enabled=True,
+                        )
+                        continue
                 if candidate_is_m23:
                     entry_allowed, entry_gate_reason = model23_entry_gate(
                         signal_candle_time
@@ -7614,6 +7746,54 @@ class DashboardService:
                             ),
                         )
                         continue
+                if candidate_is_m29:
+                    entry_allowed, entry_gate_reason = model29_entry_gate(signal_candle_time)
+                    if not entry_allowed:
+                        last_waiting = self._demo_robot_view_model(
+                            row=model_row, status="ARMED_WAITING",
+                            message="M29 aguardando sinal novo apos zeragem completa.",
+                            result_status="M29_ROUND_GATE", result_message=entry_gate_reason,
+                            entry_price=model_plan.entry_price, stop=model_plan.stop,
+                            target=model_plan.target, provider="MT5_DEMO",
+                            mt5_order_send_enabled=True,
+                        )
+                        continue
+                if (operational_model == MT5_OPERATIONAL_MODEL_23 + "_SOURCE_M29"
+                        and (model_plan.stop_management_parameters or {}).get("m23_m29_origin_source") == "M7"):
+                    original_ticket = gold_m7_copy_sync.claim(original_plan_for_copy(model_plan), signal_candle_time)
+                    if original_ticket is None:
+                        try:
+                            original_ticket = rejected_copy_retry.claim(
+                                self.demo_robot_execution_service.provider, model_plan, signal_candle_time)
+                        except Exception:
+                            original_ticket = None
+                    if original_ticket is None:
+                        last_waiting = self._demo_robot_view_model(
+                            row=model_row, status="ARMED_WAITING", message="Copia M29 no M23 aguarda entrada original confirmada.",
+                            result_status="M23_M29_WAITING_PAIR", result_message="Sem confirmacao do M7 original no mesmo ciclo; aguarda ambas as posicoes encerrarem.",
+                            entry_price=model_plan.entry_price, stop=model_plan.stop, target=model_plan.target,
+                            provider="MT5_DEMO", mt5_order_send_enabled=True)
+                        continue
+                    model_plan = replace(model_plan, stop_management_parameters={
+                        **model_plan.stop_management_parameters, "m23_m29_pair_original_ticket": str(original_ticket)})
+                if candidate_is_m29 and is_gold_m7(model_plan):
+                    source_ticket = gold_m7_sync.claim(model_plan, signal_candle_time)
+                    if source_ticket is None:
+                        last_waiting = self._demo_robot_view_model(
+                            row=model_row, status="ARMED_WAITING",
+                            message="M29 M7 ouro aguarda nova ordem M23 confirmada do mesmo sinal.",
+                            result_status="M29_WAITING_M23_CONFIRMATION",
+                            result_message="Sem confirmacao M23 neste ciclo para o mesmo candle e plano; nenhuma entrada M29 enviada.",
+                            entry_price=model_plan.entry_price, stop=model_plan.stop,
+                            target=model_plan.target, provider="MT5_DEMO",
+                            mt5_order_send_enabled=True,
+                        )
+                        continue
+                    parameters = dict(model_plan.stop_management_parameters or {})
+                    parameters.update(m29_sync_m23_ticket=source_ticket,
+                                      m29_sync_signal_candle=signal_candle_time,
+                                      m29_sync_policy="SAME_CYCLE_CONFIRMED_M23_M7_XAU")
+                    model_plan = replace(model_plan, stop_management_parameters=parameters)
                 if candidate_is_m24:
                     basket24_block = self._evaluate_model24_risk_gate(pair, timeframe)
                     if basket24_block is not None:
@@ -7656,6 +7836,14 @@ class DashboardService:
                         )
                         continue
                 result = self.mt5_demo_robot_service.evaluate_once(signal, robot_plan)
+                if (operational_model == MT5_OPERATIONAL_MODEL_23 + "_SOURCE_M29"
+                        and (model_plan.stop_management_parameters or {}).get("m23_m29_pair_original_ticket")):
+                    try:
+                        rejected_copy_retry.remember(self.demo_robot_execution_service.provider, model_plan, signal_candle_time, result)
+                    except Exception:
+                        # No verified retry permission is safer than an inferred admission.
+                        pass
+                self._record_m7_execution_diagnostic("executor", "MODELO_7_TRACE" if operational_model.endswith("_SOURCE_M7") else operational_model, model_row, model_plan, result)
                 if result.status in {"EXECUTED", "REJECTED"}:
                     status_view = self._demo_robot_view_model(
                         row=model_row,
@@ -7696,6 +7884,10 @@ class DashboardService:
                     )
                     object.__setattr__(self, "last_demo_robot_status", status_view)
                     self._append_demo_robot_visual_signal(status_view)
+                    if candidate_is_m29 and result.status == "EXECUTED":
+                        self._evaluate_model29_risk_gate(pair, timeframe)
+                        last_executed = status_view
+                        continue
                     if candidate_is_m23 and result.status == "EXECUTED":
                         # O M23 pode receber muitos sinais independentes no
                         # mesmo lote. Reavaliar a cesta depois de cada aceite
@@ -7704,7 +7896,10 @@ class DashboardService:
                             pair,
                             timeframe,
                         )
-                        if basket_after_entry is not None:
+                        if basket_after_entry is None:
+                            gold_m7_sync.record(operational_model, model_plan, signal_candle_time, result)
+                            gold_m7_copy_sync.record(operational_model, model_plan, signal_candle_time, result)
+                        if basket_after_entry is not None and not basket29_mode:
                             return basket_after_entry
                         # A defesa financeira ja observou a nova exposicao.
                         # Continuar o lote permite enviar todos os sinais M23
@@ -7958,8 +8153,11 @@ class DashboardService:
         if self.mt5_demo_robot_service.enabled and self._mt5_demo_execution_enabled():
             self._enable_mt5_demo_provider()
             basket_block = self._evaluate_model23_risk_gate(pair, timeframe)
-            if basket_block is not None:
+            if basket_block is not None and not self._mt5_model29_routing_enabled():
                 return basket_block
+            basket29_block = self._evaluate_model29_risk_gate(pair, timeframe)
+            if basket29_block is not None and not self._mt5_model23_routing_enabled() and not self._mt5_direct_routing_enabled():
+                return basket29_block
             basket24_block = self._evaluate_model24_risk_gate(pair, timeframe)
             if basket24_block is not None:
                 return basket24_block
@@ -8190,7 +8388,7 @@ class DashboardService:
             )
             return self.last_demo_robot_status
 
-        if self._mt5_model23_routing_enabled() or self._mt5_model24_routing_enabled():
+        if self._mt5_model23_routing_enabled() or self._mt5_model29_routing_enabled() or self._mt5_model24_routing_enabled():
             # O roteamento M23 ja percorre todos os pares e fontes selecionadas
             # dentro de evaluate_armed_demo_robot_once("TODOS"). No modo
             # combinado, a mesma passagem tambem produz as ordens diretas.
@@ -8251,6 +8449,45 @@ class DashboardService:
         )
         return self.last_demo_robot_status
 
+    def _record_m23_context_diagnostic(self, symbol, source, parameters):
+        """Record context availability separately from trading-rule decisions."""
+        try:
+            import json as context_json
+            from pathlib import Path as ContextPath
+            from datetime import datetime as ContextDateTime, timezone as ContextTimezone
+            payload = {
+                "updated_at": ContextDateTime.now(ContextTimezone.utc).isoformat(),
+                "symbol": symbol,
+                "source_model": source,
+                **{key: value for key, value in parameters.items()
+                   if key.startswith(("m23_context_", "m23_pattern_filter_", "m23_additional_"))},
+            }
+            path = ContextPath(".traderia/runtime/m23_context_sync_latest.json")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(context_json.dumps(payload, ensure_ascii=True), encoding="utf-8")
+        except (OSError, TypeError, ValueError):
+            pass
+
+    def _record_m7_execution_diagnostic(self, phase, model, row, plan, result=None):
+        """Record latest M7 execution gate without altering its decision."""
+        if str(getattr(row, "pair", "")).upper() != "XAUUSD" or "MODELO_7_" not in str(model):
+            return
+        try:
+            import json as diagnostic_json
+            from pathlib import Path as DiagnosticPath
+            from datetime import datetime as DiagnosticDateTime, timezone as DiagnosticTimezone
+            payload = dict(updated_at=DiagnosticDateTime.now(DiagnosticTimezone.utc).isoformat(),
+                phase=phase, model=model, pair=row.pair, decision=row.decision,
+                theoretical_status=getattr(row, "theoretical_entry_status", ""),
+                candle=getattr(row, "theoretical_entry_candle", ""),
+                plan_status=plan.status, plan_reason=plan.reason,
+                result_status=getattr(result, "status", ""), result_message=getattr(result, "message", ""))
+            path = DiagnosticPath(".traderia/runtime/m7_execution_" + phase + ".json")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(diagnostic_json.dumps(payload, ensure_ascii=True), encoding="utf-8")
+        except Exception:
+            pass
+
     def _ordered_demo_model_candidates_per_pair(
         self,
         candidates: list[
@@ -8289,11 +8526,13 @@ class DashboardService:
         forex: MT5ForexSignalDashboard,
         pair: str,
     ) -> list[object]:
+        from core.weekly_robot_schedule import weekly_entry_allowed
         requested = str(pair or "TODOS").upper()
         rows = [
             row
             for row in list(getattr(forex, "pairs", []) or [])
             if str(getattr(row, "status", "")).upper() == "OK"
+            and weekly_entry_allowed(str(getattr(row, "pair", "")))
         ]
         if requested in {"TODOS", "ALL"}:
             return rows
@@ -8302,27 +8541,6 @@ class DashboardService:
             for row in rows
             if str(getattr(row, "pair", "")).upper() == requested
         ]
-
-    def _record_m23_context_diagnostic(self, symbol, source, parameters):
-        """Record context availability separately from trading-rule decisions."""
-        try:
-            import json as context_json
-            from pathlib import Path as ContextPath
-            from datetime import datetime as ContextDateTime, timezone as ContextTimezone
-            payload = {
-                "updated_at": ContextDateTime.now(ContextTimezone.utc).isoformat(),
-                "symbol": symbol,
-                "source_model": source,
-                **{key: value for key, value in parameters.items()
-                   if key.startswith(("m23_context_", "m23_pattern_filter_", "m23_additional_"))},
-            }
-            path = ContextPath(".traderia/runtime/m23_context_sync_latest.json")
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(context_json.dumps(payload, ensure_ascii=True), encoding="utf-8")
-        except (OSError, TypeError, ValueError):
-            pass
-
-
 
     def _mt5_model23_variant_from_source(
         self,
@@ -8627,7 +8845,448 @@ class DashboardService:
         )
         return basket_row, basket_plan
 
+    def _apply_model29_m7_mode(self, row, plan, source_label):
+        if source_label != "M7":
+            return row, plan
+        from application.model29_sequence_history import sequence_mode
+        from application.model29_m7_sequence import mirrored_prices
+        parameters = dict(plan.stop_management_parameters or {})
+        try:
+            mode = sequence_mode(self.demo_robot_execution_service.provider, str(row.pair))
+            parameters["m29_m7_mode"] = mode
+            if mode == "NORMAL":
+                return replace(row, lab_parameters=parameters), replace(plan, stop_management_parameters=parameters)
+            side, stop, target = mirrored_prices(plan.direction, plan.entry_price, plan.stop)
+        except (OSError, RuntimeError, ValueError, TypeError, AttributeError) as exc:
+            return (
+                replace(row, decision="WAIT", theoretical_entry_direction="WAIT",
+                        theoretical_entry_reason=str(exc), research_plan_status="M29_SEQUENCE_WAITING"),
+                replace(plan, direction="WAIT", status="M29_SEQUENCE_WAITING",
+                        invalid_reason=str(exc), stop_management_parameters=parameters),
+            )
+        parameters.update(m29_mirrored=True, m29_original_direction=plan.direction,
+                          m29_original_stop=plan.stop, m29_original_target=plan.target)
+        parameters.update(
+            m29_original_source_stop_management=parameters.get("source_stop_management"),
+            m29_original_source_beta_id=parameters.get("source_beta_id"),
+            source_stop_management="RESEARCH_FIXED_SL_TP",
+            source_beta_id=MODEL_29_BETA_ID,
+            source_beta_version="M29_M7_MIRROR_FIXED_RR1",
+            source_beta_mode="FIXED_SL_TP",
+        )
+        order_types = {"BUY_STOP": "SELL_LIMIT", "SELL_STOP": "BUY_LIMIT",
+                       "BUY_LIMIT": "SELL_STOP", "SELL_LIMIT": "BUY_STOP"}
+        original_type = str(parameters.get("active_entry_order_type") or "").upper()
+        if original_type in order_types:
+            parameters["active_entry_order_type"] = order_types[original_type]
+        distance = abs(float(plan.entry_price) - stop)
+        return (
+            replace(row, decision=side, theoretical_entry_direction=side,
+                    research_plan_stop=stop, research_plan_target=target,
+                    research_plan_risk_reward=1.0, lab_parameters=parameters,
+                    active_model=row.active_model + " | ESPELHADO"),
+            replace(plan, direction=side, stop=stop, target=target, risk_reward=1.0,
+                    rr_current=1.0, rr_minimum=1.0, risk_pips=distance, reward_pips=distance,
+                    risk_percent=distance / float(plan.entry_price),
+                    reward_percent=distance / float(plan.entry_price),
+                    stop_management_parameters=parameters,
+                    stop_reason="M29 M7 espelhado: risco simetrico 1:1.",
+                    target_reason="M29 M7 espelhado: SL original usado como TP."),
+        )
 
+    def _mt5_model29_variant_from_source(
+        self,
+        row: DashboardMT5ForexSignalRowViewModel,
+        plan: MT5ResearchTradePlan,
+        *,
+        source_operational_model: str,
+    ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
+        """Preserva todo o contrato da fonte e adiciona a gestao da cesta."""
+        if str(row.pair).upper() != "XAUUSD":
+            reason = "M29 opera somente ouro (XAUUSD)."
+            return (replace(row, decision="WAIT", theoretical_entry_direction="WAIT",
+                            research_plan_status="M29_SYMBOL_BLOCKED", research_plan_reason=reason),
+                    replace(plan, direction="WAIT", status="M29_SYMBOL_BLOCKED", reason=reason,
+                            invalid_reason=reason))
+        additional_catalog = load_catalog(Path(__file__).resolve().parents[1] / "config/m29_additional_filters.json")
+        try:
+            configuration_ready = _MODEL29_PATTERN_FILTER_SERVICE.load() is not None and additional_catalog.status == "READY"
+        except (OSError, ValueError, TypeError):
+            configuration_ready = False
+        if source_operational_model not in MT5_MODEL_29_SOURCE_MODEL_IDS or not configuration_ready:
+            reason = "M29 aguarda fonte autorizada e configuracoes proprias validas."
+            return (
+                replace(row, decision="WAIT", theoretical_entry_direction="WAIT",
+                        research_plan_status="M29_CONFIG_WAITING", research_plan_reason=reason),
+                replace(plan, direction="WAIT", status="M29_CONFIG_WAITING", reason=reason,
+                        entry_price=None, stop=None, target=None, invalid_reason=reason),
+            )
+        source_number = operational_model_number(source_operational_model)
+        source_label = f"M{source_number}" if source_number is not None else "N/D"
+        normalized_source = str(source_operational_model or "").upper()
+        parameters = dict(plan.stop_management_parameters or {})
+        source_entry_setup = str(row.active_model or "").strip()
+        source_entry_type = model29_entry_type(
+            parameters,
+            entry_setup=source_entry_setup,
+            alpha_id=plan.alpha_id,
+        )
+        if not source_entry_type:
+            source_entry_type = str(plan.alpha_id or source_label).upper()
+        entry_order_type = str(
+            parameters.get("active_entry_order_type") or ""
+        ).upper()
+        structural_target = self._positive_float(
+            parameters.get("structural_target_price"),
+            0.0,
+        )
+        entry_price = self._positive_float(plan.entry_price, 0.0)
+        stop_price = self._positive_float(plan.stop, 0.0)
+        is_xau_reentry = (
+            normalized_source in {
+                MT5_OPERATIONAL_MODEL_8,
+                *XAU_TREND_FILTER_MODEL_IDS,
+            }
+            and entry_order_type in {"BUY_STOP", "SELL_STOP"}
+        )
+        structural_target_valid = bool(
+            is_xau_reentry
+            and structural_target > 0.0
+            and entry_price > 0.0
+            and (
+                structural_target > entry_price
+                if str(plan.direction or "").upper() == "BUY"
+                else structural_target < entry_price
+            )
+        )
+        basket_target = structural_target if structural_target_valid else plan.target
+        basket_risk = abs(entry_price - stop_price)
+        basket_reward = float(plan.reward_pips or 0.0)
+        basket_risk_reward = float(plan.risk_reward or 0.0)
+        if structural_target_valid:
+            basket_reward = abs(float(basket_target) - entry_price)
+            basket_risk_reward = (
+                basket_reward / basket_risk
+                if basket_risk > 0.0 and basket_reward > 0.0
+                else 0.0
+            )
+        parameters.update(
+            {
+                "source_operational_model": normalized_source,
+                "source_model_label": source_label,
+                "source_entry_setup": source_entry_setup,
+                "source_alpha_id": plan.alpha_id,
+                "m29_entry_type": source_entry_type,
+                "source_initial_stop": plan.stop,
+                "source_target": plan.target,
+                "source_exit_model": plan.exit_model,
+                "source_stop_management": plan.stop_management,
+                "source_stop_management_reason": plan.stop_management_reason,
+                "source_beta_id": plan.beta_id,
+                "source_beta_version": plan.beta_version,
+                "source_beta_mode": plan.beta_mode,
+                "full_exit_usd": MODEL_29_FULL_EXIT_USD,
+                "m29_structural_target_enabled": structural_target_valid,
+                "m29_structural_target_price": (
+                    structural_target if structural_target_valid else None
+                ),
+            }
+        )
+        market_service = getattr(self, "mt5_market_data_service", None)
+        context_rows = list(getattr(market_service, "latest_forex_candles", {}).get(
+            (str(row.pair).upper(), "M5"), ()) or ())
+        from time import perf_counter as context_clock
+        context_key = (str(row.pair).upper(), "M5")
+        observed_at = getattr(market_service, "m23_context_observed_at", {}).get(context_key)
+        observation_age = context_clock() - observed_at if observed_at is not None else None
+        seed_only = context_key in getattr(market_service, "supplemental_forex_seed_only_keys", set())
+        feed_current = observation_age is not None and 0 <= observation_age <= 60 and not seed_only
+        context_window = _MODEL29_SOURCE_CONTEXT.build(
+            context_rows if feed_current else (),
+            expected_candle=parameters.get("indicator_closed_candle_time"),
+        )
+        if not feed_current:
+            context_window = replace(
+                context_window, status="LIVE_DATA_UNCONFIRMED",
+                reason="Candles M5 precisam de leitura MT5 confirmada nos ultimos 60 segundos.",
+            )
+        parameters["m29_context_observation_age_seconds"] = observation_age
+        parameters["m29_context_seed_only"] = seed_only
+        pattern_filter = _MODEL29_PATTERN_FILTER_SERVICE.evaluate(
+            source_model=normalized_source,
+            symbol=str(row.pair),
+            entry_type=source_entry_type,
+            direction=str(plan.direction or row.decision or "WAIT"),
+            record=context_window.record,
+            history=context_window.history,
+            expected_record_time=context_window.expected_time,
+            decision_time=context_window.decision_time,
+        )
+        parameters.update({key.replace("m23_", "m29_", 1): value for key, value in context_window.audit().items()})
+        parameters.update({
+            "m29_pattern_filter_context_id": pattern_filter.context_pattern_id,
+            "m29_pattern_filter_context_timestamp": pattern_filter.context_timestamp,
+            "m29_pattern_filter_context_snapshot": pattern_filter.context_snapshot,
+            "m29_pattern_filter_context_status": pattern_filter.context_status,
+            "m29_pattern_filter_report_generated_at": pattern_filter.report_generated_at,
+        })
+        context_not_ready = (
+            context_window.status != "ALIGNED" or pattern_filter.context_status != "VALID"
+        )
+        pattern_filter_blocks = pattern_filter.decision == "BLOCK" or context_not_ready
+        parameters["m29_context_waiting_for_data"] = context_not_ready
+        parameters.update(
+            {
+                "m29_pattern_filter_mode": MODEL_29_PATTERN_FILTER_MODE,
+                "m29_pattern_filter_decision": pattern_filter.decision,
+                "m29_pattern_filter_rule_id": pattern_filter.rule_id,
+                "m29_pattern_filter_pattern_id": pattern_filter.pattern_id,
+                "m29_pattern_filter_reason": pattern_filter.reason,
+                "m29_pattern_filter_samples": pattern_filter.samples,
+                "m29_pattern_filter_validation_expectancy": (
+                    pattern_filter.validation_expectancy
+                ),
+                "m29_pattern_filter_oos_expectancy": (
+                    pattern_filter.oos_expectancy
+                ),
+                "m29_pattern_filter_blocks_execution": pattern_filter_blocks,
+                "m29_pattern_filter_original_direction": str(
+                    plan.direction or row.decision or "WAIT"
+                ).upper(),
+            }
+        )
+        additional_filter = evaluate_additional_filters(
+            catalog=additional_catalog,
+            source_model=normalized_source,
+            symbol=str(row.pair),
+            direction=str(plan.direction or row.decision or "WAIT"),
+            context_snapshot=pattern_filter.context_snapshot,
+            context_status=pattern_filter.context_status if not context_not_ready else "INVALID",
+        )
+        parameters.update({
+            "m29_additional_mode": additional_filter.mode,
+            "m29_additional_status": additional_filter.status,
+            "m29_additional_matched_ids": list(additional_filter.matched_ids),
+            "m29_additional_matched_labels": list(additional_filter.matched_labels),
+            "m29_additional_blocks_execution": additional_filter.blocks_execution,
+            "m29_additional_reason": additional_filter.reason,
+        })
+        # Persist the exact inputs even when a signal is waiting or blocked.
+        self._record_m29_context_diagnostic(str(row.pair), normalized_source, parameters)
+        if pattern_filter_blocks:
+            status = 'M29_CONTEXT_WAITING' if context_not_ready else 'M29_PATTERN_FILTER_BLOCKED'
+            reason = (
+                'M29 aguarda contexto M5 sincronizado: ' + (
+                    context_window.reason if context_window.status != 'ALIGNED' else pattern_filter.reason
+                ) if context_not_ready else pattern_filter.reason
+            )
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status=status,
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=reason,
+                    research_plan_status=status,
+                    research_plan_entry_price=None,
+                    research_plan_stop=None,
+                    research_plan_target=None,
+                    research_plan_reason=reason,
+                ),
+                replace(
+                    plan,
+                    direction="WAIT",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    status=status,
+                    reason=reason,
+                    invalid_reason=status,
+                    invalid_fields=("m29_pattern_filter",),
+                    stop_management_parameters=parameters,
+                ),
+            )
+        if additional_filter.blocks_execution:
+            status = "M29_ADDITIONAL_FILTER_BLOCKED"
+            reason = additional_filter.reason
+            return (
+                replace(
+                    row, decision="WAIT", theoretical_entry_direction="WAIT",
+                    theoretical_entry_status=status, theoretical_entry_price=None,
+                    theoretical_entry_reason=reason, research_plan_status=status,
+                    research_plan_entry_price=None, research_plan_stop=None,
+                    research_plan_target=None, research_plan_reason=reason,
+                ),
+                replace(
+                    plan, direction="WAIT", entry_price=None, stop=None, target=None,
+                    status=status, reason=reason, invalid_reason=status,
+                    invalid_fields=("m29_additional_filter",),
+                    stop_management_parameters=parameters,
+                ),
+            )
+        if is_xau_reentry and not structural_target_valid:
+            status = "M29_XAU_AGUARDA_ALVO_ESTRUTURAL_CONFIRMADO"
+            reason = (
+                "M29 aguardando ultimo topo/fundo M5 confirmado no lado "
+                "favoravel antes de armar a reentrada XAU."
+            )
+            return (
+                replace(
+                    row,
+                    decision="WAIT",
+                    theoretical_entry_direction="WAIT",
+                    theoretical_entry_status=status,
+                    theoretical_entry_price=None,
+                    theoretical_entry_reason=reason,
+                    research_plan_status=status,
+                    research_plan_entry_price=None,
+                    research_plan_stop=None,
+                    research_plan_target=None,
+                    research_plan_reason=reason,
+                ),
+                replace(
+                    plan,
+                    direction="WAIT",
+                    entry_price=None,
+                    stop=None,
+                    target=None,
+                    status=status,
+                    reason=reason,
+                    invalid_reason=status,
+                    invalid_fields=("structural_target",),
+                    stop_management_parameters=parameters,
+                ),
+            )
+        basket_plan = replace(
+            plan,
+            target=basket_target,
+            risk_reward=basket_risk_reward,
+            reward_pips=basket_reward,
+            reward_percent=(
+                abs(basket_reward / entry_price)
+                if structural_target_valid and entry_price > 0.0
+                else float(plan.reward_percent or 0.0)
+            ),
+            exit_model=MODEL_29_BETA_VERSION,
+            stop_reason=f"M29 copiou o SL individual do {source_label}: {plan.stop_reason}",
+            target_reason=(
+                "M29 XAU usa o ultimo topo/fundo M5 estrutural confirmado; "
+                "a cesta tambem encerra em +US$1.000, o que ocorrer primeiro."
+                if structural_target_valid
+                else f"M29 copiou o TP individual do {source_label}: {plan.target_reason}"
+            ),
+            stop_management=MODEL_29_EXIT_POLICY,
+            stop_management_parameters=parameters,
+            stop_management_reason=(
+                "Entrada, SL, TP e saida dinamica permanecem sob o contrato da "
+                "fonte; adicionalmente, a cesta faz Full Exit a mercado em "
+                "+US$1.000."
+            ),
+            alpha_id=MODEL_29_ALPHA_ID,
+            alpha_version=MODEL_29_ALPHA_VERSION,
+            beta_id=MODEL_29_BETA_ID,
+            beta_version=MODEL_29_BETA_VERSION,
+            beta_mode="FULL_EXIT_1000_ONLY",
+            beta_reason="Zeragem coletiva somente em +US$1.000 liquidos.",
+            source=MODEL_29_ENTRY_SOURCE,
+            reason=(
+                f"M29 herdou o contrato operacional completo do {source_label}: "
+                f"{plan.reason}"
+            ),
+        )
+        basket_row = replace(
+            row,
+            active_model=f"M29 <- {source_label} | {row.active_model}",
+            reason=f"M29 captou a entrada valida do {source_label}. {row.reason}",
+            lab_alpha_id=MODEL_29_ALPHA_ID,
+            lab_alpha_version=MODEL_29_ALPHA_VERSION,
+            beta_id=MODEL_29_BETA_ID,
+            beta_version=MODEL_29_BETA_VERSION,
+            beta_mode="FULL_EXIT_1000_ONLY",
+            lab_parameters=parameters,
+            lab_configuration_source=MODEL_29_ENTRY_SOURCE,
+            research_plan_source=MODEL_29_ENTRY_SOURCE,
+            research_plan_reason=(
+                f"Entrada e saidas nativas originadas no {source_label}; "
+                "Full Exit coletivo adicional em +US$1.000."
+            ),
+            research_plan_target=basket_target,
+            research_plan_risk_reward=basket_risk_reward,
+        )
+        return self._apply_model29_m7_mode(basket_row, basket_plan, source_label)
+
+    def _evaluate_model29_risk_gate(
+        self,
+        pair: str,
+        timeframe: str,
+    ) -> DashboardDemoRobotViewModel | None:
+        """Prioriza a defesa financeira M29 antes de candles e novas entradas."""
+        if not self._mt5_model29_routing_enabled():
+            return None
+        try:
+            snapshot = Model29BasketManager(
+                execution_service=self.demo_robot_execution_service,
+            ).evaluate_once()
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            blocked = DashboardDemoRobotViewModel(
+                status="M29_RISK_READ_BLOCKED",
+                message=(
+                    "M29 bloqueado: nao foi possivel confirmar o resultado "
+                    "financeiro atual da cesta no MT5."
+                ),
+                selected_pair=pair,
+                timeframe=timeframe,
+                model=MT5_OPERATIONAL_MODEL_29,
+                decision="WAIT",
+                result_status="M29_RISK_READ_ERROR",
+                result_message=str(exc),
+                provider="MT5_DEMO",
+                mt5_order_send_enabled=False,
+                audit_log=self._demo_robot_audit_rows(),
+            )
+            object.__setattr__(self, "last_demo_robot_status", blocked)
+            return blocked
+        if snapshot.status not in {"CLOSING", "EXIT_SUBMITTED", "EXIT_PARTIAL"}:
+            return None
+        blocked = DashboardDemoRobotViewModel(
+            status=snapshot.status,
+            message="M29 zerando a cesta; novas entradas permanecem bloqueadas.",
+            selected_pair=pair,
+            timeframe=timeframe,
+            model=MT5_OPERATIONAL_MODEL_29,
+            decision="WAIT",
+            result_status=snapshot.exit_reason or snapshot.status,
+            result_message=(
+                f"Fechados neste ciclo: {snapshot.closed}; "
+                f"rejeitados: {snapshot.rejected}; "
+                f"a confirmar no MT5: {snapshot.positions}."
+            ),
+            provider="MT5_DEMO",
+            mt5_order_send_enabled=False,
+            audit_log=self._demo_robot_audit_rows(),
+        )
+        object.__setattr__(self, "last_demo_robot_status", blocked)
+        return blocked
+
+    def _record_m29_context_diagnostic(self, symbol, source, parameters):
+        """Record context availability separately from trading-rule decisions."""
+        try:
+            import json as context_json
+            from pathlib import Path as ContextPath
+            from datetime import datetime as ContextDateTime, timezone as ContextTimezone
+            payload = {
+                "updated_at": ContextDateTime.now(ContextTimezone.utc).isoformat(),
+                "symbol": symbol,
+                "source_model": source,
+                **{key: value for key, value in parameters.items()
+                   if key.startswith(("m29_context_", "m29_pattern_filter_", "m29_additional_"))},
+            }
+            path = ContextPath(".traderia/runtime/m29_context_sync_latest.json")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(context_json.dumps(payload, ensure_ascii=True), encoding="utf-8")
+        except (OSError, TypeError, ValueError):
+            pass
 
     def _mt5_model24_variant_from_source(
         self,
@@ -10446,7 +11105,6 @@ class DashboardService:
             ),
             plan,
         )
-
 
     def _mt5_model26_smart_money_plans(
         self,
@@ -13480,11 +14138,18 @@ class DashboardService:
         )
 
     def _mt5_demo_execution_enabled(self) -> bool:
-        return os.environ.get("TRADERIA_DEMO_EXECUTION_ENABLED") == "1"
+        from core.mt5_execution_account import MT5ExecutionAccount
+
+        return MT5ExecutionAccount.from_env().configured
 
     def _enable_mt5_demo_provider(self) -> None:
+        from core.mt5_execution_account import MT5ExecutionAccount
+
         current_provider = getattr(self.demo_robot_execution_service, "provider", None)
-        if current_provider.__class__.__name__ == "MT5DemoExecutionProvider":
+        if (
+            current_provider.__class__.__name__ == "MT5DemoExecutionProvider"
+            and getattr(current_provider, "execution_account", None) == MT5ExecutionAccount.from_env()
+        ):
             current_provider.operational_model_state_path = (
                 Path(".traderia") / "mt5_operational_model.json"
             )
@@ -13520,7 +14185,7 @@ class DashboardService:
     def _mt5_demo_execution_policy_from_env(self) -> DemoExecutionPolicy:
         return DemoExecutionPolicy(
             max_daily_operations=int(os.environ.get("TRADERIA_DEMO_MAX_TRADES", "0")),
-            max_daily_loss=float(os.environ.get("TRADERIA_DEMO_MAX_DAILY_LOSS", "500")),
+            max_daily_loss=float(os.environ.get("TRADERIA_DEMO_MAX_DAILY_LOSS", "0")),
             allowed_start=os.environ.get(
                 "TRADERIA_DEMO_ALLOWED_START",
                 "00:00",
@@ -13560,7 +14225,11 @@ class DashboardService:
             result_status=result_status,
             result_message=result_message,
             provider=provider,
-            real_order_enabled=False,
+            real_order_enabled=(
+                os.environ.get("TRADERIA_EXECUTION_ACCOUNT_MODE", "DEMO").upper() == "REAL"
+                and self._mt5_demo_execution_enabled()
+                and mt5_order_send_enabled
+            ),
             mt5_order_send_enabled=mt5_order_send_enabled,
             lab_configuration=self.mt5_visual_signal_exporter._lab_configuration(row),
             market_indicators=self.mt5_visual_signal_exporter._market_indicators(row),
@@ -17136,7 +17805,7 @@ class DashboardService:
         snapshot: object,
         parameters: dict[str, object],
     ) -> DashboardMT5LabReplayTradeViewModel | None:
-        """Reconstrói uma operação fechada pelo plano inicial do Lab."""
+        """ReconstrÃ³i uma operaÃ§Ã£o fechada pelo plano inicial do Lab."""
         if entry_index < 0 or entry_index >= len(candles):
             return None
         entry = float(getattr(candles[entry_index], "fechamento", 0.0) or 0.0)

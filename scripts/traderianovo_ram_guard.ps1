@@ -113,6 +113,10 @@ function Start-TraderIAStreamlit {
     }
     $script = @"
 `$env:TRADERIA_DEMO_EXECUTION_ENABLED='1'
+`$env:TRADERIA_EXECUTION_ACCOUNT_MODE='DEMO'
+`$env:TRADERIA_REAL_EXECUTION_ENABLED='0'
+`$env:TRADERIA_DEMO_ACCOUNT_LOGIN='61551556'
+`$env:TRADERIA_DEMO_ACCOUNT_SERVER='Pepperstone-Demo'
 `$env:TRADERIA_WEEKLY_ROBOT_SCHEDULE_ENABLED='1'
 `$env:TRADERIA_MT5_INPROCESS_ENABLED='1'
 `$env:TRADERIA_MT5_MARKET_DATA_EXTERNAL_PROCESS_ENABLED='1'
@@ -126,7 +130,8 @@ function Start-TraderIAStreamlit {
 `$env:TRADERIA_MT5_SERVER_TIME_CACHE_SECONDS='10'
 `$env:TRADERIA_MT5_REPORT_EXTERNAL_TIMEOUT_SECONDS='15'
 `$env:TRADERIA_MT5_EXECUTION_READ_TIMEOUT_SECONDS='8'
-`$env:MT5_PATH='C:\Program Files\MetaTrader 5\terminal64.exe'
+`$env:MT5_PATH=Join-Path `$env:LOCALAPPDATA 'TraderIANovo\MT5-Demo\terminal64.exe'
+`$env:MT5_PORTABLE='1'
 Set-Location '$ProjectRoot'
 & '$python' -m streamlit run '$DashboardPath' --server.port $Port --server.address 127.0.0.1 --server.headless true --server.fileWatcherType none --browser.gatherUsageStats false
 "@

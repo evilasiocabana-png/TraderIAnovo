@@ -6,11 +6,11 @@ import re
 
 
 ACTIVE_OPERATIONAL_MODEL_NUMBERS = frozenset(
-    {1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 26, 27, 28}
+    {1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 26, 27, 28, 29}
 )
 SHADOW_OPERATIONAL_MODEL_NUMBERS = frozenset()
 RETIRED_OPERATIONAL_MODEL_NUMBERS = frozenset(
-    set(range(1, 29))
+    set(range(1, 30))
     - set(ACTIVE_OPERATIONAL_MODEL_NUMBERS)
     - set(SHADOW_OPERATIONAL_MODEL_NUMBERS)
 )
@@ -30,6 +30,7 @@ ACTIVE_SCOPED_MODEL_IDS = frozenset(
         "MODELO_26_XAU_M5_SMART_MONEY",
         "MODELO_27_ESPELHO_M26",
         "MODELO_28_PATTERN_MINER_SHADOW",
+        "MODELO_29_BASKET_ACCUMULATOR",
     }
 )
 RETIRED_LEGACY_MODEL_IDS = frozenset(
@@ -65,13 +66,13 @@ RETIRED_LEGACY_MODEL_IDS = frozenset(
 
 
 def operational_model_number(value: object) -> int | None:
-    """Extrai M1..M28 de IDs canonicos, aliases e comentarios de auditoria."""
+    """Extrai M1..M29 de IDs canonicos, aliases e comentarios de auditoria."""
     normalized = str(value or "").strip().upper()
     match = re.search(r"(?:MODELO[_ ]?|(?:^|[\s|])M)(\d{1,2})(?:_|\b|$)", normalized)
     if match is None:
         return None
     number = int(match.group(1))
-    return number if 1 <= number <= 28 else None
+    return number if 1 <= number <= 29 else None
 
 
 def is_active_operational_model(value: object) -> bool:
