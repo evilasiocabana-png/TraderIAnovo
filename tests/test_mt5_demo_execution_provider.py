@@ -2318,7 +2318,7 @@ class _FakeMT5:
         self.rates = []
         self.empty_order_response = False
         self.last_error_value = (1, "Success")
-        self.symbol = SimpleNamespace(visible=True)
+        self.symbol = SimpleNamespace(visible=True, trade_tick_size=0.01, digits=2)
         self.pending_orders = []
         self.requests = []
         self.profit_scale = 1.0
@@ -2329,7 +2329,7 @@ class _FakeMT5:
         return True
 
     def account_info(self):
-        return SimpleNamespace(trade_mode=self.trade_mode, trade_allowed=True, trade_expert=True)
+        return SimpleNamespace(trade_mode=self.trade_mode, trade_allowed=True, trade_expert=True, currency="USD")
 
     def terminal_info(self):
         return SimpleNamespace(connected=True, trade_allowed=True, tradeapi_disabled=False)

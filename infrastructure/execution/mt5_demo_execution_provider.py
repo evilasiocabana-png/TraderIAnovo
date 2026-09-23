@@ -1113,6 +1113,20 @@ mt5.shutdown()
                 self._write_log(order, pending_transition_rejection)
                 return pending_transition_rejection
             request = self._request(order, tick)
+            from application.model23_fixed_loss_stop import protected_request as protect_m23
+            try:
+                request = protect_m23(order, request, self.mt5)
+            except Exception as exc:
+                result = ExecutionResult(accepted=False, status="REJECTED",
+                    message=f"Defesa financeira M23 indisponivel: {exc}")
+                self._write_log(order, result)
+                return result
+            if float(request["sl"]) != float(order.stop):
+                from dataclasses import replace as replace_m23
+                snapshot = dict(order.plan_snapshot or {})
+                snapshot.update(m23_structural_stop=order.stop,
+                    m23_fixed_loss_limit_usd=200.0, m23_applied_stop=request["sl"], stop=request["sl"])
+                order = replace_m23(order, stop=float(request["sl"]), plan_snapshot=snapshot)
             order_check = self._order_check(request)
             if order_check is not None and not self._order_check_passed(order_check):
                 result = ExecutionResult(

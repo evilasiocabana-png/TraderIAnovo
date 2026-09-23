@@ -1,3 +1,20 @@
+Recarga concluida pelo launcher oficial. Health ok e pagina HTTP200;
+selecao, estado online e agenda preservados por hash. Real DISABLED.
+Construtor historico M29 aceita historical_alternations em processo novo;
+a recarga remove a classe antiga em memoria observada no erro do relatorio.
+Nenhuma ordem enviada para testar, nenhum ajuste de posicao executado.
+
+## 2026-09-23 - Defesa inicial USD200 nas entradas diretas M23
+
+Novas ordens diretas M23 recebem SL limitado a USD200 de perda bruta modelada
+por order_calc_profit da corretora, com ativo, volume e preco do request.
+Stops estruturais menores sao preservados; falhas bloqueiam envio. TP, RSI,
+fontes, lotes e gestao existente preservados. Copias M29 mantem sua defesa
+vigente separada. Nenhuma alteracao retroativa de posicoes ou pendentes.
+Validacao: 241 testes e quatro subtestes aprovados, incluindo executor falso,
+M18/M20 BUY/SELL, stops menores/maiores, falhas e saidas RSI50.
+Contrato: docs/architecture/M23_FIXED_LOSS_DEFENSE.md.
+
 ## 2026-09-17 - M29 restrito a fonte M7
 
 Novas entradas M29 aceitam somente M7, nos modos NORMAL e ESPELHADO. A lista de avaliacao e a whitelist compartilhada pelos preflights de mercado/pendentes foram restringidas. A copia de sinais M29 para M23 tambem recusa origens diferentes de M7; fontes proprias M23 permanecem inalteradas. Historico legado, posicoes existentes, regras de modo, lotes e sincronizacao foram preservados. Painel informa apenas M7.
