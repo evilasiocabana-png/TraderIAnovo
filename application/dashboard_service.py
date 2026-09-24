@@ -16,6 +16,8 @@ import threading
 import time
 from typing import Any, Iterator
 import warnings
+from application.learning_observer import observe_plans
+from application.model30_learning import is_model30
 
 
 _MT5_EXECUTION_LOG_CACHE_LOCK = threading.Lock()
@@ -1143,6 +1145,23 @@ class DashboardServiceError(RuntimeError):
 @dataclass(frozen=True)
 class DashboardService:
     """Fachada unica consumida pelo dashboard visual."""
+
+    def get_learning_dashboard(self, page: int = 0, source: str = "", executor: str = "") -> dict:
+        from application.learning_observer import observer
+        from application.learning_policy import journal_page
+        from application.model30_learning import pair_page, enabled, comparison
+        collector = observer()
+        return {**collector.store.page(page=page, source=source, executor=executor), "health": collector.health(),
+                "journal": journal_page(collector.store), "pairs": pair_page(collector.store),
+                "m30_enabled": enabled(collector.store), "comparison": comparison(collector.store)}
+
+    def set_model30_enabled(self, value: bool) -> None:
+        from application.learning_store import LearningStore, now
+        from application.learning_policy import tables, journal
+        with LearningStore().connect() as db:
+            tables(db)
+            db.execute("INSERT OR REPLACE INTO metadata VALUES ('m30_enabled',?)", ("true" if value else "false",))
+            journal(db, "CONFIGURACAO", "M30", "Novas copias M30 Demo habilitadas." if value else "Novas copias M30 Demo desabilitadas; posicoes abertas preservadas.", {}, now())
 
     market_service: MarketService = MarketService()
     system_service: SystemService = SystemService()
@@ -4989,7 +5008,7 @@ class DashboardService:
         ).upper()
         effective_model = (
             basket_source_model
-            if (is_model23(recorded_model) or is_model29(recorded_model) or is_model24(recorded_model))
+            if (is_model23(recorded_model) or is_model29(recorded_model) or is_model24(recorded_model) or is_model30(recorded_model))
             and basket_source_model
             and not (is_model29(recorded_model) and parameters.get("m29_mirrored"))
             else recorded_model
@@ -8175,6 +8194,11 @@ class DashboardService:
         timeframe: str,
     ) -> DashboardDemoRobotViewModel | None:
         """Prioriza a defesa financeira M23 antes de candles e novas entradas."""
+        try:
+            from application.model30_learning import manage_basket
+            manage_basket(self.demo_robot_execution_service)
+        except Exception as exc:
+            object.__setattr__(self, "model30_risk_error", str(exc)[:300])
         if not self._mt5_model23_routing_enabled():
             return None
         try:
@@ -8542,6 +8566,7 @@ class DashboardService:
             if str(getattr(row, "pair", "")).upper() == requested
         ]
 
+    @observe_plans("M23", executor="M23")
     def _mt5_model23_variant_from_source(
         self,
         row: DashboardMT5ForexSignalRowViewModel,
@@ -8894,6 +8919,7 @@ class DashboardService:
                     target_reason="M29 M7 espelhado: SL original usado como TP."),
         )
 
+    @observe_plans("M29", executor="M29")
     def _mt5_model29_variant_from_source(
         self,
         row: DashboardMT5ForexSignalRowViewModel,
@@ -10115,6 +10141,7 @@ class DashboardService:
             ).upper(),
         )
 
+    @observe_plans("SOURCE")
     def _mt5_apply_operational_model(
         self,
         row: DashboardMT5ForexSignalRowViewModel,
@@ -11106,6 +11133,7 @@ class DashboardService:
             plan,
         )
 
+    @observe_plans("SOURCE", executor="M26")
     def _mt5_model26_smart_money_plans(
         self,
         row: DashboardMT5ForexSignalRowViewModel,
@@ -11365,6 +11393,7 @@ class DashboardService:
             plan,
         )
 
+    @observe_plans("SOURCE", executor="M27")
     def _mt5_model27_mirror_plans(
         self,
         row: DashboardMT5ForexSignalRowViewModel,

@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 import threading
 import time
-from typing import Any, Protocol
+from typing import Any, Protocol, Callable
 from uuid import uuid4
 
 MODEL_23_ID = "MODELO_23_BASKET_ACCUMULATOR"
@@ -241,6 +241,8 @@ class Model23BasketManager:
     )
     full_exit_usd: float = MODEL_23_FULL_EXIT_USD
     close_confirmation_seconds: float = MODEL_23_CLOSE_CONFIRMATION_SECONDS
+    position_matches: Callable[[object], bool] = model23_position_matches
+    model_label: str = "M23"
 
     def evaluate_once(self) -> Model23BasketSnapshot:
         """Avalia e, quando necessario, encerra todos os tickets M23 Demo."""
@@ -249,7 +251,7 @@ class Model23BasketManager:
                 (
                     position
                     for position in self.execution_service.list_open_positions()
-                    if model23_position_matches(position)
+                    if self.position_matches(position)
                 ),
                 key=model23_position_net,
                 reverse=True,
@@ -285,7 +287,7 @@ class Model23BasketManager:
             trailing_floor = 0.0
             pending_exit = (
                 state.status in {"CLOSING", "EXIT_SUBMITTED", "EXIT_PARTIAL"}
-                and state.exit_reason == "M23_FULL_EXIT_PLUS_1000_USD"
+                and state.exit_reason == f"{self.model_label}_FULL_EXIT_PLUS_1000_USD"
             )
             if pending_exit and self._awaiting_close_confirmation(state, now):
                 snapshot = Model23BasketSnapshot(
@@ -384,7 +386,7 @@ class Model23BasketManager:
 
     def _exit_reason(self, net_result: float) -> str:
         if net_result >= self.full_exit_usd:
-            return "M23_FULL_EXIT_PLUS_1000_USD"
+            return f"{self.model_label}_FULL_EXIT_PLUS_1000_USD"
         return ""
 
     def _awaiting_close_confirmation(

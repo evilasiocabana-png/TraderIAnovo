@@ -10,7 +10,7 @@ import subprocess
 import sys
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -84,12 +84,15 @@ from core.mt5_external_process_gate import (
     set_mt5_external_cache,
 )
 from core.mt5_process_probe import resolve_mt5_terminal_path, terminate_process_tree
+from application.model30_learning import (
+    is_model30, paired_submit, model30_comment, MODEL_30_MAGIC,
+)
 
 
 _MT5_ORDER_SEND_LOCK = threading.Lock()
 MAX_OPERATIONAL_MODELS_PER_SYMBOL = 22
 MAX_MODEL23_POSITIONS_PER_SYMBOL = 64
-KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 30))
+KNOWN_MODEL_COMMENTS = frozenset(f"M{index}" for index in range(1, 31))
 INDEPENDENT_SMA_RSI_MODEL_IDS = frozenset(
     {
         MODEL_8_ID,
@@ -100,7 +103,7 @@ INDEPENDENT_SMA_RSI_MODEL_IDS = frozenset(
 
 
 def _is_basket_model(value: object) -> bool:
-    return is_model23(value) or is_model29(value) or is_model24(value) or is_model25(value)
+    return is_model23(value) or is_model29(value) or is_model24(value) or is_model25(value) or is_model30(value)
 
 
 @dataclass(frozen=True)
@@ -990,6 +993,7 @@ mt5.shutdown()
         )
         return result
 
+    @paired_submit
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         """Converte ExecutionOrder em request MT5 para a conta configurada."""
         selection_check = self._operational_selection_preflight(order)
@@ -1113,6 +1117,8 @@ mt5.shutdown()
                 self._write_log(order, pending_transition_rejection)
                 return pending_transition_rejection
             request = self._request(order, tick)
+            if is_model30(order.operational_model):
+                request["magic"] = MODEL_30_MAGIC
             from application.model23_fixed_loss_stop import protected_request as protect_m23
             try:
                 request = protect_m23(order, request, self.mt5)
@@ -1142,6 +1148,7 @@ mt5.shutdown()
                 self._write_log(order, pending_replacement)
                 return pending_replacement
             try:
+                self._m30_effective_request = dict(request)
                 response = self._checked_order_send(request)
             except Exception as exc:  # noqa: BLE001 - ponte externa MT5
                 response = _ExecutionSendException(exc)
@@ -1160,6 +1167,15 @@ mt5.shutdown()
         order: ExecutionOrder,
     ) -> ExecutionResult | None:
         """Bloqueia no provider qualquer modelo fora da selecao persistida."""
+        if is_model30(order.operational_model):
+            from application.model30_learning import enabled, risk_ready
+            from application.model23_basket_accumulator import model23_entry_gate
+            from application.learning_store import ROOT
+            allowed, reason = model23_entry_gate((order.plan_snapshot or {}).get("candle_time"),
+                                                 ROOT / ".traderia" / "model30_basket_state.json")
+            if enabled() and allowed and risk_ready():
+                return None
+            return ExecutionResult(False, "REJECTED", "M30 desabilitado ou rodada bloqueada: " + reason)
         state_path = self.operational_model_state_path
         if state_path is None:
             return None
@@ -2050,6 +2066,8 @@ mt5.shutdown()
     def _is_no_target_model(self, order: ExecutionOrder) -> bool:
         snapshot = dict(getattr(order, "plan_snapshot", None) or {})
         parameters = dict(snapshot.get("stop_management_parameters") or {})
+        if is_model30(order.operational_model):
+            return not bool(self._positive_float(parameters.get("m30_effective_target")))
         if is_model24(getattr(order, "operational_model", "")):
             return not (
                 bool(parameters.get("m24_individual_target_enabled"))
@@ -2251,6 +2269,9 @@ mt5.shutdown()
                 getattr(pending, "comment", "") or ""
             ).upper()
             same_route = pending_comment == expected_comment
+            if is_model30(order.operational_model):
+                from application.model30_learning import same_route as m30_same_route
+                same_route = m30_same_route(order, pending)
             if (
                 not same_route
                 and is_model23(getattr(order, "operational_model", ""))
@@ -2492,6 +2513,11 @@ mt5.shutdown()
     ) -> ExecutionResult | None:
         """Aplica somente o teto tecnico de posicoes e bloqueia origem desconhecida."""
         operational_model = getattr(order, "operational_model", "")
+        if is_model30(operational_model):
+            from application.model30_learning import preflight
+            rejection = preflight(self, order)
+            if rejection:
+                return ExecutionResult(False, "REJECTED", rejection)
         if is_model29(operational_model):
             source_rejection = self._model29_source_position_preflight(order)
             if source_rejection is not None:
@@ -3780,6 +3806,12 @@ mt5.shutdown()
         order: ExecutionOrder,
         result: ExecutionResult,
     ) -> None:
+        if result.accepted and is_model23(order.operational_model):
+            effective = getattr(self, "_m30_effective_request", {})
+            self._m30_last_accepted = (result.ticket, replace(order,
+                stop=float(effective.get("sl", order.stop)),
+                target=float(effective.get("tp", order.target) or 0),
+                quantity=float(effective.get("volume", order.quantity))))
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "timestamp": datetime.now().astimezone().isoformat(),
@@ -3815,6 +3847,14 @@ mt5.shutdown()
             ),
             "plan_snapshot": getattr(order, "plan_snapshot", None) or {},
         }
+        if result.accepted:
+            try:
+                observed_account = self.mt5.account_info()
+                payload["observed_account_login"] = getattr(observed_account, "login", None)
+                payload["observed_account_server"] = getattr(observed_account, "server", None)
+            except Exception:
+                payload["observed_account_login"] = None
+                payload["observed_account_server"] = None
         with self.log_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(payload, ensure_ascii=True) + "\n")
         if self.execution_log_cache is not None:
@@ -3833,6 +3873,8 @@ mt5.shutdown()
                 self.execution_log_cache_signature = None
 
     def _order_comment(self, order: ExecutionOrder) -> str:
+        if is_model30(order.operational_model):
+            return model30_comment(order)
         if is_model25(getattr(order, "operational_model", "")):
             base = model25_order_comment(getattr(order, "operational_model", ""))
             role = self._model25_order_role(order)
@@ -3890,7 +3932,7 @@ mt5.shutdown()
         match = re.search(r"(?:MODELO[_ ]?|^M)(\d{1,2})(?:_|\b)", model)
         if match is not None:
             number = int(match.group(1))
-            if 1 <= number <= 29:
+            if 1 <= number <= 30:
                 return f"M{number}"
         if model in {
             "MODELO_2_ESPELHO_BETA2_RR1",

@@ -1,3 +1,18 @@
+## 2026-09-24 - Aprendizado persistente e M30 Demo
+
+Coleta causal separada do runtime de mercado; baseline versionada preserva
+Replay, setups e filtros M23. M30 adicional habilitado na mesma Demo hedging,
+com identidade, pareamento e cesta independentes. Real permanece desligada.
+Ciclo estatistico diario persistente: candidato congelado, validacao futura,
+promocao somente M30 e reversao conservadora. Sem amostra, mantem baseline.
+Validacao: 272 testes e dois subtestes; recarga controlada com health OK e
+selecao, estado online e agenda byte-identicos. Aba Aprendizado confirmada
+no navegador com 313 variantes (60 prospectivas), banco 4.44 MiB e consulta
+local de aproximadamente 3 ms. Diario inicial INCONCLUSIVO. Nenhum par M30
+natural confirmado ainda; nenhuma ordem forcada para testar. Proximo marco:
+conciliar a primeira dupla natural e acumular evidencia futura suficiente.
+Contrato: docs/architecture/OPERATIONAL_MODEL_30_LEARNING.md.
+
 Recarga concluida pelo launcher oficial. Health ok e pagina HTTP200;
 selecao, estado online e agenda preservados por hash. Real DISABLED.
 Construtor historico M29 aceita historical_alternations em processo novo;

@@ -1,3 +1,18 @@
+## 2026-09-24 - Aprendizado persistente e M30 Demo
+
+Coleta causal separada do runtime de mercado; baseline versionada preserva
+Replay, setups e filtros M23. M30 adicional habilitado na mesma Demo hedging,
+com identidade, pareamento e cesta independentes. Real permanece desligada.
+Ciclo estatistico diario persistente: candidato congelado, validacao futura,
+promocao somente M30 e reversao conservadora. Sem amostra, mantem baseline.
+Validacao: 272 testes e dois subtestes; recarga controlada com health OK e
+selecao, estado online e agenda byte-identicos. Aba Aprendizado confirmada
+no navegador com 313 variantes (60 prospectivas), banco 4.44 MiB e consulta
+local de aproximadamente 3 ms. Diario inicial INCONCLUSIVO. Nenhum par M30
+natural confirmado ainda; nenhuma ordem forcada para testar. Proximo marco:
+conciliar a primeira dupla natural e acumular evidencia futura suficiente.
+Contrato: docs/architecture/OPERATIONAL_MODEL_30_LEARNING.md.
+
 ## 2026-09-17 - M29 restrito a fonte M7
 
 Novas entradas M29 aceitam somente M7, nos modos NORMAL e ESPELHADO. A lista de avaliacao e a whitelist compartilhada pelos preflights de mercado/pendentes foram restringidas. A copia de sinais M29 para M23 tambem recusa origens diferentes de M7; fontes proprias M23 permanecem inalteradas. Historico legado, posicoes existentes, regras de modo, lotes e sincronizacao foram preservados. Painel informa apenas M7.

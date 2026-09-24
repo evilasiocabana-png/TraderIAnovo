@@ -2251,6 +2251,7 @@ def exibir_dashboard_layout(service: DashboardService, data: object) -> None:
             "Replay",
             "Historico MT5",
             "Relatorios",
+            "Aprendizado",
             "Sistema Forex",
         )
     )
@@ -2267,6 +2268,9 @@ def exibir_dashboard_layout(service: DashboardService, data: object) -> None:
         exibir_mt5_history_comparison_dashboard(service, data)
     elif selected_tab == "Relatorios":
         exibir_relatorios_dashboard(service, data)
+    elif selected_tab == "Aprendizado":
+        from application.learning_dashboard import render_learning_dashboard
+        render_learning_dashboard(service)
     elif selected_tab == "Sistema Forex":
         exibir_sistema_dashboard(data, service)
     else:
@@ -2370,6 +2374,8 @@ def exibir_mt5_forex_dashboard(
 
     st.subheader("MT5 Forex")
     st.caption("Analise de mercado. Estado de execucao separado por conta abaixo.")
+    from application.learning_dashboard import render_model30_panel
+    render_model30_panel(service)
     st.caption(
         "Leitura pelo ultimo estado local do TraderIA."
     )
@@ -4530,6 +4536,8 @@ def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None
         except Exception:
             pass
     st.subheader("Relatorios")
+    from application.learning_dashboard import render_model30_panel
+    render_model30_panel(service, report=True)
     if st.button("Atualizar auditoria MT5", key="mt5_report_refresh_audit"):
         st.session_state[MT5_REPORT_AUDIT_CACHE_KEY] = _maybe_refresh_mt5_trade_audit_report(
             service,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from application.learning_observer import observe_execution
 
 from application.demo_execution_service import DemoExecutionService
 from application.lab_operational_model_service import (
@@ -224,6 +225,7 @@ class MT5DemoRobotService:
     last_candle_by_market: dict[tuple[str, str, str, str], str] = field(default_factory=dict)
     last_decision_by_market: dict[tuple[str, str, str, str], str] = field(default_factory=dict)
 
+    @observe_execution
     def evaluate_once(
         self,
         signal: MT5DemoRobotSignal,
