@@ -223,18 +223,18 @@ def comparison(store=None):
         return []
     with store.connect() as db:
         tables(db)
-        rows = db.execute("""SELECT p.created_at,p.original_ticket,p.clone_ticket,p.status,
+        rows = db.execute("""SELECT p.pair_id,p.created_at,p.original_ticket,p.clone_ticket,p.status,
             e.net AS m23_net,c.net AS m30_net,e.status AS m23_state,c.status AS m30_state
-            FROM m30_pairs p LEFT JOIN executions e ON e.ticket=p.original_ticket AND e.account_mode='DEMO'
-            LEFT JOIN executions c ON c.ticket=p.clone_ticket AND c.account_mode='DEMO'
+            FROM m30_pairs p LEFT JOIN executions e ON e.ticket=p.original_ticket AND e.account=p.account AND e.account_mode='DEMO'
+            LEFT JOIN executions c ON c.ticket=p.clone_ticket AND c.account=p.account AND c.account_mode='DEMO'
             ORDER BY p.created_at DESC LIMIT 1000""").fetchall()
     result = []
     seen = set()
     total23 = total30 = 0.0
     for row in reversed(rows):
-        if row["original_ticket"] in seen:
+        if row["pair_id"] in seen:
             continue
-        seen.add(row["original_ticket"])
+        seen.add(row["pair_id"])
         if row["m23_state"] != "CLOSED" or (row["m30_state"] != "CLOSED" and row["status"] != "FILTERED"):
             continue
         total23 += row["m23_net"]

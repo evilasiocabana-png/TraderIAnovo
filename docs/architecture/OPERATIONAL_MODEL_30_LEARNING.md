@@ -104,3 +104,8 @@ na arvore de trabalho. A recarga final preservou os mesmos arquivos de estado;
 a coleta alcancou 387 variantes (banco e WAL aproximadamente 4.90 MiB).
 A tabela teorica consulta exclusivamente as variantes M23, sem ser deslocada
 pela paginacao dos registros de outras fontes.
+
+Na observacao posterior da mesma sessao, o fluxo produziu pares naturais e a
+primeira dupla foi encerrada e conciliada por deals nativos, sem ordem de teste.
+O relatorio vincula conta e ticket, nunca apenas o numero do ticket. O diario
+continua inconclusivo: uma dupla nao e evidencia para promover filtro.

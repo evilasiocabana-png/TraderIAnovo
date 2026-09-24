@@ -1,4 +1,18 @@
 from streamlit.testing.v1 import AppTest
+import pytest
+
+
+@pytest.mark.parametrize("count", [1, 2])
+def test_comparison_renders_first_point_and_multiple_pairs(count):
+    app = AppTest.from_string('''
+from application.learning_dashboard import render_comparison
+import streamlit as st
+render_comparison({"comparison":[{"Par":i+1,"M23 liquido":-10*(i+1),"M30 liquido":-11*(i+1)} for i in range(st.session_state['count'])]})
+''')
+    app.session_state['count'] = count
+    app.run(timeout=20)
+    assert not app.exception
+    assert not app.info
 
 
 def test_learning_panel_renders_empty_truthful_state():

@@ -1,11 +1,18 @@
 from dataclasses import replace
 from types import SimpleNamespace
+import pytest
 
 from application.learning_store import LearningStore, encoded, now
 from application.model30_learning import clone_contract, tables, MODEL_30_MAGIC
 from infrastructure.execution.mt5_demo_execution_provider import MT5DemoExecutionProvider
 from tests.test_mt5_demo_execution_provider import _FakeMT5
 from tests.test_model30_learning import order
+
+
+@pytest.fixture(autouse=True)
+def isolated_round_state(tmp_path, monkeypatch):
+    import application.learning_store as store_module
+    monkeypatch.setattr(store_module, "ROOT", tmp_path)
 
 
 def test_actual_provider_request_preserves_effective_contract(tmp_path, monkeypatch):

@@ -76,7 +76,8 @@ def render_learning_dashboard(service):
 
 def render_comparison(state):
     if state.get("comparison"):
-        st.line_chart(state["comparison"], x="Par", y=["M23 liquido", "M30 liquido"])
+        chart = st.scatter_chart if len(state["comparison"]) == 1 else st.line_chart
+        chart(state["comparison"], x="Par", y=["M23 liquido", "M30 liquido"])
         st.caption("Pares encerrados e conciliados, ordenados pela entrada. Sinais filtrados no M30 contam zero execucao; "
                    "pares ainda abertos e resultados desconhecidos ficam fora.")
     else:

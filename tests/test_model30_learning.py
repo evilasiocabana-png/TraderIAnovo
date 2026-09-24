@@ -80,6 +80,25 @@ def test_position_identity_isolated():
     assert not matches(SimpleNamespace(magic=260629, comment="TraderIA M30"))
 
 
+def test_comparison_does_not_cross_account_tickets(tmp_path):
+    from application.model30_learning import comparison, tables as pair_tables
+    store = LearningStore(tmp_path / "pairs.sqlite3")
+    with store.connect() as db:
+        pair_tables(db)
+        for account, date in (("a@demo", "2026-09-24"), ("b@demo", "2026-09-25")):
+            db.execute("INSERT INTO m30_pairs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                       (account+":42",42,account,"M8","XAUUSD",date,"ACCEPTED",43,"BASELINE","","{}"))
+        for account, net in (("a@demo",1), ("b@demo",10), ("unrelated@demo",999)):
+            for ticket, value in ((42,net),(43,net*2)):
+                db.execute("""INSERT INTO executions
+                    (id,signal_id,ticket,account_mode,account,recorded_at,status,net,evidence,snapshot)
+                    VALUES (?,?,?,'DEMO',?,'2026-09-25','CLOSED',?,'{}','{}')""",
+                    (account+str(ticket),"signal",ticket,account,value))
+    assert comparison(store) == [
+        {"Par":1,"M23 liquido":1,"M30 liquido":2},
+        {"Par":2,"M23 liquido":11,"M30 liquido":22}]
+
+
 def test_m30_basket_cannot_close_m23(tmp_path):
     from application.model23_basket_accumulator import Model23BasketManager
     positions = [SimpleNamespace(ticket=1,magic=260629,comment="TraderIA M23 S8",profit=5000,type=0,symbol="XAUUSD",volume=.1),
