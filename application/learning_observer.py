@@ -47,7 +47,7 @@ def item_from_snapshot(snapshot: dict, *, provenance: str, stage: str,
                    or source or params.get("source_operational_model") or executor)
     setup = str(params.get("source_entry_setup") or snapshot.get("source_setup")
                 or snapshot.get("setup_id") or snapshot.get("entry_setup") or "UNKNOWN")
-    mode = str(params.get("m23_m29_mode") or params.get("m29_mode")
+    mode = str(params.get("m30_mode") or params.get("m23_m29_mode") or params.get("m29_mode")
                or (params.get("m29_sequence_mode") or params.get("m29_m7_mode") if source == "M7" else None)
                or "NORMAL").upper()
     candle = str(snapshot.get("candle_time") or "UNKNOWN")

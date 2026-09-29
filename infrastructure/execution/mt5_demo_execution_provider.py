@@ -1121,7 +1121,10 @@ mt5.shutdown()
                 request["magic"] = MODEL_30_MAGIC
             from application.model23_fixed_loss_stop import protected_request as protect_m23
             try:
-                request = protect_m23(order, request, self.mt5)
+                protected_order = order
+                if is_model30(order.operational_model):
+                    protected_order = replace(order, operational_model="MODELO_23_BASKET_ACCUMULATOR_SOURCE_M7")
+                request = protect_m23(protected_order, request, self.mt5)
             except Exception as exc:
                 result = ExecutionResult(accepted=False, status="REJECTED",
                     message=f"Defesa financeira M23 indisponivel: {exc}")

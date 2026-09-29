@@ -63,21 +63,11 @@ def clone_contract(order, ticket):
 def paired_submit(fn):
     @wraps(fn)
     def wrapped(provider, order):
-        result = fn(provider, order)
-        if (not order.operational_model.startswith("MODELO_23_BASKET_ACCUMULATOR")
-                or not result.accepted or not result.ticket):
-            return result
-        if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TRADERIA_LEARNING_DISABLED") == "1":
-            return result
-        try:
-            if enabled():
-                recorded = getattr(provider, "_m30_last_accepted", None)
-                if recorded and recorded[0] == result.ticket:
-                    submit_pair(provider, recorded[1], result.ticket)
-        except Exception as exc:
-            # A failure in the additional strategy cannot replace the M23 result.
-            provider._m30_last_error = str(exc)[:300]
-        return result
+        # Legacy pairs remain readable; new entries have their own source route.
+        if is_model30(order.operational_model):
+            from application.model30_independent import submit
+            return submit(fn, provider, order)
+        return fn(provider, order)
     return wrapped
 
 
@@ -123,6 +113,9 @@ def model30_comment(order):
     source = str(params.get("m23_m29_origin_source") or params.get("source_operational_model", ""))
     match = re.search(r"(?:MODELO_|M)(\d+)", source)
     number = match[1] if match else "0"
+    if params.get("m30_policy"):
+        mode = "INV" if params.get("m30_mode") == "ESPELHADO" else "NOR"
+        return f"TraderIA M30 S{number} {mode}"
     return f"TraderIA M30 S{number} P{int(params.get('m30_original_ticket', 0))}"[:31]
 
 
@@ -134,6 +127,9 @@ def preflight(provider, order, store=None):
             or provider.execution_account.mode != "DEMO"):
         return "M30 exige conta Demo hedging confirmada"
     params = (order.plan_snapshot or {}).get("stop_management_parameters") or {}
+    if params.get("m30_policy"):
+        from application.model30_independent import preflight as independent_preflight
+        return independent_preflight(provider, order, store)
     ticket = int(params.get("m30_original_ticket", 0))
     key = str(account.login) + "@" + str(account.server) + ":" + str(ticket)
     with store.connect() as db:

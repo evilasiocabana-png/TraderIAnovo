@@ -186,3 +186,13 @@ Diagnostico: consulta m29_sequence terminava em now UTC, mas timestamps recentes
 
 ## 16/09/2026 — Tabela de letras por fonte do M23 no Relatorio
 Conforme esclarecimento do usuario, tabela somente com fonte do sinal e sequencia das ultimas sete operacoes encerradas em G/P (E para empate), abaixo da selecao dos modelos e antes do grafico principal. Sem valores financeiros nem contagens. Recorte usa data/hora inicial do relatorio; ordenacao cronologica existente, MT5 confirmado, deduplicacao de ticket. Letra considera lucro + comissao + swap + taxas. M29 apenas operacoes incorporadas ao M23; fontes desconhecidas identificadas sem adivinhar. Dois testes passaram cobrindo custos, duplicacao, posicoes abertas, corte em sete e fontes separadas. Sintaxe do painel validada. Sem alteracao de estrategia ou ordens; sem commit/push nesta etapa.
+
+
+## 2026-09-29 — M30 independente por canal original M23/M7
+
+Autorizado pelo usuario e implementado conforme docs/architecture/M30_INDEPENDENT_CHANNEL.md.
+M30 recebe fontes originais independentemente do aceite M23, sem copiar M29.
+Canal usa resultados encerrados originais M7 no M23: Alta abaixo do piso espelha, retorno normaliza; Baixa confirmada espelha.
+Rascunho de curva propria M30 cancelado antes de instalar. Históricos legados separados.
+209 testes direcionados passaram; nenhuma ordem manual de teste. Consulta nativa confirmou modo NORMAL.
+M23/M29 preservados; controles de conta Real desabilitados. Recarga pelo launcher oficial autorizada.

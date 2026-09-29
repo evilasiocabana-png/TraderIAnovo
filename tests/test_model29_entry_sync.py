@@ -92,6 +92,7 @@ def test_normal_and_mirror_pair_use_identical_source():
 @pytest.mark.parametrize("scenario", ["accepted", "rejected", "open23", "open29", "opencopy", "copyreject"])
 @pytest.mark.parametrize("own_m29", [False, True])
 def test_dashboard_pairs_real_candidate_pipeline(tmp_path, monkeypatch, mirrored, scenario, own_m29):
+    monkeypatch.setattr("application.model30_learning.enabled", lambda *a: False)
     from unittest.mock import Mock
     import application.dashboard_service as module
     from application.dashboard_service import DashboardService

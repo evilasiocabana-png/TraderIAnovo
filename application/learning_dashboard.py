@@ -8,6 +8,7 @@ import streamlit as st
 def render_learning_dashboard(service):
     st.subheader("Aprendizado")
     state = service.get_learning_dashboard()
+    st.info("M30 independente: recebe sinais originais. M7 usa o canal dos encerramentos originais no M23: abaixo do piso espelha, retorno ao canal de alta normaliza. Canal de baixa confirmado espelha. Historico anterior permanece separado.")
     health = state["health"]
     st.write("Coletando dados" if health["running"] else "Coleta aguardando inicializacao")
     st.caption("Base atual: Replay, setups e filtros existentes. Melhorias avaliadas separadamente para o M30 Demo.")
@@ -78,7 +79,7 @@ def render_comparison(state):
     if state.get("comparison"):
         chart = st.scatter_chart if len(state["comparison"]) == 1 else st.line_chart
         chart(state["comparison"], x="Par", y=["M23 liquido", "M30 liquido"])
-        st.caption("Pares encerrados e conciliados, ordenados pela entrada. Sinais filtrados no M30 contam zero execucao; "
+        st.caption("Historico legado de copias: pares encerrados e conciliados, ordenados pela entrada. Sinais filtrados no M30 contam zero execucao; "
                    "pares ainda abertos e resultados desconhecidos ficam fora.")
     else:
         st.info("Aguardando pares M23/M30 encerrados e conciliados para o grafico de resultados reais.")

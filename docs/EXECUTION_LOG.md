@@ -2861,3 +2861,13 @@ Reproduzida falta de resposta do navegador com historico completo. Curva colorid
 
 ### 16/09/2026 — Restaurar todos os graficos individuais
 Por solicitacao expressa, removido seletor que limitava a visualizacao a um modelo. Restaurado loop de todos os modelos do relatorio, preservando escolha de origem por modelo, curvas coloridas e excecao do M23 agregado. Mantidas correcoes de zoom e segmentos leves. Sintaxe validada; sem alteracao de regras de negociacao.
+
+
+## 2026-09-29 — M30 independente por canal original M23/M7
+
+Autorizado pelo usuario e implementado conforme docs/architecture/M30_INDEPENDENT_CHANNEL.md.
+M30 recebe fontes originais independentemente do aceite M23, sem copiar M29.
+Canal usa resultados encerrados originais M7 no M23: Alta abaixo do piso espelha, retorno normaliza; Baixa confirmada espelha.
+Rascunho de curva propria M30 cancelado antes de instalar. Históricos legados separados.
+209 testes direcionados passaram; nenhuma ordem manual de teste. Consulta nativa confirmou modo NORMAL.
+M23/M29 preservados; controles de conta Real desabilitados. Recarga pelo launcher oficial autorizada.

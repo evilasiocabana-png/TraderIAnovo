@@ -29,7 +29,12 @@ def test_actual_provider_request_preserves_effective_contract(tmp_path, monkeypa
     original = replace(order(), operational_model="MODELO_23_BASKET_ACCUMULATOR_SOURCE_M1",
         plan_snapshot={"symbol":"XAUUSD","direction":"BUY","candle_time":"2026-09-24T10:00:00",
             "stop_management_parameters":{"source_operational_model":"MODELO_1_ALPHA_ATUAL","active_entry_order_type":"MARKET"}})
+    from application.model30_independent import POLICY
+    import application.model30_independent as independent
+    monkeypatch.setattr(independent,"LearningStore",lambda:store)
     clone=clone_contract(original,42)
+    params=dict(clone.plan_snapshot['stop_management_parameters'], m30_policy=POLICY, m30_mode='NORMAL')
+    clone=replace(clone,plan_snapshot=dict(clone.plan_snapshot,stop_management_parameters=params))
     with store.connect() as db:
         tables(db)
         db.execute("INSERT INTO m30_pairs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -37,7 +42,7 @@ def test_actual_provider_request_preserves_effective_contract(tmp_path, monkeypa
     result=provider.submit_order(clone)
     assert result.accepted,result.message
     assert native.last_request["magic"]==MODEL_30_MAGIC
-    assert native.last_request["comment"]=="TraderIA M30 S1 P42"
+    assert native.last_request["comment"]=="TraderIA M30 S1 NOR"
     assert native.last_request["volume"]==.1
     assert native.last_request["sl"]==original.stop
     assert native.last_request["tp"]==original.target
@@ -49,7 +54,7 @@ def test_original_basket_does_not_recognize_m30():
     assert not model23_position_matches(SimpleNamespace(comment="TraderIA M30 S8 P42",magic=MODEL_30_MAGIC))
 
 
-def test_original_submit_triggers_only_one_real_provider_clone(tmp_path, monkeypatch):
+def test_original_submit_no_longer_triggers_m30_clone(tmp_path, monkeypatch):
     import application.model30_learning as module
     store=LearningStore(tmp_path/"x.sqlite3")
     monkeypatch.setattr(module,"LearningStore",lambda:store)
@@ -70,9 +75,6 @@ def test_original_submit_triggers_only_one_real_provider_clone(tmp_path, monkeyp
           "stop_management_parameters":{"source_operational_model":"MODELO_1_ALPHA_ATUAL","active_entry_order_type":"MARKET","m23_entry_type":"INITIAL","m23_structural_target_enabled":True}})
     result=p.submit_order(original)
     assert result.accepted,result.message
-    assert len(native.requests)==2,getattr(p,"_m30_last_error", "")
+    assert len(native.requests)==1,getattr(p,"_m30_last_error", "")
     assert "M23" in native.requests[0]["comment"]
-    assert "M30" in native.requests[1]["comment"]
-    assert native.requests[1]["sl"]==native.requests[0]["sl"]
-    assert native.requests[1]["tp"]==native.requests[0]["tp"]
     assert result.ticket==701

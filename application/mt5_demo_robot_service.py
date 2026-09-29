@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from application.model30_learning import is_model30
 from application.learning_observer import observe_execution
 
 from application.demo_execution_service import DemoExecutionService
@@ -467,6 +468,7 @@ class MT5DemoRobotService:
         model = str(getattr(signal, "operational_model", "") or "").upper()
         if (
             is_model23(model)
+            or is_model30(model)
             or is_model29(model)
             or is_model24(model)
             or is_model25(model)
@@ -584,6 +586,7 @@ class MT5DemoRobotService:
             return "M25 opera exclusivamente XAUUSD/M5."
         if (
             is_model23(validation_model)
+            or is_model30(validation_model)
             or is_model29(validation_model)
             or validation_is_model24
             or validation_is_model25_source
@@ -754,6 +757,8 @@ class MT5DemoRobotService:
             signal.operational_model or trade_plan.operational_model or ""
         )
         parameters = dict(trade_plan.stop_management_parameters or {})
+        if is_model30(operational_model):
+            return float(parameters["m30_execution_volume"])
         if is_model29(operational_model):
             source = str(operational_model).upper()
             mode = str(parameters.get("m29_m7_mode", "NORMAL")).upper()

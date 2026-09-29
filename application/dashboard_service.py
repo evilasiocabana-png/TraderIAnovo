@@ -1149,11 +1149,12 @@ class DashboardService:
     def get_learning_dashboard(self, page: int = 0, source: str = "", executor: str = "") -> dict:
         from application.learning_observer import observer
         from application.learning_policy import journal_page
+        from application.model30_independent import page as independent_page
         from application.model30_learning import pair_page, enabled, comparison
         collector = observer()
         return {**collector.store.page(page=page, source=source, executor=executor), "health": collector.health(),
                 "journal": journal_page(collector.store), "pairs": pair_page(collector.store),
-                "m30_enabled": enabled(collector.store), "comparison": comparison(collector.store)}
+                "independent": independent_page(collector.store), "m30_enabled": enabled(collector.store), "comparison": comparison(collector.store)}
 
     def set_model30_enabled(self, value: bool) -> None:
         from application.learning_store import LearningStore, now
@@ -7357,6 +7358,8 @@ class DashboardService:
         last_waiting: DashboardDemoRobotViewModel | None = None
         last_model24_waiting: DashboardDemoRobotViewModel | None = None
         last_executed: DashboardDemoRobotViewModel | None = None
+        from application.model30_learning import enabled as m30_enabled
+        m30_mode = m30_enabled()
         basket_mode = self._mt5_model23_routing_enabled()
         basket29_mode = self._mt5_model29_routing_enabled()
         basket29_block = self._evaluate_model29_risk_gate(pair, timeframe)
@@ -7364,7 +7367,7 @@ class DashboardService:
         basket25_mode = self._mt5_model25_routing_enabled()
         direct_mode = self._mt5_direct_routing_enabled()
         basket_block = self._evaluate_model23_risk_gate(pair, timeframe)
-        if basket_block is not None and not basket29_mode:
+        if basket_block is not None and not basket29_mode and not m30_mode:
             return basket_block
         basket24_block = self._evaluate_model24_risk_gate(pair, timeframe)
         if basket24_block is not None:
@@ -7372,12 +7375,12 @@ class DashboardService:
         basket25_block = self._evaluate_model25_risk_gate(pair, timeframe)
         if basket25_block is not None:
             return basket25_block
-        selected_models = self._mt5_operational_models_to_evaluate()
+        selected_models = tuple(dict.fromkeys((*self._mt5_operational_models_to_evaluate(), *(MT5_MODEL_23_SOURCE_MODEL_IDS if m30_mode else ()))))
         m24_candidate_added = False
         for source_row in rows:
             if basket_mode:
                 basket_block = self._evaluate_model23_risk_gate(pair, timeframe)
-                if basket_block is not None and not basket29_mode:
+                if basket_block is not None and not basket29_mode and not m30_mode:
                     return basket_block
             if basket29_mode:
                 basket29_block = self._evaluate_model29_risk_gate(pair, timeframe)
@@ -7403,7 +7406,7 @@ class DashboardService:
                 ),
             )
             plan = self._mt5_research_trade_plan_for_view_row(row)
-            selected_models = self._mt5_operational_models_to_evaluate()
+            selected_models = tuple(dict.fromkeys((*self._mt5_operational_models_to_evaluate(), *(MT5_MODEL_23_SOURCE_MODEL_IDS if m30_mode else ()))))
             if (
                 plan.status != "PLANO_VALIDO"
                 and self._mt5_requires_valid_base_research_plan(
@@ -7444,8 +7447,9 @@ class DashboardService:
                 )
                 routes = (
                     *(("DIRECT",) if direct_mode and operational_model in direct_models else ()),
-                    *(("M23",) if basket_mode and basket_block is None and operational_model in MT5_MODEL_23_SOURCE_MODEL_IDS else ()),
-                    *(("M29",) if (basket_mode or (basket29_mode and basket29_block is None)) and operational_model in MT5_MODEL_29_SOURCE_MODEL_IDS else ()),
+                    *(("M23",) if basket_mode and basket_block is None and operational_model in self._mt5_operational_models_to_evaluate() and operational_model in MT5_MODEL_23_SOURCE_MODEL_IDS else ()),
+                    *(("M30",) if m30_mode and operational_model in MT5_MODEL_23_SOURCE_MODEL_IDS else ()),
+                    *(("M29",) if (basket_mode or (basket29_mode and basket29_block is None)) and operational_model in self._mt5_operational_models_to_evaluate() and operational_model in MT5_MODEL_29_SOURCE_MODEL_IDS else ()),
                     *(("M24",) if basket24_mode else ()),
                     *(("M25",) if basket25_mode and operational_model in MODEL_25_SOURCE_MODEL_IDS else ()),
                 )
@@ -7509,6 +7513,10 @@ class DashboardService:
                                 model_candidates.append(
                                     (basket_model, route_row, route_plan)
                                 )
+                            elif route == "M30":
+                                candidate = self._mt5_model30_variant_from_source(route_row, route_plan, source_operational_model=operational_model)
+                                if candidate is not None:
+                                    model_candidates.append(candidate)
                             elif route == "DIRECT":
                                 model_candidates.append(
                                     (operational_model, route_row, route_plan)
@@ -7530,11 +7538,13 @@ class DashboardService:
                             "M23_M29_SYNC"
                             if operational_model == MT5_OPERATIONAL_MODEL_7
                             and str(row.pair).upper() == "XAUUSD"
-                            and route in {"M23", "M29"}
+                            and route in {"M23", "M29", "M30"}
                             else route
                         )
                         cache_key = (operational_model, cache_route)
                         source_result = entry_source_results.get(cache_key)
+                        if source_result is None and route == "M30":
+                            source_result = entry_source_results.get((operational_model, "M23"))
                         if source_result is None:
                             source_result = self._mt5_apply_operational_model(
                                 row,
@@ -7590,6 +7600,10 @@ class DashboardService:
                         ):
                             continue
                         model_candidates.append((basket_model, model_row, model_plan))
+                    elif route == "M30":
+                        candidate = self._mt5_model30_variant_from_source(model_row, model_plan, source_operational_model=operational_model)
+                        if candidate is not None:
+                            model_candidates.append(candidate)
                     elif route == "M29":
                         basket_model = model29_variant_id(operational_model)
                         model_row, model_plan = self._mt5_model29_variant_from_source(
@@ -7698,7 +7712,7 @@ class DashboardService:
                 if candidate_is_m23:
                     basket_block = self._evaluate_model23_risk_gate(pair, timeframe)
                     if basket_block is not None:
-                        if not basket29_mode:
+                        if not basket29_mode and not m30_mode:
                             return basket_block
                         continue
                 if candidate_is_m29:
@@ -7918,7 +7932,7 @@ class DashboardService:
                         if basket_after_entry is None:
                             gold_m7_sync.record(operational_model, model_plan, signal_candle_time, result)
                             gold_m7_copy_sync.record(operational_model, model_plan, signal_candle_time, result)
-                        if basket_after_entry is not None and not basket29_mode:
+                        if basket_after_entry is not None and not basket29_mode and not m30_mode:
                             return basket_after_entry
                         # A defesa financeira ja observou a nova exposicao.
                         # Continuar o lote permite enviar todos os sinais M23
@@ -8168,11 +8182,12 @@ class DashboardService:
         timeframe: str = "H1",
     ) -> DashboardDemoRobotViewModel:
         """Atualiza MT5 e avalia o robo armado em um ciclo online."""
+        from application.model30_learning import enabled as m30_enabled
         self.lab_operational_decision_cache.clear()
         if self.mt5_demo_robot_service.enabled and self._mt5_demo_execution_enabled():
             self._enable_mt5_demo_provider()
             basket_block = self._evaluate_model23_risk_gate(pair, timeframe)
-            if basket_block is not None and not self._mt5_model29_routing_enabled():
+            if basket_block is not None and not self._mt5_model29_routing_enabled() and not m30_enabled():
                 return basket_block
             basket29_block = self._evaluate_model29_risk_gate(pair, timeframe)
             if basket29_block is not None and not self._mt5_model23_routing_enabled() and not self._mt5_direct_routing_enabled():
@@ -8565,6 +8580,31 @@ class DashboardService:
             for row in rows
             if str(getattr(row, "pair", "")).upper() == requested
         ]
+
+    def _mt5_model30_variant_from_source(self, row, plan, *, source_operational_model):
+        from application.model30_independent import reference_state, floor_state, variant
+        from types import SimpleNamespace
+        try:
+            if plan.status != "PLANO_VALIDO" or plan.direction not in {"BUY", "SELL"}:
+                return None
+            state = floor_state([])
+            if source_operational_model == MT5_OPERATIONAL_MODEL_7:
+                state = reference_state(self.demo_robot_execution_service.provider, str(row.pair))
+            volume = self.mt5_demo_robot_service._execution_volume(
+                SimpleNamespace(operational_model=source_operational_model), plan)
+            candidate = variant(row, plan, source_operational_model, state, volume)
+            model, out_row, out_plan = candidate
+            self.lab_operational_decision_cache[(model, str(row.pair))] = {
+                "Fonte": source_operational_model, "Par": str(row.pair),
+                "Direcao": out_plan.direction, "Status": out_plan.status,
+                "Entrada": out_plan.entry_price, "Stop": out_plan.stop, "Alvo": out_plan.target,
+                "Modo M7": state["mode"], "Motivo": "M30 independente; canal do M7 original no M23",
+                "Atualizado": datetime.now(timezone.utc).isoformat(),
+            }
+            return candidate
+        except Exception as exc:
+            object.__setattr__(self, "model30_independent_error", str(exc)[:300])
+            return None
 
     @observe_plans("M23", executor="M23")
     def _mt5_model23_variant_from_source(
