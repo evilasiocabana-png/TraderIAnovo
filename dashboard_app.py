@@ -486,9 +486,11 @@ MT5_OPERATIONAL_MODEL_STATE_PATH = Path(".traderia") / "mt5_operational_model.js
 MT5_MODEL23_BASKET_STATE_PATH = Path(".traderia") / "model23_basket_state.json"
 MT5_MODEL24_BASKET_STATE_PATH = Path(".traderia") / "model24_basket_state.json"
 MT5_MODEL25_BASKET_STATE_PATH = Path(".traderia") / "model25_basket_state.json"
-MT5_ACTIVE_REPORT_MODEL_NUMBERS = (
-    1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 26, 27, 28, 29,
+from application.model_ui_state import (
+    REPORT_MODEL_NUMBERS, M30_HISTORY_DESCRIPTION, model_ui_state, sync_persisted_widget,
 )
+MT5_ACTIVE_REPORT_MODEL_NUMBERS = REPORT_MODEL_NUMBERS
+
 MT5_DEMO_ROBOT_ONLINE_STATE_PATH = (
     Path(".traderia") / "mt5_demo_robot_online_state.json"
 )
@@ -2672,12 +2674,19 @@ def _mt5_operational_model_state_revision() -> str:
     return str(payload.get("updated_at") or payload.get("model") or "SEM_ESTADO")
 
 
+def _persist_mt5_models_with_m30():
+    _persist_mt5_operational_model_form_selection()
+    DashboardService().set_model30_enabled(bool(st.session_state.get("mt5_m30_send_enabled", False)))
+
+
 def _render_mt5_operational_model_selector(
     service: DashboardService | None = None,
 ) -> str:
     labels = _mt5_operational_model_labels()
     current = _load_persisted_mt5_operational_model()
     persisted_selections = _load_persisted_mt5_operational_selections()
+    ui_state = model_ui_state(persisted_selections)
+    sync_persisted_widget(st.session_state, "mt5_m30_send_enabled", ui_state.m30_enabled)
     persisted_models = tuple(
         item for item in persisted_selections if item in MT5_ACTIVE_SOURCE_MODEL_IDS
     )
@@ -2701,14 +2710,8 @@ def _render_mt5_operational_model_selector(
     with st.container(border=True):
         st.markdown("#### Chaveamento operacional")
         summary = st.columns([1.0, 3.0])
-        summary_label = (
-            "TODOS"
-            if set(persisted_selections) == set(MT5_SELECTABLE_OPERATIONAL_MODEL_IDS)
-            else _mt5_operational_model_short_label(persisted_selections[0])
-            if len(persisted_selections) == 1
-            else f"{len(persisted_selections)} MODELOS"
-        )
-        summary[0].metric("Modelo operacional", summary_label)
+        summary[1].caption(ui_state.caption)
+        summary[0].metric("Modelo operacional", ui_state.summary)
         summary[1].caption(
             "Os modelos ativos ficam visiveis e podem ser combinados livremente; "
             "Todos executa o conjunto completo. Os modelos ativos podem ser marcados em "
@@ -2729,9 +2732,14 @@ def _render_mt5_operational_model_selector(
                     key=_mt5_operational_model_checkbox_key(candidate),
                     help=labels.get(candidate, short_label),
                 )
+            checkbox_columns[len(options) % 6].checkbox(
+                "M30", key="mt5_m30_send_enabled",
+                help="Autoriza novas entradas independentes do M30 na Demo. Posicoes abertas continuam geridas.",
+            )
+            st.caption("M30 tem autorizacao individual; a opcao Todos nao altera o M30.")
             st.form_submit_button(
                 "Aplicar modelos",
-                on_click=_persist_mt5_operational_model_form_selection,
+                on_click=_persist_mt5_models_with_m30,
             )
         if MT5_OPERATIONAL_MODEL_28 in persisted_selections:
             selection_getter = getattr(service, "get_model28_live_selection", None)
@@ -5252,6 +5260,7 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
         start_clock,
         tzinfo=BRAZIL_TIMEZONE,
     )
+    st.caption(model_ui_state(_load_persisted_mt5_operational_selections()).caption)
     main_chart_selection = _mt5_equity_main_chart_model_selection()
     from application.model23_source_summary import collect_m23_source_results, collect_realized_results
     active_source_labels = {
@@ -5318,7 +5327,7 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
             _render_mt5_equity_chart(model_filter,model_curves[model_filter],start_at=start_at,
                 model_filter=model_filter,financials=model_financials[model_filter])
             continue
-        source_label = f"M{operational_model_number(model_filter)}"
+        source_label = model_filter.replace("MODELO ", "M")
         own_results=collect_realized_results(_mt5_closed_realized_rows(model_rows[model_filter],start_at))
         source_results=m23_source_results.get(source_label,[])
         own_model=True
@@ -5339,6 +5348,8 @@ def _render_m23_source_structure(source, results, *, own_model=False):
     st.caption(("Somente operacoes proprias deste modelo. " if own_model else
                 "Historico separado: somente operacoes encerradas dentro do M23. ") +
                "Curva liquida, com comissao, swap e taxas; base zero no periodo selecionado.")
+    if source == "M30" and own_model:
+        st.caption(M30_HISTORY_DESCRIPTION)
     if not results:
         st.info("Nenhuma operacao encerrada neste historico e periodo.")
         return

@@ -464,3 +464,7 @@ Canal usa resultados encerrados originais M7 no M23: Alta abaixo do piso espelha
 Rascunho de curva propria M30 cancelado antes de instalar. Históricos legados separados.
 209 testes direcionados passaram; nenhuma ordem manual de teste. Consulta nativa confirmou modo NORMAL.
 M23/M29 preservados; controles de conta Real desabilitados. Recarga pelo launcher oficial autorizada.
+
+
+## 2026-09-29 — Refatoracao da integracao das abas
+Contrato compartilhado de apresentacao, catalogo e estado do M30; persistencia extraida sem migracao. Sincronizacao evita toggle antigo do Aprendizado sobrescrever escolha do MT5. Historico legado e politica atual identificados. 33 testes passaram. Ver docs/architecture/MODEL_UI_STATE.md. Sem alteracao de regras financeiras ou posicoes.

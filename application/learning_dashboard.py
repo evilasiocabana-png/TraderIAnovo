@@ -2,13 +2,14 @@
 
 import json
 import streamlit as st
+from application.model_ui_state import M30_DESCRIPTION, m30_permission_text, sync_persisted_widget
 
 
 @st.fragment(run_every="15s")
 def render_learning_dashboard(service):
     st.subheader("Aprendizado")
     state = service.get_learning_dashboard()
-    st.info("M30 independente: recebe sinais originais. M7 usa o canal dos encerramentos originais no M23: abaixo do piso espelha, retorno ao canal de alta normaliza. Canal de baixa confirmado espelha. Historico anterior permanece separado.")
+    st.info(M30_DESCRIPTION)
     health = state["health"]
     st.write("Coletando dados" if health["running"] else "Coleta aguardando inicializacao")
     st.caption("Base atual: Replay, setups e filtros existentes. Melhorias avaliadas separadamente para o M30 Demo.")
@@ -50,14 +51,14 @@ def render_learning_dashboard(service):
             st.json({"baseline": detail["baseline"], "grupo": detail["group_id"],
                      "contexto": json.loads(detail["snapshot"])})
     st.subheader("Evidencia prospectiva")
-    st.write("M30 Demo habilitado" if state["m30_enabled"] else "M30 Demo ainda nao habilitado")
+    st.write(m30_permission_text(state["m30_enabled"]))
     st.caption("Revisao automatica diaria; no maximo um novo candidato por semana. A coleta e a revisao "
                "dependem do aplicativo em execucao. Evidencia insuficiente mantem a base anterior.")
     for event in state["journal"][:10]:
         st.write(f"{event['created_at'][:16]} | {event['state']} | {event['message']}")
         with st.expander("Evidencia " + event["id"][:8]):
             st.json(json.loads(event["evidence"]))
-    st.subheader("M30 e M23: entradas pareadas")
+    st.subheader("M30 e M23: historico legado de entradas pareadas")
     st.dataframe([{k: r[k] for k in ("created_at", "original_ticket", "source", "symbol", "status", "clone_ticket", "filter_version", "reason")}
                   for r in state["pairs"]], hide_index=True, width="stretch")
     render_comparison(state)
@@ -88,13 +89,14 @@ def render_comparison(state):
 def render_model30_panel(service, report=False):
     with st.expander("M30 | Aprendizado sobre a base M23", expanded=False):
         state = service.get_learning_dashboard(executor="M23")
-        st.write("DEMO HABILITADA" if state["m30_enabled"] else "DEMO DESABILITADA")
+        st.write(m30_permission_text(state["m30_enabled"]))
         if not report:
-            active = st.toggle("Executar M30 na mesma Demo do M23", value=state["m30_enabled"], key="m30_demo_enabled")
+            sync_persisted_widget(st.session_state, "m30_demo_enabled", state["m30_enabled"])
+            active = st.toggle("Executar M30 na mesma Demo do M23", key="m30_demo_enabled")
             if active != state["m30_enabled"]:
                 service.set_model30_enabled(active)
                 st.rerun()
-        st.caption("Novas ordens pareadas apos aceite M23. A conta Real nao participa.")
+        st.caption(M30_DESCRIPTION + " A conta Real nao participa.")
         theoretical = []
         for row in state["rows"]:
             if row["executor"] != "M23":

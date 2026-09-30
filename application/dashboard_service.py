@@ -1156,13 +1156,14 @@ class DashboardService:
                 "journal": journal_page(collector.store), "pairs": pair_page(collector.store),
                 "independent": independent_page(collector.store), "m30_enabled": enabled(collector.store), "comparison": comparison(collector.store)}
 
+    def get_model_ui_state(self, selections=()):
+        from application.model_ui_state import model_ui_state
+        return model_ui_state(selections)
+
     def set_model30_enabled(self, value: bool) -> None:
-        from application.learning_store import LearningStore, now
-        from application.learning_policy import tables, journal
-        with LearningStore().connect() as db:
-            tables(db)
-            db.execute("INSERT OR REPLACE INTO metadata VALUES ('m30_enabled',?)", ("true" if value else "false",))
-            journal(db, "CONFIGURACAO", "M30", "Novas copias M30 Demo habilitadas." if value else "Novas copias M30 Demo desabilitadas; posicoes abertas preservadas.", {}, now())
+        from application.model30_configuration import set_enabled
+        set_enabled(value)
+
 
     market_service: MarketService = MarketService()
     system_service: SystemService = SystemService()

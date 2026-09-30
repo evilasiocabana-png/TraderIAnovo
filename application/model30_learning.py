@@ -37,13 +37,8 @@ def tables(db):
     """)
 
 
-def enabled(store=None):
-    store = store or LearningStore()
-    if not store.path.exists():
-        return False
-    with store.connect() as db:
-        row = db.execute("SELECT value FROM metadata WHERE key='m30_enabled'").fetchone()
-    return bool(row and row[0] == "true")
+# Compatibility export: all consumers share the same persisted permission.
+from application.model30_configuration import enabled
 
 
 def clone_contract(order, ticket):
