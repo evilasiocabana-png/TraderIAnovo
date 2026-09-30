@@ -62,10 +62,10 @@ class Row:
 def test_independent_m7_geometry_and_source_unchanged(side,stop,target,mirrored):
     plan=Plan(side,100,stop,target,2.5,{})
     original=repr(plan)
-    state=dict(mode='ESPELHADO',reference='x')
+    state=dict(mode='NORMAL',state='Alta',blocked=False,reference='x')
     model,row,new=variant(Row(),plan,'MODELO_7_TEST',state,.1)
-    assert model.endswith('SOURCE_M7') and new.direction==mirrored
-    assert new.target==stop and new.stop==200-stop
+    assert model.endswith('SOURCE_M7') and new.direction==side
+    assert new.target==target and new.stop==stop
     assert new.stop_management_parameters['m30_execution_volume']==.1
     assert repr(plan)==original
     assert variant(Row(),plan,'MODELO_18_TEST',state,.1)[2].direction==side
@@ -148,7 +148,7 @@ def test_native_reference_only_closed_original_m23_not_m29_or_copies(tmp_path):
     result=reference_state(p,'XAUUSD',store)
     assert result['closed']==1 and result['reference']==floor_state([dict(id='1',net=98.,time=11000)])['reference']
     p._external_mt5_read=lambda *a,**k:dict(ok=True,account=vars(p.mt5.account_info()),rows=[],open_positions=[])
-    with pytest.raises(ValueError,match='incompleto'):reference_state(p,'XAUUSD',store)
+    with pytest.raises(ValueError,match='regrediu'):reference_state(p,'XAUUSD',store)
 
 
 def test_falling_channel_mirrors():
@@ -168,6 +168,7 @@ def test_source_route_does_not_consult_m23_acceptance(tmp_path,monkeypatch,numbe
     import application.dashboard_service as module
     service,row,plan=setup_service(tmp_path,monkeypatch)
     monkeypatch.setattr(module.DashboardService,'_mt5_model23_variant_from_source',lambda *a,**k:pytest.fail('M23 dependency'))
+    monkeypatch.setattr('application.model30_independent.reference_state',lambda *a,**k:dict(mode='NORMAL',state='Alta',blocked=False,reference='x'))
     source=getattr(module,'MT5_OPERATIONAL_MODEL_'+str(number))
     result=service._mt5_model30_variant_from_source(row,plan,source_operational_model=source)
     assert result is not None

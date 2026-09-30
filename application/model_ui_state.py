@@ -4,8 +4,9 @@ from domain.operational_model_policy import ACTIVE_OPERATIONAL_MODEL_NUMBERS, op
 from application.model30_configuration import enabled
 
 REPORT_MODEL_NUMBERS = tuple(sorted((*ACTIVE_OPERATIONAL_MODEL_NUMBERS, 30)))
-M30_DESCRIPTION = ("M30 independente: recebe sinais originais. M7 usa o canal dos encerramentos originais no M23: "
-                   "abaixo do piso espelha, retorno ao canal de alta normaliza. Canal de baixa confirmado espelha.")
+M30_DESCRIPTION = ("M30 independente: sinais originais, sem espelhamento. Cada fonte e ativo usa os "
+                   "encerramentos originais no M23: canal de baixa suspende novas entradas; "
+                   "alta, lateral ou formacao permitem. Falha na referencia bloqueia a entrada.")
 M30_HISTORY_DESCRIPTION = ("Somente operacoes encerradas identificadas pela politica atual de canal do M30, "
                           "dentro do periodo selecionado. Historico anterior excluido deste grafico.")
 

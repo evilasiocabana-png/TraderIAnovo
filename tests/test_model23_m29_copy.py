@@ -30,7 +30,13 @@ def test_copy_preserves_plan_volume_and_isolates_source(tmp_path,monkeypatch,mod
         side=cp.direction,entry_price=cp.entry_price,stop=cp.stop,target=cp.target,
         plan_snapshot={'stop_management_parameters':cp.stop_management_parameters})
     assert copy_order_error(order) is None
+    from application.source_channel_gate import channel_state, parameters
+    cp.stop_management_parameters.update(parameters(channel_state([]),7,cp.direction))
+    monkeypatch.setattr('application.source_channel_gate.reference_state',lambda *a:channel_state([]))
     sent=provider.submit_order(order)
+    if mode == 'ESPELHADO':
+        assert not sent.accepted and 'Espelhamento desativado' in sent.message
+        return
     assert sent.accepted,sent.message
     assert 'M23 S29' in native.last_request['comment']
     assert native.last_request['volume']==volume

@@ -472,3 +472,12 @@ Contrato compartilhado de apresentacao, catalogo e estado do M30; persistencia e
 
 ## 2026-09-30 — Graficos somente das politicas atuais
 Relatorio M29 mostra somente M7 espelhado com m29_sequence_mode identificado; canal anterior, normais e gatilho desconhecido ficam fora. M30 mostra somente m30_policy atual. Filtro no snapshot, nunca por data presumida. Registros e execucao intactos. Dez testes passaram; recarga oficial preserva selecao, agenda e online.
+
+
+## 2026-09-30 — Reforcos por canal da fonte original no M23
+
+Autorizado: M29/M30 seguem a direcao original e suspendem novas entradas somente em canal de baixa confirmado da fonte/ativo no M23. Referencia inclui apenas encerramentos originais conciliados, com custos. Alta, lateral, transicao e formacao nao suspendem; falha de leitura/conta/conciliacao bloqueia. Sensibilidade operacional 1; os controles visuais nao mudam a regra. Planos de politicas antigas nao podem enviar novas ordens.
+
+M23 original mantido com lote padrao 0,10. Pedido de 0,05 foi cancelado antes de implementacao. Ausencia de reforco nao impede o original M23; sincronizacao existente continua para duplas elegiveis. Fontes e ativos vigentes preservados. Defesa financeira vigente de US$200, TP/RSI e demais saidas preservados; sem alteracao ou fechamento de posicoes/pendentes existentes. Nao foram enviadas ordens de teste.
+
+Validacao: suites locais de canais, segregacao por fonte/ativo, rejeicao de referencias antigas/falhas, defesa financeira, sincronizacao e interface. Regras anteriores continuam apenas no historico/estudo; relatorios correntes filtram identificadores da nova politica.

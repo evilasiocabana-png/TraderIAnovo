@@ -34,6 +34,11 @@ def test_actual_provider_request_preserves_effective_contract(tmp_path, monkeypa
     monkeypatch.setattr(independent,"LearningStore",lambda:store)
     clone=clone_contract(original,42)
     params=dict(clone.plan_snapshot['stop_management_parameters'], m30_policy=POLICY, m30_mode='NORMAL')
+    from application.source_channel_gate import channel_state, parameters
+    state=channel_state([])
+    params.update(parameters(state,1,clone.side))
+    params['m30_reference']=state['reference']
+    monkeypatch.setattr('application.source_channel_gate.reference_state',lambda *a,**k:state)
     clone=replace(clone,plan_snapshot=dict(clone.plan_snapshot,stop_management_parameters=params))
     with store.connect() as db:
         tables(db)

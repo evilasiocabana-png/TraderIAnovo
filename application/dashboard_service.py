@@ -7738,7 +7738,7 @@ class DashboardService:
                         if other_model == MT5_OPERATIONAL_MODEL_23 + "_SOURCE_M29" and same_source_plan(model_plan, signal_candle_time, original_plan_for_copy(other_plan), other_candle):
                             paired = True
                             break
-                    reason = "M29 sem plano correspondente pronto neste ciclo."
+                    reason = ""  # Original M23 stays eligible when reinforcement is suspended.
                     if paired:
                         try:
                             occupied = pair_has_open_copy(self.demo_robot_execution_service.list_open_positions())
@@ -8583,14 +8583,14 @@ class DashboardService:
         ]
 
     def _mt5_model30_variant_from_source(self, row, plan, *, source_operational_model):
-        from application.model30_independent import reference_state, floor_state, variant
+        from application.model30_independent import reference_state, variant
         from types import SimpleNamespace
         try:
             if plan.status != "PLANO_VALIDO" or plan.direction not in {"BUY", "SELL"}:
                 return None
-            state = floor_state([])
-            if source_operational_model == MT5_OPERATIONAL_MODEL_7:
-                state = reference_state(self.demo_robot_execution_service.provider, str(row.pair))
+            from domain.operational_model_policy import operational_model_number
+            state = reference_state(self.demo_robot_execution_service.provider, str(row.pair),
+                                    source_number=operational_model_number(source_operational_model))
             volume = self.mt5_demo_robot_service._execution_volume(
                 SimpleNamespace(operational_model=source_operational_model), plan)
             candidate = variant(row, plan, source_operational_model, state, volume)
@@ -8599,7 +8599,7 @@ class DashboardService:
                 "Fonte": source_operational_model, "Par": str(row.pair),
                 "Direcao": out_plan.direction, "Status": out_plan.status,
                 "Entrada": out_plan.entry_price, "Stop": out_plan.stop, "Alvo": out_plan.target,
-                "Modo M7": state["mode"], "Motivo": "M30 independente; canal do M7 original no M23",
+                "Modo M7": state["mode"], "Motivo": "M30 normal; suspende apenas fonte em canal de baixa no M23",
                 "Atualizado": datetime.now(timezone.utc).isoformat(),
             }
             return candidate
@@ -8912,53 +8912,21 @@ class DashboardService:
         return basket_row, basket_plan
 
     def _apply_model29_m7_mode(self, row, plan, source_label):
-        if source_label != "M7":
-            return row, plan
-        from application.model29_sequence_history import sequence_mode
-        from application.model29_m7_sequence import mirrored_prices
+        from application.source_channel_gate import reference_state, parameters as gate_parameters
         parameters = dict(plan.stop_management_parameters or {})
         try:
-            mode = sequence_mode(self.demo_robot_execution_service.provider, str(row.pair))
-            parameters["m29_m7_mode"] = mode
-            if mode == "NORMAL":
-                return replace(row, lab_parameters=parameters), replace(plan, stop_management_parameters=parameters)
-            side, stop, target = mirrored_prices(plan.direction, plan.entry_price, plan.stop)
+            state = reference_state(self.demo_robot_execution_service.provider, str(row.pair), int(source_label[1:]))
+            parameters.update(gate_parameters(state, int(source_label[1:]), plan.direction))
+            parameters.update(m29_mirrored=False, m29_sequence_mode="NORMAL")
+            parameters[f"m29_{source_label.lower()}_mode"] = "NORMAL"
+            if state["blocked"]:
+                raise ValueError(f"{source_label}: canal de baixa no M23 suspende reforco")
+            return replace(row, lab_parameters=parameters), replace(plan, stop_management_parameters=parameters)
         except (OSError, RuntimeError, ValueError, TypeError, AttributeError) as exc:
-            return (
-                replace(row, decision="WAIT", theoretical_entry_direction="WAIT",
-                        theoretical_entry_reason=str(exc), research_plan_status="M29_SEQUENCE_WAITING"),
-                replace(plan, direction="WAIT", status="M29_SEQUENCE_WAITING",
-                        invalid_reason=str(exc), stop_management_parameters=parameters),
-            )
-        parameters.update(m29_mirrored=True, m29_original_direction=plan.direction,
-                          m29_original_stop=plan.stop, m29_original_target=plan.target)
-        parameters.update(
-            m29_original_source_stop_management=parameters.get("source_stop_management"),
-            m29_original_source_beta_id=parameters.get("source_beta_id"),
-            source_stop_management="RESEARCH_FIXED_SL_TP",
-            source_beta_id=MODEL_29_BETA_ID,
-            source_beta_version="M29_M7_MIRROR_FIXED_RR1",
-            source_beta_mode="FIXED_SL_TP",
-        )
-        order_types = {"BUY_STOP": "SELL_LIMIT", "SELL_STOP": "BUY_LIMIT",
-                       "BUY_LIMIT": "SELL_STOP", "SELL_LIMIT": "BUY_STOP"}
-        original_type = str(parameters.get("active_entry_order_type") or "").upper()
-        if original_type in order_types:
-            parameters["active_entry_order_type"] = order_types[original_type]
-        distance = abs(float(plan.entry_price) - stop)
-        return (
-            replace(row, decision=side, theoretical_entry_direction=side,
-                    research_plan_stop=stop, research_plan_target=target,
-                    research_plan_risk_reward=1.0, lab_parameters=parameters,
-                    active_model=row.active_model + " | ESPELHADO"),
-            replace(plan, direction=side, stop=stop, target=target, risk_reward=1.0,
-                    rr_current=1.0, rr_minimum=1.0, risk_pips=distance, reward_pips=distance,
-                    risk_percent=distance / float(plan.entry_price),
-                    reward_percent=distance / float(plan.entry_price),
-                    stop_management_parameters=parameters,
-                    stop_reason="M29 M7 espelhado: risco simetrico 1:1.",
-                    target_reason="M29 M7 espelhado: SL original usado como TP."),
-        )
+            return (replace(row, decision="WAIT", theoretical_entry_direction="WAIT",
+                            theoretical_entry_reason=str(exc), research_plan_status="SOURCE_CHANNEL_WAITING"),
+                    replace(plan, direction="WAIT", status="SOURCE_CHANNEL_WAITING",
+                            invalid_reason=str(exc), stop_management_parameters=parameters))
 
     @observe_plans("M29", executor="M29")
     def _mt5_model29_variant_from_source(

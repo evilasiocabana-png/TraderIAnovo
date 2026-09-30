@@ -7766,7 +7766,7 @@ def _model29_sequence_title_suffix(_provider, account_mode, terminal_path):
             own_values = [r["net"] for r in closed if r["model"] == 29 and r["symbol"] == symbol][-7:]
             values = own_values
             letters = "".join("G" if v > 0 else "P" if v < 0 else "E" for v in values[-7:])
-            mode_label = {"NORMAL": "Normal", "ESPELHADO": "Espelhado"}.get(str(state.get("mode", "")).upper(), "Modo indisponivel")
+            mode_label = "Normal; entrada sujeita ao canal da fonte no M23"
             result_label = f" | Saldo M29 ({len(own_values)} operacoes proprias): US$ {sum(own_values):+.2f}"
             parts.append(label + ": " + (letters or "sem resultados") + result_label + " - " + mode_label)
         return " (" + "; ".join(parts) + ")" if parts else " (sem sequencia M7)"

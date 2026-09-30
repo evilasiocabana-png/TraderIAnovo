@@ -1067,6 +1067,12 @@ mt5.shutdown()
             if account_check is not None:
                 self._write_log(order, account_check)
                 return account_check
+            from application.source_channel_gate import order_error as reinforcement_order_error
+            reinforcement_error = reinforcement_order_error(self, order)
+            if reinforcement_error:
+                result = ExecutionResult(False, "REJECTED", reinforcement_error)
+                self._write_log(order, result)
+                return result
             book_check = self._entry_book_check(order.symbol)
             if book_check is not None:
                 self._write_log(order, book_check)
