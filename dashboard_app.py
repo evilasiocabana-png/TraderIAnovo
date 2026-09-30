@@ -4651,6 +4651,9 @@ def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None
 
     st.markdown("#### Em negociacao")
     open_rows = _sorted_mt5_rows_like_mt5(open_rows)
+    from application.reinforcement_chart_status import trading_reinforcement_text
+    for text in trading_reinforcement_text(open_rows):
+        st.caption(text)
     if open_rows:
         _exibir_resumo_lucro_em_negociacao_mt5(open_rows)
         _render_mt5_trade_audit_table(

@@ -213,3 +213,8 @@ Autorizado: M29/M30 seguem a direcao original e suspendem novas entradas somente
 M23 original mantido com lote padrao 0,10. Pedido de 0,05 foi cancelado antes de implementacao. Ausencia de reforco nao impede o original M23; sincronizacao existente continua para duplas elegiveis. Fontes e ativos vigentes preservados. Defesa financeira vigente de US$200, TP/RSI e demais saidas preservados; sem alteracao ou fechamento de posicoes/pendentes existentes. Nao foram enviadas ordens de teste.
 
 Validacao: suites locais de canais, segregacao por fonte/ativo, rejeicao de referencias antigas/falhas, defesa financeira, sincronizacao e interface. Regras anteriores continuam apenas no historico/estudo; relatorios correntes filtram identificadores da nova politica.
+
+
+## 2026-09-30 — Resumo textual dos reforcos
+
+Relatorio / Em negociacao: texto identifica fonte, ativo e rota M29/M30 das posicoes confirmadas da politica atual. Pendentes separados de posicoes abertas; ausencia nao significa suspensao pelo canal. Nenhuma mudanca de estrategia. Validacao: 12 testes passaram; recarga oficial com saude ok e selecao, agenda e estado online preservados.
