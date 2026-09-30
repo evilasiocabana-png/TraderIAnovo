@@ -468,3 +468,7 @@ M23/M29 preservados; controles de conta Real desabilitados. Recarga pelo launche
 
 ## 2026-09-29 — Refatoracao da integracao das abas
 Contrato compartilhado de apresentacao, catalogo e estado do M30; persistencia extraida sem migracao. Sincronizacao evita toggle antigo do Aprendizado sobrescrever escolha do MT5. Historico legado e politica atual identificados. 33 testes passaram. Ver docs/architecture/MODEL_UI_STATE.md. Sem alteracao de regras financeiras ou posicoes.
+
+
+## 2026-09-30 — Graficos somente das politicas atuais
+Relatorio M29 mostra somente M7 espelhado com m29_sequence_mode identificado; canal anterior, normais e gatilho desconhecido ficam fora. M30 mostra somente m30_policy atual. Filtro no snapshot, nunca por data presumida. Registros e execucao intactos. Dez testes passaram; recarga oficial preserva selecao, agenda e online.

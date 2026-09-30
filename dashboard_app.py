@@ -5263,12 +5263,15 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
     st.caption(model_ui_state(_load_persisted_mt5_operational_selections()).caption)
     main_chart_selection = _mt5_equity_main_chart_model_selection()
     from application.model23_source_summary import collect_m23_source_results, collect_realized_results
+    from application.report_current_policy import current_policy_rows
     active_source_labels = {
         f"M{operational_model_number(model)}" for model in MT5_MODEL_23_SOURCE_MODEL_IDS
         if operational_model_number(model) is not None
     } | {"M29"}
     m23_source_results = collect_m23_source_results(_mt5_closed_realized_rows(
         _mt5_rows_for_equity_model_filter(rows, "MODELO 23"), start_at), active_source_labels)
+    m23_source_results["M29"] = collect_realized_results(current_policy_rows(
+        _mt5_closed_realized_rows(_mt5_rows_for_equity_model_filter(rows, "MODELO 23"), start_at), "M29"))
     main_chart_rows = _mt5_rows_for_equity_model_selection(
         rows,
         main_chart_selection,
@@ -5328,10 +5331,15 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
                 model_filter=model_filter,financials=model_financials[model_filter])
             continue
         source_label = model_filter.replace("MODELO ", "M")
-        own_results=collect_realized_results(_mt5_closed_realized_rows(model_rows[model_filter],start_at))
+        own_rows = _mt5_closed_realized_rows(model_rows[model_filter], start_at)
+        if source_label == "M30":
+            own_rows = current_policy_rows(own_rows, "M30")
+        own_results = collect_realized_results(own_rows)
         source_results=m23_source_results.get(source_label,[])
         own_model=True
-        if source_label in active_source_labels:
+        if source_label == "M29":
+            own_model = False
+        elif source_label in active_source_labels:
             origin=st.radio(f"Historico exibido — {source_label}",
                 ["Sinais executados pelo M23","Operacoes proprias"],
                 index=0 if source_results else 1,horizontal=True,key=f"equity_history_origin_{source_label}")
@@ -5350,6 +5358,8 @@ def _render_m23_source_structure(source, results, *, own_model=False):
                "Curva liquida, com comissao, swap e taxas; base zero no periodo selecionado.")
     if source == "M30" and own_model:
         st.caption(M30_HISTORY_DESCRIPTION)
+    if source == "M29" and not own_model:
+        st.caption("Somente M7 ESPELHADO pela sequencia atual do M29 executado no M23. Canal antigo e registros sem gatilho identificado excluidos deste grafico.")
     if not results:
         st.info("Nenhuma operacao encerrada neste historico e periodo.")
         return
