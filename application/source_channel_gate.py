@@ -87,6 +87,13 @@ def parameters(state, source, direction):
                 reinforcement_original_direction=direction)
 
 
+def entry_volume(parameters, symbol, default):
+    """Current gold reinforcements use 0.20; legacy and other assets unchanged."""
+    if parameters.get("reinforcement_policy") == POLICY and str(symbol).upper() == "XAUUSD":
+        return 0.20
+    return float(default)
+
+
 def order_error(provider, order):
     model = str(order.operational_model)
     p = (order.plan_snapshot or {}).get("stop_management_parameters") or {}
@@ -104,6 +111,8 @@ def order_error(provider, order):
             return "Reforco exige fonte e direcao original confirmadas"
         if p.get("m29_mirrored") or p.get("m30_mode", "NORMAL") != "NORMAL" or p.get("m23_m29_mode", "NORMAL") != "NORMAL":
             return "Espelhamento desativado na politica atual de reforco"
+        if str(order.symbol).upper() == "XAUUSD" and not math.isclose(float(order.quantity), 0.20, abs_tol=1e-8):
+            return "Reforco no ouro exige lote 0.20; aguarde plano atualizado"
         state = reference_state(provider, order.symbol, source)
         if state["blocked"]:
             return f"M{source}/{order.symbol}: canal de baixa no M23 suspende reforcos"

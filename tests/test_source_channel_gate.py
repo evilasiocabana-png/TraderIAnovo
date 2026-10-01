@@ -41,7 +41,7 @@ def test_incomplete_reference_fails_closed(failure):
 def test_final_gate_rechecks_all_routes_without_affecting_original(monkeypatch,model):
     state=gate.channel_state([]);o=order();p=o.plan_snapshot['stop_management_parameters']
     p.update(gate.parameters(state,7,'BUY'));p.update(m23_m29_origin_source='M7')
-    o=replace(o,operational_model=model)
+    o=replace(o,operational_model=model,quantity=.2)
     monkeypatch.setattr(gate,'reference_state',lambda *a,**k:state)
     assert gate.order_error(provider(),o) is None
     state['blocked']=True
@@ -54,7 +54,7 @@ def test_final_gate_rechecks_all_routes_without_affecting_original(monkeypatch,m
     assert 'fonte' in gate.order_error(provider(),o)
 
 def test_failed_read_and_cached_mirror_never_send(monkeypatch):
-    o=order();p=o.plan_snapshot['stop_management_parameters'];state=gate.channel_state([])
+    o=replace(order(),quantity=.2);p=o.plan_snapshot['stop_management_parameters'];state=gate.channel_state([])
     p.update(gate.parameters(state,7,'BUY'))
     monkeypatch.setattr(gate,'reference_state',lambda *a,**k:(_ for _ in ()).throw(RuntimeError('offline')))
     assert 'indisponivel' in gate.order_error(provider(),o)

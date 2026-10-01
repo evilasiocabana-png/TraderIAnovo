@@ -38,8 +38,9 @@ def test_actual_provider_request_preserves_effective_contract(tmp_path, monkeypa
     state=channel_state([])
     params.update(parameters(state,1,clone.side))
     params['m30_reference']=state['reference']
+    params['m30_execution_volume']=.2
     monkeypatch.setattr('application.source_channel_gate.reference_state',lambda *a,**k:state)
-    clone=replace(clone,plan_snapshot=dict(clone.plan_snapshot,stop_management_parameters=params))
+    clone=replace(clone,quantity=.2,plan_snapshot=dict(clone.plan_snapshot,stop_management_parameters=params))
     with store.connect() as db:
         tables(db)
         db.execute("INSERT INTO m30_pairs VALUES (?,?,?,?,?,?,?,?,?,?,?)",
@@ -48,7 +49,7 @@ def test_actual_provider_request_preserves_effective_contract(tmp_path, monkeypa
     assert result.accepted,result.message
     assert native.last_request["magic"]==MODEL_30_MAGIC
     assert native.last_request["comment"]=="TraderIA M30 S1 NOR"
-    assert native.last_request["volume"]==.1
+    assert native.last_request["volume"]==.2
     assert native.last_request["sl"]==original.stop
     assert native.last_request["tp"]==original.target
     assert "M23" not in native.last_request["comment"]

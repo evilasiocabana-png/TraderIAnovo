@@ -32,6 +32,8 @@ def test_copy_preserves_plan_volume_and_isolates_source(tmp_path,monkeypatch,mod
     assert copy_order_error(order) is None
     from application.source_channel_gate import channel_state, parameters
     cp.stop_management_parameters.update(parameters(channel_state([]),7,cp.direction))
+    cp.stop_management_parameters["execution_volume"]=.2
+    order=replace(order,quantity=.2)
     monkeypatch.setattr('application.source_channel_gate.reference_state',lambda *a:channel_state([]))
     sent=provider.submit_order(order)
     if mode == 'ESPELHADO':
@@ -39,7 +41,7 @@ def test_copy_preserves_plan_volume_and_isolates_source(tmp_path,monkeypatch,mod
         return
     assert sent.accepted,sent.message
     assert 'M23 S29' in native.last_request['comment']
-    assert native.last_request['volume']==volume
+    assert native.last_request['volume']==.2
     assert copy_order_error(replace(order,quantity=0.3))
 
 @pytest.mark.parametrize('outcome',[result('REJECTED',False),result('WAITING'),result(ticket=None)])

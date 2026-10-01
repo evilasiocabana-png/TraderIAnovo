@@ -14,3 +14,8 @@ Politica autorizada em 30/09/2026, somente para novas entradas Demo.
 - Nenhuma posicao ou pendente existente e alterada. Historicos antigos continuam armazenados; graficos da politica atual nao os misturam.
 
 A regra substitui o espelhamento operacional de M29/M30. Funcoes historicas de sequencia/canal permanecem para leitura e estudos, sem autorizar novos planos.
+
+
+## 2026-10-01 — Lote dos reforcos no ouro
+
+Autorizado lote 0,20 para novas entradas M29/M30 XAUUSD, incluindo M29 executado pelo M23. Original M23 permanece 0,10. Outros ativos e posicoes/pendentes existentes inalterados. Validacao final recusa planos antigos de ouro em 0,10. Defesa financeira vigente precifica o novo lote sem afastar stops menores. 195 testes passaram sem ordens reais; painel recarregado pelo procedimento oficial, saude ok, selecao/agenda/estado online preservados.

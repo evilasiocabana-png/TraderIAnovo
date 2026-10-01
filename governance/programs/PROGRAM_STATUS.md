@@ -218,3 +218,8 @@ Validacao: suites locais de canais, segregacao por fonte/ativo, rejeicao de refe
 ## 2026-09-30 — Resumo textual dos reforcos
 
 Relatorio / Em negociacao: texto identifica fonte, ativo e rota M29/M30 das posicoes confirmadas da politica atual. Pendentes separados de posicoes abertas; ausencia nao significa suspensao pelo canal. Nenhuma mudanca de estrategia. Validacao: 12 testes passaram; recarga oficial com saude ok e selecao, agenda e estado online preservados.
+
+
+## 2026-10-01 — Lote dos reforcos no ouro
+
+Autorizado lote 0,20 para novas entradas M29/M30 XAUUSD, incluindo M29 executado pelo M23. Original M23 permanece 0,10. Outros ativos e posicoes/pendentes existentes inalterados. Validacao final recusa planos antigos de ouro em 0,10. Defesa financeira vigente precifica o novo lote sem afastar stops menores. 195 testes passaram sem ordens reais; painel recarregado pelo procedimento oficial, saude ok, selecao/agenda/estado online preservados.

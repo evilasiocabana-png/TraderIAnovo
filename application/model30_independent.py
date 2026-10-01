@@ -82,8 +82,9 @@ def variant(row, plan, source, state, volume):
         raise ValueError('Canal de baixa no M23 suspende esta fonte do M30')
     mode = 'NORMAL'
     side, stop, target = plan.direction, plan.stop, plan.target
-    from application.source_channel_gate import parameters as gate_parameters
+    from application.source_channel_gate import parameters as gate_parameters, entry_volume
     p.update(gate_parameters(state, int(number), plan.direction))
+    volume = entry_volume(p, getattr(row, "pair", getattr(plan, "symbol", "")), volume)
     p.update(source_operational_model=source, source_entry_setup=row.active_model,
         source_initial_stop=plan.stop, source_target=plan.target,
         source_stop_management=plan.stop_management, source_exit_model=plan.exit_model,
