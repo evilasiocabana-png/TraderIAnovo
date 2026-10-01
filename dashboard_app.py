@@ -4656,10 +4656,17 @@ def exibir_relatorios_dashboard(service: DashboardService, data: object) -> None
         st.caption(text)
     if open_rows:
         _exibir_resumo_lucro_em_negociacao_mt5(open_rows)
-        _render_mt5_trade_audit_table(
-            [_mt5_open_trade_compact_row(row) for row in open_rows],
-            color_by_model=True,
-        )
+        open_display = [_mt5_open_trade_compact_row(row) for row in open_rows]
+        keys = tuple(sorted({(r["Fonte original"], r["Par"]) for r in open_display
+                             if re.fullmatch(r"M[0-9]+", r["Fonte original"])}))
+        channels = _report_current_entry_channels(
+            keys, os.getenv("MT5_PATH", ""), os.getenv("TRADERIA_DEMO_ACCOUNT_LOGIN", ""),
+            os.getenv("TRADERIA_DEMO_ACCOUNT_SERVER", ""))
+        for displayed in open_display:
+            displayed["Canal atual da fonte"] = channels.get(
+                (displayed["Fonte original"], displayed["Par"]), "Indisponível")
+        st.caption("Canal atual da fonte: resultados encerrados originais no M23. Canal na entrada: estado registrado no envio do sinal.")
+        _render_mt5_trade_audit_table(open_display, color_by_model=True)
     else:
         st.info("Nenhuma operacao aberta ou ordem aberta encontrada no MT5.")
 
@@ -5005,6 +5012,24 @@ def _mt5_trade_audit_csv_row(
     for key, value in sorted(snapshot.items()):
         payload[f"Plano {key}"] = value
     return payload
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _report_current_entry_channels(keys, terminal_path, expected_login, expected_server):
+    from application.report_entry_channel import current_channel_labels
+    from infrastructure.execution.mt5_demo_execution_provider import MT5DemoExecutionProvider
+    if not keys or not terminal_path or not expected_login or not expected_server:
+        return {}
+    try:
+        payload = MT5DemoExecutionProvider()._external_mt5_read(
+            "m29_sequence", terminal_path=terminal_path,
+            portable=os.getenv("MT5_PORTABLE", "0") == "1")
+        account = payload.get("account") or {}
+        if str(account.get("login")) != expected_login or account.get("server") != expected_server:
+            return {}
+        return current_channel_labels(payload, keys)
+    except (OSError, ValueError, RuntimeError, TypeError, AttributeError):
+        return {}
 
 
 from application.report_entry_channel import entry_channel_columns

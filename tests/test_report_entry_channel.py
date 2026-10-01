@@ -29,3 +29,23 @@ def test_legacy_unknown_is_not_current_channel(snapshot):
 def test_original_m23_source_without_recorded_channel():
     row=NS(operational_model="MODELO_23_BASKET_ACCUMULATOR_SOURCE_M18")
     assert entry_channel_columns(row)=={"Fonte original":"M18","Canal na entrada":"Não registrado"}
+
+
+def test_current_channel_is_per_source_not_entry_snapshot():
+    from application.report_entry_channel import current_channel_labels
+    from tests.test_reinforcement_chart_status import payload
+    data=payload([-100,100,-200,100,-200,100])
+    states=current_channel_labels(data,[("M7","XAUUSD"),("M18","XAUUSD")])
+    assert states[("M7","XAUUSD")]=="Baixa"
+    assert states[("M18","XAUUSD")]=="Formação"
+    data["account"]["trade_mode"]=2
+    assert current_channel_labels(data,[("M7","XAUUSD")])=={}
+
+
+def test_current_channel_reader_requires_expected_demo_identity(monkeypatch):
+    from infrastructure.execution.mt5_demo_execution_provider import MT5DemoExecutionProvider
+    app._report_current_entry_channels.clear()
+    monkeypatch.setattr(MT5DemoExecutionProvider,"_external_mt5_read",lambda *a,**k:{
+        "ok":True,"account":{"trade_mode":0,"login":123,"server":"other"}})
+    assert app._report_current_entry_channels((("M7","XAUUSD"),),"demo.exe","123","expected")=={}
+    assert app._report_current_entry_channels((("M7","XAUUSD"),),"","","")=={}

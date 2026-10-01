@@ -34,3 +34,20 @@ def entry_channel_columns(row):
                 "formacao": "Formação", "formação": "Formação"}
     return {"Fonte original": source or "Não registrada",
             "Canal na entrada": channels.get(state, "Não registrado")}
+
+
+def current_channel_labels(payload, keys):
+    """Current source/asset state, separate from immutable entry evidence."""
+    from application.source_channel_gate import reconciled_results, channel_state
+    account = payload.get("account") or {}
+    if not payload.get("ok") or account.get("trade_mode") != 0:
+        return {}
+    result = {}
+    for source, symbol in keys:
+        try:
+            number = int(source.removeprefix("M"))
+            state = channel_state(reconciled_results(payload, number, symbol))["state"]
+            result[(source, symbol)] = {"Transicao":"Transição", "Formacao":"Formação"}.get(state, state)
+        except (ValueError, TypeError, KeyError, OverflowError):
+            result[(source, symbol)] = "Indisponível"
+    return result

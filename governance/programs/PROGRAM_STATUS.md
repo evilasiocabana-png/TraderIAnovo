@@ -235,3 +235,8 @@ Novos reforcos XAUUSD 0,20 recebem limite previsto US$400; original M23 0,10 per
 ## 2026-10-01 — Fonte e canal na entrada no Relatorio
 
 Posicoes abertas, historico compacto/detalhado e CSV exibem Fonte original e Canal na entrada. Usam exclusivamente metadados do plano persistido, sem recalcular o passado pelo canal atual. Registros antigos sem evidencia mostram Nao registrado. Canal e o estado registrado ao liberar o sinal/ordem, inclusive pendentes; nao garante estado na ativacao posterior. Regras, lotes, stops e posicoes preservados. Validacao: 28 testes passaram sem envio de ordens.
+
+
+## 2026-10-01 — Canal atual do M23 nas abertas
+
+Adicionada coluna Canal atual da fonte em Em negociacao, por origem/ativo usando os encerramentos originais M23. Consulta Demo com identidade/caminho explicitos e cache de 30 segundos. Canal na entrada continua imutavel e historico nao recebe estado atual retroativo. Falha de leitura mostra Indisponivel. 30 testes passaram; nenhuma regra operacional alterada.
