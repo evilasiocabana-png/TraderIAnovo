@@ -8,7 +8,9 @@ from application.model23_basket_accumulator import is_model23, model23_source_mo
 LIMIT_USD = 200.0
 
 
-def protected_request(order, request, mt5):
+def protected_request(order, request, mt5, *, limit_usd=LIMIT_USD):
+    if not isfinite(limit_usd) or limit_usd <= 0:
+        raise ValueError("Limite financeiro invalido")
     model = getattr(order, "operational_model", "")
     if not is_model23(model) or model23_source_model_id(model) == "M29":
         return request
@@ -35,7 +37,7 @@ def protected_request(order, request, mt5):
     structural_loss = loss(structural)
     if structural_loss <= 0:
         raise ValueError("Perda estrutural M23 invalida")
-    if structural_loss <= LIMIT_USD:
+    if structural_loss <= limit_usd:
         return request
     safe, unsafe = entry, structural
     for _ in range(64):
@@ -43,7 +45,7 @@ def protected_request(order, request, mt5):
         calculated = loss(midpoint)
         if calculated < 0:
             raise ValueError("Calculo financeiro M23 inconsistente")
-        if calculated <= LIMIT_USD:
+        if calculated <= limit_usd:
             safe = midpoint
         else:
             unsafe = midpoint
@@ -52,6 +54,6 @@ def protected_request(order, request, mt5):
     if not min(entry, structural) < stop < max(entry, structural):
         raise ValueError("Stop financeiro M23 nao representavel")
     final_loss = loss(stop)
-    if not 0 < final_loss <= LIMIT_USD:
+    if not 0 < final_loss <= limit_usd:
         raise ValueError("Stop financeiro M23 excede limite")
     return dict(request, sl=stop)

@@ -121,3 +121,14 @@ def order_error(provider, order):
         return None
     except Exception as exc:
         return "Filtro de canal indisponivel: " + str(exc)[:180]
+
+
+def current_reinforcement(order):
+    model=str(getattr(order,"operational_model",""))
+    p=(getattr(order,"plan_snapshot",None) or {}).get("stop_management_parameters") or {}
+    return p.get("reinforcement_policy")==POLICY and (model.startswith("MODELO_29_") or model.startswith("MODELO_30_") or model=="MODELO_23_BASKET_ACCUMULATOR_SOURCE_M29")
+
+
+def loss_limit(order):
+    return 400.0 if (current_reinforcement(order) and str(order.symbol).upper()=="XAUUSD"
+                     and math.isclose(float(order.quantity),.20,abs_tol=1e-8)) else 200.0

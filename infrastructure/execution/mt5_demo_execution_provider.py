@@ -1126,11 +1126,13 @@ mt5.shutdown()
             if is_model30(order.operational_model):
                 request["magic"] = MODEL_30_MAGIC
             from application.model23_fixed_loss_stop import protected_request as protect_m23
+            from application.source_channel_gate import current_reinforcement, loss_limit
+            financial_limit = loss_limit(order)
             try:
                 protected_order = order
-                if is_model30(order.operational_model):
+                if is_model30(order.operational_model) or current_reinforcement(order):
                     protected_order = replace(order, operational_model="MODELO_23_BASKET_ACCUMULATOR_SOURCE_M7")
-                request = protect_m23(protected_order, request, self.mt5)
+                request = protect_m23(protected_order, request, self.mt5, limit_usd=financial_limit)
             except Exception as exc:
                 result = ExecutionResult(accepted=False, status="REJECTED",
                     message=f"Defesa financeira M23 indisponivel: {exc}")
@@ -1140,7 +1142,7 @@ mt5.shutdown()
                 from dataclasses import replace as replace_m23
                 snapshot = dict(order.plan_snapshot or {})
                 snapshot.update(m23_structural_stop=order.stop,
-                    m23_fixed_loss_limit_usd=200.0, m23_applied_stop=request["sl"], stop=request["sl"])
+                    m23_fixed_loss_limit_usd=financial_limit, m23_applied_stop=request["sl"], stop=request["sl"])
                 order = replace_m23(order, stop=float(request["sl"]), plan_snapshot=snapshot)
             order_check = self._order_check(request)
             if order_check is not None and not self._order_check_passed(order_check):
@@ -3532,6 +3534,11 @@ mt5.shutdown()
                 return self._checked_order_send(request)
         except Exception as exc:  # noqa: BLE001 - ponte externa MT5
             return _ExecutionSendException(exc)
+
+    def cancel_downtrend_reinforcement_pending(self):
+        from application.reinforcement_pending import cancel_downtrend_pending
+        with _MT5_ORDER_SEND_LOCK:
+            return cancel_downtrend_pending(self)
 
     def cancel_weekly_pending_orders(self, *, exclude_symbols: tuple[str, ...]) -> dict[str, object]:
         """Cancel only this robot's non-exempt pending orders, with account checks."""

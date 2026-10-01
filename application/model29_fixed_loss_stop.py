@@ -5,6 +5,13 @@ from application.model23_m29_copy import COPY_ID
 
 
 def protected_request(order, request, mt5):
+    from application.source_channel_gate import current_reinforcement, loss_limit
+    if current_reinforcement(order):
+        from dataclasses import replace
+        from application.model23_fixed_loss_stop import protected_request as protect
+        from types import SimpleNamespace
+        proxy=SimpleNamespace(operational_model="MODELO_23_BASKET_ACCUMULATOR_SOURCE_M7",symbol=order.symbol,side=order.side)
+        return protect(proxy,request,mt5,limit_usd=loss_limit(order))
     parameters = (getattr(order, "plan_snapshot", None) or {}).get("stop_management_parameters") or {}
     if (getattr(order, "operational_model", "") != COPY_ID
             or str(order.symbol).upper() != "XAUUSD"

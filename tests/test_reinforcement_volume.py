@@ -21,8 +21,9 @@ def test_defense_at_double_volume_preserves_small_stop_and_caps_large(side,dista
     o.plan_snapshot=dict(stop_management_parameters=dict(reinforcement_policy=POLICY,m23_m29_origin_source='M18',m23_m29_mode='NORMAL'))
     result=protected_request(o,request,Broker())
     loss=-Broker().order_calc_profit(0 if side=='BUY' else 1,'XAUUSD',.2,result['price'],result['sl'])
-    assert loss<=200.000001 and result['tp']==request['tp']
+    assert loss<=400.000001 and result['tp']==request['tp']
     if distance==5:assert result['sl']==request['sl']
+    else:assert abs(loss-400)<.21
 
 
 def test_final_guard_rejects_cached_old_volume(monkeypatch):

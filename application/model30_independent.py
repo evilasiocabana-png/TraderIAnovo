@@ -114,6 +114,11 @@ def submit(fn, provider, order, store=None):
         provider._write_log(order, result)
         return result
     try:
+        initialize = getattr(provider, '_initialize_check', None)
+        if callable(initialize):
+            failure = initialize()
+            if failure is not None:
+                return rejected(failure.message)
         account = account_id(provider)
         p = (order.plan_snapshot or {}).get('stop_management_parameters') or {}
         source = re.search(r'MODELO_(\d+)', p.get('source_operational_model',''))

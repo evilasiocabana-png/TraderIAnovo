@@ -8187,6 +8187,13 @@ class DashboardService:
         self.lab_operational_decision_cache.clear()
         if self.mt5_demo_robot_service.enabled and self._mt5_demo_execution_enabled():
             self._enable_mt5_demo_provider()
+            cancel_reinforcements = getattr(self.demo_robot_execution_service.provider,
+                                             "cancel_downtrend_reinforcement_pending", None)
+            if callable(cancel_reinforcements):
+                try:
+                    cancel_reinforcements()
+                except Exception as exc:
+                    object.__setattr__(self, "reinforcement_pending_error", str(exc)[:200])
             basket_block = self._evaluate_model23_risk_gate(pair, timeframe)
             if basket_block is not None and not self._mt5_model29_routing_enabled() and not m30_enabled():
                 return basket_block
