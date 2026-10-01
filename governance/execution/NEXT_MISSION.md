@@ -311,3 +311,8 @@ Autorizado lote 0,20 para novas entradas M29/M30 XAUUSD, incluindo M29 executado
 Autorizado cancelar somente ordens pendentes da politica atual M29/M30 (incluindo copias M29 no M23) quando o canal da fonte/ativo original no M23 confirmar Baixa. Lateral continua permitido. Confirmacao por conta Demo, ticket, magic, comentario, fonte e plano; pendencia relida antes de remover. Ordens originais M23 e posicoes abertas preservadas. Falha de historico nao provoca cancelamento cego.
 
 Novos reforcos XAUUSD 0,20 recebem limite previsto US$400; original M23 0,10 permanece US$200. Stops menores, TP e saidas preservados. Outros ativos seguem limite US$200. Custos/gaps podem superar a perda modelada. Corrigida inicializacao Demo antes da verificacao M30; conexao Demo hedging confirmada sem ordem de teste. 148 testes passaram.
+
+
+## 2026-10-01 — Fonte e canal na entrada no Relatorio
+
+Posicoes abertas, historico compacto/detalhado e CSV exibem Fonte original e Canal na entrada. Usam exclusivamente metadados do plano persistido, sem recalcular o passado pelo canal atual. Registros antigos sem evidencia mostram Nao registrado. Canal e o estado registrado ao liberar o sinal/ordem, inclusive pendentes; nao garante estado na ativacao posterior. Regras, lotes, stops e posicoes preservados. Validacao: 28 testes passaram sem envio de ordens.

@@ -5007,9 +5007,13 @@ def _mt5_trade_audit_csv_row(
     return payload
 
 
+from application.report_entry_channel import entry_channel_columns
+
+
 def _mt5_open_trade_compact_row(row: object) -> dict[str, object]:
     """Linha leve para operacoes abertas na aba Relatorio."""
     return {
+        **entry_channel_columns(row),
         "Modelo": _mt5_sender_model_label(row),
         "Par": str(getattr(row, "symbol", "N/D")),
         "Lado": _mt5_trade_side_label(row),
@@ -5181,6 +5185,7 @@ def _mt5_trade_audit_compact_row(row: object) -> dict[str, object]:
         "Lucro projetado": f"{float(getattr(row, 'projected_profit', 0.0) or 0.0):.2f}",
         "Risco projetado": f"{float(getattr(row, 'projected_loss', 0.0) or 0.0):.2f}",
         "Setup entrada": str(getattr(row, "entry_setup", "N/D")),
+        **entry_channel_columns(row),
         "Alpha": str(getattr(row, "alpha_id", "N/D")),
         "Beta": str(getattr(row, "beta_id", "N/D")),
         "Saida/Protecao": _mt5_trade_audit_exit_management_label(row),
@@ -6109,6 +6114,7 @@ def _mt5_trade_audit_row(
         "Lado TraderIA": str(getattr(row, "side", "N/D")),
         "Volume TraderIA": float(getattr(row, "quantity", 0.0) or 0.0),
         "Setup entrada": str(getattr(row, "entry_setup", "N/D")),
+        **entry_channel_columns(row),
         "Alpha entrada": str(getattr(row, "alpha_id", "ALPHA001")),
         "Setup saida": str(getattr(row, "exit_setup", "DYNAMIC_POSITION_MANAGER")),
         "Beta saida": str(getattr(row, "beta_id", "BETA001")),
