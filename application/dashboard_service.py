@@ -8606,7 +8606,7 @@ class DashboardService:
                 "Fonte": source_operational_model, "Par": str(row.pair),
                 "Direcao": out_plan.direction, "Status": out_plan.status,
                 "Entrada": out_plan.entry_price, "Stop": out_plan.stop, "Alvo": out_plan.target,
-                "Modo M7": state["mode"], "Motivo": "M30 normal; suspende apenas fonte em canal de baixa no M23",
+                "Modo M7": state["mode"], "Motivo": state.get("reason") or "M30 normal; filtro de canal da fonte no M23",
                 "Atualizado": datetime.now(timezone.utc).isoformat(),
             }
             return candidate
@@ -8927,7 +8927,7 @@ class DashboardService:
             parameters.update(m29_mirrored=False, m29_sequence_mode="NORMAL")
             parameters[f"m29_{source_label.lower()}_mode"] = "NORMAL"
             if state["blocked"]:
-                raise ValueError(f"{source_label}: canal de baixa no M23 suspende reforco")
+                raise ValueError(state.get("reason") or f"{source_label}: canal de baixa no M23 suspende reforco")
             return replace(row, lab_parameters=parameters), replace(plan, stop_management_parameters=parameters)
         except (OSError, RuntimeError, ValueError, TypeError, AttributeError) as exc:
             return (replace(row, decision="WAIT", theoretical_entry_direction="WAIT",

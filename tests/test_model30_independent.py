@@ -87,7 +87,10 @@ def order(source='M7'):
         plan_snapshot=dict(symbol='XAUUSD',direction='BUY',candle_time='2026-09-29T10:00:00',timeframe='H1',stop_management_parameters=p))
 
 
-def test_independent_submission_without_m23_and_dedup_restart(tmp_path):
+def test_independent_submission_without_m23_and_dedup_restart(tmp_path,monkeypatch):
+    # Isolate admission/dedup behavior; channel eligibility is tested separately.
+    from application.source_channel_gate import channel_state
+    monkeypatch.setattr("application.model30_independent.reference_state", lambda *a, **k: channel_state([]))
     store=LearningStore(tmp_path/'db');p=provider();o=order();sent=[]
     def send(p,o):
         assert preflight(p,o,store)==''
@@ -105,7 +108,10 @@ def test_no_real_or_netting(tmp_path,trade,margin,mode):
     assert not submit(lambda *a:pytest.fail('must not send'),p,order(),store).accepted
 
 
-def test_uncertain_send_never_retries(tmp_path):
+def test_uncertain_send_never_retries(tmp_path,monkeypatch):
+    # Isolate admission/dedup behavior; channel eligibility is tested separately.
+    from application.source_channel_gate import channel_state
+    monkeypatch.setattr("application.model30_independent.reference_state", lambda *a, **k: channel_state([]))
     store=LearningStore(tmp_path/'db');p=provider();sent=[]
     def fail(*a):
         sent.append(1);raise TimeoutError()
@@ -114,7 +120,10 @@ def test_uncertain_send_never_retries(tmp_path):
     assert sent==[1]
 
 
-def test_mode_change_not_retried_as_new_source_signal(tmp_path):
+def test_mode_change_not_retried_as_new_source_signal(tmp_path,monkeypatch):
+    # Isolate admission/dedup behavior; channel eligibility is tested separately.
+    from application.source_channel_gate import channel_state
+    monkeypatch.setattr("application.model30_independent.reference_state", lambda *a, **k: channel_state([]))
     store=LearningStore(tmp_path/'db');p=provider();o=order('M18')
     assert submit(lambda *a:ExecutionResult(True,'ACCEPTED','ok',123),p,o,store).accepted
     changed=replace(o,side='SELL')

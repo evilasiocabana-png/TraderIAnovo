@@ -321,3 +321,8 @@ Posicoes abertas, historico compacto/detalhado e CSV exibem Fonte original e Can
 ## 2026-10-01 — Canal atual do M23 nas abertas
 
 Adicionada coluna Canal atual da fonte em Em negociacao, por origem/ativo usando os encerramentos originais M23. Consulta Demo com identidade/caminho explicitos e cache de 30 segundos. Canal na entrada continua imutavel e historico nao recebe estado atual retroativo. Falha de leitura mostra Indisponivel. 30 testes passaram; nenhuma regra operacional alterada.
+
+
+## 2026-10-01 — Seis recortes para reforcos no ouro
+
+Aplicados seis pares fonte/estrutura/faixa de GOLD_REINFORCEMENT_SIX_CONTEXTS.md somente a reforcos XAUUSD M29/M30 e M29 dentro do M23. Mesma matriz no envio e reavaliacao de pendentes identificadas. M23 original, posicoes abertas, outros ativos, lotes e limites financeiros preservados. Planos ouro anteriores sem versao bloqueados. 212 testes passaram; classificacao reproduziu 1809/1809 casos e 307 elegiveis. Politica exploratoria autorizada; sem promessa de resultado futuro.

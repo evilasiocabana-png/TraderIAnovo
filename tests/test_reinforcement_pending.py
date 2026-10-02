@@ -64,6 +64,8 @@ def test_m30_initializes_connection_before_account_check(tmp_path,monkeypatch):
     from application.model30_independent import submit
     from application.learning_store import LearningStore
     from domain.contracts.execution_result import ExecutionResult
+    from application.source_channel_gate import channel_state
+    monkeypatch.setattr("application.model30_independent.reference_state", lambda *a, **k: channel_state([]))
     p=provider();account=p.mt5.account_info();connected=[]
     p.mt5.account_info=lambda:account if connected else None
     p._initialize_check=lambda:(connected.append(True) or None)

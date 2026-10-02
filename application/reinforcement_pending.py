@@ -1,4 +1,4 @@
-"""Cancel only identified current-policy reinforcement orders on confirmed downtrend."""
+"""Cancel identified reinforcement pending orders when their current source filter blocks."""
 import json
 import re
 from core.jsonl_tail import read_last_text_lines
@@ -55,10 +55,10 @@ def cancel_downtrend_pending(provider):
             live=provider.mt5.orders_get(ticket=int(order.ticket))
             if not live or not any(identity(o,record,account,provider.magic)==source for o in live):continue
             response=provider._checked_order_send(dict(action=provider.mt5.TRADE_ACTION_REMOVE,
-                order=int(order.ticket),symbol=order.symbol,comment='TraderIA channel down'))
+                order=int(order.ticket),symbol=order.symbol,comment='TraderIA channel filter'))
             accepted=getattr(response,'retcode',None)==getattr(provider.mt5,'TRADE_RETCODE_DONE',10009)
             result['cancelled' if accepted else 'rejected']+=1
-            provider._write_management_log(dict(type='REINFORCEMENT_CHANNEL_DOWN_CANCEL',ticket=int(order.ticket),symbol=order.symbol,source=source,accepted=accepted,retcode=getattr(response,'retcode',None)))
+            provider._write_management_log(dict(type='REINFORCEMENT_CHANNEL_FILTER_CANCEL',reason=states[key].get('reason','canal de baixa'),filter_version=states[key].get('filter_version'),channel=states[key].get('state'),zone=states[key].get('zone'),ticket=int(order.ticket),symbol=order.symbol,source=source,accepted=accepted,retcode=getattr(response,'retcode',None)))
         except Exception as exc:
             result['rejected']+=1
             provider._write_management_log(dict(type='REINFORCEMENT_CHANNEL_CANCEL_BLOCKED',ticket=int(order.ticket),reason=str(exc)[:200]))

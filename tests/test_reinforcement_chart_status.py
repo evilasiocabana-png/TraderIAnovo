@@ -13,12 +13,12 @@ def payload(values):
 def test_falling_suspends_and_rising_permits_without_claiming_execution():
     assert 'SUSPENSO' in chart_status(payload([-100,100,-200,100,-200,100]),'M7')[0]
     line=chart_status(payload([100,-100,200,-100,200,-100]),'M7')[0]
-    assert 'PERMITIDO' in line and 'M29 e M30' in line
+    assert 'SUSPENSO' in line and 'M29 e M30' in line
 
 
 def test_other_asset_and_source_are_isolated():
     data=payload([-100,100,-200,100,-200,100])
-    assert 'PERMITIDO' in chart_status(data,'M18')[0]
+    assert 'SUSPENSO' in chart_status(data,'M18')[0]
     line=chart_status(data,'M7',['BTCUSD'])[0]
     assert 'M29' not in line and 'PERMITIDO' in line
     assert 'Sem reforco' in chart_status(data,'M28')[0]

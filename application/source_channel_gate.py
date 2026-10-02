@@ -52,7 +52,10 @@ def channel_state(results):
     channels = analyze_pivot_channels(results, confirmations=1, sensitivity=1.0)
     # Mixed/broken structure is transition, not a confirmed falling channel.
     blocked = structure["state"] == "Baixa" and channels["trend"] == "Baixa"
-    return dict(policy=POLICY, mode="NORMAL", blocked=blocked,
+    from application.gold_reinforcement_filter import location
+    channel = channels["segments"][-1] if channels["segments"] else None
+    zone, relative = location(structure["net"], len(results), channel)
+    return dict(policy=POLICY, mode="NORMAL", blocked=blocked, zone=zone, relative=relative,
                 state=structure["state"], channel=channels["segments"][-1] if channels["segments"] else None,
                 reference=digest(results), closed=len(results))
 
@@ -78,11 +81,16 @@ def reference_state(provider, symbol, source, store=None):
         if old and not set(json.loads(old[0])).issubset(ids):
             raise ValueError("Historico de referencia regrediu; aguardando conciliacao")
         db.execute("INSERT OR REPLACE INTO metadata VALUES (?,?)", (key, encoded(sorted(ids))))
-    return channel_state(rows)
+    from application.gold_reinforcement_filter import apply_filter
+    return apply_filter(channel_state(rows), int(source), symbol)
 
 
 def parameters(state, source, direction):
-    return dict(reinforcement_policy=POLICY, reinforcement_source=int(source),
+    from application.gold_reinforcement_filter import VERSION
+    return dict(reinforcement_filter_version=state.get("filter_version", VERSION),
+                reinforcement_zone=state.get("zone", "Sem canal"),
+                reinforcement_relative=state.get("relative"),
+                reinforcement_policy=POLICY, reinforcement_source=int(source),
                 reinforcement_reference=state["reference"], reinforcement_state=state["state"],
                 reinforcement_original_direction=direction)
 
@@ -103,6 +111,9 @@ def order_error(provider, order):
     try:
         if p.get("reinforcement_policy") != POLICY:
             return "Plano anterior ao filtro atual de canal; aguarde nova avaliacao"
+        from application.gold_reinforcement_filter import VERSION
+        if str(order.symbol).upper() == "XAUUSD" and p.get("reinforcement_filter_version") != VERSION:
+            return "Plano anterior aos seis recortes do ouro; aguarde nova avaliacao"
         source = int(p["reinforcement_source"])
         from domain.operational_model_policy import operational_model_number
         origin = (int(str(p.get("m23_m29_origin_source", "M0"))[1:])
@@ -115,7 +126,7 @@ def order_error(provider, order):
             return "Reforco no ouro exige lote 0.20; aguarde plano atualizado"
         state = reference_state(provider, order.symbol, source)
         if state["blocked"]:
-            return f"M{source}/{order.symbol}: canal de baixa no M23 suspende reforcos"
+            return state.get("reason") or f"M{source}/{order.symbol}: canal de baixa no M23 suspende reforcos"
         if state["reference"] != p.get("reinforcement_reference"):
             return "Referencia M23 mudou; aguarde plano atualizado"
         return None

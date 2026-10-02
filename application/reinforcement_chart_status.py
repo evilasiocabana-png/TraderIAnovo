@@ -18,6 +18,8 @@ def chart_status(payload, source, symbols=()):
         destinations='M29 e M30' if symbol=='XAUUSD' else 'M30'
         try:
             state=channel_state(reconciled_results(payload,number,symbol))
+            from application.gold_reinforcement_filter import apply_filter
+            state=apply_filter(state,number,symbol)
             status='SUSPENSO' if state['blocked'] else 'PERMITIDO'
             result.append(f"{symbol}: reforco {destinations} {status} pelo canal ({state['state']}).")
         except (ValueError,TypeError,KeyError,OverflowError):
