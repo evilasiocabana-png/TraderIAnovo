@@ -1,6 +1,7 @@
 """Bounded, fail-isolated observation of the existing strategy baseline."""
 
 from __future__ import annotations
+from core.execution_log_storage import execution_log_path
 
 from collections import OrderedDict
 from functools import wraps
@@ -198,7 +199,7 @@ class LearningObserver:
             self.last_write = now()
 
     def ingest_log(self, db, limit=100):
-        path = self.root / ".traderia" / "mt5_demo_execution.jsonl"
+        path = execution_log_path(self.root)
         if not path.exists():
             return
         meta = db.execute("SELECT value FROM metadata WHERE key='execution_offset'").fetchone()

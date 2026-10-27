@@ -1,3 +1,4 @@
+from core.execution_log_storage import execution_log_path
 """Read-only realized M7 lineage within M23, separate original and M29-derived."""
 from collections import defaultdict
 import json, math, re
@@ -5,7 +6,8 @@ from pathlib import Path
 from application.model23_m29_copy import COPY_ID
 from application.model23_basket_accumulator import model23_entry_type_token
 
-def closed_m29_m7_copies(snapshot, audit_path=Path(".traderia/mt5_demo_execution.jsonl")):
+def closed_m29_m7_copies(snapshot, audit_path=None):
+    audit_path = execution_log_path() if audit_path is None else audit_path
     account = snapshot.get("account") or {}
     origins = set()
     legacy_tokens = {}

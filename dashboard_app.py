@@ -695,6 +695,8 @@ def _weekly_robot_schedule_cycle() -> None:
         try:
             _enforce_weekly_robot_schedule(service)
         except Exception as exc:  # noqa: BLE001 - guard must survive MT5 failures
+            from application.operational_audit import event
+            event("Agenda semanal", "FALHA", str(exc))
             _write_weekly_robot_schedule_state(
                 weekly_robot_schedule_decision(),
                 action="ERROR",
@@ -708,6 +710,7 @@ def _enforce_weekly_robot_schedule(
     *,
     now: datetime | None = None,
 ) -> dict[str, object]:
+    from application.operational_audit import event
     decision = weekly_robot_schedule_decision(now)
     online_state = _load_demo_robot_online_state()
     previous = _load_weekly_robot_schedule_state()
@@ -719,6 +722,7 @@ def _enforce_weekly_robot_schedule(
             "domingo 18:05 -> sexta 17:30 BRT."
         )
         if not bool(online_state.get("online", False)):
+            event("Ligar domingo", "TENTATIVA", "Acionamento pela agenda semanal.")
             robot = service.arm_demo_robot(pair=pair, timeframe=timeframe)
             _persist_demo_robot_online_state(
                 online=True,
@@ -727,6 +731,7 @@ def _enforce_weekly_robot_schedule(
                 message=online_message,
             )
             _start_demo_robot_background_cycle_once(force=True)
+            event("Ligar domingo", "EXECUTADO", "Robo armado pela agenda; nao confirma envio de ordem.")
             action = "AUTO_ARMED"
             close_result: dict[str, object] = {}
             result_status = str(getattr(robot, "status", "ARMED") or "ARMED")
@@ -760,7 +765,9 @@ def _enforce_weekly_robot_schedule(
         return {"status": result_status, "action": action}
 
     if bool(online_state.get("online", False)) or service.mt5_demo_robot_service.enabled:
+        event("Desligar sexta", "TENTATIVA", "Desarmar robo fora da janela semanal.")
         service.disarm_demo_robot(pair=pair, timeframe=timeframe)
+        event("Desligar sexta", "EXECUTADO", "Robo desarmado; fechamento das posicoes verificado separadamente.")
         _persist_demo_robot_online_state(
             online=False, pair=pair, timeframe=timeframe, message=decision.reason,
         )
@@ -771,10 +778,16 @@ def _enforce_weekly_robot_schedule(
     close_result = dict(previous.get("close_result") or {})
     action = "KEEP_OFFLINE"
     if _weekly_flat_check_due(previous, decision):
+        event("Fechamento semanal", "TENTATIVA", "Verificar e zerar posicoes e pendentes fora da janela.")
         with MT5_FOREX_CYCLE_LOCK:
             close_result = service.close_all_demo_positions(
                 reason="WEEKLY_FRIDAY_1730_BRT",
             )
+        confirmed = (close_result.get("remaining") == 0
+                     and (close_result.get("pending") or {}).get("remaining", 0) == 0
+                     and str(close_result.get("status", "")) in {"CLOSED", "NO_POSITIONS"})
+        event("Fechamento semanal", "CONFIRMADO" if confirmed else "PENDENTE",
+              "Resultado da verificacao no MT5.", details=close_result)
         action = "KEEP_OFFLINE_AND_FLAT_CHECK"
     _write_weekly_robot_schedule_state(
         decision, action=action, close_result=close_result,
@@ -13956,6 +13969,29 @@ def exibir_sistema_forex(
     robot = getattr(data, "demo_robot", None)
 
     st.subheader("Sistema Forex MT5")
+    from application.operational_audit import recent_events
+    with st.expander("Registro operacional e auditoria preventiva", expanded=True):
+        st.caption("Brasilia: ligar domingo 18h05; checagem diaria 19h; desligar sexta 17h30. Tentativa nao significa execucao confirmada. Auditoria diaria depende do agendador do Codex e computador disponivel.")
+        audit_rows = recent_events()
+        if audit_rows:
+            for audit_row in audit_rows[:12]:
+                audit_status = str(audit_row.get("status", ""))
+                line = f"{audit_row.get('timestamp', '')} | {audit_row.get('action', '')} | {audit_status}: {audit_row.get('message', '')}"
+                if audit_status in {"CONFIRMADO", "EXECUTADO", "CONCLUIDA", "INSTALADO"}:
+                    st.success(line)
+                elif audit_status in {"FALHA", "ERROR", "INCERTO"}:
+                    st.error(line)
+                elif audit_status in {"TENTATIVA", "PENDENTE", "CONCLUIDA_COM_PENDENCIA", "VALIDADO_EM_TESTES"}:
+                    st.warning(line)
+                else:
+                    st.info(line)
+            _render_stable_readonly_table([{
+                "Data e hora (Brasilia)": r.get("timestamp", ""),
+                "Acao": r.get("action", ""), "Resultado": r.get("status", ""),
+                "Descricao": r.get("message", ""), "Gravacao": r.get("storage", ""),
+            } for r in audit_rows])
+        else:
+            st.info("Nenhum evento registrado neste log ainda. Isso nao comprova execucao da rotina.")
     colunas = st.columns(4)
     colunas[0].metric("App", "ONLINE" if status.status else "OFFLINE")
     colunas[1].metric("MT5", getattr(forex, "connection_status", "N/D"))

@@ -70,7 +70,8 @@ def load_ui_function(name, namespace):
     return namespace[name]
 
 
-def test_weekend_scheduler_disarms_all_symbols():
+def test_weekend_scheduler_disarms_all_symbols(tmp_path, monkeypatch):
+    monkeypatch.setattr("application.operational_audit.EVENTS", tmp_path / "events.jsonl")
     service = Mock()
     service.close_all_demo_positions.return_value = {"remaining":0}
     from threading import Lock

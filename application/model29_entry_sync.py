@@ -1,3 +1,4 @@
+from core.execution_log_storage import execution_log_path
 """Cycle-local confirmations for M29 gold/M7 entries paired with M23."""
 
 import math
@@ -93,7 +94,7 @@ def pair_has_open_copy(positions):
     if any(re.search(r"\bM7\b",str(getattr(p,"comment",""))) for p in copies):return True
     ids={str(getattr(p,"identifier",None) or getattr(p,"ticket",0)) for p in copies}
     found={}
-    path=Path(".traderia/mt5_demo_execution.jsonl")
+    path=execution_log_path()
     if path.exists():
         for line in path.open(encoding="utf-8"):
             try: row=json.loads(line)

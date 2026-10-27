@@ -1,6 +1,8 @@
 """Adaptador MT5 compartilhado entre Demo e Real explicitamente configurada."""
 
 from __future__ import annotations
+from core.execution_log_storage import execution_log_path
+from application.operational_audit import audited_submit, append_record
 
 import importlib
 import json
@@ -119,7 +121,7 @@ class MT5DemoExecutionProvider:
     magic: int = 260629
     deviation: int = 20
     log_path: Path = field(
-        default_factory=lambda: Path(".traderia") / "mt5_demo_execution.jsonl"
+        default_factory=execution_log_path
     )
     management_log_path: Path = field(
         default_factory=lambda: Path(".traderia") / "mt5_stop_management.jsonl"
@@ -993,6 +995,7 @@ mt5.shutdown()
         )
         return result
 
+    @audited_submit
     @paired_submit
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         """Converte ExecutionOrder em request MT5 para a conta configurada."""
@@ -3871,8 +3874,7 @@ mt5.shutdown()
             except Exception:
                 payload["observed_account_login"] = None
                 payload["observed_account_server"] = None
-        with self.log_path.open("a", encoding="utf-8") as file:
-            file.write(json.dumps(payload, ensure_ascii=True) + "\n")
+        append_record(self.log_path, payload)
         if self.execution_log_cache is not None:
             self.execution_log_cache.append(
                 self._compact_execution_log_record(payload)

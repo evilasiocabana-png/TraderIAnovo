@@ -1,3 +1,4 @@
+from core.execution_log_storage import execution_log_path
 """Servico de aplicacao para dados do dashboard."""
 
 from dataclasses import asdict, dataclass, field, fields as dataclass_fields, replace
@@ -5815,7 +5816,7 @@ class DashboardService:
         return float(getattr(account, "balance", 0.0) or 0.0)
 
     def _read_mt5_demo_execution_jsonl(self) -> list[dict[str, Any]]:
-        path = Path(".traderia") / "mt5_demo_execution.jsonl"
+        path = execution_log_path()
         if not path.exists():
             object.__setattr__(self, "mt5_demo_execution_records_cache", [])
             object.__setattr__(self, "mt5_demo_execution_records_cache_offset", 0)
@@ -5862,7 +5863,7 @@ class DashboardService:
         self,
     ) -> Iterator[dict[str, Any]]:
         """Le o log do fim e evita materializar todo o historico no ciclo leve."""
-        path = Path(".traderia") / "mt5_demo_execution.jsonl"
+        path = execution_log_path()
         if not path.exists():
             return
 

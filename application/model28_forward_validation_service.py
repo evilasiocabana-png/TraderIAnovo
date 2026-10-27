@@ -1,6 +1,7 @@
 """Forward validation of Replay-promoted M28 patterns against MT5 execution."""
 
 from __future__ import annotations
+from core.execution_log_storage import execution_log_path
 
 import csv
 from datetime import datetime, timedelta, timezone
@@ -50,7 +51,7 @@ DEFAULT_PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FORWARD_ROOT = (
     DEFAULT_PROJECT_ROOT / ".traderia" / "research" / "model28_forward_validation"
 )
-DEFAULT_EXECUTION_LOG_PATH = DEFAULT_PROJECT_ROOT / ".traderia" / "mt5_demo_execution.jsonl"
+DEFAULT_EXECUTION_LOG_PATH = execution_log_path()
 DEFAULT_TRADE_AUDIT_SNAPSHOT_PATH = (
     DEFAULT_PROJECT_ROOT / ".traderia" / "runtime" / "mt5_trade_audit_report.json"
 )

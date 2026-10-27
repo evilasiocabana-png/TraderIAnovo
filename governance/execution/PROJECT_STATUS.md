@@ -513,3 +513,7 @@ Adicionada coluna Canal atual da fonte em Em negociacao, por origem/ativo usando
 ## 2026-10-01 — Seis recortes para reforcos no ouro
 
 Aplicados seis pares fonte/estrutura/faixa de GOLD_REINFORCEMENT_SIX_CONTEXTS.md somente a reforcos XAUUSD M29/M30 e M29 dentro do M23. Mesma matriz no envio e reavaliacao de pendentes identificadas. M23 original, posicoes abertas, outros ativos, lotes e limites financeiros preservados. Planos ouro anteriores sem versao bloqueados. 212 testes passaram; classificacao reproduziu 1809/1809 casos e 307 elegiveis. Politica exploratoria autorizada; sem promessa de resultado futuro.
+
+
+## 2026-10-27 - Auditoria e historico local
+Journal persistente de tentativa e resultado, fallback e log colorido de agenda/auditoria; resumo de aceites distinto de preenchimento. Local de execucao configuravel por runtime, compartilhado entre envio, Relatorio e aprendizado, preservando isolamento Demo/Real. Migracao local autorizada fora do OneDrive preservou original e 384 registros. Agenda diaria 19h substitui semanal. Testes isolados aprovados; nenhuma ordem de teste. Configuracoes e historicos locais nao versionados. Validacao de proxima gravacao natural no novo destino ainda pendente.
