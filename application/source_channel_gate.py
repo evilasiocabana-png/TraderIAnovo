@@ -44,7 +44,9 @@ def reconciled_results(payload, source, symbol):
         if not math.isfinite(net):
             raise ValueError("Resultado de referencia invalido")
         results.append(dict(id=str(position), net=round(net, 2), time=max((d.get("time_msc") or d["time"]*1000) for d in exits)))
-    return sorted(results, key=lambda r: (r["time"], r["id"]))
+    from application.account_channel_continuity import continue_results
+    return continue_results(payload.get('account') or {}, source, symbol,
+                            sorted(results, key=lambda r: (r["time"], r["id"])))
 
 
 def channel_state(results):

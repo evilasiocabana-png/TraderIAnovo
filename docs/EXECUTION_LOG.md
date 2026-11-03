@@ -2924,3 +2924,7 @@ Aplicados seis pares fonte/estrutura/faixa de GOLD_REINFORCEMENT_SIX_CONTEXTS.md
 
 ## 2026-10-27 - Auditoria e historico local
 Journal persistente de tentativa e resultado, fallback e log colorido de agenda/auditoria; resumo de aceites distinto de preenchimento. Local de execucao configuravel por runtime, compartilhado entre envio, Relatorio e aprendizado, preservando isolamento Demo/Real. Migracao local autorizada fora do OneDrive preservou original e 384 registros. Agenda diaria 19h substitui semanal. Testes isolados aprovados; nenhuma ordem de teste. Configuracoes e historicos locais nao versionados. Validacao de proxima gravacao natural no novo destino ainda pendente.
+
+
+## 2026-11-03 - Validacao final da continuidade Demo
+Continuidade autorizada restrita a conta Demo alvo, seed local validado por SHA256, identidades por conta. Relatorio exclui linhas anteriores ao corte da migracao para nao duplicar a copia salva; origem historica preservada. Arquivo real de 13154 linhas resulta nas mesmas 27 curvas e 3361 encerramentos arquivados. 46 testes passaram. Duas entradas naturais M23 (EURUSD e XAUUSD, 0.10) confirmadas como posicoes no MT5; nenhuma ordem de teste. Ciclo voltou a atualizar. Bootstrap reportou timeout antes do primeiro ciclo terminar; retificacao registrada. Controle do navegador indisponivel nesta verificacao final, portanto apresentacao visual nao confirmada. Historicos, configuracao local e credenciais excluidos do commit.
