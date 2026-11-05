@@ -675,7 +675,8 @@ from core.mt5_process_probe import (
     probe_mt5_initialize,
     resolve_mt5_terminal_path,
 )
-from core.mt5_external_process_gate import mt5_external_process_slot
+from core.mt5_external_process_gate import mt5_external_process_slot, mt5_report_process_slot
+from core.mt5_process_probe import terminate_process_tree
 from core.operation_session import OperationSession
 from domain.contracts.decision_context import DecisionContext
 from domain.contracts.dynamic_exit import (
@@ -5615,8 +5616,8 @@ class DashboardService:
             0.05,
         )
         process: subprocess.Popen[str] | None = None
-        with mt5_external_process_slot(timeout=slot_wait_seconds) as acquired:
-            if not acquired:
+        with mt5_report_process_slot(timeout=slot_wait_seconds) as cancelled:
+            if cancelled is None:
                 return None
             try:
                 process = subprocess.Popen(
@@ -5626,7 +5627,19 @@ class DashboardService:
                     text=True,
                     creationflags=creationflags,
                 )
-                stdout, _stderr = process.communicate(timeout=timeout_seconds)
+                deadline = time.monotonic() + timeout_seconds
+                while True:
+                    if cancelled.is_set():
+                        terminate_process_tree(process)
+                        return None
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired("MT5 report", timeout_seconds)
+                    try:
+                        stdout, _stderr = process.communicate(timeout=min(0.1, remaining))
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
             except (OSError, subprocess.TimeoutExpired):
                 if process is not None:
                     try:
