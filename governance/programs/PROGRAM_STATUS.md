@@ -258,3 +258,8 @@ Continuidade autorizada restrita a conta Demo alvo, seed local validado por SHA2
 Reproduzida contencao: leitura operacional aguardava 1s enquanto Relatorio podia manter trava por 45s. Relatorio agora usa concessao cancelavel, cede a consultas operacionais, encerra somente seu subprocesso de leitura e devolve fallback existente. Exclusao mutua preservada; dados vencidos continuam bloqueados na execucao. 12 testes passaram incluindo concorrencia real entre threads, cancelamento e regressao de cache. Backup TEMP/traderia_report_priority_nov05. Nenhuma ordem de teste. Causa historica especifica nao demonstrada. Recarga em validacao.
 
 Ativacao validada: ciclo EXECUTED apos recarga; MT5 confirmou duas posicoes naturais EURJPY (.10 M23 e .20 M29). Bootstrap marcou timeout antes de observar o ciclo, mas avancou e foi confirmado depois, sem novo reinicio. Sem ordens de teste. Nao atribuir todo periodo sem entradas a contencao.
+
+## 2026-11-08 - Identidade Demo na recuperacao automatica
+Guard ainda tinha login da Demo anterior, divergente do launcher atual e terminal. Journal registrou 48 rejeicoes por conta divergente no domingo; nao era ausencia de sinais nem falha de inicializacao do servidor. Corrigida identidade autorizada no reinicio, mantendo checagem de conta e Real desabilitada. Teste compara login/servidor dos dois inicializadores. 11 testes passaram; backup TEMP/traderia_guard_account_nov08. Recarga em validacao, nenhuma ordem de teste.
+
+Recarga confirmada: ciclo EXECUTED e tres posicoes naturais no MT5 (AUDUSD .10 M23 e .20 M29; USDJPY .10 M23). Rejeicao de conta divergente eliminada nos novos envios. Nao enviada ordem de teste. Auditoria ampliada para identidade dos inicializadores e motivos de rejeicao.
