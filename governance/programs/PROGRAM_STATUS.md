@@ -263,3 +263,9 @@ Ativacao validada: ciclo EXECUTED apos recarga; MT5 confirmou duas posicoes natu
 Guard ainda tinha login da Demo anterior, divergente do launcher atual e terminal. Journal registrou 48 rejeicoes por conta divergente no domingo; nao era ausencia de sinais nem falha de inicializacao do servidor. Corrigida identidade autorizada no reinicio, mantendo checagem de conta e Real desabilitada. Teste compara login/servidor dos dois inicializadores. 11 testes passaram; backup TEMP/traderia_guard_account_nov08. Recarga em validacao, nenhuma ordem de teste.
 
 Recarga confirmada: ciclo EXECUTED e tres posicoes naturais no MT5 (AUDUSD .10 M23 e .20 M29; USDJPY .10 M23). Rejeicao de conta divergente eliminada nos novos envios. Nao enviada ordem de teste. Auditoria ampliada para identidade dos inicializadores e motivos de rejeicao.
+
+
+## 2026-11-09 - Auditoria: precisao temporal dos encerramentos
+Encontrada divergencia descritiva no M18/XAUUSD: dois encerramentos no mesmo segundo eram ordenados por ticket no Relatorio, enquanto a referencia operacional preserva time_msc. Saldo e custos conferem; classificacao da curva diferia. Relatorio passa a preservar milissegundos dos deals, com fallback de segundos. Teste reproduz tickets 420314410/420299218 em ordem cronologica. Backup e evidencias em TEMP/traderia_audit_nov09_19h. Nenhuma ordem de teste, estrategia ou posicao alterada. Validacao do snapshot regenerado em andamento.
+
+Validacao final: snapshot refeito por novo worker; 307 encerramentos e custos conciliados e 27 curvas com estado/faixa/saldo iguais a referencia operacional. 65 testes iniciais e 13 focados apos reparo passaram. Sem reinicio do robo ou ordens de teste. Pendentes conferencia visual e diagnostico causal de oito rejeicoes de gatilho/stop; protecoes preservadas.

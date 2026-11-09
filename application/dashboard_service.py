@@ -6253,6 +6253,10 @@ class DashboardService:
     ) -> dict[str, Any]:
         side = self._mt5_side_from_type(data.get("type"), source=source)
         timestamp = data.get("time_done") or data.get("time")
+        # Closed deals can arrive within the same second. Their native order
+        # determines the equity pivots, so retain MT5 millisecond precision.
+        if source == "DEAL" and data.get("time_msc"):
+            timestamp = int(data["time_msc"]) / 1000
         cost_components = CostManager.trade_cost_components(data)
         return {
             "ticket": ticket,
@@ -7101,7 +7105,7 @@ class DashboardService:
 
     def _mt5_history_time(self, value: object) -> str:
         try:
-            return datetime.fromtimestamp(int(value), tz=timezone.utc).isoformat()
+            return datetime.fromtimestamp(float(value), tz=timezone.utc).isoformat()
         except (TypeError, ValueError, OSError):
             return "N/D"
 
