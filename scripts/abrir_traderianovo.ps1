@@ -121,6 +121,8 @@ function Start-TraderIACloudflareTunnel {
         -FilePath $cloudflared `
         -ArgumentList @(
             "tunnel",
+            "--protocol",
+            "http2",
             "run",
             "--token-file",
             "`"$cloudflareToken`""
