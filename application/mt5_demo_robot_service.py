@@ -761,8 +761,10 @@ class MT5DemoRobotService:
             return float(parameters["m30_execution_volume"])
         if is_model29(operational_model):
             source = str(operational_model).upper()
-            mode = str(parameters.get("m29_m7_mode", "NORMAL")).upper()
-            return 0.2 if source.endswith("_SOURCE_M7") and mode == "ESPELHADO" else 0.1
+            origin = source.rsplit("_SOURCE_", 1)[-1].lower()
+            mode = str(parameters.get(f"m29_{origin}_mode", "NORMAL")).upper()
+            from application.source_channel_gate import entry_volume
+            return entry_volume(parameters, trade_plan.symbol, 0.2 if origin in {"m7", "m8", "m10", "m18", "m20"} and mode == "ESPELHADO" else 0.1)
         if is_model23(operational_model):
             routed_volume = parameters.get("execution_volume")
             try:

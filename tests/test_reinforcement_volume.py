@@ -7,7 +7,7 @@ from tests.test_model30_independent import Row,Plan,provider,order
 from tests.test_model23_fixed_loss_stop import Broker,fixture
 from application.model29_fixed_loss_stop import protected_request
 
-@pytest.mark.parametrize('symbol,expected',[('XAUUSD',.2),('BTCUSD',.1),('EURJPY',.1)])
+@pytest.mark.parametrize('symbol,expected',[('XAUUSD',.3),('BTCUSD',.1),('EURJPY',.1)])
 def test_volume_is_gold_only(symbol,expected):
     row=Row();row.pair=symbol
     _,_,p=variant(row,Plan(stop_management_parameters={}), 'MODELO_7_TEST',channel_state([]),.1)
@@ -16,21 +16,21 @@ def test_volume_is_gold_only(symbol,expected):
 
 @pytest.mark.parametrize('side',['BUY','SELL'])
 @pytest.mark.parametrize('distance',[5,100])
-def test_defense_at_double_volume_preserves_small_stop_and_caps_large(side,distance):
-    o,request=fixture('M29',side,distance,.2)
+def test_defense_at_requested_volume_preserves_small_stop_and_caps_large(side,distance):
+    o,request=fixture('M29',side,distance,.3)
     o.plan_snapshot=dict(stop_management_parameters=dict(reinforcement_policy=POLICY,m23_m29_origin_source='M18',m23_m29_mode='NORMAL'))
     result=protected_request(o,request,Broker())
-    loss=-Broker().order_calc_profit(0 if side=='BUY' else 1,'XAUUSD',.2,result['price'],result['sl'])
-    assert loss<=400.000001 and result['tp']==request['tp']
+    loss=-Broker().order_calc_profit(0 if side=='BUY' else 1,'XAUUSD',.3,result['price'],result['sl'])
+    assert loss<=450.000001 and result['tp']==request['tp']
     if distance==5:assert result['sl']==request['sl']
-    else:assert abs(loss-400)<.21
+    else:assert abs(loss-450)<.21
 
 
 def test_final_guard_rejects_cached_old_volume(monkeypatch):
     state=channel_state([]);o=order();o.plan_snapshot['stop_management_parameters'].update(parameters(state,7,'BUY'))
-    monkeypatch.setattr('application.source_channel_gate.reference_state',lambda *a:state)
-    assert '0.20' in order_error(provider(),o)
-    assert order_error(provider(),replace(o,quantity=.2)) is None
+    monkeypatch.setattr('application.source_channel_gate.reference_state',lambda *a,**k:state)
+    assert '0.30' in order_error(provider(),o)
+    assert order_error(provider(),replace(o,quantity=.3)) is None
     assert order_error(provider(),replace(o,operational_model='MODELO_23_BASKET_ACCUMULATOR_SOURCE_M7')) is None
 
 
@@ -46,3 +46,17 @@ def test_m29_copy_and_own_lot_and_original_m23(tmp_path,monkeypatch):
     assert MT5DemoRobotService._execution_volume(None,NS(operational_model='MODELO_29_BASKET_ACCUMULATOR_SOURCE_M18'),plan)==.2
     original=replace(plan,stop_management_parameters={})
     assert MT5DemoRobotService._execution_volume(NS(volume=.1),NS(operational_model='MODELO_23_BASKET_ACCUMULATOR_SOURCE_M18'),original)==.1
+
+
+@pytest.mark.parametrize("side",["BUY","SELL"])
+@pytest.mark.parametrize("volume",[.2,.3])
+@pytest.mark.parametrize("distance",[5,100])
+def test_m7_broker_defense_by_lot(side,volume,distance):
+    o,request=fixture('M29',side,distance,volume)
+    o.plan_snapshot=dict(stop_management_parameters=dict(reinforcement_policy=POLICY,reinforcement_source=7))
+    result=protected_request(o,request,Broker())
+    loss=-Broker().order_calc_profit(0 if side=='BUY' else 1,'XAUUSD',volume,result['price'],result['sl'])
+    cap=300 if volume==.2 else 450
+    assert loss<=cap+0.000001 and result['tp']==request['tp']
+    if distance==5:assert result['sl']==request['sl']
+    else:assert abs(loss-cap)<.31

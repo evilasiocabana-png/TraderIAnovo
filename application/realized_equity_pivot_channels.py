@@ -23,6 +23,28 @@ def _candidate(tops, bottoms):
                 trend='Alta' if rising else 'Baixa', pivots=tops[-2:] + bottoms[-2:])
 
 
+def pivot_anchor_plot_rows(study, first, last):
+    """Retrospective anchors for display only, labelled with confirmation time."""
+    rows, seen = [], set()
+    for segment in study['segments']:
+        if segment['anchor'] > last:
+            continue
+        for edge, kind in (('lower', 'Fundo'), ('upper', 'Topo')):
+            touching = [p for p in segment['pivots'] if p['kind'] == kind and
+                math.isclose(p['equity'], segment['slope']*p['operation']+segment[edge], abs_tol=1e-8)]
+            if not touching:
+                continue
+            earliest = min(p['operation'] for p in touching)
+            key = (edge, earliest, segment['anchor'], segment['slope'], segment[edge])
+            start, end = max(first-1, earliest), min(last, segment['anchor'])
+            if key in seen or end <= start:
+                continue
+            seen.add(key)
+            rows.append(dict(start=start, end=end, begin=segment['slope']*start+segment[edge],
+                finish=segment['slope']*end+segment[edge], anchor=segment['anchor'], kind=kind))
+    return rows
+
+
 def analyze_pivot_channels(results, confirmations=2, sensitivity=1.0):
     if confirmations not in (1, 2, 3):
         raise ValueError('Confirmacoes invalidas')

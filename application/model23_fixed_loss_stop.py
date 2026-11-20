@@ -1,14 +1,27 @@
-"""USD200 broker-priced initial defense for direct M23 entries.
+"""Volume-based broker-priced initial defense for direct M23 entries.
 
 M29 copies retain their independently configured defense. No position updates.
 """
 from math import ceil, floor, isfinite
 from application.model23_basket_accumulator import is_model23, model23_source_model_id
 
-LIMIT_USD = 200.0
+LIMIT_USD = 200.0  # Preserve the previous default for other, unspecified volumes.
 
 
-def protected_request(order, request, mt5, *, limit_usd=LIMIT_USD):
+def limit_for_volume(volume):
+    from math import isclose
+    volume = float(volume)
+    if not isfinite(volume) or volume <= 0:
+        raise ValueError("Lote invalido para defesa financeira")
+    for lot, limit in ((0.10, 150.0), (0.20, 300.0), (0.30, 450.0)):
+        if isclose(volume, lot, rel_tol=0, abs_tol=1e-8):
+            return limit
+    return LIMIT_USD
+
+
+def protected_request(order, request, mt5, *, limit_usd=None):
+    if limit_usd is None:
+        limit_usd = limit_for_volume(request["volume"])
     if not isfinite(limit_usd) or limit_usd <= 0:
         raise ValueError("Limite financeiro invalido")
     model = getattr(order, "operational_model", "")

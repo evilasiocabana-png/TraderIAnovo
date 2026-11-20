@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import threading
+import time
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -13,7 +15,7 @@ _SNAPSHOTS: dict[str, Any] = {}
 _RESOURCES: dict[str, Any] = {}
 
 
-def start_background_runtime_once(name: str, target: Callable[[], None]) -> bool:
+def start_background_runtime_once(name: str, target: Callable[[], None], *, restart: bool = False, retry_seconds: float = 10.0) -> bool:
     """Inicia um daemon apenas quando nao existe outro vivo com o mesmo nome."""
     with _LOCK:
         current = _THREADS.get(name)
@@ -22,7 +24,22 @@ def start_background_runtime_once(name: str, target: Callable[[], None]) -> bool
 
         def run_registered_target() -> None:
             try:
-                target()
+                while True:
+                    try:
+                        target()
+                        failure = "Rotina encerrou inesperadamente."
+                    except Exception as exc:
+                        if not restart:
+                            raise
+                        failure = type(exc).__name__
+                    if not restart:
+                        break
+                    logging.error("Background runtime %s stopped: %s", name, failure)
+                    from application.operational_audit import event
+                    event("Recuperacao de ciclo", "FALHA", failure, details={"routine": name})
+                    time.sleep(max(0.01, retry_seconds))
+                    # Entry replay is separately guarded by the durable send journal.
+                    event("Recuperacao de ciclo", "TENTATIVA", "Reiniciar rotina; envios continuam sujeitos a conciliacao e deduplicacao.", details={"routine": name})
             finally:
                 with _LOCK:
                     registered = _THREADS.get(name)

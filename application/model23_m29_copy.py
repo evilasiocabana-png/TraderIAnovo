@@ -1,31 +1,35 @@
 """One-way validated M29 signals into M23, independent of M29 own orders."""
 from dataclasses import replace
 import re
+from application.source_channel_gate import entry_volume
 from application.model23_basket_accumulator import (
     MODEL_23_ID, MODEL_23_ALPHA_ID, MODEL_23_ALPHA_VERSION, MODEL_23_BETA_ID,
     MODEL_23_BETA_VERSION, MODEL_23_ENTRY_SOURCE, MODEL_23_EXIT_POLICY,
 )
-from application.model29_basket_accumulator import is_model29, model29_source_model_id
+from application.model29_basket_accumulator import MODEL_29_SOURCE_NUMBERS, is_model29, model29_source_model_id
 
 COPY_ID = MODEL_23_ID + "_SOURCE_M29"
 
 def copy_confirmed_m29(model, row, plan, result):
     execution = getattr(result, "execution_result", None)
     ticket = getattr(execution, "ticket", None)
-    if (not is_model29(model) or str(plan.symbol).upper() != "XAUUSD"
+    if (not is_model29(model)
             or result.status != "EXECUTED" or not getattr(execution, "accepted", False) or not ticket):
         return None
     return copy_m29_signal(model, row, plan, parent_ticket=ticket)
 
 def copy_m29_signal(model, row, plan, *, parent_ticket=None):
-    if (not is_model29(model) or str(plan.symbol).upper() != "XAUUSD"
+    if (not is_model29(model)
             or plan.status != "PLANO_VALIDO" or plan.direction not in {"BUY", "SELL"}):
         return None
     parameters = dict(plan.stop_management_parameters or {})
     origin = model29_source_model_id(model)
-    if origin != "M7":
+    if origin not in {f"M{number}" for number in MODEL_29_SOURCE_NUMBERS}:
         return None
-    mode = str(parameters.get("m29_m7_mode", "NORMAL")).upper() if origin == "M7" else "NORMAL"
+    from application.gold_mirror_reinforcement import is_mirror
+    if origin != "M7" and not is_mirror(parameters) and (parameters.get("m29_mirrored") or parameters.get(f"m29_{origin.lower()}_mode") == "ESPELHADO"):
+        return None
+    mode = parameters["reinforcement_mode"] if is_mirror(parameters) else (str(parameters.get("m29_m7_mode", "NORMAL")).upper() if origin == "M7" else "NORMAL")
     if mode not in {"NORMAL", "ESPELHADO"}:
         return None
     entry_type = re.sub(r"[^A-Z0-9_]+", "_", str(parameters.get("m29_entry_type") or plan.alpha_id).upper())
@@ -36,7 +40,7 @@ def copy_m29_signal(model, row, plan, *, parent_ticket=None):
         active_signal_kind="M29_" + origin + "_" + entry_type,
         m23_m29_origin_source=origin, m23_m29_origin_ticket=str(parent_ticket) if parent_ticket else None,
         m23_m29_admission="VALIDATED_SIGNAL",
-        m23_m29_mode=mode, execution_volume=0.2 if mode == "ESPELHADO" else 0.1,
+        m23_m29_mode=mode, execution_volume=entry_volume(parameters, plan.symbol, 0.2 if mode == "ESPELHADO" else 0.1),
     )
     copied_plan = replace(plan, source=MODEL_23_ENTRY_SOURCE,
         alpha_id=MODEL_23_ALPHA_ID, alpha_version=MODEL_23_ALPHA_VERSION,
@@ -56,10 +60,16 @@ def copy_order_error(order):
         return None
     p = dict((getattr(order, "plan_snapshot", None) or {}).get("stop_management_parameters") or {})
     mode = p.get("m23_m29_mode")
-    if str(order.symbol).upper() != "XAUUSD" or mode not in {"NORMAL", "ESPELHADO"} or not (p.get("m23_m29_origin_ticket") or p.get("m23_m29_admission") == "VALIDATED_SIGNAL"):
+    if mode not in {"NORMAL", "ESPELHADO"} or not (p.get("m23_m29_origin_ticket") or p.get("m23_m29_admission") == "VALIDATED_SIGNAL"):
         return "M23 fonte M29 sem contrato de origem valido."
-    if p.get("m23_m29_origin_source") != "M7":
-        return "M23 fonte M29: somente a origem M7 esta autorizada."
-    if abs(float(order.quantity) - (0.2 if mode == "ESPELHADO" else 0.1)) > 1e-8:
+    origin = p.get("m23_m29_origin_source")
+    if origin not in {f"M{number}" for number in MODEL_29_SOURCE_NUMBERS}:
+        return "M23 fonte M29: origem nao autorizada."
+    from application.gold_mirror_reinforcement import is_mirror
+    if origin != "M7" and mode != "NORMAL" and not is_mirror(p):
+        return "M23 fonte M29: espelhamento nao autorizado para esta origem."
+    if mode != str(p.get(f"m29_{str(origin).lower()}_mode", "NORMAL")).upper():
+        return "M23 fonte M29: modo diverge da fonte original."
+    if abs(float(order.quantity) - entry_volume(p, order.symbol, 0.2 if mode == "ESPELHADO" else 0.1)) > 1e-8:
         return "M23 fonte M29 com lote diferente do modo autorizado."
     return None

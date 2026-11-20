@@ -24,11 +24,11 @@ def test_open_closed_and_export_preserve_entry_evidence(model,source,channel):
     {"stop_management_parameters":[]}])
 def test_legacy_unknown_is_not_current_channel(snapshot):
     row=NS(operational_model="MODELO_23_BASKET_ACCUMULATOR_SOURCE_M29",plan_snapshot=snapshot)
-    assert entry_channel_columns(row)=={"Fonte original":"Não registrada","Canal na entrada":"Não registrado"}
+    assert entry_channel_columns(row)=={"Modo do reforço":"Não registrado","Fonte original":"Não registrada","Canal na entrada":"Não registrado"}
 
 def test_original_m23_source_without_recorded_channel():
     row=NS(operational_model="MODELO_23_BASKET_ACCUMULATOR_SOURCE_M18")
-    assert entry_channel_columns(row)=={"Fonte original":"M18","Canal na entrada":"Não registrado"}
+    assert entry_channel_columns(row)=={"Modo do reforço":"Original","Fonte original":"M18","Canal na entrada":"Não registrado"}
 
 
 def test_current_channel_is_per_source_not_entry_snapshot():

@@ -9,6 +9,7 @@ from application.realized_equity_structure import analyze_equity_structure
 from application.realized_equity_pivot_channels import analyze_pivot_channels
 
 POLICY = "M23_SOURCE_CHANNEL_DOWN_BLOCK_V1"
+M29_VERSION = "M29_ALL_ASSETS_UP_BREAKOUT_LATCH_V3"
 SOURCES = frozenset({1, 2, 5, 7, 8, 10, 18, 20})
 
 
@@ -57,12 +58,23 @@ def channel_state(results):
     from application.gold_reinforcement_filter import location
     channel = channels["segments"][-1] if channels["segments"] else None
     zone, relative = location(structure["net"], len(results), channel)
-    return dict(policy=POLICY, mode="NORMAL", blocked=blocked, zone=zone, relative=relative,
+    from application.m29_equity_breakout import permission
+    latch = permission(structure, channels)
+    return dict(m29_latch=latch, policy=POLICY, mode="NORMAL", blocked=blocked, zone=zone, relative=relative,
                 state=structure["state"], channel=channels["segments"][-1] if channels["segments"] else None,
                 reference=digest(results), closed=len(results))
 
 
-def reference_state(provider, symbol, source, store=None):
+def m29_filter(state, source, symbol):
+    latch = state.get('m29_latch')
+    enabled = latch['enabled'] if latch is not None else (state.get('state') == 'Alta' and (state.get('channel') or {}).get('trend') == 'Alta')
+    allowed = int(source) in SOURCES and enabled
+    return {**state, 'blocked': not allowed, 'mode': 'NORMAL',
+            'filter_version': M29_VERSION,
+            'reason': f"M{source}/{symbol}: " + ('liberado por alta ou rompimento superior; aguarda rompimento inferior para bloquear' if allowed else 'sem alta/rompimento superior valido ou rompimento inferior registrado')}
+
+
+def reference_state(provider, symbol, source, store=None, *, route='M30'):
     if str(getattr(provider.execution_account, "mode", "")) != "DEMO":
         raise ValueError("Filtro de reforco autorizado somente na Demo")
     payload = provider._external_mt5_read("m29_sequence", portable=os.getenv("MT5_PORTABLE", "0") == "1")
@@ -84,12 +96,14 @@ def reference_state(provider, symbol, source, store=None):
             raise ValueError("Historico de referencia regrediu; aguardando conciliacao")
         db.execute("INSERT OR REPLACE INTO metadata VALUES (?,?)", (key, encoded(sorted(ids))))
     from application.gold_reinforcement_filter import apply_filter
-    return apply_filter(channel_state(rows), int(source), symbol)
+    state = channel_state(rows)
+    return m29_filter(state, source, symbol) if route == 'M29' else apply_filter(state, int(source), symbol)
 
 
 def parameters(state, source, direction):
     from application.gold_reinforcement_filter import VERSION
-    return dict(reinforcement_filter_version=state.get("filter_version", VERSION),
+    return dict(reinforcement_equity_permission=state.get("m29_latch"), reinforcement_mode=state.get("mode", "NORMAL"),
+                reinforcement_filter_version=state.get("filter_version", VERSION),
                 reinforcement_zone=state.get("zone", "Sem canal"),
                 reinforcement_relative=state.get("relative"),
                 reinforcement_policy=POLICY, reinforcement_source=int(source),
@@ -97,10 +111,13 @@ def parameters(state, source, direction):
                 reinforcement_original_direction=direction)
 
 
-def entry_volume(parameters, symbol, default):
-    """Current gold reinforcements use 0.20; legacy and other assets unchanged."""
-    if parameters.get("reinforcement_policy") == POLICY and str(symbol).upper() == "XAUUSD":
-        return 0.20
+def entry_volume(parameters, symbol, default, *, route=None):
+    """Current gold reinforcements use 0.30; legacy and other assets unchanged."""
+    if parameters.get("reinforcement_policy") == POLICY:
+        is_m30 = (route == "M30" or str(route).startswith("MODELO_30_")) if route is not None else bool(parameters.get("m30_policy"))
+        if not is_m30:
+            return 0.20
+        return 0.30 if str(symbol).upper() == "XAUUSD" else float(default)
     return float(default)
 
 
@@ -110,25 +127,41 @@ def order_error(provider, order):
     if not (model.startswith("MODELO_29_") or model.startswith("MODELO_30_")
             or model.startswith("MODELO_23_BASKET_ACCUMULATOR_SOURCE_M29")):
         return None
+    route = "M30" if model.startswith("MODELO_30_") else "M29"
+    if route == "M30" and str(order.symbol).upper() != "XAUUSD":
+        return "Reforcos autorizados somente no ouro (XAUUSD)"
     try:
         if p.get("reinforcement_policy") != POLICY:
             return "Plano anterior ao filtro atual de canal; aguarde nova avaliacao"
         from application.gold_reinforcement_filter import VERSION
-        if str(order.symbol).upper() == "XAUUSD" and p.get("reinforcement_filter_version") != VERSION:
-            return "Plano anterior aos seis recortes do ouro; aguarde nova avaliacao"
+        if p.get("reinforcement_filter_version") != (VERSION if route == "M30" else M29_VERSION):
+            return "Plano anterior ao filtro vigente (seis recortes M30 / alta-transicao M29); aguarde nova avaliacao"
         source = int(p["reinforcement_source"])
         from domain.operational_model_policy import operational_model_number
         origin = (int(str(p.get("m23_m29_origin_source", "M0"))[1:])
                   if model.startswith("MODELO_23_") else operational_model_number(p.get("source_operational_model")))
-        if source not in SOURCES or source != origin or p.get("reinforcement_original_direction") != order.side:
+        from application.gold_mirror_reinforcement import is_mirror, original_confirmation
+        mirrored = is_mirror(p)
+        if mirrored:
+            return "Espelhamento por faixa desativado; somente seis recortes normais"
+        if not mirrored and (p.get("m29_mirrored") or p.get("m30_mode", "NORMAL") != "NORMAL" or p.get("m23_m29_mode", "NORMAL") != "NORMAL"):
+            return "Espelhamento desativado para plano antigo sem contrato RR1"
+        original = p.get("reinforcement_original_direction")
+        expected_side = ({"BUY":"SELL", "SELL":"BUY"}.get(original) if mirrored else original)
+        if source not in SOURCES or source != origin or expected_side != order.side:
             return "Reforco exige fonte e direcao original confirmadas"
-        if p.get("m29_mirrored") or p.get("m30_mode", "NORMAL") != "NORMAL" or p.get("m23_m29_mode", "NORMAL") != "NORMAL":
-            return "Espelhamento desativado na politica atual de reforco"
-        if str(order.symbol).upper() == "XAUUSD" and not math.isclose(float(order.quantity), 0.20, abs_tol=1e-8):
-            return "Reforco no ouro exige lote 0.20; aguarde plano atualizado"
-        state = reference_state(provider, order.symbol, source)
+        if p.get("reinforcement_mode", "NORMAL") != ("ESPELHADO" if mirrored else "NORMAL"):
+            return "Modo sem contrato RR1 valido"
+        if not math.isclose(float(order.quantity), entry_volume(p, order.symbol, 0.1, route=model), abs_tol=1e-8):
+            return f"Reforco exige lote {entry_volume(p, order.symbol, 0.1, route=model):.2f}; aguarde plano atualizado"
+        state = reference_state(provider, order.symbol, source, route=route)
         if state["blocked"]:
             return state.get("reason") or f"M{source}/{order.symbol}: canal de baixa no M23 suspende reforcos"
+        if state.get("mode", "NORMAL") != p.get("reinforcement_mode", "NORMAL"):
+            return "Modo da fonte mudou; aguarde plano atualizado"
+        if mirrored:
+            confirmation = original_confirmation(provider, order)
+            p.update(reinforcement_original_ticket=confirmation["ticket"],reinforcement_original_position=confirmation["position"])
         if state["reference"] != p.get("reinforcement_reference"):
             return "Referencia M23 mudou; aguarde plano atualizado"
         return None
@@ -143,5 +176,5 @@ def current_reinforcement(order):
 
 
 def loss_limit(order):
-    return 400.0 if (current_reinforcement(order) and str(order.symbol).upper()=="XAUUSD"
-                     and math.isclose(float(order.quantity),.20,abs_tol=1e-8)) else 200.0
+    from application.model23_fixed_loss_stop import limit_for_volume
+    return limit_for_volume(order.quantity)

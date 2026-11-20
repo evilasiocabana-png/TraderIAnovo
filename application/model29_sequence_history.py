@@ -12,12 +12,14 @@ import re
 import threading
 import time
 
-from application.model29_m7_sequence import M7SequenceState
+from application.model29_historical_mode import historical_mode_state
 
 _LOCK = threading.RLock()
 
 
-def closed_m7_positions(snapshot: dict) -> list[dict]:
+def closed_m7_positions(snapshot: dict, source_number: int = 7) -> list[dict]:
+    if source_number not in (7, 8, 10, 18, 20):
+        raise ValueError("Fonte de canal M29 nao autorizada")
     groups: dict[int, list[dict]] = defaultdict(list)
     opened = {int(p.get("identifier") or p.get("ticket") or 0)
               for p in snapshot.get("open_positions", [])}
@@ -35,7 +37,7 @@ def closed_m7_positions(snapshot: dict) -> list[dict]:
             continue
         models = set()
         for d in entries:
-            match = re.search(r"\bM(23|29)\s+S7\b", str(d.get("comment", "")).upper())
+            match = re.search(rf"\bM(23|29)\s+S{source_number}\b", str(d.get("comment", "")).upper())
             if match:
                 models.add(int(match.group(1)))
         if len(models) != 1:
@@ -54,8 +56,12 @@ def closed_m7_positions(snapshot: dict) -> list[dict]:
     return sorted(results, key=lambda r: (r["closed"], int(r["position"])))
 
 
-def sequence_mode(provider, symbol: str, root: Path = Path(".traderia/model29_sequences")) -> str:
+def sequence_mode(provider, symbol: str, root: Path = Path(".traderia/model29_sequences"), *, source_number: int = 7) -> str:
     """Rebuild mode from closed M23/M7 results continuously, isolated per asset/account."""
+    if source_number not in (7, 8, 10, 18, 20):
+        raise ValueError("Fonte de canal M29 nao autorizada")
+    if source_number != 7:
+        root = root / f"source_m{source_number}"
     with _LOCK:
         # Broker snapshot owns the account identity, not a caller-supplied label.
         payload = provider._external_mt5_read("m29_sequence", portable=os.getenv("MT5_PORTABLE", "0") == "1")
@@ -73,11 +79,11 @@ def sequence_mode(provider, symbol: str, root: Path = Path(".traderia/model29_se
                 raise RuntimeError("Estado M29 pertence a outra conta")
         else:
             document = {"account": identity, "symbols": {}}
-        closed = closed_m7_positions(payload)
+        closed = closed_m7_positions(payload, source_number)
         symbol = symbol.upper()
         state_doc = document["symbols"].get(symbol)
         if state_doc is None:
-            if any(r["model"] == 29 and r["symbol"] == symbol for r in closed):
+            if source_number == 7 and any(r["model"] == 29 and r["symbol"] == symbol for r in closed):
                 raise RuntimeError("M29 possui resultados mas perdeu seu estado inicial; restaurar estado antes de enviar")
             seed = [r["net"] for r in closed if r["model"] == 23 and r["symbol"] == symbol]
             state_doc = {"seed": seed, "created_at": time.time()}
@@ -88,17 +94,16 @@ def sequence_mode(provider, symbol: str, root: Path = Path(".traderia/model29_se
             raise RuntimeError("M29 aguarda historico M23 completo para definir modo")
         if not set(state_doc.get("reference_positions", [])).issubset(source_ids):
             raise RuntimeError("M29 recebeu historico M23 incompleto")
-        state = M7SequenceState(four_result_trigger=symbol == "XAUUSD")
-        for row in source_rows:
-            state.record(row["position"], row["net"])
+        state = historical_mode_state(source_rows) if source_number == 7 else {"mode": "NORMAL", "mode_policy": "HISTORICAL_NORMAL_WITH_FIXED_DEFENSE"}
+        state['mode_policy'] = state['mode_policy'].replace('M7', f'M{source_number}')
         state_doc.update(
-            mode=state.mode, outcomes=state.outcomes,
+            **state, outcomes=["G" if row["net"] > 0 else "P" if row["net"] < 0 else "E" for row in source_rows[-7:]],
             positions=sum(row["model"] == 29 and row["symbol"] == symbol for row in closed),
-            reference_model=23, reference_positions=source_ids,
+            reference_model=23, reference_source=source_number, reference_positions=source_ids,
             reference_last_close=source_rows[-1]["closed"] if source_rows else None,
         )
         root.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".tmp")
         temporary.write_text(json.dumps(document, ensure_ascii=True, indent=2), encoding="utf-8")
         temporary.replace(path)
-        return state.mode
+        return state["mode"]

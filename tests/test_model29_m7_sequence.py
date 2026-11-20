@@ -6,24 +6,24 @@ from application.model29_basket_accumulator import model29_variant_id
 
 def test_complete_cycle_uses_six_distinct_results():
     state = M7SequenceState()
-    for i, v in enumerate([1, -1, 1, -1, -1]):
+    for i, v in enumerate([-1, 1, -1, 1, -1]):
         assert not state.record(str(i), v)
     assert state.record("5", -1)
     assert state.mode == "ESPELHADO"
     assert not state.record("5", -1)
-    for i, v in enumerate([-1, 1, -1, 1, 1, 1], 6):
+    for i, v in enumerate([1, -1, 1, -1, 1, 1], 6):
         state.record(str(i), v)
     assert state.mode == "NORMAL"
 
 
 def test_bootstrap_once_and_no_hypothetical_mirrored_history():
     state = M7SequenceState()
-    state.bootstrap([1, -1, 1, -1, -1, -1])
+    state.bootstrap([-1, 1, -1, 1, -1, -1])
     assert state.mode == "ESPELHADO"
     state.bootstrap([-1, 1, -1, 1, 1, 1])
     assert state.mode == "ESPELHADO"
     other = M7SequenceState()
-    other.bootstrap([1, -1, 1, -1, -1, -1, -1, -1])
+    other.bootstrap([-1, 1, -1, 1, -1, -1, -1, -1])
     assert other.mode == "ESPELHADO"
 
 
@@ -50,9 +50,9 @@ def test_invalid_protection(side, entry, sl):
 
 
 def test_exact_source_universe():
-    for number in (7,):
+    for number in (1, 2, 5, 7, 8, 10, 18, 20):
         assert model29_variant_id(f"MODELO_{number}").endswith(f"SOURCE_M{number}")
-    for number in (0, 1, 2, 3, 5, 8, 10, 18, 20, 21, 22, 23, 26, 28, 29):
+    for number in (0, 3, 21, 22, 23, 26, 28, 29):
         with pytest.raises(ValueError):
             model29_variant_id(f"MODELO_{number}")
 
@@ -60,8 +60,8 @@ def test_exact_source_universe():
 @pytest.mark.parametrize("mode,values,expected",[
     ("NORMAL",[-1]*4,"ESPELHADO"),
     ("ESPELHADO",[1]*4,"NORMAL"),
-    ("NORMAL",[1,-1,1,-1,-1,-1],"ESPELHADO"),
-    ("ESPELHADO",[-1,1,-1,1,1,1],"NORMAL"),
+    ("NORMAL",[-1,1,-1,1,-1,-1],"ESPELHADO"),
+    ("ESPELHADO",[1,-1,1,-1,1,1],"NORMAL"),
 ])
 def test_gold_four_triggers(mode,values,expected):
     state=M7SequenceState(mode=mode,four_result_trigger=True)
@@ -92,3 +92,15 @@ def test_full_four_result_cycle_and_legacy_scope():
     legacy=M7SequenceState()
     for i in range(4):legacy.record(str(i),-1)
     assert legacy.mode=="NORMAL"
+
+
+@pytest.mark.parametrize("four_result_trigger", [False, True])
+@pytest.mark.parametrize("mode,values", [
+    ("NORMAL", [1, -1, 1, -1, -1, -1]),
+    ("ESPELHADO", [-1, 1, -1, 1, 1, 1]),
+])
+def test_removed_alternation_does_not_change_mode(mode, values, four_result_trigger):
+    state = M7SequenceState(mode=mode, four_result_trigger=four_result_trigger)
+    for i, value in enumerate(values):
+        assert not state.record(str(i), value)
+    assert state.mode == mode

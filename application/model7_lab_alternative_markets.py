@@ -1,4 +1,4 @@
-"""Operational identity for the M1 Lab expansion into gold and Bitcoin."""
+"""Gold-only M7 scope; legacy identity retained for historical positions."""
 
 from __future__ import annotations
 
@@ -11,4 +11,3 @@ MODEL_7_SOURCE = "M1_LAB_SCOPED_REUSE"
 MODEL_7_SCOPE = MODEL_7_ALTERNATIVE_MARKETS
 MODEL_7_EXIT_POLICY = "RESEARCH_FIXED_SL_TP"
 MODEL_7_PROTOCOL_VERSION = "M7_LAB_XAU_BTC_V1"
-

@@ -140,18 +140,21 @@ def test_candidate_frozen_and_future_promotion_atomic(tmp_path, monkeypatch):
     selected={"source":"M8"}
     with store.connect() as db:
         tables(db)
+        from application.learning_scopes import scope_tables, active_key
+        scope_tables(db)
         baseline=store.baseline(db,{"v":1})
         db.execute("INSERT INTO learning_candidates VALUES ('candidate',?,'2026-09-01T00:00:00+00:00','TESTING',?,'{}','2026-09-01T00:00:00+00:00',NULL)",
                    (baseline,encoded(selected)))
-    samples=[dict(context=selected,net=-10,day=f"2026-09-{i%20+2:02}",opened_at=f"2026-09-{i%20+2:02}T00:00:00+00:00") for i in range(100)]
+        db.execute("INSERT INTO learning_candidate_scopes VALUES ('candidate','{}')")
+    samples=[dict(scope='{}',context=selected,net=-10,day=f"2026-09-{i%20+2:02}",opened_at=f"2026-09-{i%20+2:02}T00:00:00+00:00") for i in range(100)]
     monkeypatch.setattr(module,"read_samples",lambda *a:samples)
     cycle(store,"2026-09-24T00:00:00+00:00")
     with store.connect() as db:
         assert db.execute("SELECT state FROM learning_candidates").fetchone()[0] == "APPLIED"
-        assert db.execute("SELECT value FROM metadata WHERE key='m30_active_filter'").fetchone()[0] == "candidate"
-        assert db.execute("SELECT state FROM learning_journal").fetchone()[0] == "APLICADO"
+        assert db.execute("SELECT value FROM metadata WHERE key=?", (active_key('{}'),)).fetchone()[0] == "candidate"
+        assert db.execute("SELECT state FROM learning_journal").fetchone()[0] == "APPLIED"
         store.baseline(db,{"v":2})
     cycle(store,"2026-09-25T00:00:00+00:00")
     with store.connect() as db:
         assert db.execute("SELECT state FROM learning_candidates").fetchone()[0] == "REVERTED"
-        assert db.execute("SELECT value FROM metadata WHERE key='m30_active_filter'").fetchone() is None
+        assert db.execute("SELECT value FROM metadata WHERE key=?", (active_key('{}'),)).fetchone() is None

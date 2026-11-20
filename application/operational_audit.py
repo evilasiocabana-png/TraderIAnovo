@@ -87,7 +87,7 @@ def recent_events(path=None, limit=200):
 
 def audited_submit(fn):
     @wraps(fn)
-    def wrapped(provider, order):
+    def send_logged(provider, order):
         from domain.contracts.execution_result import ExecutionResult
         path = Path(provider.log_path).with_name('execution_attempts.jsonl')
         attempt = uuid4().hex
@@ -128,4 +128,25 @@ def audited_submit(fn):
                                    quantity=order.quantity, executor=order.operational_model,
                                    source=source, ticket=result.ticket, broker_status=result.status))
         return result
+    @wraps(fn)
+    def wrapped(provider, order):
+        if provider.execution_account.mode != 'DEMO':
+            return send_logged(provider, order)
+        from domain.contracts.execution_result import ExecutionResult
+        from application.execution_replay_guard import send_guard, replay_reason
+        from filelock import Timeout
+        path = Path(provider.log_path).with_name('execution_attempts.jsonl')
+        try:
+            with send_guard(path):
+                try:
+                    reason = replay_reason(path, order, provider.execution_account.mode)
+                except (OSError, ValueError, TypeError):
+                    reason = 'Journal indisponivel para verificar duplicidade; envio bloqueado.'
+                if reason:
+                    event('Protecao contra repeticao', 'PENDENTE', reason,
+                          details={'symbol': order.symbol, 'executor': order.operational_model})
+                    return ExecutionResult(False, 'REJECTED', reason)
+                return send_logged(provider, order)
+        except Timeout:
+            return ExecutionResult(False, 'REJECTED', 'Outro envio esta em andamento; nao duplicar.')
     return wrapped

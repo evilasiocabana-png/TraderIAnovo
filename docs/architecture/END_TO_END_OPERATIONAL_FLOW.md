@@ -13,6 +13,30 @@ natural confirmado ainda; nenhuma ordem forcada para testar. Proximo marco:
 conciliar a primeira dupla natural e acumular evidencia futura suficiente.
 Contrato: docs/architecture/OPERATIONAL_MODEL_30_LEARNING.md.
 
+## 2026-09-18 - M7 do M29 usa rompimento de canal por pivos
+
+Atualizacao 2026-09-23: M29 retorna a sequencia historica para M7; outras
+fontes normais. Copias normais M8/M10/M18/M20 a 0.10 recebem defesa fixa
+USD200 no provider antes do order_check, sem alterar alvo ou posicoes abertas.
+Contrato: M29_HISTORICAL_FIXED_DEFENSE.md. Real segue desabilitada.
+
+Regra autorizada: dois encerramentos abaixo do piso ativam ESPELHADO; dois acima
+do teto ativam NORMAL. Referencia exclusiva dos resultados liquidos M23 S7 por
+conta/ativo, com pivos confirmados e comparacao anterior ao encerramento.
+Fontes atuais restauradas M1/M2/M5/M7/M8/M10/M18/M20; somente M7 alterna modo.
+Sincronizacao, lotes, RR, selecao e agenda preservados. Detalhes e limitacoes em
+`M29_M7_PIVOT_CHANNEL.md`. Registros mais antigos abaixo sao historicos.
+
+## 2026-09-17 - Ampliacao cancelada: somente M7 normal e espelhado
+
+Por nova solicitacao explicita do usuario, a ampliacao para M1/M2/M8/M10/M18/M20 foi retirada. Restaurados whitelist M7, fluxo anterior de execucao, volume por modo e detector M7. Sincronizacao existente M23/M29 preservada, assim como fontes proprias M23, historico e selecao salva (somente M23). Removidos modulo e testes exclusivos do canal financeiro. Rotulos de origem e modo solicitados separadamente foram mantidos. Nao foram enviadas ordens nem fechadas posicoes. Validacao de regressao em andamento. Registros abaixo descrevem a implementacao cancelada, nao a configuracao efetiva.
+
+## 2026-09-17 - Espelhos financeiros condicionais em implementacao (cancelado)
+
+Usuario autorizou M1, M2, M8, M10, M18 e M20: curva liquida de cada fonte dentro do M23, canal descendente confirmado, espelho apos ordem original executada, volume dobrado e RR 1:1. M7 permanece com sua regra existente. Codigo novo usa pivos causais, sensibilidade fixa 1.0 e historico broker disponivel desde julho/2026; recortes visuais nao alteram o gate. Rompimento superior, canal ausente, conta divergente, historico indisponivel ou dupla ocupada bloqueiam a nova perna. Provider revalida a curva e o original imediatamente antes do envio. M23 normal nao depende do sucesso do espelho.
+
+NAO CARREGADO: selecao salva contem apenas M23; destino das novas pernas (proprias M29 ou copias dentro do M23) foi perguntado ao usuario antes de ativar, para nao ligar involuntariamente ordens proprias M7. Implementacao atual trata confirmacoes imediatas de mercado; preenchimentos posteriores de pendencias ainda precisam de acompanhamento antes da conclusao. Primeira bateria: 137 testes passaram; validacao ampliada em andamento. Nenhuma ordem ou encerramento forçado nesta implementacao.
+
 ## 2026-09-17 - M29 restrito a fonte M7
 
 Novas entradas M29 aceitam somente M7, nos modos NORMAL e ESPELHADO. A lista de avaliacao e a whitelist compartilhada pelos preflights de mercado/pendentes foram restringidas. A copia de sinais M29 para M23 tambem recusa origens diferentes de M7; fontes proprias M23 permanecem inalteradas. Historico legado, posicoes existentes, regras de modo, lotes e sincronizacao foram preservados. Painel informa apenas M7.
@@ -307,7 +331,7 @@ O M2 possui contrato operacional proprio, aprovado em 2026-07-29.
 | M4 | Liquidity Reclaim experimental | Candle M30 fechado, BUY_ONLY, EMA34/144, ADX 28-35, proximo preco vivo, SL 2,5 ATR e TP 3R fixos | 8 pares Demo; AUDUSD e a evidencia-base nao certificada |
 | M5 | Melhor evidencia consolidada M1-M4 | Delega ao contrato vencedor por par, sem recalcular | 8 pares por politica Demo |
 | M6 | Vencedor individual do Lab nos novos pares Forex | Mesmo contrato vencedor pesado usado pelo M1, restrito ao universo de expansao; SL/TP fixos | 9 pares Forex adicionais |
-| M7 | Vencedor individual do Lab em mercados alternativos | Mesmo contrato vencedor pesado usado pelo M1, restrito a ouro e Bitcoin; SL/TP fixos | XAUUSD e BTCUSD |
+| M7 | Vencedor individual do Lab no ouro | Mesmo contrato vencedor pesado usado pelo M1, restrito a ouro; SL/TP fixos; BTC removido de novas entradas em 2026-09-18 | XAUUSD |
 | M8-M12 novos | XAUUSD/M5, RSI14 no lado de 50 correspondente à direção SMA20/50; filtros A-E incrementais | Entrada inicial a mercado; reentrada por Stop no extremo do candle M5 anterior; SL além do pivô M5 2+2; sem TP | Full Exit no cruzamento fechado 70→baixo para BUY ou 30→cima para SELL, ou se SMA20/50 inverter |
 | M13-M17 novos | 17 pares Forex/M5 com a mesma familia A-E de SMA20/50, RSI14 e filtros incrementais | Entrada inicial a mercado; reentrada Stop; SL estrutural 2+2; sem TP | Full Exit RSI 70/30 ou inversao SMA20/50 |
 | M8-M14 históricos | Aposentados em 2026-08-06 | Contratos preservados somente para leitura historica; novas ordens bloqueadas | Nenhum |

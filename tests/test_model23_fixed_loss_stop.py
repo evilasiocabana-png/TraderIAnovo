@@ -25,9 +25,9 @@ def test_structural_or_capped(source,side,distance):
     before=request.copy()
     actual=protected_request(order,request,Broker())
     risk=-Broker().order_calc_profit(0 if side=='BUY' else 1,order.symbol,.1,actual['price'],actual['sl'])
-    assert risk<=200.00000001
+    assert risk<=150.00000001
     assert abs(actual['sl']-actual['price'])<=distance+1e-9
-    if distance<20: assert actual is request
+    if distance<15: assert actual is request
     assert request==before
     assert {k:v for k,v in actual.items() if k!='sl'}=={k:v for k,v in before.items() if k!='sl'}
 
@@ -36,7 +36,7 @@ def test_broker_volume_and_symbol(volume):
     order,request=fixture('M18','SELL',100,volume)
     order.symbol='EURJPY'
     actual=protected_request(order,request,Broker())
-    assert -Broker().order_calc_profit(1,order.symbol,volume,request['price'],actual['sl'])<=200.00000001
+    assert -Broker().order_calc_profit(1,order.symbol,volume,request['price'],actual['sl'])<=({.1:150,.2:300}.get(volume,200))+1e-8
 
 @pytest.mark.parametrize('failure',['none','nan','raise','currency','tick','negative_volume','positive_profit'])
 def test_fails_closed(failure):
@@ -86,5 +86,5 @@ def test_provider_checks_before_send(tmp_path,source,side,distance,failure):
         sent=b.last_request
         assert sent['tp']==request['tp'] and sent['volume']==.1
         assert -b.order_calc_profit(b.ORDER_TYPE_BUY if side=='BUY' else b.ORDER_TYPE_SELL,
-            simple.symbol,.1,sent['price'],sent['sl'])<=200.00000001
-        if distance<20: assert sent['sl']==request['sl']
+            simple.symbol,.1,sent['price'],sent['sl'])<=150.00000001
+        if distance<15: assert sent['sl']==request['sl']

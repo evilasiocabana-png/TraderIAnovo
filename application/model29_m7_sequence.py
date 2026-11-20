@@ -13,6 +13,7 @@ class M7SequenceState:
     seen: set[str] = field(default_factory=set)
     initialized: bool = False
     four_result_trigger: bool = False
+    historical_alternations: bool = False
 
     def record(self, position_id: str, net_profit: float) -> bool:
         """Call in close-time order, once the entire position is reconciled."""
@@ -35,11 +36,11 @@ class M7SequenceState:
         prefix = "".join(self.outcomes[:4])
         tail = "".join(self.outcomes[4:])
         if len(self.outcomes) == 6 and prefix in {"GPGP", "PGPG"}:
-            if self.mode == "NORMAL" and tail == "PP":
+            if self.mode == "NORMAL" and (self.historical_alternations or prefix == "PGPG") and tail == "PP":
                 self.mode = "ESPELHADO"
                 self.outcomes.clear()
                 return True
-            if self.mode == "ESPELHADO" and tail == "GG":
+            if self.mode == "ESPELHADO" and (self.historical_alternations or prefix == "GPGP") and tail == "GG":
                 self.mode = "NORMAL"
                 self.outcomes.clear()
                 return True

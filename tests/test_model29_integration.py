@@ -15,6 +15,7 @@ from application.model29_sequence_history import closed_m7_positions, sequence_m
 from domain.operational_model_policy import is_active_operational_model
 from tests import test_mt5_demo_execution_provider as provider_helpers
 from tests.test_model23_context_integration import setup_service
+from application.source_channel_gate import channel_state, parameters as gate_parameters
 
 
 def test_selection_does_not_enable_or_read_m23():
@@ -24,7 +25,8 @@ def test_selection_does_not_enable_or_read_m23():
     assert not service._mt5_model23_routing_enabled()
     assert not service._mt5_direct_routing_enabled()
     assert service._mt5_operational_models_to_evaluate() == module.MT5_MODEL_29_SOURCE_MODEL_IDS
-    assert service._mt5_operational_models_to_evaluate() == (module.MT5_OPERATIONAL_MODEL_7,)
+    assert service._mt5_operational_models_to_evaluate() == tuple(
+        module.MT5_OPERATIONAL_MODEL_BY_NUMBER[n] for n in (1, 2, 5, 7, 8, 10, 18, 20))
     assert MODEL_29_ID not in module.MT5_MODEL_23_SOURCE_MODEL_IDS
     assert is_active_operational_model(model29_variant_id(module.MT5_OPERATIONAL_MODEL_7))
     service.set_mt5_operational_model(module.MT5_OPERATIONAL_MODEL_28)
@@ -47,6 +49,7 @@ def test_online_cycle_not_stopped_by_m23_basket(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("source", [module.MT5_OPERATIONAL_MODEL_8, module.MT5_OPERATIONAL_MODEL_18, module.MT5_OPERATIONAL_MODEL_20])
 def test_original_plan_not_m23_route(tmp_path, monkeypatch, source):
+    monkeypatch.setattr('application.source_channel_gate.reference_state', lambda *a, **kw: channel_state([]))
     service, row, plan = setup_service(tmp_path, monkeypatch)
     independent_filter = M23PatternFilterService(tmp_path / "filter.json")
     independent_filter.save(M23PatternFilterReport(
@@ -56,30 +59,30 @@ def test_original_plan_not_m23_route(tmp_path, monkeypatch, source):
     monkeypatch.setattr(module, "_MODEL29_PATTERN_FILTER_SERVICE", independent_filter)
     monkeypatch.setattr(DashboardService, "_mt5_model23_variant_from_source", Mock(side_effect=AssertionError("M23 not allowed")))
     new_row, new_plan = service._mt5_model29_variant_from_source(row, plan, source_operational_model=source)
-    assert new_plan.status == "M29_CONFIG_WAITING"
-    assert new_plan.direction == new_row.decision == "WAIT"
-    assert new_plan.entry_price is None
-    assert new_plan.stop is None and new_plan.target is None
+    assert new_plan.status == "PLANO_VALIDO"
+    assert new_plan.direction == new_row.decision == plan.direction
+    assert (new_plan.entry_price, new_plan.stop, new_plan.target) == (plan.entry_price, plan.stop, plan.target)
+    assert not new_plan.stop_management_parameters.get("m29_mirrored")
 
 
-def test_mirror_plan_uses_own_mode(tmp_path, monkeypatch):
+def test_current_reinforcement_keeps_original_mode(tmp_path, monkeypatch):
     service, row, plan = setup_service(tmp_path, monkeypatch)
-    monkeypatch.setattr("application.model29_sequence_history.sequence_mode", lambda *a: "ESPELHADO")
+    monkeypatch.setattr("application.source_channel_gate.reference_state", lambda *a: channel_state([]))
     new_row, new_plan = service._apply_model29_m7_mode(row, plan, "M7")
-    assert (new_plan.direction, new_plan.stop, new_plan.target) == ("BUY", 90, 110)
-    assert new_row.decision == "BUY"
-    assert new_plan.risk_reward == 1
-    assert new_plan.stop_management_parameters["m29_mirrored"]
+    assert (new_plan.direction, new_plan.stop, new_plan.target) == (plan.direction, plan.stop, plan.target)
+    assert new_row.decision == "SELL"
+    assert new_plan.risk_reward == plan.risk_reward
+    assert not new_plan.stop_management_parameters["m29_mirrored"]
     assert plan.direction == "SELL"
     signal = service._position_manager_signal_from_execution_record({
         "operational_model": model29_variant_id(module.MT5_OPERATIONAL_MODEL_7),
         "plan_snapshot": {"stop_management_parameters": new_plan.stop_management_parameters},
     })
     assert signal["operational_model"].startswith(MODEL_29_ID)
-    assert signal["stop_management"] == "RESEARCH_FIXED_SL_TP"
+    assert signal["operational_model"].startswith(MODEL_29_ID)
 
 
-@pytest.mark.parametrize("number", [1, 2, 5, 8, 10, 18, 20, 21, 22])
+@pytest.mark.parametrize("number", [3, 4, 6, 21, 22, 23, 28])
 def test_removed_sources_rejected_before_mt5(number):
     helper = provider_helpers.MT5DemoExecutionProviderTest()
     provider = helper._provider(provider_helpers._FakeMT5())
@@ -101,6 +104,9 @@ def test_provider_order_is_separate_from_m23(tmp_path, monkeypatch):
                         "source_operational_model": module.MT5_OPERATIONAL_MODEL_7,
                         "m29_entry_type": "ALPHA001",
                     }})
+    order.plan_snapshot["stop_management_parameters"].update(gate_parameters(channel_state([]),7,order.side))
+    order=replace(order,quantity=.2)
+    monkeypatch.setattr("application.source_channel_gate.reference_state",lambda *a:channel_state([]))
     result = provider.submit_order(order)
     assert result.accepted, result.message
     assert native.last_request["comment"] == f"TraderIA M29 S7 {model29_entry_type_token('ALPHA001')}"
@@ -122,7 +128,7 @@ def test_m23_position_does_not_block_m29_but_own_duplicate_does(tmp_path, monkey
     assert provider._model29_source_position_preflight(order) is not None
 
 
-def test_provider_mirrored_m7_keeps_tp(tmp_path, monkeypatch):
+def test_provider_rejects_cached_mirrored_m7(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     helper = provider_helpers.MT5DemoExecutionProviderTest()
     native = provider_helpers._FakeMT5()
@@ -134,9 +140,8 @@ def test_provider_mirrored_m7_keeps_tp(tmp_path, monkeypatch):
                         "m29_entry_type": "ALPHA001", "m29_mirrored": True,
                     }})
     result = provider.submit_order(order)
-    assert result.accepted, result.message
-    assert native.last_request["tp"] == 90
-    assert native.last_request["sl"] == 110
+    assert not result.accepted
+    assert "Plano anterior" in result.message
 
 
 def test_basket_only_closes_m29_tickets(tmp_path):
@@ -163,19 +168,19 @@ def deals(position, net, model=23, symbol="XAUUSD"):
 
 
 def test_full_closures_net_costs_and_account_isolation(tmp_path):
-    rows = sum((deals(i+1, v) for i,v in enumerate([1,-1,1,-1,-1,-1,-1,-1])), [])
+    rows = sum((deals(i+1, v) for i,v in enumerate([100,-100,200,-100,200,-100,-200,-100])), [])
     payload = dict(ok=True, account={"login": 1,"server": "DEMO"}, rows=rows, open_positions=[])
     provider = Mock()
     provider._external_mt5_read.return_value = payload
     assert sequence_mode(provider, "XAUUSD", tmp_path) == "ESPELHADO"
     # Own M29 gains cannot switch the mode; new M23 gains can.
-    payload["rows"] += sum((deals(i+10, v, 29) for i,v in enumerate([-1,1,-1,1,1,1])), [])
+    payload["rows"] += sum((deals(i+20, v, 29) for i,v in enumerate([500,500])), [])
     assert sequence_mode(provider, "XAUUSD", tmp_path) == "ESPELHADO"
-    payload["rows"] += sum((deals(i+30, v) for i,v in enumerate([-1,1,-1,1,1,1])), [])
+    payload["rows"] += sum((deals(i+30, v) for i,v in enumerate([1000,1000,1000,1000])), [])
     assert sequence_mode(provider, "XAUUSD", tmp_path) == "NORMAL"
     assert sequence_mode(provider, "XAUUSD", tmp_path) == "NORMAL"
     payload["account"] = {"login":2,"server":"REAL"}
-    payload["rows"] = []
+    payload["rows"] = sum((deals(i+1, v) for i,v in enumerate([100,-100,200,-100,200,-100])), [])
     assert sequence_mode(provider, "XAUUSD", tmp_path) == "NORMAL"
     assert len(list(tmp_path.glob("*.json"))) == 2
     partial = dict(rows=deals(100, -1), open_positions=[])

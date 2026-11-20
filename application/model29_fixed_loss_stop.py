@@ -41,7 +41,8 @@ def protected_request(order, request, mt5):
             raise ValueError("Corretora nao calculou a defesa M29")
         return float(result)
 
-    if profit(structural) >= -200.0:
+    limit = loss_limit(order)
+    if profit(structural) >= -limit:
         return request
     if abs(profit(entry)) > 1e-6:
         raise ValueError("Calculo financeiro M29 inconsistente")
@@ -49,13 +50,13 @@ def protected_request(order, request, mt5):
     safe, unsafe = entry, structural
     for _ in range(64):
         midpoint = (safe + unsafe) / 2
-        if profit(midpoint) >= -200.0:
+        if profit(midpoint) >= -limit:
             safe = midpoint
         else:
             unsafe = midpoint
     rounded = (ceil(safe / tick_size) if side == "BUY" else floor(safe / tick_size)) * tick_size
     stop = round(rounded, int(getattr(info, "digits", 8)))
     if (not min(entry, structural) < stop < max(entry, structural)
-            or profit(stop) < -200.000001):
+            or profit(stop) < -limit - 0.000001):
         raise ValueError("Stop financeiro M29 nao representavel")
     return dict(request, sl=stop)

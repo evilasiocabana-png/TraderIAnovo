@@ -1,3 +1,5 @@
+param([switch]$NoBrowser)
+
 $ErrorActionPreference = "Stop"
 
 $projectRoot = "C:\Users\evcab\OneDrive\Documentos\traderiaianovo"
@@ -19,14 +21,12 @@ function Test-TraderIAPort {
         Get-NetTCPConnection `
             -LocalPort $port `
             -State Listen `
-            -ErrorAction SilentlyContinue
+            -ErrorAction SilentlyContinue |
+        Where-Object { $_.OwningProcess -gt 0 }
     )
 }
 
 function Test-TraderIAHealth {
-    if (-not (Test-TraderIAPort)) {
-        return $false
-    }
     try {
         $response = & curl.exe `
             --silent `
@@ -53,7 +53,7 @@ function Start-TraderIAMT5 {
         $startArguments = @{
             FilePath = $path
             WorkingDirectory = (Split-Path -Parent $path)
-            WindowStyle = "Normal"
+            WindowStyle = "Hidden"
         }
         if ($path -eq $mt5DemoPath) {
             $startArguments.ArgumentList = @("/portable")
@@ -174,6 +174,10 @@ if ((Test-TraderIAPort) -and -not (Test-TraderIAHealth)) {
         Select-Object -ExpandProperty OwningProcess -Unique
     )
     foreach ($processId in $staleProcesses) {
+        $candidate = Get-CimInstance Win32_Process -Filter "ProcessId=$processId"
+        if ($candidate.Name -notmatch '^python(w)?\.exe$' -or $candidate.CommandLine -notmatch 'streamlit.+dashboard_app\.py') {
+            throw "Porta 8532 ocupada por outro aplicativo; recuperacao cancelada."
+        }
         Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
     }
     Start-Sleep -Seconds 2
@@ -235,11 +239,13 @@ if (Test-TraderIAHealth) {
         -ArgumentList @("`"$(Join-Path $projectRoot 'scripts\run_additional_real.py')`"") `
         -WorkingDirectory $projectRoot -WindowStyle Hidden
     Start-TraderIARamGuard
+    & $python (Join-Path $projectRoot "scripts/ensure_runtime_started.py") --force
     Start-TraderIACloudflareTunnel
-    Start-Process $url
+    if (-not $NoBrowser) { Start-Process $url }
     exit 0
 }
 
+if ($NoBrowser) { exit 1 }
 Add-Type -AssemblyName PresentationFramework
 [System.Windows.MessageBox]::Show(
     "O TraderIA Novo nao conseguiu iniciar na porta 8532.",

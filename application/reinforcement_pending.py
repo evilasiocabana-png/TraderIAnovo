@@ -49,9 +49,11 @@ def cancel_downtrend_pending(provider):
         if source is None:
             result['skipped']+=1;continue
         try:
-            key=(source,order.symbol)
-            if key not in states:states[key]=reference_state(provider,order.symbol,source)
-            if not states[key]['blocked']:continue
+            route="M30" if str(record.get("operational_model", "")).startswith("MODELO_30_") else "M29"
+            key=(source,order.symbol,route)
+            if key not in states:states[key]=reference_state(provider,order.symbol,source,route=route)
+            p=(record.get('plan_snapshot') or {}).get('stop_management_parameters') or {}
+            if not states[key]['blocked'] and states[key].get('mode','NORMAL')==p.get('reinforcement_mode','NORMAL'):continue
             live=provider.mt5.orders_get(ticket=int(order.ticket))
             if not live or not any(identity(o,record,account,provider.magic)==source for o in live):continue
             response=provider._checked_order_send(dict(action=provider.mt5.TRADE_ACTION_REMOVE,

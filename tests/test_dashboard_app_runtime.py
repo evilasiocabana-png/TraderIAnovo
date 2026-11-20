@@ -2900,7 +2900,7 @@ class DashboardAppRuntimeTest(unittest.TestCase):
 
         self.assertEqual(
             dashboard_app.MT5_ACTIVE_REPORT_MODEL_NUMBERS,
-            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 26, 27, 28),
+            (1, 2, 5, 7, 8, 10, 16, 17, 18, 19, 20, 21, 22, 23, 26, 27, 28, 29, 30),
         )
         self.assertIn("MT5_ACTIVE_REPORT_MODEL_NUMBERS", source)
 

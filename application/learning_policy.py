@@ -48,17 +48,26 @@ def context(snapshot):
 
 
 def read_samples(db, baseline):
-    rows = db.execute("""SELECT s.group_id,s.snapshot,s.first_seen,e.net,e.evidence,e.recorded_at
+    rows = db.execute("""SELECT s.group_id,s.snapshot,s.first_seen,e.net,e.evidence,e.recorded_at,e.account,e.ticket
         FROM signals s JOIN executions e ON e.signal_id=s.id
         WHERE s.executor='M23' AND s.provenance='PROSPECTIVE' AND s.baseline=?
-        AND e.status='CLOSED' AND e.net IS NOT NULL
+        AND e.account_mode='DEMO' AND e.status='CLOSED' AND e.net IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM signals sg JOIN executions eg ON eg.signal_id=sg.id
             WHERE sg.group_id=s.group_id AND sg.executor='M23'
             AND eg.status NOT IN ('CLOSED','REJECTED','CANCELLED_UNFILLED'))
         ORDER BY e.recorded_at DESC LIMIT 10000""", (baseline,))
     grouped = {}
+    seen_executions = set()
     for row in rows:
+        execution_key = (row['account'], row['ticket'])
+        if execution_key in seen_executions:
+            continue
+        seen_executions.add(execution_key)
         snapshot = json.loads(row["snapshot"])
+        from application.learning_scopes import scope_identity
+        scope = scope_identity(snapshot, row["account"])
+        if not scope:
+            continue
         ctx = context(snapshot)
         if not ctx["source"] or ctx["trend"] in {"UNKNOWN", "INDEFINIDA", "N/D"}:
             continue
@@ -69,13 +78,13 @@ def read_samples(db, baseline):
         closed_at = datetime.fromtimestamp(max(float(d.get("time", 0)) for d in deals), timezone.utc).isoformat()
         opened_at = datetime.fromtimestamp(min(float(d.get("time", 0)) for d in deals), timezone.utc).isoformat()
         # Group correlated routes; conflicting contexts do not train a simple rule.
-        key = row["group_id"]
+        key = row["account"] + ':' + row["group_id"]
         previous = grouped.get(key)
         if previous and previous["context"] != ctx:
             previous["ambiguous"] = True
             continue
         if not previous:
-            grouped[key] = {"group": key, "context": ctx, "net": 0.0, "opened_at": opened_at,
+            grouped[key] = {"group": key, "scope": scope, "context": ctx, "net": 0.0, "opened_at": opened_at,
                             "closed_at": closed_at, "day": opened_at[:10], "ambiguous": False}
         grouped[key]["net"] += float(row["net"])
         grouped[key]["closed_at"] = max(grouped[key]["closed_at"], closed_at)
@@ -128,6 +137,11 @@ def passes(m):
 
 
 def cycle(store=None, timestamp=None):
+    from application.learning_scoped_policy import scoped_cycle
+    return scoped_cycle(store, timestamp)
+
+
+def legacy_cycle(store=None, timestamp=None):
     store = store or LearningStore()
     timestamp = timestamp or now()
     current = datetime.fromisoformat(timestamp)
@@ -178,10 +192,12 @@ def cycle(store=None, timestamp=None):
                    ((current+timedelta(days=1)).isoformat(),))
 
 
-def discover(db, samples, baseline, timestamp):
+def discover(db, samples, baseline, timestamp, scope=""):
     evidence = {"groups": len(samples), "days": len({s["day"] for s in samples}), "policy": POLICY}
+    if scope:
+        evidence['scope'] = json.loads(scope)
     if len(samples) < 300 or evidence["days"] < POLICY["training_days"]:
-        journal(db, "INCONCLUSIVO", "BASELINE", "Base mantida: ainda faltam grupos e dias prospectivos para selecionar um filtro.", evidence, timestamp)
+        journal(db, "INCONCLUSIVO", digest(scope) if scope else "BASELINE", "Base mantida: ainda faltam grupos e dias prospectivos para selecionar um filtro.", evidence, timestamp)
         return
     split = min(len(samples)-100, max(200, int(len(samples)*0.67)))
     calibration = samples[split:]
@@ -204,21 +220,25 @@ def discover(db, samples, baseline, timestamp):
         journal(db, "INCONCLUSIVO", "BASELINE", "Nenhum contexto ruim repetiu evidencia na descoberta e na calibracao.", evidence, timestamp)
         return
     _, selected = min(candidates)
-    key = digest([baseline, timestamp, selected, POLICY])
+    key = digest([baseline, timestamp, selected, POLICY, scope])
     db.execute("INSERT INTO learning_candidates VALUES (?,?,?,?,?,?,?,NULL)",
                (key, baseline, timestamp, "TESTING", selected, encoded(evidence), timestamp))
     journal(db, "EM_TESTE", key, "Um filtro de contexto foi congelado; aguardando sinais novos para avaliar sem ajustar o teste.",
             {**evidence, "context": json.loads(selected)}, timestamp)
 
 
-def admission(snapshot, store=None):
+def admission(snapshot, store=None, account=""):
     store = store or LearningStore()
     if not store.path.exists():
         return {"allowed": True, "version": "BASELINE", "reason": "Sem filtro aprendido validado"}
     with store.connect() as db:
         tables(db)
+        from application.learning_scopes import scope_identity, scope_tables, active_key
+        scope_tables(db)
+        scope = scope_identity(snapshot, account)
         row = db.execute("""SELECT c.* FROM learning_candidates c JOIN metadata m ON m.value=c.id
-            WHERE m.key='m30_active_filter' AND c.state='APPLIED'""").fetchone()
+            JOIN learning_candidate_scopes cs ON cs.candidate=c.id
+            WHERE m.key=? AND cs.scope=? AND c.state='APPLIED'""", (active_key(scope), scope)).fetchone()
         baseline = db.execute("SELECT id FROM baselines ORDER BY captured_at DESC LIMIT 1").fetchone()
         if not row or not baseline or row["baseline"] != baseline[0]:
             return {"allowed": True, "version": "BASELINE", "reason": "Sem filtro aprendido validado nesta base"}

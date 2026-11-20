@@ -15,7 +15,7 @@ def setup(tmp_path,monkeypatch,route='M30',symbol='XAUUSD'):
     p=NS(log_path=path,magic=260629,execution_account=NS(mode='DEMO'),_initialize_check=lambda:None,_demo_account_check=lambda:None,
          mt5=NS(account_info=lambda:NS(login=1,server='demo'),orders_get=lambda **kw:[order],TRADE_ACTION_REMOVE=8,TRADE_RETCODE_DONE=10009),
          _checked_order_send=lambda request:(sends.append(request) or NS(retcode=10009)),_write_management_log=logs.append)
-    monkeypatch.setattr(module,'reference_state',lambda *a:dict(blocked=True))
+    monkeypatch.setattr(module,'reference_state',lambda *a,**k:dict(blocked=True))
     return p,order,record,sends,logs
 
 
@@ -32,8 +32,8 @@ def test_cancel_only_pending_on_downtrend(tmp_path,monkeypatch,route,symbol):
 @pytest.mark.parametrize('problem',['normal','history_failure','filled','other_account','other_source','legacy','original','real','rejected'])
 def test_protect_original_positions_and_failures(tmp_path,monkeypatch,problem):
     p,o,r,sends,logs=setup(tmp_path,monkeypatch)
-    if problem=='normal':monkeypatch.setattr(module,'reference_state',lambda *a:dict(blocked=False))
-    elif problem=='history_failure':monkeypatch.setattr(module,'reference_state',lambda *a:(_ for _ in ()).throw(RuntimeError('offline')))
+    if problem=='normal':monkeypatch.setattr(module,'reference_state',lambda *a,**k:dict(blocked=False))
+    elif problem=='history_failure':monkeypatch.setattr(module,'reference_state',lambda *a,**k:(_ for _ in ()).throw(RuntimeError('offline')))
     elif problem=='filled':p.mt5.orders_get=lambda **kw:[] if kw else [o]
     elif problem=='other_account':r['observed_account_login']=2
     elif problem=='other_source':o.comment='TraderIA M30 S18 NOR'
@@ -48,12 +48,12 @@ def test_protect_original_positions_and_failures(tmp_path,monkeypatch,problem):
 
 
 @pytest.mark.parametrize('model,symbol,quantity,limit',[
-    ('MODELO_23_BASKET_ACCUMULATOR_SOURCE_M7','XAUUSD',.1,200),
-    ('MODELO_23_BASKET_ACCUMULATOR_SOURCE_M7','XAUUSD',.2,200),
-    ('MODELO_23_BASKET_ACCUMULATOR_SOURCE_M29','XAUUSD',.2,400),
-    ('MODELO_29_BASKET_ACCUMULATOR_SOURCE_M7','XAUUSD',.2,400),
-    ('MODELO_30_ADAPTIVE_M23_SOURCE_M7','XAUUSD',.2,400),
-    ('MODELO_30_ADAPTIVE_M23_SOURCE_M7','BTCUSD',.1,200)])
+    ('MODELO_23_BASKET_ACCUMULATOR_SOURCE_M7','XAUUSD' ,.1,150),
+    ('MODELO_23_BASKET_ACCUMULATOR_SOURCE_M7','XAUUSD',.2,300),
+    ('MODELO_23_BASKET_ACCUMULATOR_SOURCE_M29','XAUUSD',.2,300),
+    ('MODELO_29_BASKET_ACCUMULATOR_SOURCE_M7','XAUUSD',.2,300),
+    ('MODELO_30_ADAPTIVE_M23_SOURCE_M7','XAUUSD',.2,300),
+    ('MODELO_30_ADAPTIVE_M23_SOURCE_M7','BTCUSD' ,.1,150)])
 def test_financial_limit_scope(model,symbol,quantity,limit):
     o=NS(operational_model=model,symbol=symbol,quantity=quantity,plan_snapshot=dict(stop_management_parameters=dict(reinforcement_policy=POLICY)))
     assert loss_limit(o)==limit
@@ -69,5 +69,5 @@ def test_m30_initializes_connection_before_account_check(tmp_path,monkeypatch):
     p=provider();account=p.mt5.account_info();connected=[]
     p.mt5.account_info=lambda:account if connected else None
     p._initialize_check=lambda:(connected.append(True) or None)
-    assert submit(lambda *a:ExecutionResult(True,'ACCEPTED','ok',1),p,order(),LearningStore(tmp_path/'db')).accepted
+    assert submit(lambda *a,**k:ExecutionResult(True,'ACCEPTED','ok',1),p,order(),LearningStore(tmp_path/'db')).accepted
     assert connected==[True]

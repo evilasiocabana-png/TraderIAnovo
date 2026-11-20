@@ -33,8 +33,9 @@ def test_copy_preserves_plan_volume_and_isolates_source(tmp_path,monkeypatch,mod
     from application.source_channel_gate import channel_state, parameters
     cp.stop_management_parameters.update(parameters(channel_state([]),7,cp.direction))
     cp.stop_management_parameters["execution_volume"]=.2
+    cp.stop_management_parameters["reinforcement_filter_version"]="M29_ALL_ASSETS_UP_BREAKOUT_LATCH_V3"
     order=replace(order,quantity=.2)
-    monkeypatch.setattr('application.source_channel_gate.reference_state',lambda *a:channel_state([]))
+    monkeypatch.setattr('application.source_channel_gate.reference_state',lambda *a,**k:channel_state([]))
     sent=provider.submit_order(order)
     if mode == 'ESPELHADO':
         assert not sent.accepted and 'Espelhamento desativado' in sent.message
@@ -52,7 +53,7 @@ def test_no_copy_without_confirmed_parent(tmp_path,monkeypatch,outcome):
 def test_distinct_parent_sources_and_non_gold(tmp_path,monkeypatch):
     _,row,plan=setup_service(tmp_path,monkeypatch)
     plan=replace(plan,stop_management_parameters={'m29_entry_type':'REENTRY','active_entry_order_type':'BUY_STOP'})
-    for source in ('M1','M2','M5','M8','M10','M18','M20','M21','M22'):
+    for source in ('M3','M4','M6','M21','M22'):
         assert copy_confirmed_m29(MODEL_29_ID+'_SOURCE_'+source,row,plan,result()) is None
         helper = helpers.MT5DemoExecutionProviderTest()
         order = replace(helper._order(), symbol='XAUUSD', quantity=0.1,
@@ -60,4 +61,22 @@ def test_distinct_parent_sources_and_non_gold(tmp_path,monkeypatch):
                 'm23_m29_mode': 'NORMAL', 'm23_m29_origin_source': source,
                 'm23_m29_admission': 'VALIDATED_SIGNAL'}})
         assert copy_order_error(order)
-    assert copy_confirmed_m29(MODEL_29_ID+'_SOURCE_M7',row,replace(plan,symbol='BTCUSD'),result()) is None
+    assert copy_confirmed_m29(MODEL_29_ID+'_SOURCE_M7',row,replace(plan,symbol='BTCUSD'),result()) is not None
+
+
+@pytest.mark.parametrize('source', ['M1','M2','M5','M8','M10','M18','M20'])
+def test_restored_sources_copy_normally_without_m7_mode(tmp_path, monkeypatch, source):
+    _, row, plan = setup_service(tmp_path, monkeypatch)
+    plan = replace(plan, stop_management_parameters={'m29_entry_type':'TREND', 'm29_m7_mode':'ESPELHADO'})
+    model, _, copied = copy_confirmed_m29(MODEL_29_ID+'_SOURCE_'+source, row, plan, result())
+    p = copied.stop_management_parameters
+    assert p['m23_m29_origin_source'] == source
+    assert p['m23_m29_mode'] == 'NORMAL'
+    assert p['execution_volume'] == 0.1
+    assert (copied.direction,copied.stop,copied.target) == (plan.direction,plan.stop,plan.target)
+    helper = helpers.MT5DemoExecutionProviderTest()
+    order = replace(helper._order(), symbol='XAUUSD', quantity=0.1, operational_model=model,
+        plan_snapshot={'stop_management_parameters':p})
+    assert copy_order_error(order) is None
+    bad = replace(order, quantity=0.2, plan_snapshot={'stop_management_parameters':{**p,'m23_m29_mode':'ESPELHADO'}})
+    assert copy_order_error(bad)

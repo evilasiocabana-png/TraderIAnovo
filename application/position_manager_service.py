@@ -1138,6 +1138,11 @@ class PositionManagerService:
         plan: PositionTradePlan,
         snapshot: PositionStateSnapshot,
     ) -> PositionManagerDecision:
+        from application.gold_mirror_reinforcement import is_mirror
+        if is_mirror(plan.stop_management_parameters or {}):
+            return PositionManagerDecision(symbol=plan.symbol,ticket=snapshot.ticket,
+                state="MIRROR_RR1_HOLD",action="HOLD",reason="Espelhado RR1 aguarda SL/TP proprios.",
+                confidence=1.0,beta_id=plan.beta_id,beta_version=plan.beta_version,beta_mode=plan.beta_mode,evidence=snapshot.evidence)
         policy = self._runtime_policy(plan)
         if (
             str(plan.operational_model or "").upper() == MODEL_3_ID

@@ -4,6 +4,23 @@ from core.execution_log_storage import execution_log_path
 import math
 import re
 
+CHANNEL_SOURCES = {
+    "M7": "MODELO_7_LAB_XAU_BTC",
+    "M8": "MODELO_8_XAU_M5_SMA_RSI_REENTRY",
+    "M10": "MODELO_10_XAU_M5_SMA_RSI_MA_DISTANCE_ATR",
+    "M18": "MODELO_18_XAU_M5_SMA_RSI_REENTRY_TP75",
+    "M20": "MODELO_20_XAU_M5_SMA_RSI_MA_DISTANCE_ATR_REENTRY_TP75",
+}
+
+
+def channel_source(plan):
+    model = (plan.stop_management_parameters or {}).get("source_operational_model")
+    return next((source for source, value in CHANNEL_SOURCES.items() if value == model), None)
+
+
+def is_gold_channel_source(plan):
+    return str(plan.symbol).upper() == "XAUUSD" and channel_source(plan) == "M7"
+
 
 def is_gold_m7(plan):
     return (str(plan.symbol).upper() == "XAUUSD"
@@ -12,7 +29,7 @@ def is_gold_m7(plan):
 
 
 def _key(plan, candle):
-    if not is_gold_m7(plan) or str(candle).strip().upper() in {"", "N/D", "NONE"}:
+    if not is_gold_channel_source(plan) or str(candle).strip().upper() in {"", "N/D", "NONE"}:
         return None
     parameters = dict(plan.stop_management_parameters or {})
     try:
@@ -61,12 +78,12 @@ def same_source_plan(left, left_candle, right, right_candle):
     return key is not None and key == _key(right, right_candle)
 
 
-def pair_has_open_position(positions):
+def pair_has_open_position(positions, source="M7"):
     if positions is None:
         raise RuntimeError("Posicoes do par M23/M29 indisponiveis")
     return any(
         str(getattr(p, "symbol", "")).upper() == "XAUUSD"
-        and re.search(r"\bM(?:23|29)\s+S7\b", str(getattr(p, "comment", "")).upper())
+        and re.search(rf"\bM(?:23|29)\s+S{int(source[1:])}\b", str(getattr(p, "comment", "")).upper())
         for p in positions
     )
 
@@ -75,23 +92,26 @@ def original_plan_for_copy(plan):
     """Normalize lineage only for matching, never change the submitted copy."""
     from dataclasses import replace
     p = dict(plan.stop_management_parameters or {})
-    if p.get("m23_m29_origin_source") != "M7":
+    if p.get("m23_m29_origin_source") not in CHANNEL_SOURCES:
         return plan
-    p["source_operational_model"] = "MODELO_7_LAB_XAU_BTC"
+    p["source_operational_model"] = CHANNEL_SOURCES[p["m23_m29_origin_source"]]
     return replace(plan, stop_management_parameters=p)
 
-def pair_has_open_copy(positions):
+def pair_has_open_copy(positions, source="M7"):
     """Identify copies from broker comments and legacy execution lineage."""
     from pathlib import Path
     import json
     if positions is None:
         raise RuntimeError("Posicoes da dupla indisponiveis")
-    if pair_has_open_position(positions):
+    if pair_has_open_position(positions, source):
         return True
     copies = [p for p in positions if str(getattr(p,"symbol","")).upper()=="XAUUSD"
         and re.search(r"\bM23\s+S29\b",str(getattr(p,"comment","")))]
     if not copies:return False
-    if any(re.search(r"\bM7\b",str(getattr(p,"comment",""))) for p in copies):return True
+    if any(re.search(rf"\b{re.escape(source)}\b",str(getattr(p,"comment",""))) for p in copies):return True
+    copies = [p for p in copies if not any(re.search(rf"\b{other}\b", str(getattr(p,"comment","")))
+                                         for other in CHANNEL_SOURCES if other != source)]
+    if not copies:return False
     ids={str(getattr(p,"identifier",None) or getattr(p,"ticket",0)) for p in copies}
     found={}
     path=execution_log_path()
@@ -102,7 +122,7 @@ def pair_has_open_copy(positions):
             if str(row.get("ticket")) in ids and row.get("accepted") and row.get("operational_model")=="MODELO_23_BASKET_ACCUMULATOR_SOURCE_M29":
                 found[str(row["ticket"])]=((row.get("plan_snapshot") or {}).get("stop_management_parameters") or {}).get("m23_m29_origin_source")
     # Unknown legacy copy cannot safely be declared unrelated to the pair.
-    return any(found.get(i) in (None,"M7") for i in ids)
+    return any(found.get(i) in (None,source) for i in ids)
 
 
 class RejectedGoldCopyRetry:

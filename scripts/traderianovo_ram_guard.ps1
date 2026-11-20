@@ -161,6 +161,10 @@ function Test-TraderIAStreamlitHealth {
 
 function Invoke-GuardCycle {
     $processes = @(Get-TraderIAStreamlitProcess)
+    if ($processes.Count -eq 0 -and (Test-TraderIAStreamlitHealth)) {
+        & "$env:LOCALAPPDATA/Python/pythoncore-3.14-64/python.exe" (Join-Path $PSScriptRoot "ensure_runtime_started.py")
+        return
+    }
     if ($processes.Count -eq 0) {
         Write-GuardLog -Event "not_running" -Payload @{ port = $Port }
         Start-TraderIAStreamlit
@@ -188,6 +192,7 @@ function Invoke-GuardCycle {
         return
     }
     $script:ConsecutiveHealthFailures = 0
+    & "$env:LOCALAPPDATA/Python/pythoncore-3.14-64/python.exe" (Join-Path $PSScriptRoot "ensure_runtime_started.py")
     foreach ($proc in $processes) {
         if ([double]$proc.WorkingSetMB -ge $MemoryLimitMB) {
             Write-GuardLog -Event "memory_limit_reached" -Payload $proc

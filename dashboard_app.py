@@ -590,6 +590,7 @@ def _start_mt5_forex_background_cycle_once(force: bool = False) -> None:
     start_background_runtime_once(
         MT5_FOREX_BACKGROUND_THREAD_NAME,
         _mt5_forex_background_cycle,
+        restart=True,
     )
     MT5_FOREX_BACKGROUND_THREAD_STARTED = is_background_runtime_running(
         MT5_FOREX_BACKGROUND_THREAD_NAME
@@ -657,6 +658,7 @@ def _start_demo_robot_background_cycle_once(force: bool = False) -> None:
     start_background_runtime_once(
         MT5_DEMO_ROBOT_BACKGROUND_THREAD_NAME,
         _demo_robot_background_cycle,
+        restart=True,
     )
     MT5_DEMO_ROBOT_BACKGROUND_THREAD_STARTED = is_background_runtime_running(
         MT5_DEMO_ROBOT_BACKGROUND_THREAD_NAME
@@ -683,6 +685,7 @@ def _start_weekly_robot_schedule_once(force: bool = False) -> None:
     start_background_runtime_once(
         MT5_WEEKLY_ROBOT_SCHEDULE_THREAD_NAME,
         _weekly_robot_schedule_cycle,
+        restart=True,
     )
     MT5_WEEKLY_ROBOT_SCHEDULE_THREAD_STARTED = is_background_runtime_running(
         MT5_WEEKLY_ROBOT_SCHEDULE_THREAD_NAME
@@ -1943,6 +1946,12 @@ def _maybe_refresh_mt5_trade_audit_report(
     with st.spinner("Atualizando auditoria MT5..."):
         report = _load_mt5_trade_audit_report_locked(service)
     if report is None:
+        # No MT5 call is needed to restore already validated closed history.
+        # A busy execution cycle must not leave a fresh report tab empty.
+        if cached_report is None:
+            cached_report = service._load_mt5_trade_audit_report_snapshot()
+            if cached_report is not None:
+                st.session_state[MT5_REPORT_AUDIT_CACHE_KEY] = cached_report
         return cached_report
     st.session_state[MT5_REPORT_AUDIT_CACHE_KEY] = report
     guard.mark_cycle_completed("report_refresh", now=now)
@@ -2311,6 +2320,7 @@ def _global_demo_robot_cycle_fragment(
     data: object,
 ) -> None:
     """Mantem o robo demo em ciclo leve mesmo fora da aba MT5."""
+    _restore_demo_robot_online_state_if_needed()
     _maybe_run_demo_robot_global_cycle(service, data)
 
 
@@ -2380,6 +2390,9 @@ def exibir_mt5_forex_dashboard(
     data: object,
 ) -> object:
     """Exibe painel principal Forex com sinais MT5 read-only."""
+    # Fragment reruns skip the layout where persisted online state is restored.
+    _restore_demo_robot_online_state_if_needed()
+    data = _maybe_run_demo_robot_global_cycle(service, data)
     forex = getattr(data, "mt5_forex_signals", None)
     if forex is None:
         st.error("Contrato MT5 Forex indisponivel na fachada do dashboard.")
@@ -3238,7 +3251,7 @@ def _render_model29_status(selections) -> None:
     columns[1].metric("Posicoes M29", int(basket.get("positions", 0) or 0))
     columns[2].metric("Resultado cesta M29", f"US$ {float(basket.get('net_result_usd', 0) or 0):.2f}")
     with st.expander("Fontes e sequencia M7 - M29", expanded=enabled):
-        st.write("M7")
+        st.write("M1, M2, M5, M7, M8, M10, M18 e M20")
         rows = []
         for path in sorted(Path(".traderia/model29_sequences").glob("*.json")):
             try:
@@ -5051,8 +5064,7 @@ from application.report_entry_channel import entry_channel_columns
 def _mt5_open_trade_compact_row(row: object) -> dict[str, object]:
     """Linha leve para operacoes abertas na aba Relatorio."""
     return {
-        **entry_channel_columns(row),
-        "Modelo": _mt5_sender_model_label(row),
+        "Modelo": _mt5_open_trade_model_label(row),
         "Par": str(getattr(row, "symbol", "N/D")),
         "Lado": _mt5_trade_side_label(row),
         "Resultado MT5": _mt5_open_trade_money(row, "mt5_realized_profit"),
@@ -5064,6 +5076,8 @@ def _mt5_open_trade_compact_row(row: object) -> dict[str, object]:
             "SL INDIVIDUAL DA FONTE" if _is_model23_trade_row(row)
             else _mt5_open_trade_money(row, "projected_loss")
         ),
+        "Setup de entrada": _mt5_open_trade_entry_setup(row),
+        **entry_channel_columns(row),
         "Entrada": _optional_price(
             getattr(row, "mt5_price", None) or getattr(row, "entry_price", None)
         ),
@@ -5074,6 +5088,61 @@ def _mt5_open_trade_compact_row(row: object) -> dict[str, object]:
         "Status PM": str(getattr(row, "position_manager_status", "N/D")),
         "Motivo": _mt5_trade_audit_position_manager_message(row),
     }
+
+
+def _mt5_open_trade_model_label(row: object) -> str:
+    """Show the immediate source, keeping original lineage in the setup."""
+    label = _mt5_sender_model_label(row)
+    snapshot = getattr(row, "plan_snapshot", None)
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    parameters = snapshot.get("stop_management_parameters") or {}
+    parameters = parameters if isinstance(parameters, dict) else {}
+    model = str(getattr(row, "operational_model", "") or snapshot.get("operational_model") or "").upper()
+    executor = re.match(r"(?:MODELO[_ ]?|M)([0-9]+)(?:_| |$)", model)
+    if executor is None:
+        return label
+    sender = "M" + executor.group(1)
+    suffix = re.search(r"_SOURCE_(M[0-9]+)$", model)
+    source = suffix.group(1) if suffix else ""
+    if not source:
+        source = str(parameters.get("source_model_label") or "").upper()
+    if not re.fullmatch(r"M[0-9]+", source):
+        source_model = str(parameters.get("source_operational_model") or "").upper()
+        match = re.match(r"MODELO_([0-9]+)(?:_|$)", source_model)
+        source = "M" + match.group(1) if match else ""
+    if not source:
+        match = re.match(rf"{sender}\s*<-\s*(M[0-9]+)\b", _mt5_open_trade_entry_setup(row))
+        source = match.group(1) if match else ""
+    if source and source != sender:
+        return f"Modelo {executor.group(1)} (Fonte: {source})"
+    return f"Modelo {executor.group(1)}"
+
+
+def _mt5_open_trade_entry_setup(row: object) -> str:
+    """Use the position's persisted plan, never the latest market signal."""
+    snapshot = getattr(row, "plan_snapshot", None)
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    parameters = snapshot.get("stop_management_parameters") or {}
+    parameters = parameters if isinstance(parameters, dict) else {}
+    label = str(snapshot.get("entry_setup") or getattr(row, "entry_setup", "") or "").strip()
+    if label.upper() in {"", "N/D", "NONE"}:
+        label = ""
+    origin = str(parameters.get("m23_m29_origin_source") or "").upper()
+    if re.fullmatch(r"M[0-9]+", origin):
+        mode = str(parameters.get("m23_m29_mode") or "").upper()
+        mode = mode if mode in {"NORMAL", "ESPELHADO"} else "MODO NAO REGISTRADO"
+        prefix = f"M23 <- M29 ({origin}) | {mode}"
+        return prefix + (" | " + label if label else " | SETUP NAO REGISTRADO")
+    origin = str(parameters.get("source_model_label") or "").upper()
+    model = str(snapshot.get("operational_model") or getattr(row, "operational_model", ""))
+    if model.startswith(MT5_OPERATIONAL_MODEL_23) and re.fullmatch(r"M[0-9]+", origin):
+        prefix = f"M23 <- {origin}"
+        return label if prefix in label else prefix + (" | " + label if label else " | SETUP NAO REGISTRADO")
+    if label:
+        return label
+    # The report is Demo; never cross-match an explicitly non-Demo row.
+    account_mode = str(getattr(row, "execution_account_mode", "DEMO") or "DEMO").upper()
+    return (_mt5_recorded_entry_origin(row) if account_mode == "DEMO" else "") or "N/D - origem/setup nao registrados"
 
 
 def _mt5_trade_entry_type_label(row: object) -> str:
@@ -5307,6 +5376,16 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
         tzinfo=BRAZIL_TIMEZONE,
     )
     st.caption(model_ui_state(_load_persisted_mt5_operational_selections()).caption)
+    # Source/asset channels must not combine unrelated equity curves.
+    with st.expander("Canais das fontes do M23 — por ativo", expanded=False):
+        from application.report_source_channels import source_channel_groups
+        channel_groups = source_channel_groups(rows)
+        st.caption("Curvas completas dos encerramentos originais do M23, separadas por fonte e ativo. Transicao nao significa lateral confirmado; Formacao indica pivos insuficientes. Leitura descritiva, sem alterar entradas.")
+        st.dataframe([item["summary"] for item in channel_groups.values()], hide_index=True, use_container_width=True)
+        if channel_groups:
+            selected_channel = st.selectbox("Fonte e ativo para visualizar o canal", list(channel_groups), key="report_source_asset_channel")
+            chosen = channel_groups[selected_channel]
+            _render_m23_source_structure(chosen["source"], chosen["results"], reference_symbol=chosen["symbol"], view_scope="Canal por fonte e ativo")
     main_chart_selection = _mt5_equity_main_chart_model_selection()
     from application.model23_source_summary import collect_m23_source_results, collect_realized_results
     from application.report_current_policy import current_policy_rows
@@ -5316,8 +5395,12 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
     } | {"M29"}
     m23_source_results = collect_m23_source_results(_mt5_closed_realized_rows(
         _mt5_rows_for_equity_model_filter(rows, "MODELO 23"), start_at), active_source_labels)
-    m23_source_results["M29"] = collect_realized_results(current_policy_rows(
-        _mt5_closed_realized_rows(_mt5_rows_for_equity_model_filter(rows, "MODELO 23"), start_at), "M29"))
+    comparison_rows = {
+        "M29": current_policy_rows(_mt5_closed_realized_rows(
+            _mt5_rows_for_equity_model_filter(rows, "MODELO 23"), start_at), "M29"),
+        "M30": current_policy_rows(_mt5_closed_realized_rows(
+            _mt5_rows_for_equity_model_filter(rows, "MODELO 30"), start_at), "M30"),
+    }
     main_chart_rows = _mt5_rows_for_equity_model_selection(
         rows,
         main_chart_selection,
@@ -5371,12 +5454,38 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
         model_filter=str(main_chart_selection),
         financials=main_financials,
     )
-    for model_filter in visible_individual_models:
+    rendered_models = set()
+
+    def render_model(model_filter):
+        if model_filter in rendered_models:
+            return
+        rendered_models.add(model_filter)
         if model_filter == "MODELO 23":
             _render_mt5_equity_chart(model_filter,model_curves[model_filter],start_at=start_at,
-                model_filter=model_filter,financials=model_financials[model_filter])
-            continue
+                model_filter=model_filter,financials=model_financials[model_filter],
+                structure_results=collect_realized_results(_mt5_closed_realized_rows(model_rows[model_filter],start_at)))
+            return
         source_label = model_filter.replace("MODELO ", "M")
+        if source_label in comparison_rows:
+            st.caption("Comparacao no mesmo periodo: desde " + _format_mt5_equity_cutoff(start_at)
+                       + ". Quantidades de encerramentos podem ser diferentes.")
+            for scope in ("Geral", "M7"):
+                scoped_rows = comparison_rows[source_label]
+                if scope == "M7":
+                    scoped_rows = current_policy_rows(scoped_rows, source_label, m7_only=True)
+                _render_m23_source_structure(source_label, collect_realized_results(scoped_rows),
+                    own_model=source_label == "M30", view_scope=scope)
+            # Keep policy-scoped charts intact; recovered broker ownership does
+            # not prove which historical filter authorized the trade.
+            recovered = [row for row in _mt5_closed_realized_rows(
+                _mt5_rows_for_equity_model_filter(rows, "MODELO 23" if source_label == "M29" else "MODELO 30"), start_at)
+                if (getattr(row, "plan_snapshot", None) or {}).get("source") == "MT5_RECOVERED_ENTRY_COMMENT"
+                and (source_label != "M29" or str(row.operational_model).endswith("_SOURCE_M29"))]
+            if recovered:
+                st.caption("Historico recuperado do MT5: fonte identificada, mas canal e filtro da entrada nao registrados. Exibido separado da politica atual.")
+                _render_m23_source_structure(source_label, collect_realized_results(recovered),
+                    own_model=source_label == "M30", view_scope="Recuperado - filtro nao registrado")
+            return
         own_rows = _mt5_closed_realized_rows(model_rows[model_filter], start_at)
         if source_label == "M30":
             own_rows = current_policy_rows(own_rows, "M30")
@@ -5390,40 +5499,112 @@ def _exibir_evolucao_patrimonial_mt5(report: object, rows: list[object]) -> None
                 ["Sinais executados pelo M23","Operacoes proprias"],
                 index=0 if source_results else 1,horizontal=True,key=f"equity_history_origin_{source_label}")
             own_model=origin=="Operacoes proprias"
-        _render_m23_source_structure(source_label,own_results if own_model else source_results,own_model=own_model)
+        _render_m23_source_structure(source_label,own_results if own_model else source_results,
+            own_model=own_model, after_gold=render_comparison if source_label == "M7" else None)
+        if source_label == "M7":
+            render_comparison()
 
 
+    def render_comparison():
+        for companion in ("MODELO 29", "MODELO 30"):
+            if companion in visible_individual_models:
+                render_model(companion)
 
-def _render_m23_source_structure(source, results, *, own_model=False):
+    for model_filter in visible_individual_models:
+        render_model(model_filter)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _m7_operational_chart_results(account_mode, terminal_path, symbol="XAUUSD"):
+    """Read-only: same position reconciliation as the operational M7 policy."""
+    from application.model29_sequence_history import closed_m7_positions
+    from infrastructure.execution.mt5_demo_execution_provider import MT5DemoExecutionProvider
+    payload = MT5DemoExecutionProvider()._external_mt5_read(
+        "m29_sequence", portable=os.getenv("MT5_PORTABLE", "0") == "1")
+    account = payload.get("account") or {}
+    if not payload.get("ok") or not account.get("login") or not account.get("server"):
+        raise RuntimeError("Historico operacional M7 indisponivel")
+    expected = os.getenv("TRADERIA_DEMO_ACCOUNT_LOGIN" if account_mode == "DEMO" else "TRADERIA_REAL_ACCOUNT_LOGIN")
+    if expected and str(account['login']) != str(expected):
+        raise RuntimeError("Conta da leitura M7 diverge da conta selecionada")
+    return [{**r, "ticket":r['position'],
+             "letter":"G" if r['net'] > 0 else "P" if r['net'] < 0 else "E",
+             "time":datetime.fromtimestamp(r['closed']/1000, timezone.utc).strftime('%d/%m/%Y %H:%M') + ' (corretora)'}
+            for r in closed_m7_positions(payload) if r['model'] == 23 and (symbol is None or r['symbol'] == symbol)]
+
+
+def _render_m23_source_structure(source, results, *, own_model=False, reference_symbol=None, after_gold=None, view_scope=None):
     """Separate source-in-M23 history; never overwrite a model's own curve."""
     from application.realized_equity_structure import analyze_equity_structure
-    panel_key = ("own_" if own_model else "m23_source_") + source
-    st.markdown(f"##### {source} — historico proprio" if own_model else f"##### M23 — sinais do {source}")
-    st.caption(("Somente operacoes proprias deste modelo. " if own_model else
+    if source == "M7" and not own_model and reference_symbol is None:
+        try:
+            all_results = _m7_operational_chart_results(os.getenv("TRADERIA_EXECUTION_ACCOUNT_MODE", "DEMO"), os.getenv("MT5_PATH", ""), None)
+        except (OSError, ValueError, RuntimeError, TypeError, AttributeError):
+            st.warning("Leitura conciliada M7 indisponivel. Grafico operacional nao substituido pelo relatorio de outro escopo.")
+            return
+        for symbol in ('XAUUSD', 'BTCUSD'):
+            _render_m23_source_structure(source, [r for r in all_results if r['symbol'] == symbol], reference_symbol=symbol)
+            if symbol == "XAUUSD" and after_gold is not None:
+                after_gold()
+        return
+    canonical = source == 'M7' and reference_symbol == 'XAUUSD'
+    panel_key = ("own_" if own_model else "m23_source_") + source + ("_" + reference_symbol if reference_symbol else "")
+    if view_scope:
+        import re
+        panel_key += "_" + re.sub(r"[^a-zA-Z0-9_]", "_", view_scope)
+    asset_label = {'XAUUSD':'Ouro (XAUUSD)', 'BTCUSD':'Bitcoin (BTCUSD)'}.get(reference_symbol, '')
+    title = f"{source} — historico proprio" if own_model else f"M23 — sinais do {source}" + (" / " + asset_label if asset_label else "")
+    if view_scope == "M7":
+        title = f"Contribuicao do M7 no {source}" + (" — executado no M23" if source == "M29" else " — politica atual de canal")
+        st.markdown("#### " + title)
+    else:
+        st.markdown("##### " + title + (" — " + view_scope if view_scope else ""))
+    st.caption(("Referencia operacional M29/M7. " if canonical else "Historico por fonte e ativo. ") +
+        "Historico conciliado completo, custos contabilizados uma vez por posicao."
+        if reference_symbol else ("Somente operacoes proprias deste modelo. " if own_model else
                 "Historico separado: somente operacoes encerradas dentro do M23. ") +
                "Curva liquida, com comissao, swap e taxas; base zero no periodo selecionado.")
-    if source == "M30" and own_model:
+    if source == "M30" and own_model and view_scope != "Recuperado - filtro nao registrado":
         st.caption(M30_HISTORY_DESCRIPTION)
-    if source == "M29" and not own_model:
-        st.caption("Somente M7 ESPELHADO pela sequencia atual do M29 executado no M23. Canal antigo e registros sem gatilho identificado excluidos deste grafico.")
+    if source == "M29" and not own_model and view_scope != "Recuperado - filtro nao registrado":
+        st.caption("M29 executado no M23: reforcos normais da politica atual. Canal de baixa da fonte original suspende novas entradas. Politicas anteriores excluidas.")
     if not results:
-        st.info("Nenhuma operacao encerrada neste historico e periodo.")
+        if view_scope == "M7":
+            columns = st.columns(2)
+            columns[0].metric("Contribuicao realizada do M7", "US$ 0.00")
+            columns[1].metric("Encerramentos do M7", 0)
+            st.info("Aguardando encerramento do M7 neste periodo e politica. Posicoes abertas ainda nao entram na curva realizada; o grafico aparece apos o primeiro encerramento confirmado.")
+        else:
+            st.info("Nenhuma operacao encerrada neste historico e periodo.")
         return
     with st.expander(f"Explorar trecho e leitura de estrutura — {source}", expanded=False):
-        sensitivity = st.select_slider("Filtrar oscilacoes pequenas", options=[0.5, 1.0, 2.0], value=1.0,
+        show_channels = st.checkbox("Canais paralelos (estudo)", value=True,
+            key=f"equity_channels_all_v3_{panel_key}")
+        full_channel_history = st.checkbox("Historico completo dos canais", value=True,
+            key=f"equity_channels_full_v2_{panel_key}")
+        pivot_channels = True if canonical else st.checkbox("Canal por pivos confirmados", value=True,
+            key=f"equity_channels_pivots_all_v3_{panel_key}")
+        channel_window = 12 if canonical else st.select_slider("Janela do canal", options=[8, 12, 18], value=12,
+            key=f"equity_channel_window_{panel_key}")
+        from application.model29_m7_channel import CONFIRMATIONS as m7_confirmations
+        channel_confirmations = m7_confirmations if canonical else st.select_slider("Encerramentos fora para confirmar", options=[2, 3], value=2,
+            key=f"equity_channel_confirmations_v2_{panel_key}")
+        sensitivity = 1.0 if canonical else st.select_slider("Filtrar oscilacoes pequenas", options=[0.5, 1.0, 2.0], value=1.0,
             format_func=lambda v: {0.5: "Mais detalhes", 1.0: "Intermediario", 2.0: "Movimentos maiores"}[v],
             key=f"m23_structure_sensitivity_{panel_key}")
         if len(results)>1:
             first,last=st.slider("Trecho de operacoes", 1,len(results),(1,len(results)), key=f"m23_structure_range_{panel_key}_{len(results)}")
         else:
             first,last=1,1
-        show_letters=st.checkbox("Mostrar G/P sobre os pontos", value=len(results)<=40, key=f"m23_structure_letters_{panel_key}")
+        show_letters=st.checkbox("Mostrar G/P sobre os pontos", value=len(results)<=40 and source != "M23", key=f"m23_structure_letters_{panel_key}")
         st.caption("Alta exige os dois ultimos topos e fundos confirmados ascendentes; baixa exige ambos descendentes. "
                    "Transicao indica estrutura mista ou rompida. Formacao significa que ainda faltam pivos. "
                    "Um extremo so e confirmado depois de um movimento contrario; a cor de tendencia comeca nessa confirmacao. "
                    "Sensibilidade usa metade, uma ou duas vezes o resultado absoluto mediano das ultimas 20 operacoes ja encerradas. "
                    "Estudo descritivo: nao altera o espelhamento nem cria filtro de entrada.")
     study=analyze_equity_structure(results,float(sensitivity))
+    if show_channels and not full_channel_history:
+        first = max(first, last - 2 * int(channel_window) + 1)
     metrics=st.columns(3)
     metrics[0].metric("Saldo liquido do periodo",f"US$ {study['net']:+.2f}")
     metrics[1].metric("Estrutura atual",study["state"])
@@ -5454,13 +5635,67 @@ def _render_m23_source_structure(source, results, *, own_model=False):
             "tooltip":[{"field":"kind","title":"Pivo"},{"field":"operation","title":"Extremo"},{"field":"confirmed","title":"Confirmado na operacao"},{"field":"equity","title":"Acumulado","format":".2f","type":"quantitative"}]}},
         {"data":{"values":[p for p in points if p['operation']>0]},"mark":{"type":"point","filled":True,"size":65},"encoding":{"x":x,"y":y,"color":gain_color,"tooltip":tooltip}},
     ]
+    if show_channels:
+        # Channel view omits the separate pivot study and its regime bands.
+        layers = [layers[1], layers[3]]
+        layers[0]['encoding'].pop('color', None)
+        layers[0]['mark']['color'] = '#2563eb'
+        layers[1]['data']['values'] = [p for p in points if p['operation'] > 0]
+        layers[1]['mark']['size'] = 45
     if show_letters:
         layers.append({"data":{"values":[p for p in points if p['operation']>0]},"mark":{"type":"text","dy":-13,"fontSize":11},"encoding":{"x":x,"y":y,"text":{"field":"letter"},"color":{**gain_color,"legend":None}}})
+    if show_channels:
+        from application.realized_equity_channels import analyze_equity_channels, channel_plot_rows
+        from application.realized_equity_pivot_channels import analyze_pivot_channels
+        channel_study = (analyze_pivot_channels(results, int(channel_confirmations), float(sensitivity))
+            if pivot_channels else analyze_equity_channels(results, int(channel_window), int(channel_confirmations)))
+        channel_edges = channel_plot_rows(channel_study, first, last,
+            max_channels=None if full_channel_history else 2)
+        visible_channel_start = min((r['start'] for r in channel_edges), default=last)
+        if pivot_channels:
+            from application.realized_equity_pivot_channels import pivot_anchor_plot_rows
+            anchors = pivot_anchor_plot_rows(channel_study, first, last)
+            layers.append({"data":{"values":anchors},"mark":{"type":"rule","strokeWidth":1,"strokeDash":[4,4],"color":"#68717a","opacity":0.65},"encoding":{
+                "x":{"field":"start","type":"quantitative"},"x2":{"field":"end"},
+                "y":{"field":"begin","type":"quantitative"},"y2":{"field":"finish"},
+                "tooltip":[{"field":"kind","title":"Base do canal"},{"field":"anchor","title":"Disponivel apos operacao","type":"quantitative"}]}})
+        layers.append({"data":{"values":channel_edges},"mark":{"type":"rule","strokeWidth":1.7},"encoding":{
+            "x":{"field":"start","type":"quantitative"},"x2":{"field":"end"},
+            "y":{"field":"begin","type":"quantitative"},"y2":{"field":"finish"},
+            "opacity":{"field":"opacity","type":"quantitative","scale":None,"legend":None},
+            "color":{"field":"trend","type":"nominal","scale":{"domain":["Alta","Baixa","Lateral"],"range":["#16815d","#c44242","#777777"]},"legend":{"title":"Canal (estudo)"}},
+            "tooltip":[{"field":"trend","title":"Canal"},{"field":"anchor","title":"Calculado apos operacao","type":"quantitative"}]}})
+        layers.append({"data":{"values":[e for e in channel_study['events'] if max(first,visible_channel_start)<e['operation']<=last]},
+            "mark":{"type":"point","shape":"diamond","filled":False,"size":120,"color":"#333333"},"encoding":{
+                "x":x,"y":y,"tooltip":[{"field":"operation","title":"Rompimento na operacao","type":"quantitative"},
+                    {"field":"side","title":"Borda"},{"field":"previous","title":"Canal anterior"},{"field":"current","title":"Novo canal"}]}})
     # Attach zoom to one layer only: a top-level layered selection creates duplicate Vega signals.
-    layers[1]["params"]=[{"name":f"m23_zoom_{panel_key}","select":{"type":"interval","encodings":["x","y"]},"bind":"scales"}]
+    layers[0 if show_channels else 1]["params"]=[{"name":f"m23_zoom_{panel_key}","select":{"type":"interval","encodings":["x","y"]},"bind":"scales"}]
     st.vega_lite_chart({"layer":layers,"height":390,"resolve":{"scale":{"color":"independent"}}},use_container_width=True)
-    st.caption("Pontos: verde = ganho, vermelho = perda. Linhas tracejadas ligam topos e fundos confirmados; "
-               "nao sao projecoes. Arraste/role o grafico para explorar; o seletor de trecho fica acima.")
+    if show_channels:
+        recent = [r for r in channel_study['observations'] if r['operation']<=last][-3:]
+        if canonical:
+            try:
+                st.caption("M29 e M30: reforcos normais; somente canal de baixa da fonte original no M23 suspende novas entradas. A leitura operacional usa o historico completo, independente do recorte visual.")
+            except RuntimeError:
+                st.info("Aguardando estrutura de pivos confirmada.")
+        if pivot_channels:
+            st.caption("Tracejado: pivos que ancoram o canal, conhecidos apenas na confirmacao. Linhas coloridas: projecao posterior; nao precisam tocar novos resultados.")
+        method = "pivos confirmados" if pivot_channels else f"janela {channel_window}"
+        st.caption(f"Canal exibido: {method}; confirmacao {channel_confirmations}. Controles visuais nao alteram ordens. "
+            "O filtro operacional usa pivos confirmados da fonte original no M23, sensibilidade 1, no historico completo. O canal deste recorte pode diferir.")
+        if recent:
+            st.dataframe([{"Operacao":r['operation'],"Resultado (US$)":round(r['net'],2),
+                "Acumulado (US$)":round(r['equity'],2),"Piso anterior":round(r['lower'],2),
+                "Teto anterior":round(r['upper'],2),"Posicao":r['side'],"Fora consecutivos":r['consecutive']}
+                for r in recent],hide_index=True,use_container_width=True)
+        else:
+            st.caption("Sem encerramentos posteriores a formacao do canal neste trecho.")
+    if not show_channels:
+        st.caption("Pontos: verde = ganho, vermelho = perda. Linhas tracejadas ligam topos e fundos confirmados; "
+                   "nao sao projecoes. Arraste/role o grafico para explorar; o seletor de trecho fica acima.")
+    if source == "M23":
+        return
     letter_colors={"G":"#16a34a","P":"#dc2626","E":"#64748b"}
     letter_html=" ".join(f'<span style="color:{letter_colors.get(r["letter"],"#64748b")}">{r["letter"] if r["letter"] in letter_colors else "?"}</span>' for r in results[first-1:last])
     st.markdown('<div style="overflow-x:auto;white-space:nowrap;font-family:monospace;font-weight:700;font-size:16px;padding:8px 0" aria-label="Sequencia cronologica">'+letter_html+'</div>',unsafe_allow_html=True)
@@ -5754,8 +5989,8 @@ def _mt5_equity_model_setup_summary(model_filter: str) -> str:
             "SL/TP fixos em RR 1:1"
         ),
         "MODELO 29": (
-            "Fonte M7 | "
-            "cesta independente +US$1.000 | M7 normal/espelhado por sequencia"
+            "Fontes M1, M2, M5, M7, M8, M10, M18 e M20 | "
+            "cesta independente +US$1.000 | M7: canal por pivos, dois fora da borda"
         ),
         "MODELO 28": (
             "Pattern Miner adaptativo multiativo M5 | padrao causal escolhido "
@@ -7657,6 +7892,8 @@ def _exibir_entradas_teoricas_mt5(
             "As tabelas individuais M1-M22 continuam abaixo para conferencia; "
             "todas reutilizam este mesmo ciclo e nao fazem nova leitura do MT5."
         )
+    from application.learning_dashboard import render_model30_theoretical
+    render_model30_theoretical(service, _render_stable_readonly_table)
     st.subheader("Monitor de Indicadores MT5 - modelos ativos")
     st.caption(
         "Cada linha acompanha um indicador usado pelo modelo no ultimo candle "
@@ -10397,10 +10634,59 @@ def _mt5_theoretical_exit_beta_label(
     return row_beta.upper() or signal_beta or "BETA001"
 
 
+@st.cache_data(show_spinner=False, ttl=15)
+def _mt5_entry_origin_records(path: str, modified_ns: int) -> list[dict[str, object]]:
+    del modified_ns
+    records = []
+    try:
+        lines = read_last_text_lines(Path(path), limit=2000)
+    except OSError:
+        return records
+    for line in lines:
+        try:
+            record = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(record, dict) and record.get("accepted") is True:
+            records.append(record)
+    return records
+
+
+def _mt5_recorded_entry_origin(row: object) -> str:
+    # Match the actual order, never infer its origin from today's signal.
+    ticket = getattr(row, "mt5_ticket", None) or getattr(row, "local_ticket", None)
+    if not ticket:
+        return ""
+    symbol = str(getattr(row, "symbol", "") or getattr(row, "mt5_symbol", "")).upper()
+    try:
+        records = _mt5_entry_origin_records(str(MT5_DEMO_EXECUTION_LOG_PATH.resolve()),
+                                          MT5_DEMO_EXECUTION_LOG_PATH.stat().st_mtime_ns)
+    except OSError:
+        return ""
+    for record in reversed(records):
+        if str(record.get("ticket")) != str(ticket) or str(record.get("symbol", "")).upper() != symbol:
+            continue
+        if str(record.get("execution_account_mode", "DEMO")).upper() != "DEMO":
+            continue
+        snapshot = record.get("plan_snapshot") or {}
+        parameters = snapshot.get("stop_management_parameters") or {}
+        label = str(record.get("entry_setup") or snapshot.get("entry_setup") or "").strip()
+        if not label:
+            continue
+        mode = str(parameters.get("m23_m29_mode") or parameters.get("m29_m7_mode") or "").upper()
+        if mode in {"NORMAL", "ESPELHADO"}:
+            label += " | " + mode
+        return label
+    return ""
+
+
 def _mt5_theoretical_exit_entry_model_label(
     row: object,
     signal: dict[str, object],
 ) -> str:
+    recorded_origin = _mt5_recorded_entry_origin(row)
+    if recorded_origin:
+        return recorded_origin
     for value in (
         getattr(row, "entry_setup", None),
         getattr(row, "active_model", None),
@@ -10489,12 +10775,17 @@ def _mt5_sender_model_label(
         parameters = snapshot.get("stop_management_parameters", {}) if isinstance(snapshot, dict) else {}
         mode = {"NORMAL": "Normal", "ESPELHADO": "Espelhado"}.get(parameters.get("m23_m29_mode"), "Modo nao registrado")
         return f"MODELO 23 - {mode} (fonte M29)"
-    if model.startswith(MT5_OPERATIONAL_MODEL_29 + "_SOURCE_M7"):
+    if model.startswith(MT5_OPERATIONAL_MODEL_29 + "_SOURCE_M"):
+        from application.model29_basket_accumulator import model29_source_model_id
+        source = model29_source_model_id(model)
         snapshot = getattr(row, "plan_snapshot", {}) or {}
         parameters = snapshot.get("stop_management_parameters", {}) if isinstance(snapshot, dict) else {}
-        mode = str(parameters.get("m29_m7_mode", "") if isinstance(parameters, dict) else "").upper()
-        label = {"ESPELHADO": "Espelhado", "NORMAL": "Normal"}.get(mode, "Modo nao registrado")
-        return f"MODELO 29 - {label} (fonte M7)"
+        parameters = parameters if isinstance(parameters, dict) else {}
+        mode = str(parameters.get("m29_m7_mode", "") if source == "M7" else "").upper()
+        if parameters.get("m29_mirrored") is True:
+            mode = "ESPELHADO"
+        label = {"ESPELHADO": "ESPELHADO", "NORMAL": "NORMAL"}.get(mode, "MODO NAO REGISTRADO")
+        return f"M29 ({source}) {label}"
     model_key = _mt5_equity_row_model_key(
         SimpleNamespace(operational_model=model, plan_snapshot={})
     )

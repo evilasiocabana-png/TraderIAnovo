@@ -80,17 +80,23 @@ def variant(row, plan, source, state, volume):
         raise ValueError('M30 exige fonte original, sem inversao herdada do M29')
     if state.get('blocked'):
         raise ValueError('Canal de baixa no M23 suspende esta fonte do M30')
-    mode = 'NORMAL'
+    mode = state.get('mode', 'NORMAL')
     side, stop, target = plan.direction, plan.stop, plan.target
     from application.source_channel_gate import parameters as gate_parameters, entry_volume
     p.update(gate_parameters(state, int(number), plan.direction))
-    volume = entry_volume(p, getattr(row, "pair", getattr(plan, "symbol", "")), volume)
+    volume = entry_volume(p, getattr(row, "pair", getattr(plan, "symbol", "")), volume, route="M30")
     p.update(source_operational_model=source, source_entry_setup=row.active_model,
         source_initial_stop=plan.stop, source_target=plan.target,
         source_stop_management=plan.stop_management, source_exit_model=plan.exit_model,
         m30_policy=POLICY, m30_mode=mode, m30_reference=state['reference'],
         m30_baseline_model=source, m30_execution_volume=float(volume),
         m30_effective_stop=stop, m30_effective_target=target)
+    if mode == 'ESPELHADO':
+        from application.gold_mirror_reinforcement import mirror_plan
+        plan = mirror_plan(plan, p)
+        side, stop, target = plan.direction, plan.stop, plan.target
+        p = dict(plan.stop_management_parameters)
+        p.update(m30_effective_stop=stop,m30_effective_target=target)
     new_plan = replace(plan, direction=side, stop=stop, target=target,
         risk_reward=plan.risk_reward,
         stop_management_parameters=p)
@@ -133,7 +139,7 @@ def submit(fn, provider, order, store=None):
             if source not in SOURCES:
                 return rejected('M30 fonte original nao autorizada')
             state = reference_state(provider, order.symbol, store, source_number=int(source[1:]))
-            if state['blocked'] or state['reference'] != p.get('m30_reference') or p.get('m30_mode') != 'NORMAL':
+            if state['blocked'] or state['reference'] != p.get('m30_reference') or p.get('m30_mode') != state.get('mode', 'NORMAL'):
                 return rejected('M30 aguarda fonte permitida e plano atualizado do M23')
             from application.learning_policy import admission
             decision = admission(order.plan_snapshot, store, account=account)

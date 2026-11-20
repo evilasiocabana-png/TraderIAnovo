@@ -251,7 +251,7 @@ class Model23BasketManager:
                 (
                     position
                     for position in self.execution_service.list_open_positions()
-                    if self.position_matches(position)
+                    if self.position_matches(position) and not str(getattr(position, "comment", "")).endswith(" INV R1")
                 ),
                 key=model23_position_net,
                 reverse=True,

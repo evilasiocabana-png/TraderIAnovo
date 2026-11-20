@@ -13,7 +13,8 @@ from domain.operational_model_policy import (
 class Model6Model7LabExpansionTests(unittest.TestCase):
     def test_model_scopes_are_isolated(self) -> None:
         self.assertEqual(len(MODEL_6_SCOPE), 9)
-        self.assertEqual(MODEL_7_SCOPE, ("XAUUSD", "BTCUSD"))
+        self.assertEqual(MODEL_7_SCOPE, ("XAUUSD",))
+        self.assertIn("BTCUSD", MT5_RESEARCH_MARKETS)
         self.assertTrue(set(MODEL_6_SCOPE).isdisjoint(MODEL_7_SCOPE))
         self.assertEqual(len(MT5_RESEARCH_MARKETS), 19)
 

@@ -1,7 +1,8 @@
 """User-selected exploratory gold reinforcement contexts; not statistical validation."""
 import math
 
-VERSION = "GOLD_SOURCE_CHANNEL_SIX_CONTEXTS_V1"
+VERSION = "GOLD_SOURCE_SIX_PLUS_M7_UPTREND_V4"
+MIRROR_CONTEXTS = frozenset()
 CONTEXTS = frozenset({
     (8, "Alta", "Perto do piso"),
     (8, "Transicao", "Abaixo do piso"),
@@ -28,8 +29,12 @@ def location(equity, operation, channel):
 
 def apply_filter(state, source, symbol):
     if str(symbol).upper() != "XAUUSD":
-        return state
-    allowed = (int(source), state["state"], state.get("zone", "Sem canal")) in CONTEXTS
-    return {**state, "blocked": not allowed, "filter_version": VERSION,
+        return {**state, "blocked": True, "mode": "NORMAL", "filter_version": VERSION,
+                "reason": "Reforcos autorizados somente no ouro (XAUUSD)"}
+    key = (int(source), state["state"], state.get("zone", "Sem canal"))
+    mirrored = key in MIRROR_CONTEXTS
+    m7_uptrend = int(source) == 7 and state["state"] == "Alta" and (state.get("channel") or {}).get("trend") == "Alta"
+    allowed = key in CONTEXTS or mirrored or m7_uptrend
+    return {**state, "blocked": not allowed, "filter_version": VERSION, "mode": "ESPELHADO" if mirrored else "NORMAL",
             "reason": f"M{source}/XAUUSD: {state['state']} / {state.get('zone', 'Sem canal')} — "
-                      + ("recorte autorizado" if allowed else "fora dos seis recortes autorizados")}
+                      + ("recorte autorizado" if allowed else "fora dos recortes autorizados")}

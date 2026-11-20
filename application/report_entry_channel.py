@@ -32,7 +32,8 @@ def entry_channel_columns(row):
     channels = {"alta": "Alta", "baixa": "Baixa", "lateral": "Lateral",
                 "transicao": "Transição", "transição": "Transição",
                 "formacao": "Formação", "formação": "Formação"}
-    return {"Fonte original": source or "Não registrada",
+    return {"Modo do reforço": "Espelhado" if parameters.get("reinforcement_mode") == "ESPELHADO" else "Normal" if parameters.get("reinforcement_policy") else "Original" if source and "MODELO_23_" in str(getattr(row,"operational_model","")) and not str(getattr(row,"operational_model","")).endswith("SOURCE_M29") else "Não registrado",
+            "Fonte original": source or "Não registrada",
             "Canal na entrada": channels.get(state, "Não registrado")}
 
 

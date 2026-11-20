@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 from core.execution_log_storage import execution_log_path
-from application.operational_audit import audited_submit, append_record
 
 import importlib
 import json
@@ -18,9 +17,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from application.operational_audit import audited_submit, append_record
 from domain.contracts.execution_order import ExecutionOrder
 from domain.contracts.execution_result import ExecutionResult
 from application.model15_xau_m5_breakout import MODEL_15_ID
+from application.model7_lab_alternative_markets import MODEL_7_ID, MODEL_7_SCOPE
 from application.model16_xau_m5_price_ema_breakout import MODEL_16_ID
 from application.model23_basket_accumulator import (
     MODEL_23_ID,
@@ -467,7 +468,8 @@ class MT5DemoExecutionProvider:
             return dict(cached[1])
         shared = get_mt5_external_cache(shared_cache_key, ttl_seconds=ttl)
         if isinstance(shared, dict):
-            self.external_read_cache[cache_key] = (time.monotonic(), shared)
+            # Keep the shared cache's original age; do not renew its lifetime
+            # merely by copying it into this adapter.
             return dict(shared)
         code = r'''
 import json
@@ -572,7 +574,7 @@ mt5.shutdown()
         )
         with mt5_external_process_slot(timeout=min(timeout_seconds, 1.0)) as acquired:
             if not acquired:
-                return dict(cached[1]) if cached else {"ok": False, "rows": []}
+                return self._external_read_unavailable(action, "MT5_READ_BUSY", cached)
             try:
                 process = subprocess.Popen(
                     [sys.executable, "-c", code, json.dumps(request)],
@@ -582,10 +584,11 @@ mt5.shutdown()
                     creationflags=creationflags,
                 )
                 stdout, _stderr = process.communicate(timeout=timeout_seconds)
-            except (OSError, subprocess.TimeoutExpired):
+            except (OSError, subprocess.TimeoutExpired) as exc:
                 if process is not None:
                     terminate_process_tree(process)
-                return dict(cached[1]) if cached else {"ok": False, "rows": []}
+                reason = "MT5_READ_TIMEOUT" if isinstance(exc, subprocess.TimeoutExpired) else "MT5_READ_FAILED"
+                return self._external_read_unavailable(action, reason, cached)
         output = (stdout or "").strip().splitlines()
         if not output:
             return {"ok": False, "rows": []}
@@ -596,6 +599,18 @@ mt5.shutdown()
         self.external_read_cache[cache_key] = (time.monotonic(), payload)
         set_mt5_external_cache(shared_cache_key, payload)
         return payload
+
+    def _external_read_unavailable(self, action: str, reason: str, cached=None) -> dict[str, Any]:
+        """Never authorize execution from a stale snapshot after a read failure."""
+        import logging
+        age = max(0.0, time.monotonic() - cached[0]) if cached else None
+        logging.getLogger(__name__).warning(
+            "MT5 read unavailable action=%s reason=%s discarded_cache_age_seconds=%s",
+            action, reason, round(age, 3) if age is not None else None,
+        )
+        return {"ok": False, "rows": [], "reason": reason,
+                "stale_cache_discarded": cached is not None,
+                "discarded_cache_age_seconds": age}
 
     def get_atr(
         self,
@@ -1126,6 +1141,13 @@ mt5.shutdown()
                 self._write_log(order, pending_transition_rejection)
                 return pending_transition_rejection
             request = self._request(order, tick)
+            from application.gold_mirror_reinforcement import protect_request
+            try:
+                order, request = protect_request(self, order, request)
+            except Exception as exc:
+                result = ExecutionResult(False, "REJECTED", "Defesa RR1 indisponivel: " + str(exc))
+                self._write_log(order, result)
+                return result
             if is_model30(order.operational_model):
                 request["magic"] = MODEL_30_MAGIC
             from application.model23_fixed_loss_stop import protected_request as protect_m23
@@ -1147,6 +1169,19 @@ mt5.shutdown()
                 snapshot.update(m23_structural_stop=order.stop,
                     m23_fixed_loss_limit_usd=financial_limit, m23_applied_stop=request["sl"], stop=request["sl"])
                 order = replace_m23(order, stop=float(request["sl"]), plan_snapshot=snapshot)
+            from application.model29_fixed_loss_stop import protected_request
+            try:
+                request = protected_request(order, request, self.mt5)
+            except Exception as exc:
+                result = ExecutionResult(accepted=False, status="REJECTED",
+                    message=f"Defesa financeira M29 indisponivel: {exc}")
+                self._write_log(order, result)
+                return result
+            if float(request["sl"]) != float(order.stop):
+                snapshot = dict(order.plan_snapshot or {})
+                snapshot.update(m29_structural_stop=order.stop,
+                    m29_fixed_loss_limit_usd=financial_limit, m29_applied_stop=request["sl"], stop=request["sl"])
+                order = replace(order, stop=float(request["sl"]), plan_snapshot=snapshot)
             order_check = self._order_check(request)
             if order_check is not None and not self._order_check_passed(order_check):
                 result = ExecutionResult(
@@ -2493,6 +2528,16 @@ mt5.shutdown()
     ) -> ExecutionResult | None:
         model = getattr(order, "operational_model", "")
         normalized = str(model or "").upper()
+        parameters = (getattr(order, "plan_snapshot", None) or {}).get("stop_management_parameters") or {}
+        m7_source = (
+            normalized == MODEL_7_ID
+            or (is_model23(model) and (model23_source_model_id(model) == "M7"
+                or parameters.get("source_operational_model") == MODEL_7_ID))
+            or (is_model29(model) and model29_source_model_id(model) == "M7")
+        )
+        if m7_source and str(getattr(order, "symbol", "") or "").upper() not in MODEL_7_SCOPE:
+            return ExecutionResult(accepted=False, status="REJECTED",
+                message="M7 permite novas entradas somente em XAUUSD; Bitcoin retirado do modelo.")
         if not (
             is_model26(model)
             or is_model27(model)
@@ -2636,8 +2681,13 @@ mt5.shutdown()
             return ExecutionResult(accepted=False, status="REJECTED", message="M29 opera somente ouro (XAUUSD).")
         snapshot = dict(getattr(order, "plan_snapshot", None) or {})
         parameters = dict(snapshot.get("stop_management_parameters") or {})
-        mode = str(parameters.get("m29_m7_mode", "NORMAL")).upper()
-        expected_volume = 0.2 if source_model == "M7" and mode == "ESPELHADO" else 0.1
+        mode = str(parameters.get(f"m29_{source_model.lower()}_mode", "NORMAL")).upper()
+        from application.gold_mirror_reinforcement import is_mirror
+        if source_model != "M7" and not is_mirror(parameters) and (mode != "NORMAL" or parameters.get("m29_mirrored")):
+            return ExecutionResult(accepted=False, status="REJECTED", message="M29: plano espelhado antigo bloqueado para esta fonte.")
+        expected_volume = 0.2 if source_model in {"M7", "M8", "M10", "M18", "M20"} and mode == "ESPELHADO" else 0.1
+        from application.source_channel_gate import entry_volume
+        expected_volume = entry_volume(parameters, order.symbol, expected_volume)
         if abs(float(order.quantity) - expected_volume) > 1e-8:
             return ExecutionResult(accepted=False, status="REJECTED", message="M29 lote diferente do modo autorizado.")
         if source_model not in {f"M{number}" for number in MODEL_29_SOURCE_NUMBERS}:
@@ -2706,8 +2756,10 @@ mt5.shutdown()
             return ExecutionResult(accepted=False, status="REJECTED", message="M29 opera somente ouro (XAUUSD).")
         snapshot = dict(getattr(order, "plan_snapshot", None) or {})
         parameters = dict(snapshot.get("stop_management_parameters") or {})
-        mode = str(parameters.get("m29_m7_mode", "NORMAL")).upper()
-        expected_volume = 0.2 if source_model == "M7" and mode == "ESPELHADO" else 0.1
+        mode = str(parameters.get(f"m29_{source_model.lower()}_mode", "NORMAL")).upper()
+        expected_volume = 0.2 if source_model in {"M7", "M8", "M10", "M18", "M20"} and mode == "ESPELHADO" else 0.1
+        from application.source_channel_gate import entry_volume
+        expected_volume = entry_volume(parameters, order.symbol, expected_volume)
         if abs(float(order.quantity) - expected_volume) > 1e-8:
             return ExecutionResult(accepted=False, status="REJECTED", message="M29 lote diferente do modo autorizado.")
         if source_model not in {f"M{number}" for number in MODEL_29_SOURCE_NUMBERS}:
@@ -2858,7 +2910,7 @@ mt5.shutdown()
             import re
             found = any(str(ticket) in {str(getattr(p, "ticket", None)), str(getattr(p, "identifier", None))}
                         and str(getattr(p, "symbol", "")).upper() == "XAUUSD"
-                        and re.search(r"\bM23\s+S7\b", str(getattr(p, "comment", "")))
+                        and re.search(r"\bM23\s+S" + re.escape(str(parameters.get("m23_m29_origin_source", "M7"))[1:]) + r"\b", str(getattr(p, "comment", "")))
                         for p in positions)
         except Exception:
             return ExecutionResult(False, "ERROR", "Dupla M23/M29 aguarda leitura confirmada da posicao original.")
@@ -3577,6 +3629,9 @@ mt5.shutdown()
 
     def _checked_order_send(self, request: dict[str, object]) -> object | None:
         """Revalidate account and broker checks at the transport boundary."""
+        request = dict(request)
+        if "comment" in request:
+            request["comment"] = self._compact_mt5_comment(str(request["comment"]))
         consent = self._additional_real_consent_check(request)
         if consent:
             return _ExecutionSendException(RuntimeError(consent))
@@ -3591,7 +3646,7 @@ mt5.shutdown()
         check = self._order_check(request)
         if check is None or not self._order_check_passed(check):
             message = (
-                "Envio bloqueado: order_check indisponivel."
+                "Envio bloqueado: order_check indisponivel. " + self._last_error_message()
                 if check is None else self._order_check_message(check)
             )
             return _ExecutionSendException(RuntimeError(message))
@@ -3891,6 +3946,30 @@ mt5.shutdown()
                 self.execution_log_cache_signature = None
 
     def _order_comment(self, order: ExecutionOrder) -> str:
+        return self._compact_mt5_comment(self._raw_order_comment(order))
+
+    @staticmethod
+    def _compact_mt5_comment(comment: str) -> str:
+        # This terminal rejects 30+ characters. Never truncate identity tokens.
+        if len(comment) > 29:
+            for suffix in (" reverse cleanup", " replace"):
+                if comment.endswith(suffix):
+                    comment = comment[:-len(suffix)]
+                    break
+        if len(comment) > 29 and comment.startswith("TraderIA "):
+            comment = comment[len("TraderIA "):]
+        if len(comment) > 29:
+            raise ValueError("Comentario MT5 excede 29 caracteres; identidade preservada, envio bloqueado")
+        return comment
+
+    def _raw_order_comment(self, order: ExecutionOrder) -> str:
+        from application.gold_mirror_reinforcement import is_mirror
+        p = (order.plan_snapshot or {}).get("stop_management_parameters") or {}
+        if is_mirror(p):
+            source = int(p["reinforcement_source"])
+            route = "M30" if is_model30(order.operational_model) else "M29" if is_model29(order.operational_model) else "M23 S29"
+            origin = f"M{source}" if route == "M23 S29" else f"S{source}"
+            return f"TraderIA {route} {origin} INV R1"
         if is_model30(order.operational_model):
             return model30_comment(order)
         if is_model25(getattr(order, "operational_model", "")):
@@ -3913,8 +3992,8 @@ mt5.shutdown()
             base = model23_order_comment(getattr(order, "operational_model", ""))
             if str(order.operational_model).endswith("_SOURCE_M29"):
                 p = dict((getattr(order,"plan_snapshot",None) or {}).get("stop_management_parameters") or {})
-                if p.get("m23_m29_origin_source") == "M7":
-                    base += " M7"
+                if p.get("m23_m29_origin_source") in {"M7", "M8", "M10", "M18", "M20"}:
+                    base += " " + p["m23_m29_origin_source"]
             entry_type_token = model23_entry_type_token(
                 self._model23_order_entry_type(order)
             )

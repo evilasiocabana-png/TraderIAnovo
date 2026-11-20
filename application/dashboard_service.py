@@ -512,7 +512,14 @@ MT5_MODEL_23_SOURCE_MODEL_IDS = tuple(
     if model not in MT5_MODEL_23_EXCLUDED_SOURCE_MODEL_IDS
 )
 MT5_MODEL_29_SOURCE_MODEL_IDS = (
+    MT5_OPERATIONAL_MODEL_1,
+    MT5_OPERATIONAL_MODEL_2,
+    MT5_OPERATIONAL_MODEL_5,
     MT5_OPERATIONAL_MODEL_7,
+    MT5_OPERATIONAL_MODEL_8,
+    MT5_OPERATIONAL_MODEL_10,
+    MT5_OPERATIONAL_MODEL_18,
+    MT5_OPERATIONAL_MODEL_20,
 )
 MT5_MODEL_24_SOURCE_MODEL_IDS = MODEL_24_SOURCE_MODEL_IDS
 MT5_MODEL_25_SOURCE_MODEL_IDS = MODEL_25_SOURCE_MODEL_IDS
@@ -1151,12 +1158,18 @@ class DashboardService:
     def get_learning_dashboard(self, page: int = 0, source: str = "", executor: str = "") -> dict:
         from application.learning_observer import observer
         from application.learning_policy import journal_page
+        from application.learning_summary import learning_summary
+        from application.learning_candidate_chart import candidate_comparison
+        from application.learning_channel_hypothesis import manual_comparison
         from application.model30_independent import page as independent_page
         from application.model30_learning import pair_page, enabled, comparison
         collector = observer()
         return {**collector.store.page(page=page, source=source, executor=executor), "health": collector.health(),
-                "journal": journal_page(collector.store), "pairs": pair_page(collector.store),
-                "independent": independent_page(collector.store), "m30_enabled": enabled(collector.store), "comparison": comparison(collector.store)}
+                "journal": journal_page(collector.store), "summary": learning_summary(collector.store), "pairs": pair_page(collector.store),
+                "m30_enabled": enabled(collector.store), "independent": independent_page(collector.store), "comparison": comparison(collector.store),
+                "comparison_groups": comparison(collector.store, grouped=True),
+                "manual_candidates": manual_comparison(collector.store),
+                "candidate_comparison": candidate_comparison(collector.store)}
 
     def get_model_ui_state(self, selections=()):
         from application.model_ui_state import model_ui_state
@@ -5544,6 +5557,9 @@ class DashboardService:
         for token in normalized.split():
             if token.startswith("M") and token[1:].isdigit():
                 number = int(token[1:])
+                if number == 30:
+                    from application.model30_learning import MODEL_30_ID
+                    return MODEL_30_ID
                 model = MT5_OPERATIONAL_MODEL_BY_NUMBER.get(number)
                 if model is not None:
                     return model
@@ -5590,8 +5606,8 @@ class DashboardService:
         self,
     ) -> DashboardMT5TradeAuditViewModel | None:
         timeout_seconds = max(
-            float(os.getenv("TRADERIA_MT5_REPORT_EXTERNAL_TIMEOUT_SECONDS", "15")),
-            3.0,
+            float(os.getenv("TRADERIA_MT5_REPORT_EXTERNAL_TIMEOUT_SECONDS", "45")),
+            45.0,
         )
         code = (
             "import json, os\n"
@@ -6159,11 +6175,11 @@ class DashboardService:
                 deal_ticket,
                 source="DEAL",
             )
-            if deal_ticket is not None:
-                self._merge_mt5_trade_payload(history, deal_ticket, payload)
-            if order_ticket is not None:
-                self._merge_mt5_trade_payload(history, order_ticket, payload)
             position_ticket = self._int_or_none(data.get("position_id"))
+            # Entry order and position often share a ticket. Merge that key
+            # once, otherwise its opening commission is counted twice.
+            for reference_ticket in {deal_ticket, order_ticket} - {None, position_ticket}:
+                self._merge_mt5_trade_payload(history, reference_ticket, payload)
             if position_ticket is not None:
                 self._merge_mt5_trade_payload(
                     history,
@@ -6189,6 +6205,9 @@ class DashboardService:
         existing_fee = float(existing.get("fee") or 0.0)
         payload_fee = float(payload.get("fee") or 0.0)
         merged = {**existing, **payload}
+        # Broker exits carry SL/TP comments; retain the opening identity.
+        if existing.get("entry_comment"):
+            merged["entry_comment"] = existing["entry_comment"]
         if existing.get("source") in {"POSITION", "ORDER_OPEN"}:
             merged["source"] = existing.get("source")
             merged["profit"] = existing.get("profit", merged.get("profit", 0.0))
@@ -6216,6 +6235,10 @@ class DashboardService:
                 + float(merged.get("fee") or 0.0)
             )
             for key in ("symbol", "side", "volume", "price"):
+                # Once a pending order fills, use the entry deal's actual
+                # BUY/SELL identity, volume and fill price, not BUY/SELL STOP.
+                if existing.get("source") == "ORDER" and key != "symbol":
+                    continue
                 current = existing.get(key)
                 if current not in (None, "", "N/D", 0, 0.0):
                     merged[key] = current
@@ -6260,6 +6283,11 @@ class DashboardService:
         cost_components = CostManager.trade_cost_components(data)
         return {
             "ticket": ticket,
+            "comment": str(data.get("comment") or ""),
+            "entry_comment": str(data.get("comment") or "") if (
+                source in {"POSITION", "ORDER_OPEN", "ORDER"}
+                or (source == "DEAL" and data.get("entry") == 0)
+            ) else "",
             "source": source,
             "symbol": str(data.get("symbol") or "N/D"),
             "side": side,
@@ -6660,7 +6688,11 @@ class DashboardService:
         if ticket is None:
             ticket = self._int_or_none(mt5_record.get("ticket"))
         is_open = operation_status in {"ABERTA", "ORDEM_ABERTA"}
+        comment = str(mt5_record.get("entry_comment") or "")
+        model, snapshot = self._mt5_recovered_entry_identity(comment)
         return DashboardMT5TradeAuditRowViewModel(
+            operational_model=model,
+            plan_snapshot=snapshot,
             timestamp=str(mt5_record.get("time") or "N/D"),
             symbol=str(mt5_record.get("symbol") or "N/D"),
             side=str(mt5_record.get("side") or "N/D"),
@@ -6727,6 +6759,30 @@ class DashboardService:
             position_manager_message="N/D",
             stop_movel_acionado=False,
         )
+
+    def _mt5_recovered_entry_identity(self, comment: str) -> tuple[str, dict]:
+        """Recover ownership only; never infer a missing historical policy/channel."""
+        model = self._mt5_model_from_position_comment(comment)
+        parameters = {}
+        import re
+        route = re.search(r"\bM(\d+)\b", comment.upper())
+        source = re.search(r"\bS(\d+)\b", comment.upper())
+        if model != "N/D" and route and source:
+            source_number = int(source[1])
+            if int(route[1]) == 23:
+                model += f"_SOURCE_M{source_number}"
+            parameters["source_operational_model"] = f"MODELO_{source_number}"
+            parameters["source_model_label"] = f"M{source_number}"
+            if int(route[1]) == 23 and source_number == 29:
+                origin = re.search(r"\bS29\s+M(\d+)\b", comment.upper())
+                if origin:
+                    parameters["m23_m29_origin_source"] = f"M{int(origin[1])}"
+        return model, {
+            "operational_model": model,
+            "mt5_comment": comment,
+            "source": "MT5_RECOVERED_ENTRY_COMMENT",
+            "stop_management_parameters": parameters,
+        }
 
     def _entry_setup_from_record(self, record: dict[str, Any]) -> str:
         identity = str(record.get("plan_identity") or "")
@@ -6967,7 +7023,9 @@ class DashboardService:
             return "ABERTA"
         if source == "ORDER_OPEN":
             return "ORDEM_ABERTA"
-        if source in {"ORDER", "DEAL"}:
+        if source == "ORDER":
+            return "ORDEM_HISTORICA"
+        if source == "DEAL":
             return "FECHADA/HISTORICO"
         return "NAO_ENCONTRADA"
 
@@ -7369,6 +7427,7 @@ class DashboardService:
 
         from application.model29_entry_sync import (
             GoldM7EntrySync, is_gold_m7, same_source_plan, pair_has_open_position,
+            is_gold_channel_source, channel_source,
             original_plan_for_copy, pair_has_open_copy, RejectedGoldCopyRetry,
         )
         gold_m7_sync = GoldM7EntrySync()
@@ -7747,7 +7806,7 @@ class DashboardService:
                     if model_candle_time.upper() not in {"", "N/D", "NONE"}
                     else str(getattr(source_row, "last_candle_time", "") or "")
                 )
-                if candidate_is_m23 and is_gold_m7(model_plan):
+                if candidate_is_m23 and is_gold_channel_source(model_plan):
                     paired = False
                     for other_model, other_row, other_plan in model_candidates:
                         other_candle = str(getattr(other_row, "theoretical_entry_candle", "") or "").strip()
@@ -7759,14 +7818,14 @@ class DashboardService:
                     reason = ""  # Original M23 stays eligible when reinforcement is suspended.
                     if paired:
                         try:
-                            occupied = pair_has_open_copy(self.demo_robot_execution_service.list_open_positions())
-                            reason = "Aguardando encerrar ambas as posicoes M23/M29 M7 ouro." if occupied else ""
+                            occupied = pair_has_open_copy(self.demo_robot_execution_service.list_open_positions(), channel_source(model_plan))
+                            reason = f"Aguardando encerrar ambas as posicoes M23/M29 {channel_source(model_plan)} ouro." if occupied else ""
                         except (OSError, RuntimeError, TypeError, ValueError) as exc:
                             reason = "Nao foi possivel confirmar ambas as cestas sem posicao: " + str(exc)
                     if reason:
                         last_waiting = self._demo_robot_view_model(
                             row=model_row, status="ARMED_WAITING",
-                            message="M23/M29 M7 ouro aguardam entrada conjunta.",
+                            message=f"M23/M29 {channel_source(model_plan)} ouro aguardam entrada conjunta.",
                             result_status="M23_M29_WAITING_PAIR", result_message=reason,
                             entry_price=model_plan.entry_price, stop=model_plan.stop,
                             target=model_plan.target, provider="MT5_DEMO", mt5_order_send_enabled=True,
@@ -7811,7 +7870,7 @@ class DashboardService:
                         )
                         continue
                 if (operational_model == MT5_OPERATIONAL_MODEL_23 + "_SOURCE_M29"
-                        and (model_plan.stop_management_parameters or {}).get("m23_m29_origin_source") == "M7"):
+                        and is_gold_channel_source(original_plan_for_copy(model_plan))):
                     original_ticket = gold_m7_copy_sync.claim(original_plan_for_copy(model_plan), signal_candle_time)
                     if original_ticket is None:
                         try:
@@ -7822,18 +7881,18 @@ class DashboardService:
                     if original_ticket is None:
                         last_waiting = self._demo_robot_view_model(
                             row=model_row, status="ARMED_WAITING", message="Copia M29 no M23 aguarda entrada original confirmada.",
-                            result_status="M23_M29_WAITING_PAIR", result_message="Sem confirmacao do M7 original no mesmo ciclo; aguarda ambas as posicoes encerrarem.",
+                            result_status="M23_M29_WAITING_PAIR", result_message="Sem confirmacao da fonte original no mesmo ciclo; aguarda ambas as posicoes encerrarem.",
                             entry_price=model_plan.entry_price, stop=model_plan.stop, target=model_plan.target,
                             provider="MT5_DEMO", mt5_order_send_enabled=True)
                         continue
                     model_plan = replace(model_plan, stop_management_parameters={
                         **model_plan.stop_management_parameters, "m23_m29_pair_original_ticket": str(original_ticket)})
-                if candidate_is_m29 and is_gold_m7(model_plan):
+                if candidate_is_m29 and is_gold_channel_source(model_plan):
                     source_ticket = gold_m7_sync.claim(model_plan, signal_candle_time)
                     if source_ticket is None:
                         last_waiting = self._demo_robot_view_model(
                             row=model_row, status="ARMED_WAITING",
-                            message="M29 M7 ouro aguarda nova ordem M23 confirmada do mesmo sinal.",
+                            message=f"M29 {channel_source(model_plan)} ouro aguarda nova ordem M23 confirmada do mesmo sinal.",
                             result_status="M29_WAITING_M23_CONFIRMATION",
                             result_message="Sem confirmacao M23 neste ciclo para o mesmo candle e plano; nenhuma entrada M29 enviada.",
                             entry_price=model_plan.entry_price, stop=model_plan.stop,
@@ -8940,12 +8999,18 @@ class DashboardService:
         from application.source_channel_gate import reference_state, parameters as gate_parameters
         parameters = dict(plan.stop_management_parameters or {})
         try:
-            state = reference_state(self.demo_robot_execution_service.provider, str(row.pair), int(source_label[1:]))
+            state = reference_state(self.demo_robot_execution_service.provider, str(row.pair), int(source_label[1:]), route="M29")
             parameters.update(gate_parameters(state, int(source_label[1:]), plan.direction))
-            parameters.update(m29_mirrored=False, m29_sequence_mode="NORMAL")
-            parameters[f"m29_{source_label.lower()}_mode"] = "NORMAL"
+            mode = state.get("mode", "NORMAL")
+            parameters.update(m29_mirrored=mode == "ESPELHADO", m29_sequence_mode=mode)
+            parameters[f"m29_{source_label.lower()}_mode"] = mode
             if state["blocked"]:
                 raise ValueError(state.get("reason") or f"{source_label}: canal de baixa no M23 suspende reforco")
+            if mode == "ESPELHADO":
+                from application.gold_mirror_reinforcement import mirror_plan
+                plan = mirror_plan(plan, parameters)
+                parameters = plan.stop_management_parameters
+                row = replace(row, decision=plan.direction, theoretical_entry_direction=plan.direction)
             return replace(row, lab_parameters=parameters), replace(plan, stop_management_parameters=parameters)
         except (OSError, RuntimeError, ValueError, TypeError, AttributeError) as exc:
             return (replace(row, decision="WAIT", theoretical_entry_direction="WAIT",
@@ -8962,12 +9027,6 @@ class DashboardService:
         source_operational_model: str,
     ) -> tuple[DashboardMT5ForexSignalRowViewModel, MT5ResearchTradePlan]:
         """Preserva todo o contrato da fonte e adiciona a gestao da cesta."""
-        if str(row.pair).upper() != "XAUUSD":
-            reason = "M29 opera somente ouro (XAUUSD)."
-            return (replace(row, decision="WAIT", theoretical_entry_direction="WAIT",
-                            research_plan_status="M29_SYMBOL_BLOCKED", research_plan_reason=reason),
-                    replace(plan, direction="WAIT", status="M29_SYMBOL_BLOCKED", reason=reason,
-                            invalid_reason=reason))
         additional_catalog = load_catalog(Path(__file__).resolve().parents[1] / "config/m29_additional_filters.json")
         try:
             configuration_ready = _MODEL29_PATTERN_FILTER_SERVICE.load() is not None and additional_catalog.status == "READY"
@@ -10254,7 +10313,7 @@ class DashboardService:
                 plan,
                 model_id=selected_model,
                 allowed_pairs=MODEL_7_ALTERNATIVE_MARKETS,
-                scope_label="M7_XAU_BTC",
+                scope_label="M7_XAU",
             )
         if selected_model == MT5_OPERATIONAL_MODEL_8:
             return self._mt5_model8_xau_m5_plan(row, plan)

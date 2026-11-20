@@ -12,7 +12,7 @@ render_comparison({"comparison":[{"Par":i+1,"M23 liquido":-10*(i+1),"M30 liquido
     app.session_state['count'] = count
     app.run(timeout=20)
     assert not app.exception
-    assert not app.info
+    assert app.info[0].value == 'Nenhum candidato em teste'
 
 
 def test_learning_panel_renders_empty_truthful_state():

@@ -269,6 +269,8 @@ class LearningObserver:
                     self.reconcile_pending()
                     from application.learning_policy import cycle
                     cycle(self.store)
+                    from application.learning_channel_hypothesis import evaluate_future
+                    evaluate_future(self.store)
             except Exception as exc:
                 self.errors += 1
                 self.last_error = str(exc)[:300]

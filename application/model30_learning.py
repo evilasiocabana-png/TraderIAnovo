@@ -79,7 +79,7 @@ def submit_pair(provider, order, ticket, store=None):
     pair_id = account_id + ":" + str(ticket)
     clone = clone_contract(order, ticket)
     from application.learning_policy import admission
-    decision = admission(clone.plan_snapshot, store)
+    decision = admission(clone.plan_snapshot, store, account=account_id)
     with _PAIR_LOCK:
         with store.connect() as db:
             tables(db)
@@ -208,27 +208,52 @@ def pair_page(store=None, limit=100):
         return [dict(r) for r in db.execute("SELECT * FROM m30_pairs ORDER BY created_at DESC LIMIT ?", (min(100, limit),))]
 
 
-def comparison(store=None):
-    store = store or LearningStore()
-    if not store.path.exists():
-        return []
-    with store.connect() as db:
-        tables(db)
-        rows = db.execute("""SELECT p.pair_id,p.created_at,p.original_ticket,p.clone_ticket,p.status,
-            e.net AS m23_net,c.net AS m30_net,e.status AS m23_state,c.status AS m30_state
-            FROM m30_pairs p LEFT JOIN executions e ON e.ticket=p.original_ticket AND e.account=p.account AND e.account_mode='DEMO'
-            LEFT JOIN executions c ON c.ticket=p.clone_ticket AND c.account=p.account AND c.account_mode='DEMO'
-            ORDER BY p.created_at DESC LIMIT 1000""").fetchall()
-    result = []
-    seen = set()
+def comparison_group(row):
+    snapshot = json.loads(row.get("route_snapshot") or "{}")
+    params = snapshot.get("stop_management_parameters") or {}
+    source = str(params.get("m23_m29_origin_source") or params.get("source_operational_model") or row.get("source") or "Origem desconhecida")
+    match = re.search(r"(?:MODELO_|M)(\d+)", source)
+    source = "M" + match[1] if match else source
+    setup = str(params.get('source_entry_setup') or snapshot.get('source_setup') or snapshot.get('setup_id') or snapshot.get("entry_setup") or snapshot.get("setup") or "Setup nao identificado")
+    from application.learning_store import digest
+    account = digest(row.get("account", ""))[:8]
+    return source + " | " + str(row.get("symbol") or "Ativo desconhecido") + " | " + str(snapshot.get('timeframe') or 'UNKNOWN') + " | " + setup + " | Conta " + account
+
+
+def paired_curve(rows):
+    result, seen = [], set()
     total23 = total30 = 0.0
-    for row in reversed(rows):
+    for row in sorted(rows, key=lambda r: r["created_at"]):
         if row["pair_id"] in seen:
             continue
         seen.add(row["pair_id"])
-        if row["m23_state"] != "CLOSED" or (row["m30_state"] != "CLOSED" and row["status"] != "FILTERED"):
+        if row["m23_state"] != "CLOSED" or row["m23_net"] is None:
+            continue
+        if row["m30_state"] != "CLOSED" and row["status"] != "FILTERED":
+            continue
+        if row["m30_state"] == "CLOSED" and row["m30_net"] is None:
             continue
         total23 += row["m23_net"]
         total30 += row["m30_net"] if row["m30_state"] == "CLOSED" else 0.0
         result.append({"Par": len(result)+1, "M23 liquido": total23, "M30 liquido": total30})
     return result
+
+
+def comparison(store=None, grouped=False):
+    store = store or LearningStore()
+    if not store.path.exists():
+        return {} if grouped else []
+    with store.connect() as db:
+        tables(db)
+        rows = db.execute("""SELECT p.pair_id,p.created_at,p.original_ticket,p.clone_ticket,p.status,p.source,p.symbol,p.account,p.snapshot AS route_snapshot,
+            e.net AS m23_net,c.net AS m30_net,e.status AS m23_state,c.status AS m30_state
+            FROM m30_pairs p LEFT JOIN executions e ON e.ticket=p.original_ticket AND e.account=p.account AND e.account_mode='DEMO'
+            LEFT JOIN executions c ON c.ticket=p.clone_ticket AND c.account=p.account AND c.account_mode='DEMO'
+            ORDER BY p.created_at DESC LIMIT 1000""").fetchall()
+    rows = [dict(row) for row in rows]
+    if not grouped:
+        return paired_curve(rows)
+    groups = {}
+    for row in rows:
+        groups.setdefault(comparison_group(row), []).append(row)
+    return {key: paired_curve(value) for key, value in sorted(groups.items())}

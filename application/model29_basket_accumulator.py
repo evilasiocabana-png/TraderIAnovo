@@ -23,7 +23,7 @@ MODEL_29_EXIT_POLICY = "M29_FULL_EXIT_1000_ONLY"
 MODEL_29_FULL_EXIT_USD = 1000.0
 MODEL_29_CLOSE_CONFIRMATION_SECONDS = 15.0
 MODEL_29_STATE_PATH = Path(".traderia") / "model29_basket_state.json"
-MODEL_29_SOURCE_NUMBERS = (7,)
+MODEL_29_SOURCE_NUMBERS = (1, 2, 5, 7, 8, 10, 18, 20)
 
 _MODEL29_LOCK = threading.Lock()
 
@@ -245,7 +245,7 @@ class Model29BasketManager:
                 (
                     position
                     for position in self.execution_service.list_open_positions()
-                    if model29_position_matches(position)
+                    if model29_position_matches(position) and not str(getattr(position, "comment", "")).endswith(" INV R1")
                 ),
                 key=model29_position_net,
                 reverse=True,
