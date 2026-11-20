@@ -193,6 +193,10 @@ function Invoke-GuardCycle {
     }
     $script:ConsecutiveHealthFailures = 0
     & "$env:LOCALAPPDATA/Python/pythoncore-3.14-64/python.exe" (Join-Path $PSScriptRoot "ensure_runtime_started.py")
+    $cycleVerified = ($LASTEXITCODE -eq 0)
+    if (-not $cycleVerified) {
+        Write-GuardLog -Event "cycle_not_confirmed" -Payload @{ port = $Port; server_responding = $true; cycle_confirmed = $false }
+    }
     foreach ($proc in $processes) {
         if ([double]$proc.WorkingSetMB -ge $MemoryLimitMB) {
             Write-GuardLog -Event "memory_limit_reached" -Payload $proc
@@ -202,7 +206,7 @@ function Invoke-GuardCycle {
             Start-TraderIAStreamlit
         } else {
             $now = Get-Date
-            if (($now - $script:LastHealthyLogAt).TotalSeconds -ge $HealthyLogIntervalSeconds) {
+            if ($cycleVerified -and (($now - $script:LastHealthyLogAt).TotalSeconds -ge $HealthyLogIntervalSeconds)) {
                 Write-GuardLog -Event "healthy" -Payload $proc
                 $script:LastHealthyLogAt = $now
             }

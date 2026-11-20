@@ -598,6 +598,9 @@ mt5.shutdown()
             return {"ok": False, "rows": []}
         self.external_read_cache[cache_key] = (time.monotonic(), payload)
         set_mt5_external_cache(shared_cache_key, payload)
+        if action == 'm29_sequence':
+            from application.supervisor_observations import publish
+            publish(action, payload)
         return payload
 
     def _external_read_unavailable(self, action: str, reason: str, cached=None) -> dict[str, Any]:

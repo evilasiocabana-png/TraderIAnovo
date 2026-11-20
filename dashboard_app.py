@@ -14260,6 +14260,8 @@ def exibir_sistema_forex(
     robot = getattr(data, "demo_robot", None)
 
     st.subheader("Sistema Forex MT5")
+    from application.system_supervisor import render as render_supervisor
+    render_supervisor(st)
     from application.operational_audit import recent_events
     with st.expander("Registro operacional e auditoria preventiva", expanded=True):
         st.caption("Brasilia: ligar domingo 18h05; checagem diaria 19h; desligar sexta 17h30. Tentativa nao significa execucao confirmada. Auditoria diaria depende do agendador do Codex e computador disponivel.")

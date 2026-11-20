@@ -5677,6 +5677,9 @@ class DashboardService:
         except (json.JSONDecodeError, TypeError, ValueError):
             return None
 
+    from application.supervisor_report_repair import report_write_guard
+
+    @report_write_guard
     def _save_mt5_trade_audit_report_snapshot(
         self,
         report: DashboardMT5TradeAuditViewModel,
@@ -7268,6 +7271,9 @@ class DashboardService:
         )
         return self.last_demo_robot_status
 
+    from application.system_supervisor import serialized_weekly_close
+
+    @serialized_weekly_close
     def close_all_demo_positions(
         self,
         reason: str = "WEEKLY_FRIDAY_CLOSE",

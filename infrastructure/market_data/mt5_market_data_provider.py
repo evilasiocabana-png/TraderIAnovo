@@ -1006,6 +1006,14 @@ finally:
             payload = {"ok": False, "message": output[-1]}
         if cache_key:
             self.external_call_cache[cache_key] = (time.monotonic(), dict(payload))
+        if action == 'forex_batch' and request.get('symbols_timeframes') and all(int(v) == 5 for v in request['symbols_timeframes'].values()):
+            from application.supervisor_observations import publish
+            publish(action, {**payload, 'timeframe': 'M5'})
+        elif action in {'research_batch', 'sparse_research_batch'} and payload.get('timeframes', {}).get('M5'):
+            from application.supervisor_observations import publish
+            publish('forex_batch', {'ok':payload.get('ok'), 'timeframe':'M5',
+                'symbols':payload['timeframes']['M5'], 'account':payload.get('account'),
+                'server':payload.get('server'), 'account_type':payload.get('account_type')})
         return payload
 
     def _external_call_cache_key(self, request: dict[str, Any]) -> str:

@@ -16,3 +16,11 @@ Usuario alterou auditoria para diariamente 19h Brasilia e solicitou migracao par
 Original recusa append (Errno 22) e substituicao (WinError 5); causa de sistema operacional ainda indeterminada. Copia integral dos bytes antigos mais 384 registros alternativos deduplicados por event_id. Originais e backup mantidos. Journal de tentativas copiado. Escrita/fsync e leitura conferidas; 306 aceites conciliados no MT5; 8497 custos sem divergencia. 29 testes passaram; painel recarregado health 200. Nenhuma ordem de teste. Proxima gravacao natural no novo destino ainda precisa ser validada; nao afirmar que ocorreu.
 
 Conferir tambem a identidade Demo autorizada nos caminhos de abertura e recuperacao (teste tests/test_restart_demo_account.py). Conexao permitida nao comprova que a conta esperada pelo processo coincide; examinar motivos das rejeicoes recentes no journal antes de concluir ausencia de sinal.
+
+
+## Supervisor local instalado em 20/11/2026
+A checagem local executa por minuto, auditoria offline por hora e vigilancia por cinco minutos, em tarefas Windows independentes do navegador. A auditoria Codex das 19h permanece uma revisao externa: primeiro consulte os resultados locais; nao duplique consultas pesadas durante o envio. A rotina local nao executa testes pytest a cada hora nem novas consultas MT5: utiliza evidencias capturadas pelas leituras ja feitas pelo robo.
+
+Verde exige todas as verificacoes atuais OK. Pendencia nao e falha comprovada nem autoriza reinicio. Recuperacao do ciclo/painel usa o inicializador existente, respeita agenda, e confirma resultado apos executar; intervalo de cinco minutos entre novas tentativas. Reparo de snapshot somente com deals capturados, backup e conciliacao posterior. Desligamento/ligamento continuam sob agenda existente; verificar a execucao natural, nao pressupor sucesso.
+
+Instalacao: scripts/install_system_supervisor.ps1 -Install. Tarefas: TraderIANovo Supervisor, TraderIANovo Auditoria Horaria, TraderIANovo Supervisor Watch. Estado local e evidencias sob .traderia/runtime/supervisor*, fora do Git. Indicador somente leitura na aba Sistema Forex. Dados ausentes nao liberam reforcos por esta rotina: o gate operacional patrimonial existente continua responsavel pela decisao final.
