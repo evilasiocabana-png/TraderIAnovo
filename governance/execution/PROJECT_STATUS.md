@@ -771,3 +771,32 @@ Validacao: 96 testes focados passaram; sem ordem de teste. Medicao local 10 mil 
 Pendencias explicitamente preservadas: duas linhas legadas de julho ilegíveis foram isoladas pelo leitor, sem apagar original nem inventar conteudo; 27 aceites ainda exigem historico nativo de ordens (717 outros confirmados como ORDEM_HISTORICA na copia). Ausencia de deal nao prova falha, pois ordens podem ser canceladas. Estado geral nao certificado verde. Futuro fechamento semanal e reinicio de Windows ainda exigem observacao natural; processo Windows depende de sessao do usuario. Nao foram executadas sete auditorias horarias nem garantida ausencia total de falhas.
 
 Validacao final local: AppTest do Streamlit renderizou o indicador e os detalhes sem excecoes; checkbox desabilitado e desmarcado enquanto existem pendencias. Conferencia visual pelo Chrome nao concluida por timeout do controle. Tarefas Windows retornaram codigo 0; ciclo real avancou apos recarga. Estado final da auditoria PENDING: custos e 27 curvas conformes, 27 aceites aguardam historico de ordens. Nao afirmar verde ou sete auditorias horarias.
+
+
+## 2026-11-25 - Validacao diaria e reparo do snapshot do Relatorio
+
+Revisao externa confirmou 2.093 aceites contra ordens/deals/posicoes nativas,
+3.751 tentativas com resultado e nenhuma tentativa orfa. A identidade Demo foi
+comparada com os inicializadores e o terminal; conta Real preservada.
+
+O snapshot de exibicao ainda nao refletia oito encerramentos recentes. O
+reparador existente foi executado com backup recuperavel e validacao de
+persistencia. Depois do reparo, 1.075 encerramentos e 27 curvas conferiram com
+a captura operacional, incluindo custos, quantidade, saldo, estado e faixa.
+Nao houve alteracao de codigo, estrategia, lote, stop ou posicao nesta auditoria.
+
+Validacao: 96 testes focados passaram em copia isolada, incluindo identidade de
+reinicio, cache vencido, prioridade de consultas, agenda, canais e reparador.
+Nenhuma ordem de teste foi enviada. As 19 janelas coincidiram com o terminal
+nas duas leituras; nove instrumentos nao avancaram ticks tambem no MT5 durante
+a amostra proxima ao rollover. Isso nao comprova atraso exclusivo do cache.
+
+Pendencias: validar sessao/avanco posterior desses instrumentos, ambiente
+interno efetivo do processo e cobertura integral dos sinais anteriores ao envio
+(inclusive NO_NEW_CANDLE). Duas linhas legadas ilegiveis continuam preservadas.
+Os 18 resultados rejeitados foram agrupados por motivo e horario, sem atribuir
+causa nao comprovada nem modificar protecoes. Estado global permanece PENDING.
+
+Evidencias, backup e testes: TEMP/traderia_audit_nov25_ekwqs5m8, somente local.
+Inicio, itens e conclusao registrados via application.operational_audit.event.
+Este registro atualiza a validacao; nao representa nova instalacao ou recarga.
