@@ -10,9 +10,9 @@ import tempfile
 
 PROJECT = Path(__file__).resolve().parents[1]
 CONTROL = PROJECT / ".traderia" / "additional_real.json"
-REAL_ROOT = PROJECT / ".traderia" / "accounts" / "real-51517136"
+REAL_ROOT = PROJECT / ".traderia" / "accounts" / "real-51618035"
 STATUS = REAL_ROOT / "status.json"
-REAL_LOGIN = "51517136"
+REAL_LOGIN = "51618035"
 REAL_SERVER = "PepperstoneBS-MT5-Live01"
 REAL_TERMINAL = Path("C:/Program Files/MetaTrader 5/terminal64.exe")
 

@@ -36,6 +36,6 @@ $demoLink.Save()
 $realLink = $shell.CreateShortcut((Join-Path $desktop "TraderIA Novo - MT5 REAL.lnk"))
 $realLink.TargetPath = Join-Path $source "terminal64.exe"
 $realLink.WorkingDirectory = $source
-$realLink.Description = "MT5 original reservado para Real - confirmar conta 51517136"
+$realLink.Description = "MT5 original reservado para Real - confirmar conta 51618035"
 $realLink.Save()
 Write-Output "Demo preparada em $destination. Nenhuma senha copiada; nenhuma ordem enviada."

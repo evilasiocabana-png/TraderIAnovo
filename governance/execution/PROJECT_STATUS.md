@@ -800,3 +800,20 @@ causa nao comprovada nem modificar protecoes. Estado global permanece PENDING.
 Evidencias, backup e testes: TEMP/traderia_audit_nov25_ekwqs5m8, somente local.
 Inicio, itens e conclusao registrados via application.operational_audit.event.
 Este registro atualiza a validacao; nao representa nova instalacao ou recarga.
+
+
+## 2026-11-27 - Substituicao da identidade Real solicitada pelo usuario
+
+Conta Real configurada para 51618035 / PepperstoneBS-MT5-Live01 conforme
+cadastro fornecido. Atualizados modulo dual, launcher manual e descricao do
+atalho. Runtime separado real-51618035; historico real-51517136 preservado,
+sem migrar tickets ou curvas. Controle local enabled=false/authorized=false.
+Demo, estrategias e posicoes nao foram alteradas. Nenhuma ordem enviada.
+
+Validacao: 14 testes isolados passaram (dual, reinicio Demo e regressao da
+troca de identidade). Suite ampliada apresentou 18 falhas tambem reproduzidas
+com core/dual_mt5.py anterior a alteracao; nao declarada aprovada.
+Autenticacao nativa pendente: MT5 retornou -7, Unsupported authorization mode,
+OTP or certificate password needed. Necessaria autenticacao interativa pelo
+usuario; nao foi comprovada conexao nem recarga do processo Real instalado.
+Backup local sem credenciais: TEMP/traderia_real_account_51618035_to0xs__c.
