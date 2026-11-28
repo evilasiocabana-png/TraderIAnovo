@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.real_account_sizing import basket_target
+
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -239,7 +241,7 @@ class Model23BasketManager:
     audit_path: Path = field(
         default_factory=lambda: Path(".traderia") / "model23_basket_audit.jsonl"
     )
-    full_exit_usd: float = MODEL_23_FULL_EXIT_USD
+    full_exit_usd: float = field(default_factory=lambda: basket_target(MODEL_23_FULL_EXIT_USD))
     close_confirmation_seconds: float = MODEL_23_CLOSE_CONFIRMATION_SECONDS
     position_matches: Callable[[object], bool] = model23_position_matches
     model_label: str = "M23"

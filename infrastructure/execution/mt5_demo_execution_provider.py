@@ -1017,6 +1017,12 @@ mt5.shutdown()
     @paired_submit
     def submit_order(self, order: ExecutionOrder) -> ExecutionResult:
         """Converte ExecutionOrder em request MT5 para a conta configurada."""
+        from core.real_account_sizing import volume_error
+        sizing_error = volume_error(order, self.execution_account.mode)
+        if sizing_error:
+            result = ExecutionResult(False, "REJECTED", sizing_error)
+            self._write_log(order, result)
+            return result
         selection_check = self._operational_selection_preflight(order)
         if selection_check is not None:
             self._write_log(order, selection_check)

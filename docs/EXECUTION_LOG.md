@@ -3296,3 +3296,17 @@ abrir o terminal Real; terminal Demo preservado. Corrigidos textos antigos
 no painel. Senha nao armazenada em scripts. Credencial salva pertence ao MT5.
 15 testes isolados aprovados. Atalho relido e confirmado. Reinicio completo
 nao executado; reconexao apos reinicio ainda requer validacao natural.
+
+
+## 2026-11-28 - Lotes e cesta exclusivos da Real autorizados
+
+Real usa 0.01 normal e 0.02 reforco M29, inclusive copia dentro do M23.
+Alvo financeiro M23/M29 Real +USD100; Demo permanece +USD1000 com lotes
+anteriores. Provider rejeita lote Real divergente, sem arredondar para cima;
+gestao de posicoes existentes usa volume nativo. Controle Real habilitado
+por pedido explicito. Conta correta confirmada nativamente, sem posicoes
+nem pendentes antes da ativacao. Novo worker confirmou WEEKLY_WINDOW_CLOSED;
+nenhuma entrada fora da agenda e nenhuma ordem de teste enviada.
+41 testes isolados aprovados: dimensionamento, limiares financeiros, cestas,
+agenda e identidade. Execucao natural na proxima janela permanece pendente.
+Backup local: TEMP/traderia_real_sizing_zfg7acm4. Sem senha nos arquivos.

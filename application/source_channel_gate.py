@@ -113,6 +113,9 @@ def parameters(state, source, direction):
 
 def entry_volume(parameters, symbol, default, *, route=None):
     """Current gold reinforcements use 0.30; legacy and other assets unchanged."""
+    from core.real_account_sizing import real_mode
+    if real_mode() and route != "M30" and not str(route).startswith("MODELO_30_") and not parameters.get("m30_policy"):
+        return 0.02
     if parameters.get("reinforcement_policy") == POLICY:
         is_m30 = (route == "M30" or str(route).startswith("MODELO_30_")) if route is not None else bool(parameters.get("m30_policy"))
         if not is_m30:

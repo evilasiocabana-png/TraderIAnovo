@@ -756,6 +756,9 @@ class MT5DemoRobotService:
         operational_model = (
             signal.operational_model or trade_plan.operational_model or ""
         )
+        from core.real_account_sizing import real_mode, real_entry_volume
+        if real_mode():
+            return real_entry_volume(operational_model)
         parameters = dict(trade_plan.stop_management_parameters or {})
         if is_model30(operational_model):
             return float(parameters["m30_execution_volume"])

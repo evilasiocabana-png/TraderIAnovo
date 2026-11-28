@@ -1,3 +1,4 @@
+from core.real_account_sizing import basket_target as account_basket_target
 from core.execution_log_storage import execution_log_path
 """Servico de aplicacao para dados do dashboard."""
 
@@ -8770,7 +8771,7 @@ class DashboardService:
                 "source_beta_id": plan.beta_id,
                 "source_beta_version": plan.beta_version,
                 "source_beta_mode": plan.beta_mode,
-                "full_exit_usd": MODEL_23_FULL_EXIT_USD,
+                "full_exit_usd": account_basket_target(MODEL_23_FULL_EXIT_USD),
                 "m23_structural_target_enabled": structural_target_valid,
                 "m23_structural_target_price": (
                     structural_target if structural_target_valid else None
@@ -9110,7 +9111,7 @@ class DashboardService:
                 "source_beta_id": plan.beta_id,
                 "source_beta_version": plan.beta_version,
                 "source_beta_mode": plan.beta_mode,
-                "full_exit_usd": MODEL_29_FULL_EXIT_USD,
+                "full_exit_usd": account_basket_target(MODEL_29_FULL_EXIT_USD),
                 "m29_structural_target_enabled": structural_target_valid,
                 "m29_structural_target_price": (
                     structural_target if structural_target_valid else None
