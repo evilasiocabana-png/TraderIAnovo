@@ -1,4 +1,4 @@
-"""Additional Real control; rendering never switches the Demo executor."""
+﻿"""Additional Real control; rendering never switches the Demo executor."""
 
 from datetime import datetime, timedelta, timezone
 from html import escape
@@ -175,9 +175,9 @@ def render_mt5_account_controls() -> None:
         enabled = st.checkbox(
             "Operar tambem na conta Real",
             value=current.get("enabled") is True, key="mt5_additional_real_enabled",
-            help="Autoriza dinheiro real na conta 51517136, sem desligar a Demo. Desmarcar bloqueia novos envios; ordens pendentes existentes continuam vigentes e posicoes abertas seguem sob gestao.",
+            help="Autoriza dinheiro real na conta 51618035, sem desligar a Demo. Desmarcar bloqueia novos envios; ordens pendentes existentes continuam vigentes e posicoes abertas seguem sob gestao.",
         )
-        st.caption("Conta Real: 51517136 | PepperstoneBS-MT5-Live01")
+        st.caption("Conta Real: 51618035 | PepperstoneBS-MT5-Live01")
         submitted = st.form_submit_button("Aplicar", type="primary")
     if submitted:
         try:

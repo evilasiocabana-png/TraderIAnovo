@@ -1,4 +1,4 @@
-# Local deployment of signed MT5 binaries, without account/password databases.
+﻿# Local deployment of signed MT5 binaries, without account/password databases.
 $ErrorActionPreference = "Stop"
 $source = "C:\Program Files\MetaTrader 5"
 $destination = Join-Path $env:LOCALAPPDATA "TraderIANovo\MT5-Demo"
@@ -35,6 +35,7 @@ $demoLink.Description = "MT5 Demo separado - conta 61551556 - Pepperstone-Demo"
 $demoLink.Save()
 $realLink = $shell.CreateShortcut((Join-Path $desktop "TraderIA Novo - MT5 REAL.lnk"))
 $realLink.TargetPath = Join-Path $source "terminal64.exe"
+$realLink.Arguments = "/login:51618035"
 $realLink.WorkingDirectory = $source
 $realLink.Description = "MT5 original reservado para Real - confirmar conta 51618035"
 $realLink.Save()

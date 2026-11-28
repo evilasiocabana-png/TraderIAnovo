@@ -1,4 +1,4 @@
-param([switch]$NoBrowser)
+﻿param([switch]$NoBrowser)
 
 $ErrorActionPreference = "Stop"
 
@@ -57,6 +57,9 @@ function Start-TraderIAMT5 {
         }
         if ($path -eq $mt5DemoPath) {
             $startArguments.ArgumentList = @("/portable")
+        }
+        else {
+            $startArguments.ArgumentList = @("/login:51618035")
         }
         Start-Process @startArguments
         for ($attempt = 0; $attempt -lt 30; $attempt++) {

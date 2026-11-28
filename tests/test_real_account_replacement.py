@@ -19,3 +19,12 @@ def test_previous_authorization_cannot_enable_replacement(tmp_path):
     dual.write_json(control, dict(enabled=False, authorized=False, login=dual.REAL_LOGIN, server=dual.REAL_SERVER))
     assert not dual.real_control_allows(entry=True, path=control)
     assert not dual.real_control_allows(entry=False, path=control)
+
+
+def test_desktop_start_and_panel_use_replacement_identity():
+    for name in ['scripts/abrir_traderianovo.ps1', 'scripts/preparar_mt5_demo.ps1']:
+        text = (dual.PROJECT / name).read_text(encoding='utf-8-sig')
+        assert '/login:' + dual.REAL_LOGIN in text
+    panel = (dual.PROJECT / 'dashboard/mt5_account_controls.py').read_text(encoding='utf-8-sig')
+    assert '51517136' not in panel
+    assert dual.REAL_LOGIN in panel

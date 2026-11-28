@@ -817,3 +817,14 @@ Autenticacao nativa pendente: MT5 retornou -7, Unsupported authorization mode,
 OTP or certificate password needed. Necessaria autenticacao interativa pelo
 usuario; nao foi comprovada conexao nem recarga do processo Real instalado.
 Backup local sem credenciais: TEMP/traderia_real_account_51618035_to0xs__c.
+
+
+## 2026-11-28 - Inicializacao da nova conta Real
+
+Login nativo confirmado na conta autorizada 51618035 / PepperstoneBS-MT5-Live01,
+com trade_mode Real e permissoes da corretora. Controle operacional permanece
+desativado. Atalho MT5 REAL e iniciador principal passam /login:51618035 ao
+abrir o terminal Real; terminal Demo preservado. Corrigidos textos antigos
+no painel. Senha nao armazenada em scripts. Credencial salva pertence ao MT5.
+15 testes isolados aprovados. Atalho relido e confirmado. Reinicio completo
+nao executado; reconexao apos reinicio ainda requer validacao natural.
