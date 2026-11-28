@@ -842,3 +842,15 @@ nenhuma entrada fora da agenda e nenhuma ordem de teste enviada.
 41 testes isolados aprovados: dimensionamento, limiares financeiros, cestas,
 agenda e identidade. Execucao natural na proxima janela permanece pendente.
 Backup local: TEMP/traderia_real_sizing_zfg7acm4. Sem senha nos arquivos.
+
+
+## 2026-11-28 - Identidades fixas nos dois terminais e recuperacao Real
+
+Leitura nativa confirmou Real 51618035 / PepperstoneBS-MT5-Live01 e Demo
+61628148 / Pepperstone-Demo. Atalhos e iniciador fixam /login para cada
+terminal, mantendo Demo portable e Real no terminal original. Worker Real
+inicializa com login/servidor explicitos; divergencia permanece bloqueada.
+Rotina de recuperacao sem navegador garante worker Real somente quando
+controle previamente autorizado, inclusive se ciclo Demo ja estiver recente.
+15 testes isolados passaram; nenhuma ordem de teste. Reinicio Windows completo
+nao realizado. Backup local TEMP/traderia_fixed_accounts_dcncnlrk.

@@ -1,4 +1,4 @@
-"""Wake the existing Streamlit session runner without a visible browser or orders."""
+﻿"""Wake the existing Streamlit session runner without a visible browser or orders."""
 import json, time, sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,7 +13,14 @@ def runtime_recent(root=ROOT, now=None):
         return 0<=age<180
     except (OSError,ValueError,KeyError,TypeError):return False
 
+def ensure_authorized_real_runtime():
+    from core.dual_mt5 import real_control_allows, ensure_real_worker
+    if real_control_allows(entry=False):
+        ensure_real_worker()
+
+
 def main():
+    ensure_authorized_real_runtime()
     if "--force" not in sys.argv and runtime_recent():return 0
     import websocket
     from streamlit.proto.BackMsg_pb2 import BackMsg

@@ -29,9 +29,9 @@ $shell = New-Object -ComObject WScript.Shell
 $desktop = [Environment]::GetFolderPath("Desktop")
 $demoLink = $shell.CreateShortcut((Join-Path $desktop "TraderIA Novo - MT5 DEMO.lnk"))
 $demoLink.TargetPath = Join-Path $destination "terminal64.exe"
-$demoLink.Arguments = "/portable"
+$demoLink.Arguments = "/portable /login:61628148"
 $demoLink.WorkingDirectory = $destination
-$demoLink.Description = "MT5 Demo separado - conta 61551556 - Pepperstone-Demo"
+$demoLink.Description = "MT5 Demo separado - conta 61628148 - Pepperstone-Demo"
 $demoLink.Save()
 $realLink = $shell.CreateShortcut((Join-Path $desktop "TraderIA Novo - MT5 REAL.lnk"))
 $realLink.TargetPath = Join-Path $source "terminal64.exe"

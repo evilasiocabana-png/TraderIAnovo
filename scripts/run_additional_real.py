@@ -1,4 +1,4 @@
-"""Independent Real account runtime using the same DashboardService strategies."""
+﻿"""Independent Real account runtime using the same DashboardService strategies."""
 
 import os
 from pathlib import Path
@@ -119,7 +119,7 @@ def main() -> None:
     service = DashboardService()
     while True:
         try:
-            if not mt5.initialize(path=os.environ["MT5_PATH"], timeout=5000):
+            if not mt5.initialize(path=os.environ["MT5_PATH"], login=int(REAL_LOGIN), server=REAL_SERVER, timeout=5000):
                 result = {"status": "OFFLINE", "message": str(mt5.last_error())}
             else:
                 result = cycle(service, mt5)

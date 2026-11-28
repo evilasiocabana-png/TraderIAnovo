@@ -56,7 +56,7 @@ function Start-TraderIAMT5 {
             WindowStyle = "Hidden"
         }
         if ($path -eq $mt5DemoPath) {
-            $startArguments.ArgumentList = @("/portable")
+            $startArguments.ArgumentList = @("/portable", "/login:61628148")
         }
         else {
             $startArguments.ArgumentList = @("/login:51618035")

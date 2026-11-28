@@ -28,3 +28,24 @@ def test_desktop_start_and_panel_use_replacement_identity():
     panel = (dual.PROJECT / 'dashboard/mt5_account_controls.py').read_text(encoding='utf-8-sig')
     assert '51517136' not in panel
     assert dual.REAL_LOGIN in panel
+
+
+def test_recovery_ensures_only_authorized_real(monkeypatch):
+    from scripts import ensure_runtime_started as boot
+    from unittest.mock import Mock
+    start = Mock()
+    monkeypatch.setattr(dual, "ensure_real_worker", start)
+    monkeypatch.setattr(dual, "real_control_allows", lambda **kw: False)
+    boot.ensure_authorized_real_runtime()
+    start.assert_not_called()
+    monkeypatch.setattr(dual, "real_control_allows", lambda **kw: True)
+    boot.ensure_authorized_real_runtime()
+    start.assert_called_once()
+
+
+def test_demo_shortcut_login_fixed():
+    for name in ['scripts/abrir_traderianovo.ps1', 'scripts/preparar_mt5_demo.ps1']:
+        text = (dual.PROJECT / name).read_text(encoding='utf-8-sig')
+        assert '/login:61628148' in text
+    text = (dual.PROJECT / 'scripts/run_additional_real.py').read_text(encoding='utf-8-sig')
+    assert 'login=int(REAL_LOGIN), server=REAL_SERVER' in text
